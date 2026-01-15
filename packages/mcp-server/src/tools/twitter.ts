@@ -55,8 +55,11 @@ export interface TwitterServices {
 
   /**
    * Post a tweet (if connected)
+   * @param text Tweet text
+   * @param mediaUrls Optional URLs to attach (legacy, prefer mediaIds)
+   * @param mediaIds Optional gallery item IDs to attach (preferred)
    */
-  postTweet?: (text: string, mediaUrls?: string[]) => Promise<{ tweetId: string; url: string } | null>;
+  postTweet?: (text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<{ tweetId: string; url: string } | null>;
 
   /**
    * Get home timeline tweets
@@ -70,8 +73,10 @@ export interface TwitterServices {
 
   /**
    * Reply to a tweet
+   * @param mediaIds Optional gallery item IDs to attach (preferred)
+   * @param mediaUrls Optional URLs to attach (legacy)
    */
-  reply?: (tweetId: string, text: string, mediaUrls?: string[]) => Promise<{ tweetId: string; url: string } | null>;
+  reply?: (tweetId: string, text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<{ tweetId: string; url: string } | null>;
 
   /**
    * Like a tweet
@@ -95,8 +100,10 @@ export interface TwitterServices {
 
   /**
    * Quote tweet
+   * @param mediaIds Optional gallery item IDs to attach (preferred)
+   * @param mediaUrls Optional URLs to attach (legacy)
    */
-  quoteTweet?: (tweetId: string, text: string, mediaUrls?: string[]) => Promise<{ tweetId: string; url: string } | null>;
+  quoteTweet?: (tweetId: string, text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<{ tweetId: string; url: string } | null>;
 
   /**
    * Get a specific tweet by ID
@@ -188,12 +195,13 @@ export function createTwitterTools(services: TwitterServices) {
 
     defineTool({
       name: 'twitter_post',
-      description: 'Post a tweet to Twitter/X. Twitter must be connected first (check with twitter_status). Tweets are limited to 280 characters.',
+      description: 'Post a tweet to Twitter/X. Twitter must be connected first (check with twitter_status). Tweets are limited to 280 characters. You can attach images using either gallery IDs (preferred) or URLs.',
       category: 'media',
       toolset: 'twitter',
       inputSchema: z.object({
         text: z.string().max(280).describe('The tweet text (max 280 characters)'),
-        mediaUrls: z.array(z.string()).max(4).optional().describe('Optional array of media URLs to attach (up to 4 images)'),
+        mediaIds: z.array(z.string()).max(4).optional().describe('Optional array of gallery item IDs to attach (up to 4 images). Preferred over mediaUrls.'),
+        mediaUrls: z.array(z.string()).max(4).optional().describe('Optional array of media URLs to attach (up to 4 images). Use mediaIds instead when possible.'),
       }),
       execute: async (input, _context): Promise<ToolResult> => {
         // Check connection first
@@ -214,8 +222,8 @@ export function createTwitterTools(services: TwitterServices) {
           };
         }
         
-        // Post the tweet
-        const result = await services.postTweet(input.text, input.mediaUrls);
+        // Post the tweet - pass both mediaIds and mediaUrls, service will resolve
+        const result = await services.postTweet(input.text, input.mediaUrls, input.mediaIds);
         
         if (!result) {
           return {
@@ -364,7 +372,8 @@ export function createTwitterTools(services: TwitterServices) {
       inputSchema: z.object({
         tweetId: z.string().describe('The ID of the tweet to reply to'),
         text: z.string().max(280).describe('The reply text (max 280 characters)'),
-        mediaUrls: z.array(z.string()).max(4).optional().describe('Optional media URLs to attach'),
+        mediaIds: z.array(z.string()).max(4).optional().describe('Optional gallery item IDs to attach (preferred)'),
+        mediaUrls: z.array(z.string()).max(4).optional().describe('Optional media URLs to attach (use mediaIds instead)'),
       }),
       execute: async (input, _context): Promise<ToolResult> => {
         const status = await services.getConnectionStatus();
@@ -376,7 +385,7 @@ export function createTwitterTools(services: TwitterServices) {
           return { success: false, error: 'Reply service is not available.' };
         }
 
-        const result = await services.reply(input.tweetId, input.text, input.mediaUrls);
+        const result = await services.reply(input.tweetId, input.text, input.mediaUrls, input.mediaIds);
         if (!result) {
           return { success: false, error: 'Failed to post reply.' };
         }
@@ -520,7 +529,8 @@ export function createTwitterTools(services: TwitterServices) {
       inputSchema: z.object({
         tweetId: z.string().describe('The ID of the tweet to quote'),
         text: z.string().max(280).describe('Your commentary (max 280 characters)'),
-        mediaUrls: z.array(z.string()).max(4).optional().describe('Optional media URLs to attach'),
+        mediaIds: z.array(z.string()).max(4).optional().describe('Optional gallery item IDs to attach (preferred)'),
+        mediaUrls: z.array(z.string()).max(4).optional().describe('Optional media URLs to attach (use mediaIds instead)'),
       }),
       execute: async (input, _context): Promise<ToolResult> => {
         const status = await services.getConnectionStatus();
@@ -532,7 +542,7 @@ export function createTwitterTools(services: TwitterServices) {
           return { success: false, error: 'Quote tweet service is not available.' };
         }
 
-        const result = await services.quoteTweet(input.tweetId, input.text, input.mediaUrls);
+        const result = await services.quoteTweet(input.tweetId, input.text, input.mediaUrls, input.mediaIds);
         if (!result) {
           return { success: false, error: 'Failed to post quote tweet.' };
         }

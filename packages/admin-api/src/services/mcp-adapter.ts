@@ -940,11 +940,37 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         }
       },
 
-      postTweet: async (text: string, mediaUrls?: string[]) => {
+      postTweet: async (text: string, mediaUrls?: string[], galleryIds?: string[]) => {
         // Get credentials
         const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
         if (!creds.configured) {
           return null;
+        }
+
+        // Resolve gallery IDs to URLs (preferred over raw URLs)
+        let resolvedMediaUrls: string[] = [];
+        
+        if (galleryIds && galleryIds.length > 0) {
+          console.log('Resolving gallery IDs to URLs:', galleryIds);
+          for (const galleryId of galleryIds.slice(0, 4)) {
+            try {
+              const item = await gallery.getGalleryItem(_agentId, galleryId);
+              if (item?.url) {
+                console.log(`Gallery item ${galleryId} resolved to: ${item.url}`);
+                resolvedMediaUrls.push(item.url);
+              } else {
+                console.warn(`Gallery item ${galleryId} not found`);
+              }
+            } catch (err) {
+              console.error(`Failed to resolve gallery item ${galleryId}:`, err);
+            }
+          }
+        }
+        
+        // Fall back to raw URLs if no gallery IDs or resolution failed
+        if (resolvedMediaUrls.length === 0 && mediaUrls && mediaUrls.length > 0) {
+          console.log('Using raw media URLs (gallery IDs not provided or failed)');
+          resolvedMediaUrls = mediaUrls;
         }
 
         // Import twitter-api-v2 dynamically to avoid loading it when not needed
@@ -959,14 +985,14 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
 
         try {
           // Handle media uploads if provided
-          const mediaIds = mediaUrls && mediaUrls.length > 0 
-            ? await uploadMediaToTwitter(client, mediaUrls, _agentId)
+          const twitterMediaIds = resolvedMediaUrls.length > 0 
+            ? await uploadMediaToTwitter(client, resolvedMediaUrls, _agentId)
             : undefined;
 
           // Post the tweet
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = { text };
-          if (mediaIds && mediaIds.length > 0) {
-            tweetParams.media = { media_ids: mediaIds as [string] };
+          if (twitterMediaIds && twitterMediaIds.length > 0) {
+            tweetParams.media = { media_ids: twitterMediaIds as [string] };
           }
 
           const result = await client.v2.tweet(tweetParams);
@@ -1118,9 +1144,30 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         }
       },
 
-      reply: async (tweetId: string, text: string, mediaUrls?: string[]) => {
+      reply: async (tweetId: string, text: string, mediaUrls?: string[], galleryIds?: string[]) => {
         const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
         if (!creds.configured) return null;
+
+        // Resolve gallery IDs to URLs (preferred over raw URLs)
+        let resolvedMediaUrls: string[] = [];
+        
+        if (galleryIds && galleryIds.length > 0) {
+          console.log('Reply: Resolving gallery IDs to URLs:', galleryIds);
+          for (const galleryId of galleryIds.slice(0, 4)) {
+            try {
+              const item = await gallery.getGalleryItem(_agentId, galleryId);
+              if (item?.url) {
+                resolvedMediaUrls.push(item.url);
+              }
+            } catch (err) {
+              console.error(`Failed to resolve gallery item ${galleryId}:`, err);
+            }
+          }
+        }
+        
+        if (resolvedMediaUrls.length === 0 && mediaUrls && mediaUrls.length > 0) {
+          resolvedMediaUrls = mediaUrls;
+        }
 
         const { TwitterApi } = await import('twitter-api-v2');
         const client = new TwitterApi({
@@ -1131,16 +1178,16 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         });
 
         try {
-          const mediaIds = mediaUrls && mediaUrls.length > 0 
-            ? await uploadMediaToTwitter(client, mediaUrls, _agentId)
+          const twitterMediaIds = resolvedMediaUrls.length > 0 
+            ? await uploadMediaToTwitter(client, resolvedMediaUrls, _agentId)
             : undefined;
 
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = {
             text,
             reply: { in_reply_to_tweet_id: tweetId },
           };
-          if (mediaIds && mediaIds.length > 0) {
-            tweetParams.media = { media_ids: mediaIds as [string] };
+          if (twitterMediaIds && twitterMediaIds.length > 0) {
+            tweetParams.media = { media_ids: twitterMediaIds as [string] };
           }
 
           const result = await client.v2.tweet(tweetParams);
@@ -1243,9 +1290,30 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         }
       },
 
-      quoteTweet: async (tweetId: string, text: string, mediaUrls?: string[]) => {
+      quoteTweet: async (tweetId: string, text: string, mediaUrls?: string[], galleryIds?: string[]) => {
         const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
         if (!creds.configured) return null;
+
+        // Resolve gallery IDs to URLs (preferred over raw URLs)
+        let resolvedMediaUrls: string[] = [];
+        
+        if (galleryIds && galleryIds.length > 0) {
+          console.log('Quote: Resolving gallery IDs to URLs:', galleryIds);
+          for (const galleryId of galleryIds.slice(0, 4)) {
+            try {
+              const item = await gallery.getGalleryItem(_agentId, galleryId);
+              if (item?.url) {
+                resolvedMediaUrls.push(item.url);
+              }
+            } catch (err) {
+              console.error(`Failed to resolve gallery item ${galleryId}:`, err);
+            }
+          }
+        }
+        
+        if (resolvedMediaUrls.length === 0 && mediaUrls && mediaUrls.length > 0) {
+          resolvedMediaUrls = mediaUrls;
+        }
 
         const { TwitterApi } = await import('twitter-api-v2');
         const client = new TwitterApi({
@@ -1256,16 +1324,16 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         });
 
         try {
-          const mediaIds = mediaUrls && mediaUrls.length > 0 
-            ? await uploadMediaToTwitter(client, mediaUrls, _agentId)
+          const twitterMediaIds = resolvedMediaUrls.length > 0 
+            ? await uploadMediaToTwitter(client, resolvedMediaUrls, _agentId)
             : undefined;
 
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = {
             text,
             quote_tweet_id: tweetId,
           };
-          if (mediaIds && mediaIds.length > 0) {
-            tweetParams.media = { media_ids: mediaIds as [string] };
+          if (twitterMediaIds && twitterMediaIds.length > 0) {
+            tweetParams.media = { media_ids: twitterMediaIds as [string] };
           }
 
           const result = await client.v2.tweet(tweetParams);

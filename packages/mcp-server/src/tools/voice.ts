@@ -101,8 +101,16 @@ export const createVoiceTools = (services: VoiceServices) => [
       if (!input.assetId && !input.url && !input.platformFileId) {
         return { success: false, error: 'Provide assetId, url, or platformFileId' };
       }
-      const result = await services.transcribeAudio(input);
-      return { success: true, data: result };
+      try {
+        const result = await services.transcribeAudio(input);
+        return { success: true, data: result };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        if (msg.includes('API key not configured')) {
+          return { success: false, error: `Voice transcription requires openai_api_key to be configured. Ask an admin to set it up.` };
+        }
+        return { success: false, error: msg };
+      }
     },
   }),
 
@@ -115,12 +123,34 @@ export const createVoiceTools = (services: VoiceServices) => [
       description: z.string().min(1)
         .describe('Description of your desired voice - include personality traits, tone, gender, age, accent, speaking style. Example: "A warm female voice with a slight Southern accent, playful and energetic, speaks quickly with enthusiasm"'),
     }),
+    contextBuilder: async (context) => {
+      try {
+        const status = await services.hasVoice(context.agentId);
+        if (status.hasVoice) {
+          return `You already have a voice configured (ID: ${status.voiceId}). Use generate_voice_message instead.`;
+        }
+        return 'You do not have a voice yet. Use this tool to create one based on your personality.';
+      } catch {
+        return undefined;
+      }
+    },
     execute: async (input, context): Promise<ToolResult> => {
-      const result = await services.createMyVoice({
-        agentId: context.agentId,
-        description: input.description,
-      });
-      return { success: true, data: result };
+      try {
+        const result = await services.createMyVoice({
+          agentId: context.agentId,
+          description: input.description,
+        });
+        return { success: true, data: result };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        if (msg.includes('Replicate API key not configured')) {
+          return { success: false, error: `Voice creation requires replicate_api_key to be configured. Ask an admin to set it up globally or for your agent.` };
+        }
+        if (msg.includes('Not enough energy')) {
+          return { success: false, error: msg };
+        }
+        return { success: false, error: `Failed to create voice: ${msg}` };
+      }
     },
   }),
 
@@ -131,14 +161,18 @@ export const createVoiceTools = (services: VoiceServices) => [
     toolset: 'voice',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
-      const result = await services.hasVoice(context.agentId);
-      return { success: true, data: result };
+      try {
+        const result = await services.hasVoice(context.agentId);
+        return { success: true, data: result };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+      }
     },
   }),
 
   defineTool({
     name: 'generate_voice_message',
-    description: 'Generate a voice message (speech audio) from text.',
+    description: 'Generate a voice message (speech audio) from text. Requires either a voice profile (use create_my_voice first) or will use OpenAI TTS as fallback.',
     category: 'media',
     toolset: 'voice',
     inputSchema: z.object({
@@ -150,19 +184,42 @@ export const createVoiceTools = (services: VoiceServices) => [
       emotion: z.string().optional().describe('Emotion or style hint'),
       maxDurationMs: z.number().min(1000).optional().describe('Max duration cap in ms'),
     }),
+    contextBuilder: async (context) => {
+      try {
+        const status = await services.hasVoice(context.agentId);
+        if (status.hasVoice) {
+          return `Your voice is configured (${status.voiceStyle || 'voice-clone'}). Ready to generate speech.`;
+        }
+        return 'No voice profile configured. Will use OpenAI TTS with default voice. Use create_my_voice to set up a custom voice.';
+      } catch {
+        return undefined;
+      }
+    },
     execute: async (input, context): Promise<ToolResult> => {
-      const result = await services.generateVoiceMessage({
-        agentId: context.agentId,
-        platform: context.platform,
-        ...input,
-      });
-      return { success: true, data: result };
+      try {
+        const result = await services.generateVoiceMessage({
+          agentId: context.agentId,
+          platform: context.platform,
+          ...input,
+        });
+        return { success: true, data: result };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        if (msg.includes('API key not configured')) {
+          const keyType = msg.includes('Replicate') ? 'replicate_api_key' : 'openai_api_key';
+          return { success: false, error: `Voice generation requires ${keyType} to be configured. Ask an admin to set it up.` };
+        }
+        if (msg.includes('Not enough energy')) {
+          return { success: false, error: msg };
+        }
+        return { success: false, error: `Failed to generate voice: ${msg}` };
+      }
     },
   }),
 
   defineTool({
     name: 'send_voice_message',
-    description: 'Send a voice message to a conversation. Provide assetId or url.',
+    description: 'Send a voice message to a conversation. Provide assetId or url. Only works on Telegram.',
     category: 'media',
     toolset: 'voice',
     inputSchema: z.object({
@@ -176,16 +233,27 @@ export const createVoiceTools = (services: VoiceServices) => [
       if (!input.assetId && !input.url) {
         return { success: false, error: 'Provide assetId or url' };
       }
-      const result = await services.sendVoiceMessage({
-        agentId: context.agentId,
-        platform: context.platform,
-        conversationId: input.conversationId,
-        assetId: input.assetId,
-        url: input.url,
-        caption: input.caption,
-        replyToMessageId: input.replyToMessageId,
-      });
-      return { success: true, data: result };
+      if (context.platform !== 'telegram') {
+        return { success: false, error: `Voice messages are only supported on Telegram. Current platform: ${context.platform}` };
+      }
+      try {
+        const result = await services.sendVoiceMessage({
+          agentId: context.agentId,
+          platform: context.platform,
+          conversationId: input.conversationId,
+          assetId: input.assetId,
+          url: input.url,
+          caption: input.caption,
+          replyToMessageId: input.replyToMessageId,
+        });
+        return { success: true, data: result };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        if (msg.includes('bot token not configured')) {
+          return { success: false, error: 'Telegram bot token not configured. Voice messages require Telegram integration.' };
+        }
+        return { success: false, error: `Failed to send voice: ${msg}` };
+      }
     },
   }),
 ];

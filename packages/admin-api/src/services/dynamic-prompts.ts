@@ -157,16 +157,16 @@ When you want to post an image to Twitter, you have TWO options:
 **Option 1: Sequential (for async generation)**
 1. Call generate_image with your prompt
 2. The image will be generated asynchronously
-3. When complete, you'll receive a continuation message with the URL
-4. Then call twitter_post with text AND mediaUrls: [imageUrl]
+3. When complete, you'll receive a continuation message with the gallery item { id, url }
+4. Then call twitter_post with text AND mediaIds: [galleryId]
 
 **Option 2: From Gallery**
 1. Browse your gallery with list_gallery
-2. Find the image URL you want to use
-3. Call twitter_post with text AND mediaUrls: [imageUrl]
+2. Find the image ID you want to use
+3. Call twitter_post with text AND mediaIds: [galleryId]
 
-**IMPORTANT**: Always pass image URLs to twitter_post's mediaUrls parameter as an array!
-Example: twitter_post({text: "Check out my art! 🎨", mediaUrls: ["https://cdn.example.com/image.png"]})`,
+**IMPORTANT**: Always use mediaIds (gallery IDs) instead of raw URLs! Gallery IDs are more reliable.
+Example: twitter_post({text: "Check out my art! 🎨", mediaIds: ["img_abc123"]})`,
 
   discord: `## Discord Features
 

@@ -172,7 +172,7 @@ describe('Twitter Tools - twitter_post', () => {
     const result = await (tool.execute as any)({ text: 'Hello' }, baseContext);
 
     expect(result.success).toBe(true);
-    expect(services.postTweet).toHaveBeenCalledWith('Hello', undefined);
+    expect(services.postTweet).toHaveBeenCalledWith('Hello', undefined, undefined);
   });
 
   it('posts tweet with media URLs', async () => {
@@ -185,7 +185,20 @@ describe('Twitter Tools - twitter_post', () => {
     const result = await (tool.execute as any)({ text: 'Hello', mediaUrls: ['https://img'] }, baseContext);
 
     expect(result.success).toBe(true);
-    expect(services.postTweet).toHaveBeenCalledWith('Hello', ['https://img']);
+    expect(services.postTweet).toHaveBeenCalledWith('Hello', ['https://img'], undefined);
+  });
+
+  it('posts tweet with gallery mediaIds (preferred)', async () => {
+    const services = {
+      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: mock(() => Promise.resolve(null)),
+      postTweet: mock(() => Promise.resolve({ tweetId: '1', url: 'https://x.com/1' })),
+    };
+    const tool = getTool('twitter_post', services);
+    const result = await (tool.execute as any)({ text: 'Hello', mediaIds: ['img_abc123'] }, baseContext);
+
+    expect(result.success).toBe(true);
+    expect(services.postTweet).toHaveBeenCalledWith('Hello', undefined, ['img_abc123']);
   });
 
   it('returns tweet ID and URL on success', async () => {
@@ -504,10 +517,10 @@ describe('Twitter Tools - twitter_reply', () => {
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hi' }, baseContext);
 
     expect(result.success).toBe(true);
-    expect(services.reply).toHaveBeenCalledWith('t1', 'hi', undefined);
+    expect(services.reply).toHaveBeenCalledWith('t1', 'hi', undefined, undefined);
   });
 
-  it('includes media when provided', async () => {
+  it('includes media URLs when provided', async () => {
     const services = {
       getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
       startOAuthFlow: mock(() => Promise.resolve(null)),
@@ -517,7 +530,20 @@ describe('Twitter Tools - twitter_reply', () => {
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hi', mediaUrls: ['https://img'] }, baseContext);
 
     expect(result.success).toBe(true);
-    expect(services.reply).toHaveBeenCalledWith('t1', 'hi', ['https://img']);
+    expect(services.reply).toHaveBeenCalledWith('t1', 'hi', ['https://img'], undefined);
+  });
+
+  it('includes mediaIds when provided (preferred)', async () => {
+    const services = {
+      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: mock(() => Promise.resolve(null)),
+      reply: mock(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
+    };
+    const tool = getTool('twitter_reply', services);
+    const result = await (tool.execute as any)({ tweetId: 't1', text: 'hi', mediaIds: ['img_abc'] }, baseContext);
+
+    expect(result.success).toBe(true);
+    expect(services.reply).toHaveBeenCalledWith('t1', 'hi', undefined, ['img_abc']);
   });
 
   it('returns new tweet URL on success', async () => {
@@ -790,10 +816,10 @@ describe('Twitter Tools - twitter_quote', () => {
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hello' }, baseContext);
 
     expect(result.success).toBe(true);
-    expect(services.quoteTweet).toHaveBeenCalledWith('t1', 'hello', undefined);
+    expect(services.quoteTweet).toHaveBeenCalledWith('t1', 'hello', undefined, undefined);
   });
 
-  it('includes media when provided', async () => {
+  it('includes media URLs when provided', async () => {
     const services = {
       getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
       startOAuthFlow: mock(() => Promise.resolve(null)),
@@ -803,7 +829,20 @@ describe('Twitter Tools - twitter_quote', () => {
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hello', mediaUrls: ['https://img'] }, baseContext);
 
     expect(result.success).toBe(true);
-    expect(services.quoteTweet).toHaveBeenCalledWith('t1', 'hello', ['https://img']);
+    expect(services.quoteTweet).toHaveBeenCalledWith('t1', 'hello', ['https://img'], undefined);
+  });
+
+  it('includes mediaIds when provided (preferred)', async () => {
+    const services = {
+      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: mock(() => Promise.resolve(null)),
+      quoteTweet: mock(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
+    };
+    const tool = getTool('twitter_quote', services);
+    const result = await (tool.execute as any)({ tweetId: 't1', text: 'hello', mediaIds: ['img_abc'] }, baseContext);
+
+    expect(result.success).toBe(true);
+    expect(services.quoteTweet).toHaveBeenCalledWith('t1', 'hello', undefined, ['img_abc']);
   });
 
   it('returns new tweet URL on success', async () => {
@@ -986,6 +1025,7 @@ describe('Twitter Tools - Integration Scenarios', () => {
     // Verify postTweet was called correctly
     expect(connectedServices.postTweet).toHaveBeenCalledWith(
       'Hello world! This is my first automated tweet. 🤖',
+      undefined,
       undefined
     );
   });
