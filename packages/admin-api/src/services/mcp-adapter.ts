@@ -25,6 +25,7 @@ import * as propertyResearch from '../services/property-research.js';
 import * as stickers from '../services/stickers.js';
 import * as agentEvents from '../services/agent-events.js';
 import { createWebSearch } from '../services/web-search.js';
+import { createMcpAdminServices } from '../services/mcp-config.js';
 
 // Timeout for external API calls
 const API_TIMEOUT_MS = 10_000;
@@ -1298,6 +1299,11 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         });
       },
     },
+
+    // =========================================================================
+    // MCP Admin Services (Toolset & External Server Management)
+    // =========================================================================
+    mcpAdmin: createMcpAdminServices(),
   };
 }
 

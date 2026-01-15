@@ -90,6 +90,33 @@ export interface VoiceConfig {
   referenceUrl?: string;
 }
 
+// MCP Server Configuration
+export type ToolsetId =
+  | 'core' | 'media' | 'voice' | 'wallet' | 'profile' | 'gallery'
+  | 'secrets' | 'jobs' | 'reference' | 'models' | 'config' | 'admin'
+  | 'diagnostics' | 'telegram' | 'twitter' | 'discord' | 'property'
+  | 'memory' | 'nft' | 'claude-code';
+
+export interface ExternalMcpServer {
+  id: string;                    // Unique identifier
+  name: string;                  // Display name
+  enabled: boolean;              // Whether this server is active
+  transport: 'stdio' | 'sse';    // Connection type
+  command?: string;              // For stdio: command to run
+  args?: string[];               // For stdio: command arguments
+  url?: string;                  // For SSE: server URL
+  env?: Record<string, string>;  // Environment variables
+  addedAt: number;
+  addedBy: string;
+}
+
+export interface McpConfig {
+  // Internal toolsets - all disabled by default
+  enabledToolsets: ToolsetId[];
+  // External MCP servers
+  externalServers: ExternalMcpServer[];
+}
+
 export interface VoiceProfile {
   pk: string; // VOICE#{voiceId}
   sk: string; // PROFILE
@@ -191,6 +218,9 @@ export interface AgentRecord {
     useGlobalKey: boolean;
   };
   voiceConfig?: VoiceConfig;
+
+  // MCP server configuration - all toolsets disabled by default
+  mcpConfig?: McpConfig;
   
   // Creation tracking - who created this agent (permanent, for slot counting)
   creatorWallet?: string;

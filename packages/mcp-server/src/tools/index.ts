@@ -60,6 +60,12 @@ export {
   type ClaudeCodeJob,
   type ClaudeCodeJobStatus,
 } from './claude-code.js';
+export {
+  createMcpAdminTools,
+  type McpAdminServices,
+  type McpConfig,
+  type ExternalMcpServer,
+} from './mcp-admin.js';
 
 import { createMediaTools, type CreditServices as MediaCreditServices } from './media.js';
 import { createGalleryTools } from './gallery.js';
@@ -80,6 +86,7 @@ import { createNFTTools } from './nft.js';
 import { createPropertyTools } from './property.js';
 import { createStickerTools } from './stickers.js';
 import { createClaudeCodeTools } from './claude-code.js';
+import { createMcpAdminTools } from './mcp-admin.js';
 import type { ToolRegistry } from '../registry.js';
 
 /**
@@ -106,6 +113,7 @@ export interface AllServices {
   stickers?: import('./stickers.js').StickerServices;
   claudeCode?: import('./claude-code.js').ClaudeCodeServices;
   diagnostics?: import('./diagnostics.js').DiagnosticsServices;
+  mcpAdmin?: import('./mcp-admin.js').McpAdminServices;
 }
 
 /**
@@ -151,5 +159,8 @@ export function registerAllTools(
   }
   if (services.claudeCode) {
     registry.registerAll(createClaudeCodeTools(services.claudeCode));
+  }
+  if (services.mcpAdmin) {
+    registry.registerAll(createMcpAdminTools(services.mcpAdmin));
   }
 }

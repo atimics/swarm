@@ -1,0 +1,341 @@
+/**
+ * Prompt Preview Panel - Shows what would be sent to the LLM.
+ *
+ * A collapsible panel that displays the system prompt, available tools,
+ * and message history that would be sent to the LLM.
+ */
+import { useCallback, useEffect, useState } from 'react';
+import { fetchPromptPreview, type PromptPreviewResponse, type ToolPreview } from '../api/prompt-preview';
+import { useActiveAgent, useActiveChat } from '../store';
+
+interface PromptPreviewPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+type TabId = 'prompt' | 'tools' | 'messages';
+
+function formatTokenCount(count: number): string {
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}k`;
+  }
+  return String(count);
+}
+
+function ToolCard({ tool, isExpanded, onToggle }: {
+  tool: ToolPreview;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="border border-[var(--color-border)] rounded-lg overflow-hidden bg-[var(--color-bg-secondary)]/50">
+      <button
+        onClick={onToggle}
+        className="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-[var(--color-bg-tertiary)]/50 transition-colors"
+      >
+        <svg
+          className={`w-3 h-3 text-[var(--color-text-muted)] flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+
+        <span className="text-xs px-1.5 py-0.5 rounded bg-brand-900/50 text-brand-300 font-mono">
+          {tool.toolset}
+        </span>
+
+        <span className="flex-1 text-sm font-medium text-[var(--color-text)] truncate">
+          {tool.name}
+        </span>
+      </button>
+
+      {isExpanded && (
+        <div className="px-3 py-2 border-t border-[var(--color-border)] space-y-2">
+          <p className="text-xs text-[var(--color-text-secondary)] whitespace-pre-wrap">
+            {tool.description}
+          </p>
+          <details className="text-xs">
+            <summary className="text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]">
+              Parameters (JSON Schema)
+            </summary>
+            <pre className="mt-2 p-2 rounded bg-[var(--color-bg)] text-[var(--color-text-secondary)] overflow-x-auto text-[10px]">
+              {JSON.stringify(tool.parameters, null, 2)}
+            </pre>
+          </details>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function PromptPreviewPanel({ isOpen, onClose }: PromptPreviewPanelProps) {
+  const activeAgent = useActiveAgent();
+  const messages = useActiveChat();
+
+  const [preview, setPreview] = useState<PromptPreviewResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>('prompt');
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [toolsetFilter, setToolsetFilter] = useState<string>('all');
+
+  const loadPreview = useCallback(async () => {
+    if (!activeAgent) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const history = messages
+        .filter(m => m.id !== 'welcome' && !m.isLoading)
+        .map(m => ({
+          role: m.role as 'user' | 'assistant' | 'system' | 'tool',
+          content: m.content,
+        }));
+
+      const response = await fetchPromptPreview({
+        agentId: activeAgent.id,
+        history,
+      });
+
+      setPreview(response);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch preview');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeAgent, messages]);
+
+  useEffect(() => {
+    if (isOpen && activeAgent) {
+      loadPreview();
+    }
+  }, [isOpen, activeAgent, loadPreview]);
+
+  const toggleTool = useCallback((toolName: string) => {
+    setExpandedTools(prev => {
+      const next = new Set(prev);
+      if (next.has(toolName)) {
+        next.delete(toolName);
+      } else {
+        next.add(toolName);
+      }
+      return next;
+    });
+  }, []);
+
+  const filteredTools = preview?.tools.filter(
+    tool => toolsetFilter === 'all' || tool.toolset === toolsetFilter
+  ) || [];
+
+  const uniqueToolsets = preview
+    ? Array.from(new Set(preview.tools.map(t => t.toolset))).sort()
+    : [];
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Panel */}
+      <div className="relative w-full max-w-4xl max-h-[85vh] lg:max-h-[80vh] bg-[var(--color-bg)] rounded-t-2xl lg:rounded-2xl shadow-xl flex flex-col overflow-hidden animate-slide-up">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-brand-900/50 flex items-center justify-center">
+              <svg className="w-4 h-4 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--color-text)]">Prompt Preview</h2>
+              <p className="text-xs text-[var(--color-text-tertiary)]">
+                {preview ? `~${formatTokenCount(preview.tokenEstimate.total)} tokens` : 'Loading...'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadPreview}
+              disabled={isLoading}
+              className="px-3 py-1.5 text-xs rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] transition-colors disabled:opacity-50"
+            >
+              {isLoading ? 'Loading...' : 'Refresh'}
+            </button>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg hover:bg-[var(--color-bg-tertiary)] flex items-center justify-center text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Token breakdown */}
+        {preview && (
+          <div className="px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/50 flex flex-wrap gap-4 text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+              <span className="text-[var(--color-text-tertiary)]">System:</span>
+              <span className="text-[var(--color-text-secondary)]">{formatTokenCount(preview.tokenEstimate.systemPrompt)}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-400"></span>
+              <span className="text-[var(--color-text-tertiary)]">Tools:</span>
+              <span className="text-[var(--color-text-secondary)]">{formatTokenCount(preview.tokenEstimate.tools)}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+              <span className="text-[var(--color-text-tertiary)]">Messages:</span>
+              <span className="text-[var(--color-text-secondary)]">{formatTokenCount(preview.tokenEstimate.messages)}</span>
+            </div>
+            <div className="flex items-center gap-1.5 ml-auto">
+              <span className="text-[var(--color-text-tertiary)]">Toolsets:</span>
+              <span className="text-brand-400">{preview.enabledToolsets.length}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div className="border-b border-[var(--color-border)] px-4 bg-[var(--color-bg-secondary)]">
+          <div className="flex gap-4">
+            <button
+              onClick={() => setActiveTab('prompt')}
+              className={`py-2 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'prompt'
+                  ? 'border-brand-500 text-brand-400'
+                  : 'border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'
+              }`}
+            >
+              System Prompt
+            </button>
+            <button
+              onClick={() => setActiveTab('tools')}
+              className={`py-2 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'tools'
+                  ? 'border-brand-500 text-brand-400'
+                  : 'border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'
+              }`}
+            >
+              Tools ({preview?.toolCount || 0})
+            </button>
+            <button
+              onClick={() => setActiveTab('messages')}
+              className={`py-2 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'messages'
+                  ? 'border-brand-500 text-brand-400'
+                  : 'border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'
+              }`}
+            >
+              Messages ({preview?.messages.length || 0})
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
+          {error && (
+            <div className="m-4 p-3 rounded-lg bg-red-900/20 border border-red-900/40 text-sm text-red-400">
+              {error}
+            </div>
+          )}
+
+          {isLoading && !preview && (
+            <div className="p-4 text-center text-[var(--color-text-tertiary)]">
+              Loading preview...
+            </div>
+          )}
+
+          {/* System Prompt Tab */}
+          {activeTab === 'prompt' && preview && (
+            <div className="p-4">
+              <pre className="text-xs text-[var(--color-text-secondary)] whitespace-pre-wrap font-mono bg-[var(--color-bg-secondary)] rounded-lg p-4 overflow-x-auto">
+                {preview.systemPrompt}
+              </pre>
+            </div>
+          )}
+
+          {/* Tools Tab */}
+          {activeTab === 'tools' && preview && (
+            <div className="p-4 space-y-3">
+              {/* Toolset filter */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-[var(--color-text-tertiary)]">Filter by toolset:</span>
+                <select
+                  value={toolsetFilter}
+                  onChange={(e) => setToolsetFilter(e.target.value)}
+                  className="bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-md px-2 py-1 text-[var(--color-text)]"
+                >
+                  <option value="all">All ({preview.tools.length})</option>
+                  {uniqueToolsets.map(toolset => (
+                    <option key={toolset} value={toolset}>
+                      {toolset} ({preview.tools.filter(t => t.toolset === toolset).length})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Tools list */}
+              <div className="space-y-2">
+                {filteredTools.map(tool => (
+                  <ToolCard
+                    key={tool.name}
+                    tool={tool}
+                    isExpanded={expandedTools.has(tool.name)}
+                    onToggle={() => toggleTool(tool.name)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Messages Tab */}
+          {activeTab === 'messages' && preview && (
+            <div className="p-4 space-y-3">
+              {preview.messages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`rounded-lg p-3 ${
+                    msg.role === 'system'
+                      ? 'bg-blue-900/20 border border-blue-900/40'
+                      : msg.role === 'user'
+                      ? 'bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]'
+                      : 'bg-[var(--color-bg-secondary)] border border-[var(--color-border)]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                      msg.role === 'system'
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : msg.role === 'user'
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'bg-purple-500/20 text-purple-400'
+                    }`}>
+                      {msg.role}
+                    </span>
+                  </div>
+                  <pre className="text-xs text-[var(--color-text-secondary)] whitespace-pre-wrap overflow-x-auto">
+                    {msg.content.length > 500
+                      ? `${msg.content.slice(0, 500)}...`
+                      : msg.content}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

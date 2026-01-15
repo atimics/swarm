@@ -592,6 +592,42 @@ export class AdminApiConstruct extends Construct {
       integration: jobsIntegration,
     });
 
+    // Prompt Preview handler - shows what would be sent to the LLM
+    const promptPreviewHandler = new nodejs.NodejsFunction(this, 'PromptPreviewHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/prompt-preview.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        ADMIN_TABLE: this.table.tableName,
+        CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
+        ADMIN_EMAILS: adminEmails,
+        NODE_ENV: environment,
+        ALLOWED_ORIGINS: allowedOrigins.join(','),
+        INTERNAL_TEST_KEY: internalTestKey,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Grant permissions to prompt preview handler
+    this.table.grantReadData(promptPreviewHandler);
+
+    const promptPreviewIntegration = new integrations.HttpLambdaIntegration(
+      'PromptPreviewIntegration',
+      promptPreviewHandler
+    );
+
+    this.api.addRoutes({
+      path: '/prompt-preview',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: promptPreviewIntegration,
+    });
+
     // Wallet authentication handler - for Solana wallet sign-in
     const walletAuthHandler = new nodejs.NodejsFunction(this, 'WalletAuthHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,

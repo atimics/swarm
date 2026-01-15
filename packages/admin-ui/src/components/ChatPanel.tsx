@@ -6,12 +6,13 @@
  * - Chat mode: Simple chat without admin tools (other agents)
  * - Browse mode: Read-only profile view (no wallet connected)
  */
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { useAgentStore, useActiveAgent, useActiveChat, useWalletAuth } from '../store';
 import { sendChatMessage, saveAgentSecret, pollJobCompletion, updateAgent as updateAgentApi, transcribeAudio, type JobStatus } from '../api';
 import { ChatMessage as ChatMessageComponent } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { AgentAvatar } from './AgentSidebar';
+import { PromptPreviewPanel } from './PromptPreviewPanel';
 
 // Track active polling jobs to avoid duplicate polling
 const activePollers = new Map<string, { controller: AbortController; agentId: string }>();
@@ -26,8 +27,9 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
   const messages = useActiveChat();
   const { addMessage, updateMessage, removeMessage, clearChat, updateAgent, isLoading, setLoading, setError } = useAgentStore();
   const { user: walletUser, isAuthenticated: isWalletAuthenticated, gateStatus } = useWalletAuth();
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
 
   // Derive hasOrb from gateStatus
   const hasOrb = (gateStatus?.nftsHeld ?? 0) > 0;
@@ -607,15 +609,28 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
           </div>
           <div className="flex items-center gap-2">
             {accessMode === 'admin' && (
-              <button
-                onClick={() => clearChat(activeAgent.id)}
-                className="px-2 lg:px-3 py-1.5 text-xs lg:text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors"
-              >
-                <span className="hidden sm:inline">Clear Chat</span>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 sm:hidden">
-                  <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-                </svg>
-              </button>
+              <>
+                <button
+                  onClick={() => setPromptPreviewOpen(true)}
+                  className="px-2 lg:px-3 py-1.5 text-xs lg:text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors"
+                  title="Preview prompt sent to LLM"
+                >
+                  <span className="hidden sm:inline">Preview</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 sm:hidden">
+                    <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                    <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => clearChat(activeAgent.id)}
+                  className="px-2 lg:px-3 py-1.5 text-xs lg:text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors"
+                >
+                  <span className="hidden sm:inline">Clear Chat</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 sm:hidden">
+                    <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </>
             )}
           </div>
           {onOpenLogs && (accessMode === 'admin' || accessMode === 'chat') && (
@@ -671,6 +686,12 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
           </div>
         </div>
       )}
+
+      {/* Prompt Preview Panel */}
+      <PromptPreviewPanel
+        isOpen={promptPreviewOpen}
+        onClose={() => setPromptPreviewOpen(false)}
+      />
     </div>
   );
 }

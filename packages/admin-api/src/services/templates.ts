@@ -11,7 +11,7 @@ import {
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { AgentRecord, UserSession } from '../types.js';
-import { createAgent } from './agents.js';
+import * as agents from './agents.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -108,7 +108,7 @@ export async function createAgentFromTemplate(
   }
 
   const name = agentName || template.name;
-  const agent = await createAgent(name, session, template.description);
+  const agent = await agents.createAgent(name, session, template.description);
   
   // Update with template config
   // Note: we don't overwrite ID, status, timestamps etc.

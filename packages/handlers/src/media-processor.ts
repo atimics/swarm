@@ -7,17 +7,19 @@ import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { z } from 'zod';
+import { logger } from '@swarm/core';
 import {
   createMediaService,
   createSecretsService,
   createStateService,
-  logger,
+} from '@swarm/core/services';
+import {
   ResponseActionSchema,
   SwarmResponseSchema,
   type AgentConfig,
   type ResponseAction,
   type SwarmResponse,
-} from '@swarm/core';
+} from '@swarm/core/types';
 
 // Schema for media queue items
 const MediaQueueItemSchema = z.object({
