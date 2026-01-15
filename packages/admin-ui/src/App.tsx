@@ -31,6 +31,8 @@ function App() {
 
   // Check auth status on mount (run once)
   useEffect(() => {
+    if (authChecked) return; // Already checked
+    
     let mounted = true;
     
     const doAuthCheck = async () => {
@@ -46,7 +48,7 @@ function App() {
     
     // Use a timeout as a fallback
     const timeoutId = setTimeout(() => {
-      if (mounted && !authChecked) {
+      if (mounted) {
         console.warn('[App] Auth check timeout');
         setAuthChecked(true);
       }
@@ -58,8 +60,7 @@ function App() {
       mounted = false;
       clearTimeout(timeoutId);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run only once on mount
+  }, [checkAuth, authChecked]);
 
   // Fetch agents from backend once authenticated (run once when conditions are met)
   useEffect(() => {
@@ -74,8 +75,7 @@ function App() {
       });
     
     return () => { mounted = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authChecked, isAuthenticated]); // Don't include initialized or fetchAgents
+  }, [authChecked, isAuthenticated, fetchAgents, initialized]);
 
   // Sync chat history from backend when agent is selected
   // ALWAYS sync on agent change to ensure cross-device consistency
