@@ -204,12 +204,25 @@ async function authenticateWithWallet(apiUrl, testKey) {
     body: JSON.stringify({ walletAddress: wallet.publicKey }),
   });
   
-  if (!challengeResponse.ok) {
-    const text = await challengeResponse.text();
-    throw new Error(`Challenge request failed: ${challengeResponse.status} ${text}`);
+  const challengeText = await challengeResponse.text();
+  
+  // Check for HTML (CF Access login page)
+  if (challengeText.startsWith('<!DOCTYPE') || challengeText.startsWith('<html')) {
+    throw new Error(`CF Access blocked auth request - got login page. Status: ${challengeResponse.status}`);
   }
   
-  const { nonce, message } = await challengeResponse.json();
+  if (!challengeResponse.ok) {
+    throw new Error(`Challenge request failed: ${challengeResponse.status} ${challengeText}`);
+  }
+  
+  let challengeData;
+  try {
+    challengeData = JSON.parse(challengeText);
+  } catch (e) {
+    throw new Error(`Invalid JSON in challenge response: ${challengeText.substring(0, 200)}`);
+  }
+  
+  const { nonce, message } = challengeData;
   console.log(`   Challenge received (nonce: ${nonce.slice(0, 16)}...)`);
   
   // Step 2: Sign the challenge
@@ -231,14 +244,26 @@ async function authenticateWithWallet(apiUrl, testKey) {
     }),
   });
   
+  const verifyText = await verifyResponse.text();
+  
+  // Check for HTML
+  if (verifyText.startsWith('<!DOCTYPE') || verifyText.startsWith('<html')) {
+    throw new Error(`CF Access blocked verify request - got login page. Status: ${verifyResponse.status}`);
+  }
+  
   if (!verifyResponse.ok) {
-    const text = await verifyResponse.text();
-    throw new Error(`Verify request failed: ${verifyResponse.status} ${text}`);
+    throw new Error(`Verify request failed: ${verifyResponse.status} ${verifyText}`);
+  }
+  
+  let result;
+  try {
+    result = JSON.parse(verifyText);
+  } catch (e) {
+    throw new Error(`Invalid JSON in verify response: ${verifyText.substring(0, 200)}`);
   }
   
   // Extract session cookie from response
   const setCookie = verifyResponse.headers.get('set-cookie');
-  const result = await verifyResponse.json();
   
   console.log(`   ✅ Authenticated as ${wallet.publicKey.slice(0, 8)}...`);
   
@@ -357,12 +382,24 @@ ${history.length > 0 ? history.map((h, i) => `Step ${i + 1}: ${h}`).join('\n') :
     body: JSON.stringify(payload)
   });
   
+  const text = await response.text();
+  
+  // Check if we got HTML (CF Access login page) instead of JSON
+  if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
+    throw new Error(`CF Access blocked request - got login page instead of API response. Status: ${response.status}`);
+  }
+  
   if (!response.ok) {
-    const text = await response.text();
     throw new Error(`LLM request failed: ${response.status} ${text}`);
   }
   
-  const result = await response.json();
+  let result;
+  try {
+    result = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`Invalid JSON response from API: ${text.substring(0, 200)}`);
+  }
+  
   // The chat API returns { response: "...", history: [...] }
   return result.response || result.message || result.content || '';
 }
@@ -461,7 +498,25 @@ async function executeAction(page, action) {
       }
       
       case 'TYPE': {
-        await page.keyboard.type(params);
+        // First try to find and focus a text input if nothing is focused
+        const focused = await page.$(':focus');
+        if (!focused || !(await focused.evaluate(el => ['INPUT', 'TEXTAREA'].includes(el.tagName)))) {
+          // Try to focus the chat input or first visible textarea/input
+          const focusStrategies = [
+            () => page.click('textarea:visible', { timeout: 1000 }),
+            () => page.click('input[type="text"]:visible', { timeout: 1000 }),
+            () => page.click('[placeholder*="message" i]:visible', { timeout: 1000 }),
+            () => page.click('[placeholder*="hello" i]:visible', { timeout: 1000 }),
+            () => page.click('[placeholder*="type" i]:visible', { timeout: 1000 }),
+          ];
+          for (const strategy of focusStrategies) {
+            try {
+              await strategy();
+              break;
+            } catch { /* try next */ }
+          }
+        }
+        await page.keyboard.type(params, { delay: 50 }); // Add small delay between keystrokes
         return { success: true };
       }
       
@@ -653,11 +708,26 @@ Be specific and actionable. Reference actual UI elements and behaviors observed.
     body: JSON.stringify(payload)
   });
   
+  const text = await response.text();
+  
+  // Check if we got HTML instead of JSON
+  if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
+    console.log('   ⚠️  Report generation blocked by CF Access');
+    return null;
+  }
+  
   if (!response.ok) {
     return null;
   }
   
-  const result = await response.json();
+  let result;
+  try {
+    result = JSON.parse(text);
+  } catch (e) {
+    console.log('   ⚠️  Invalid JSON in report response');
+    return null;
+  }
+  
   return result.response || result.message || null;
 }
 
