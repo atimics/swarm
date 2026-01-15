@@ -3,6 +3,7 @@
  */
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+// CloudWatch log event format
 export interface AgentLogEvent {
   timestamp?: string;
   message?: string;
@@ -10,18 +11,36 @@ export interface AgentLogEvent {
   logStream?: string;
 }
 
+// DynamoDB fast log format
+export interface FastLogEntry {
+  id: string;
+  timestamp: number;
+  agentId: string;
+  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+  subsystem: string;
+  event: string;
+  message: string;
+  data?: Record<string, unknown>;
+  requestId?: string;
+  platform?: string;
+}
+
 export interface AgentLogResponse {
   agentId: string;
-  startTime: number;
-  endTime: number;
-  logGroups: string[];
-  filters: {
+  startTime?: number;
+  endTime?: number;
+  logGroups?: string[];
+  filters?: {
     level?: string;
     subsystem?: string;
     query?: string;
     limit: number;
   };
-  events: AgentLogEvent[];
+  events?: AgentLogEvent[];
+  // Fast logs response
+  logs?: FastLogEntry[];
+  hasMore?: boolean;
+  source?: 'cloudwatch' | 'dynamodb';
 }
 
 export interface LogQueryOptions {
@@ -32,6 +51,7 @@ export interface LogQueryOptions {
   query?: string;
   start?: number;
   end?: number;
+  fast?: boolean; // Use DynamoDB instead of CloudWatch
 }
 
 export async function fetchAgentLogs(
@@ -40,6 +60,7 @@ export async function fetchAgentLogs(
 ): Promise<AgentLogResponse> {
   const params = new URLSearchParams();
 
+  if (options.fast) params.set('fast', 'true');
   if (options.level) params.set('level', options.level);
   if (options.subsystem) params.set('subsystem', options.subsystem);
   if (options.since) params.set('since', options.since);

@@ -11,6 +11,7 @@ import { logger } from '@swarm/core';
 import * as agentService from '../services/agents.js';
 import * as secretsService from '../services/secrets.js';
 import * as logsService from '../services/logs.js';
+import * as agentLogsService from '../services/agent-logs.js';
 import * as telegramService from '../services/telegram.js';
 import * as agentEventsService from '../services/agent-events.js';
 import { recordError, listAgentIssues } from '../services/auto-issues.js';
@@ -31,6 +32,22 @@ const WALLET_SESSION_COOKIE = 'swarm_session';
 
 // Admin wallets that can see all agents (comma-separated list)
 const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || '').split(',').filter(Boolean);
+
+/**
+ * Parse a "since" time string like "30m", "1h", "24h" to a timestamp
+ */
+function parseSinceParam(since: string): number | undefined {
+  const match = since.trim().match(/^(\d+)(m|h|d)$/i);
+  if (!match) return undefined;
+  const value = Number.parseInt(match[1], 10);
+  if (!value) return undefined;
+  const unit = match[2].toLowerCase();
+  const ms = unit === 'm' ? value * 60 * 1000
+           : unit === 'h' ? value * 60 * 60 * 1000
+           : unit === 'd' ? value * 24 * 60 * 60 * 1000
+           : 0;
+  return Date.now() - ms;
+}
 
 /**
  * Check if a wallet address is an admin
@@ -315,11 +332,35 @@ export async function handler(
       };
     }
 
-    // GET /agents/{id}/logs - Query consolidated logs for an agent
+    // GET /agents/{id}/logs - Query consolidated logs for an agent (CloudWatch - slow)
     const logsMatch = path.match(/^\/agents\/([^/]+)\/logs$/);
     if (method === 'GET' && logsMatch) {
       const agentId = logsMatch[1];
       const params = event.queryStringParameters || {};
+
+      // Check if fast=true param is set, use DynamoDB instead of CloudWatch
+      if (params.fast === 'true') {
+        const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
+        const since = params.since ? parseSinceParam(params.since) : undefined;
+        const result = await agentLogsService.listAgentLogs(agentId, {
+          level: params.level?.toUpperCase() as agentLogsService.LogLevel | undefined,
+          subsystem: params.subsystem || params.component,
+          since,
+          limit,
+          query: params.query,
+        });
+
+        return {
+          statusCode: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId,
+            logs: result.logs,
+            hasMore: result.hasMore,
+            source: 'dynamodb',
+          }),
+        };
+      }
 
       const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
       const startTimeRaw = params.start ? Number.parseInt(params.start, 10) : undefined;
@@ -340,7 +381,7 @@ export async function handler(
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify(result),
+        body: JSON.stringify({ ...result, source: 'cloudwatch' }),
       };
     }
 

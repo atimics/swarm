@@ -145,9 +145,14 @@ function getCloudflareAccessHeaders() {
 
 /**
  * Take a screenshot and return it as a base64 string
+ * Uses JPEG compression to reduce token usage (PNG is huge)
  */
 async function takeScreenshotBase64(page) {
-  const buffer = await page.screenshot({ fullPage: false });
+  const buffer = await page.screenshot({ 
+    fullPage: false,
+    type: 'jpeg',
+    quality: 60, // Good balance of quality vs size
+  });
   return buffer.toString('base64');
 }
 
@@ -418,8 +423,8 @@ ${history.length > 0 ? history.map((h, i) => `Step ${i + 1}: ${h}`).join('\n') :
     systemPrompt,
     attachments: [{
       type: 'image',
-      data: `data:image/png;base64,${base64Image}`,
-      name: path.basename(screenshotPath)
+      data: `data:image/jpeg;base64,${base64Image}`,
+      name: path.basename(screenshotPath).replace('.png', '.jpg')
     }]
   };
   
@@ -703,7 +708,7 @@ function generateAgentName() {
  */
 async function generateTestReport(apiUrl, testKey, screenshotsDir, history, goal, success, agentName, walletAddress) {
   // Get final screenshot for context
-  const finalScreenshotPath = path.join(screenshotsDir, 'final.png');
+  const finalScreenshotPath = path.join(screenshotsDir, 'final.jpg');
   let imageData = null;
   try {
     imageData = fs.readFileSync(finalScreenshotPath).toString('base64');
@@ -743,8 +748,8 @@ Be specific and actionable. Reference actual UI elements and behaviors observed.
     ...(imageData ? {
       attachments: [{
         type: 'image',
-        data: `data:image/png;base64,${imageData}`,
-        name: 'final-screenshot.png'
+        data: `data:image/jpeg;base64,${imageData}`,
+        name: 'final-screenshot.jpg'
       }]
     } : {})
   };
@@ -850,9 +855,12 @@ async function runAutonomousBrowserTest() {
   const adminUrlParsed = new URL(adminUrl);
   
   // Create browser context with auth headers and cookies
+  // Use mobile viewport for smaller screenshots = fewer tokens
   const contextOptions = {
-    viewport: { width: 1280, height: 800 },
-    deviceScaleFactor: 2,
+    viewport: { width: 390, height: 844 }, // iPhone 14 Pro size
+    deviceScaleFactor: 1, // No retina scaling needed for LLM
+    isMobile: true,
+    hasTouch: true,
     extraHTTPHeaders: getCloudflareAccessHeaders(),
   };
   
@@ -995,7 +1003,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
       console.log(`\n--- Step ${step}/${MAX_STEPS} ---`);
       
       // Save screenshot to file for debugging
-      const screenshotPath = path.join(screenshotsDir, `step-${step.toString().padStart(2, '0')}.png`);
+      const screenshotPath = path.join(screenshotsDir, `step-${step.toString().padStart(2, '0')}.jpg`);
       await fsPromises.writeFile(screenshotPath, Buffer.from(previousScreenshot, 'base64'));
       
       // Extract available elements from the page
@@ -1060,14 +1068,14 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
       previousScreenshot = newScreenshot;
     }
     
-    const finalScreenshotPath = path.join(screenshotsDir, 'final.png');
-    await page.screenshot({ path: finalScreenshotPath, fullPage: true });
+    const finalScreenshotPath = path.join(screenshotsDir, 'final.jpg');
+    await page.screenshot({ path: finalScreenshotPath, fullPage: true, type: 'jpeg', quality: 60 });
     console.log(`\n📸 Final screenshot: ${finalScreenshotPath}`);
     
   } catch (err) {
     console.error(`\n❌ Test error: ${err.message}`);
-    const errorScreenshot = path.join(screenshotsDir, 'error.png');
-    await page.screenshot({ path: errorScreenshot, fullPage: true }).catch(() => {});
+    const errorScreenshot = path.join(screenshotsDir, 'error.jpg');
+    await page.screenshot({ path: errorScreenshot, fullPage: true, type: 'jpeg', quality: 60 }).catch(() => {});
 
     // Report test error to auto-issues system
     await reportError(apiUrl, testKey, {
