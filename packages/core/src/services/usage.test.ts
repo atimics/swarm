@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock AWS SDK
 vi.mock('@aws-sdk/lib-dynamodb', () => {
@@ -30,12 +30,9 @@ describe('UsageMeteringService', () => {
     rechargeIntervalMs: 24 * 60 * 60 * 1000 // 1 day
   };
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     ({ DynamoDBDocumentClient } = await import('@aws-sdk/lib-dynamodb'));
     ({ DynamoDBUsageMeteringService } = await import('./usage.js'));
-  });
-
-  beforeEach(() => {
     vi.clearAllMocks();
     service = new DynamoDBUsageMeteringService(tableName);
     mockDocClient = mocked(DynamoDBDocumentClient.from(null as any));

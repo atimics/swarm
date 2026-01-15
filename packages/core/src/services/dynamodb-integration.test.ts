@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@aws-sdk/lib-dynamodb', () => ({
   DynamoDBDocumentClient: {
@@ -26,6 +26,7 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
   UpdateCommand: vi.fn().mockImplementation((input) => ({ input })),
   PutCommand: vi.fn().mockImplementation((input) => ({ input })),
   DeleteCommand: vi.fn().mockImplementation((input) => ({ input })),
+  ScanCommand: vi.fn().mockImplementation((input) => ({ input })),
 }));
 
 const mocked = <T>(value: T) => (typeof (vi as any).mocked === 'function' ? (vi as any).mocked(value) : value as any);
@@ -38,12 +39,9 @@ describe('DynamoDBStateService Integration', () => {
   let UpdateCommand: typeof import('@aws-sdk/lib-dynamodb').UpdateCommand;
   let _mockDocClient: ReturnType<typeof mocked>;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     ({ DynamoDBDocumentClient, GetCommand, UpdateCommand } = await import('@aws-sdk/lib-dynamodb'));
     ({ DynamoDBStateService } = await import('./state.js'));
-  });
-
-  beforeEach(() => {
     vi.clearAllMocks();
     service = new DynamoDBStateService('test-table');
     _mockDocClient = mocked(DynamoDBDocumentClient.from(null as unknown as import('@aws-sdk/client-dynamodb').DynamoDBClient));

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let mockCreateAgent: ReturnType<typeof vi.fn>;
 let mockDynamoSend: ReturnType<typeof vi.fn>;
@@ -38,11 +38,8 @@ describe('TemplateService', () => {
   let templateService: typeof import('./templates.js');
   const session = { email: 'admin@example.com' };
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     templateService = await import('./templates.js');
-  });
-
-  beforeEach(() => {
     vi.clearAllMocks();
   });
 

@@ -20,30 +20,26 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
   PutCommand: vi.fn().mockImplementation((input: any) => ({ input })),
 }));
 
-vi.mock('@swarm/core', () => {
-  // Create mock Zod schemas that match the structure expected by media-processor
-  const MockResponseActionSchema = z.object({
-    type: z.string(),
-  }).passthrough();
+vi.mock('@swarm/core', () => ({
+  logger: {
+    setContext: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
 
-  const MockSwarmResponseSchema = z.object({
+vi.mock('@swarm/core/types', () => ({
+  ResponseActionSchema: z.object({
+    type: z.string(),
+  }).passthrough(),
+  SwarmResponseSchema: z.object({
     agentId: z.string(),
     platform: z.string(),
     conversationId: z.string(),
     actions: z.array(z.any()),
-  }).passthrough();
-
-  return {
-    logger: {
-      setContext: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    },
-    ResponseActionSchema: MockResponseActionSchema,
-    SwarmResponseSchema: MockSwarmResponseSchema,
-  };
-});
+  }).passthrough(),
+}));
 
 vi.mock('@swarm/core/services', () => ({
   createMediaService: vi.fn(() => ({

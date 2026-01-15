@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock AWS SDK
 vi.mock('@aws-sdk/lib-dynamodb', () => {
@@ -26,12 +26,9 @@ describe('PropertyResearchService', () => {
   const agentId = 'test-agent';
   const walletAddress = '0x123';
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     ({ DynamoDBDocumentClient } = await import('@aws-sdk/lib-dynamodb'));
     propertyResearch = await import('./property-research.js');
-  });
-
-  beforeEach(() => {
     vi.clearAllMocks();
     mockDocClient = mocked(DynamoDBDocumentClient.from(null as any));
   });
