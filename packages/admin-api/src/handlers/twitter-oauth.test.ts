@@ -193,9 +193,9 @@ describe('Twitter OAuth Handler', () => {
 
       const result = await handler(event, mockDeps);
 
-      expect(result.statusCode).toBe(200);
-      const body = JSON.parse(result.body as string);
-      expect(body.authorizationUrl).toContain('twitter.com');
+      // Returns 302 redirect to Twitter OAuth
+      expect(result.statusCode).toBe(302);
+      expect(result.headers?.Location).toContain('twitter.com');
       expect(mockStartOAuthFlow).toHaveBeenCalledWith('test-agent');
     });
   });
