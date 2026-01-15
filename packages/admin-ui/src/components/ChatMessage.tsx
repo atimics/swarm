@@ -52,8 +52,8 @@ function SenderAvatar({ sender }: { sender?: MessageSender }) {
  * Parsed tool result from message content
  */
 interface ParsedToolResult {
-  type: 'image' | 'gallery' | 'audio' | 'success' | 'error' | 'info' | 'inhabit' | 'wallet' | 'tweet' | 'twitter_status' | 'unknown';
-  data: Record<string, unknown>;
+  type: 'image' | 'gallery' | 'audio' | 'success' | 'error' | 'info' | 'inhabit' | 'wallet' | 'tweet' | 'twitter_status' | 'model_list' | 'unknown';
+  data: Record<string, unknown> | Array<{ id: string; name: string; contextLength?: number }>;
   imageUrl?: string;
   audioUrl?: string;
   message?: string;
@@ -214,6 +214,16 @@ function processMessageContent(content: string): {
       return { type: 'success', data: parsed, message: parsed.message };
     }
     
+    // Model list result - check before generic success
+    if (parsed.success === true && Array.isArray(parsed.data) && 
+        parsed.data.length > 0 && parsed.data[0]?.id && parsed.data[0]?.name) {
+      // Check if it looks like a model list (has id, name, and optionally contextLength)
+      const firstItem = parsed.data[0];
+      if (typeof firstItem.id === 'string' && typeof firstItem.name === 'string') {
+        return { type: 'model_list', data: parsed.data };
+      }
+    }
+
     // Success boolean
     if (parsed.success === true) {
       const msg = typeof parsed.result === 'string' ? parsed.result : 
@@ -429,10 +439,12 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
   const walletResults = toolResults.filter(r => r.type === 'wallet');
   const tweetResults = toolResults.filter(r => r.type === 'tweet');
   const twitterStatusResults = toolResults.filter(r => r.type === 'twitter_status');
-  // Filter tool results that should be shown (not images/audio/wallet/twitter - those are rendered separately)
+  const modelListResults = toolResults.filter(r => r.type === 'model_list');
+  // Filter tool results that should be shown (not images/audio/wallet/twitter/models - those are rendered separately)
   const visibleToolResults = toolResults.filter(
     r => r.type !== 'image' && r.type !== 'gallery' && r.type !== 'audio' && 
-         r.type !== 'inhabit' && r.type !== 'wallet' && r.type !== 'tweet' && r.type !== 'twitter_status'
+         r.type !== 'inhabit' && r.type !== 'wallet' && r.type !== 'tweet' && 
+         r.type !== 'twitter_status' && r.type !== 'model_list'
   );
   
   // Filter out media generation tools for interactive display
@@ -456,6 +468,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
     walletResults.length > 0 ||
     tweetResults.length > 0 ||
     twitterStatusResults.length > 0 ||
+    modelListResults.length > 0 ||
     visibleToolResults.length > 0 ||
     images.length > 0 ||
     audios.length > 0 ||
@@ -752,6 +765,73 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Render model list results */}
+            {modelListResults.length > 0 && (
+              <div className={`space-y-2 ${cleanedContent || walletResults.length > 0 || tweetResults.length > 0 || twitterStatusResults.length > 0 ? 'mt-3' : ''}`}>
+                {modelListResults.map((result, idx) => {
+                  const models = result.data as Array<{ id: string; name: string; contextLength?: number }>;
+                  // Group by provider
+                  const grouped = models.reduce((acc, m) => {
+                    const provider = m.id.split('/')[0] || 'other';
+                    if (!acc[provider]) acc[provider] = [];
+                    acc[provider].push(m);
+                    return acc;
+                  }, {} as Record<string, typeof models>);
+                  const providers = Object.keys(grouped).sort();
+                  
+                  return (
+                    <div
+                      key={idx}
+                      className="rounded-lg border border-brand-500/30 bg-gradient-to-br from-brand-500/10 to-purple-500/10 px-4 py-3"
+                    >
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-8 h-8 rounded-full bg-brand-500/20 flex items-center justify-center">
+                          <svg className="w-4 h-4 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-[var(--color-text)]">
+                            Available Models
+                          </div>
+                          <div className="text-xs text-[var(--color-text-muted)]">
+                            {models.length} models from {providers.length} providers
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {providers.map(provider => (
+                          <div key={provider} className="bg-[var(--color-bg)]/50 rounded-lg p-2">
+                            <div className="text-xs font-medium text-[var(--color-text-secondary)] capitalize mb-1">
+                              {provider.replace(/-/g, ' ')}
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {grouped[provider].map(m => (
+                                <span 
+                                  key={m.id}
+                                  className="text-xs px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
+                                  title={`${m.id}${m.contextLength ? ` (${Math.round(m.contextLength/1000)}k ctx)` : ''}`}
+                                >
+                                  {m.name.replace(provider, '').replace(/^[\s-:]+/, '') || m.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <div className="mt-2 pt-2 border-t border-[var(--color-border)]">
+                        <p className="text-xs text-[var(--color-text-muted)]">
+                          Ask me to "switch to [model name]" to change models
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             
