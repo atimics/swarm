@@ -682,6 +682,9 @@ async function runAutonomousBrowserTest() {
     const cookieMatch = authSession.sessionCookie.match(/^([^=]+)=([^;]*)/);
     if (cookieMatch) {
       const [, name, value] = cookieMatch;
+      const apiUrlParsed = new URL(apiUrl);
+      
+      // Add cookie for admin UI domain
       await context.addCookies([{
         name,
         value,
@@ -689,9 +692,21 @@ async function runAutonomousBrowserTest() {
         path: '/',
         httpOnly: true,
         secure: true,
-        sameSite: 'Strict',
+        sameSite: 'None', // Required for cross-site requests
       }]);
       console.log(`🍪 Session cookie injected for ${adminUrlParsed.hostname}`);
+      
+      // Also add cookie for API domain (different subdomain)
+      await context.addCookies([{
+        name,
+        value,
+        domain: apiUrlParsed.hostname,
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'None', // Required for cross-site requests
+      }]);
+      console.log(`🍪 Session cookie injected for ${apiUrlParsed.hostname}`);
     }
   }
   
