@@ -108,6 +108,10 @@ export function AgentConfigModal({ agent, isOpen, onClose }: AgentConfigModalPro
               onChange={(e) => setName(e.target.value)}
               className="text-xl font-semibold bg-transparent border-none outline-none text-[var(--color-text)] w-full"
               placeholder="Agent Name"
+              name="agentName"
+              id="agentName"
+              data-testid="agent-name-input"
+              aria-label="Agent Name"
             />
             <p className="text-sm text-[var(--color-text-tertiary)]">
               {agent.status === 'shell' ? 'Unconfigured agent shell' : 'Configured agent'}
@@ -116,6 +120,7 @@ export function AgentConfigModal({ agent, isOpen, onClose }: AgentConfigModalPro
           <button
             onClick={onClose}
             className="p-2 rounded-lg hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors"
+            aria-label="Close modal"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -150,7 +155,7 @@ export function AgentConfigModal({ agent, isOpen, onClose }: AgentConfigModalPro
           {activeTab === 'general' && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
+                <label htmlFor="agentDescription" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
                   Description
                 </label>
                 <textarea
@@ -159,6 +164,10 @@ export function AgentConfigModal({ agent, isOpen, onClose }: AgentConfigModalPro
                   placeholder="What does this agent do?"
                   rows={3}
                   className="w-full px-4 py-3 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] placeholder-[var(--color-text-muted)] resize-none focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  name="agentDescription"
+                  id="agentDescription"
+                  data-testid="agent-description-input"
+                  aria-label="Agent Description"
                 />
               </div>
             </div>
@@ -167,7 +176,7 @@ export function AgentConfigModal({ agent, isOpen, onClose }: AgentConfigModalPro
           {activeTab === 'persona' && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
+                <label htmlFor="agentPersona" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
                   System Persona
                 </label>
                 <p className="text-xs text-[var(--color-text-muted)] mb-2">
@@ -179,6 +188,10 @@ export function AgentConfigModal({ agent, isOpen, onClose }: AgentConfigModalPro
                   placeholder={`You are a helpful AI assistant that specializes in...\n\nYou have expertise in:\n- Topic 1\n- Topic 2\n\nYour communication style is...`}
                   rows={12}
                   className="w-full px-4 py-3 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] placeholder-[var(--color-text-muted)] resize-none focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono text-sm"
+                  name="agentPersona"
+                  id="agentPersona"
+                  data-testid="agent-persona-input"
+                  aria-label="System Persona"
                 />
               </div>
             </div>
@@ -293,6 +306,8 @@ export function AgentConfigModal({ agent, isOpen, onClose }: AgentConfigModalPro
             <button
               onClick={handleSave}
               className="px-6 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg font-medium transition-colors"
+              data-testid="save-agent-button"
+              aria-label="Save Changes"
             >
               Save Changes
             </button>
