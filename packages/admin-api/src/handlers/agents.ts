@@ -29,6 +29,16 @@ const corsHeaders = {
 // Cookie name for wallet session
 const WALLET_SESSION_COOKIE = 'swarm_session';
 
+// Admin wallets that can see all agents (comma-separated list)
+const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || '').split(',').filter(Boolean);
+
+/**
+ * Check if a wallet address is an admin
+ */
+function isAdminWallet(walletAddress: string): boolean {
+  return ADMIN_WALLETS.includes(walletAddress);
+}
+
 /**
  * Extract wallet session token from cookies
  */
@@ -90,7 +100,7 @@ export async function handler(
       };
     }
 
-    // GET /agents - List agents (filtered by wallet if logged in with wallet)
+    // GET /agents - List agents (filtered by wallet unless admin)
     if (method === 'GET' && path === '/agents') {
       // Check for wallet session to filter agents by creator
       const sessionToken = getWalletSessionFromCookie(event);
@@ -99,9 +109,16 @@ export async function handler(
       if (sessionToken) {
         const walletSession = await getSessionWithUser(sessionToken);
         if (walletSession?.walletAddress) {
-          // Wallet user: show only their created agents
-          agents = await agentService.listAgentsByWallet(walletSession.walletAddress);
-          logger.info(`[Agents] Listed ${agents.length} agents for wallet=${walletSession.walletAddress.slice(0, 8)}...`);
+          // Check if this wallet is an admin
+          if (isAdminWallet(walletSession.walletAddress)) {
+            // Admin wallet: show all agents
+            agents = await agentService.listAgents();
+            logger.info(`[Agents] Admin wallet=${walletSession.walletAddress.slice(0, 8)}... listed all ${agents.length} agents`);
+          } else {
+            // Regular wallet user: show only their created agents
+            agents = await agentService.listAgentsByWallet(walletSession.walletAddress);
+            logger.info(`[Agents] Listed ${agents.length} agents for wallet=${walletSession.walletAddress.slice(0, 8)}...`);
+          }
         } else {
           // Invalid/expired session - return empty list (they need to re-auth)
           agents = [];

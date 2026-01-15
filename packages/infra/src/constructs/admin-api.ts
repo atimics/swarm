@@ -36,6 +36,12 @@ export interface AdminApiConstructProps {
   adminEmails: string;
 
   /**
+   * Comma-separated list of admin wallet addresses (Solana public keys)
+   * These wallets can see all agents regardless of creator
+   */
+  adminWallets?: string;
+
+  /**
    * Global OpenRouter API key (stored in Secrets Manager)
    */
   openRouterApiKeyArn?: string;
@@ -439,6 +445,7 @@ export class AdminApiConstruct extends Construct {
         STATE_TABLE: stateTable?.tableName || '',
         CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
+        ADMIN_WALLETS: props.adminWallets || '',
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         KMS_KEY_ID: this.encryptionKey.keyId,

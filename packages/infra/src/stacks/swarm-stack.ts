@@ -62,6 +62,12 @@ export interface SwarmStackProps extends cdk.StackProps {
   adminEmails?: string;
 
   /**
+   * Admin wallet addresses (comma-separated Solana public keys)
+   * These wallets can see all agents regardless of creator
+   */
+  adminWallets?: string;
+
+  /**
    * OpenRouter API key secret ARN
    */
   openRouterApiKeyArn?: string;
@@ -173,6 +179,7 @@ export class SwarmStack extends cdk.Stack {
       this.adminApi = new AdminApiConstruct(this, 'AdminApi', {
         cloudflareTeamDomain,
         adminEmails,
+        adminWallets: props.adminWallets,
         openRouterApiKeyArn,
         replicateApiKeyArn,
         heliusApiKeyArn,
