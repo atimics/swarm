@@ -52,7 +52,7 @@ function SenderAvatar({ sender }: { sender?: MessageSender }) {
  * Parsed tool result from message content
  */
 interface ParsedToolResult {
-  type: 'image' | 'gallery' | 'audio' | 'success' | 'error' | 'info' | 'inhabit' | 'wallet' | 'unknown';
+  type: 'image' | 'gallery' | 'audio' | 'success' | 'error' | 'info' | 'inhabit' | 'wallet' | 'tweet' | 'twitter_status' | 'unknown';
   data: Record<string, unknown>;
   imageUrl?: string;
   audioUrl?: string;
@@ -68,6 +68,11 @@ interface ParsedToolResult {
   attempts?: number;
   generationTime?: string;
   isVanity?: boolean;
+  // Twitter-specific fields
+  tweetId?: string;
+  tweetUrl?: string;
+  twitterUsername?: string;
+  twitterConnected?: boolean;
 }
 
 /**
@@ -115,6 +120,51 @@ function processMessageContent(content: string): {
         label: typeof parsed.label === 'string' ? parsed.label : 'Inhabit this agent',
         message: typeof parsed.message === 'string' ? parsed.message : undefined,
         isInhabited: typeof parsed.isInhabited === 'boolean' ? parsed.isInhabited : undefined,
+      };
+    }
+
+    // Check for Twitter tweet result (has tweetId and url like twitter.com or x.com)
+    if (parsed.tweetId && typeof parsed.tweetId === 'string') {
+      const tweetUrl = typeof parsed.url === 'string' ? parsed.url : undefined;
+      return {
+        type: 'tweet',
+        data: parsed,
+        tweetId: parsed.tweetId,
+        tweetUrl: tweetUrl,
+        message: typeof parsed.message === 'string' ? parsed.message : 'Tweet posted!',
+      };
+    }
+
+    // Check for Twitter status/connection result
+    if ('connected' in parsed && (parsed.username || 'username' in parsed)) {
+      return {
+        type: 'twitter_status',
+        data: parsed,
+        twitterConnected: parsed.connected === true,
+        twitterUsername: typeof parsed.username === 'string' ? parsed.username : undefined,
+        message: typeof parsed.message === 'string' ? parsed.message : 
+          parsed.connected ? `Connected as @${parsed.username}` : 'Twitter not connected',
+      };
+    }
+
+    // Check for Twitter integration request (pending authorization)
+    if (parsed.pending === true && parsed.authorizationUrl) {
+      return {
+        type: 'twitter_status',
+        data: parsed,
+        twitterConnected: false,
+        message: typeof parsed.message === 'string' ? parsed.message : 'Twitter authorization pending',
+      };
+    }
+
+    // Check for already connected Twitter
+    if (parsed.alreadyConnected === true && parsed.username) {
+      return {
+        type: 'twitter_status',
+        data: parsed,
+        twitterConnected: true,
+        twitterUsername: typeof parsed.username === 'string' ? parsed.username : undefined,
+        message: typeof parsed.message === 'string' ? parsed.message : `Already connected as @${parsed.username}`,
       };
     }
 
@@ -377,9 +427,12 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
   
   const actionResults = toolResults.filter(r => r.type === 'inhabit');
   const walletResults = toolResults.filter(r => r.type === 'wallet');
-  // Filter tool results that should be shown (not images/audio/wallet - those are rendered separately)
+  const tweetResults = toolResults.filter(r => r.type === 'tweet');
+  const twitterStatusResults = toolResults.filter(r => r.type === 'twitter_status');
+  // Filter tool results that should be shown (not images/audio/wallet/twitter - those are rendered separately)
   const visibleToolResults = toolResults.filter(
-    r => r.type !== 'image' && r.type !== 'gallery' && r.type !== 'audio' && r.type !== 'inhabit' && r.type !== 'wallet'
+    r => r.type !== 'image' && r.type !== 'gallery' && r.type !== 'audio' && 
+         r.type !== 'inhabit' && r.type !== 'wallet' && r.type !== 'tweet' && r.type !== 'twitter_status'
   );
   
   // Filter out media generation tools for interactive display
@@ -401,6 +454,8 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
     cleanedContent ||
     actionResults.length > 0 ||
     walletResults.length > 0 ||
+    tweetResults.length > 0 ||
+    twitterStatusResults.length > 0 ||
     visibleToolResults.length > 0 ||
     images.length > 0 ||
     audios.length > 0 ||
@@ -607,6 +662,96 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Render Twitter tweet results */}
+            {tweetResults.length > 0 && (
+              <div className={`space-y-2 ${cleanedContent || walletResults.length > 0 ? 'mt-3' : ''}`}>
+                {tweetResults.map((result, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-sky-500/10 px-4 py-3"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+                        <svg className="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M13.95 10.85L20.54 3h-1.56l-5.74 6.84L8.5 3H3.1l6.92 10.09L3.1 21h1.56l5.97-7.11L15.5 21h5.4l-6.95-10.15zm-2.45 2.92l-.7-1.03L5.8 4.5h2.46l4.06 5.98.7 1.02 5.24 7.71h-2.46l-4.3-6.44z" />
+                        </svg>
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-[var(--color-text)]">
+                          Tweet Posted! 🎉
+                        </div>
+                      </div>
+                      {result.tweetUrl && (
+                        <a
+                          href={result.tweetUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                        >
+                          View on X
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </a>
+                      )}
+                    </div>
+                    {result.message && (
+                      <div className="text-sm text-[var(--color-text-secondary)]">
+                        {result.message}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Render Twitter status/connection results */}
+            {twitterStatusResults.length > 0 && (
+              <div className={`space-y-2 ${cleanedContent || walletResults.length > 0 || tweetResults.length > 0 ? 'mt-3' : ''}`}>
+                {twitterStatusResults.map((result, idx) => (
+                  <div
+                    key={idx}
+                    className={`rounded-lg border px-4 py-3 ${
+                      result.twitterConnected 
+                        ? 'border-green-500/30 bg-gradient-to-br from-green-500/10 to-emerald-500/10' 
+                        : 'border-yellow-500/30 bg-gradient-to-br from-yellow-500/10 to-orange-500/10'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        result.twitterConnected ? 'bg-green-500/20' : 'bg-yellow-500/20'
+                      }`}>
+                        <svg className={`w-4 h-4 ${result.twitterConnected ? 'text-green-400' : 'text-yellow-400'}`} fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M13.95 10.85L20.54 3h-1.56l-5.74 6.84L8.5 3H3.1l6.92 10.09L3.1 21h1.56l5.97-7.11L15.5 21h5.4l-6.95-10.15zm-2.45 2.92l-.7-1.03L5.8 4.5h2.46l4.06 5.98.7 1.02 5.24 7.71h-2.46l-4.3-6.44z" />
+                        </svg>
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-[var(--color-text)]">
+                          {result.twitterConnected ? 'Twitter Connected' : 'Twitter Connection'}
+                          {result.twitterUsername && (
+                            <span className="ml-2 text-blue-400">@{result.twitterUsername}</span>
+                          )}
+                        </div>
+                        {result.message && (
+                          <div className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                            {result.message}
+                          </div>
+                        )}
+                      </div>
+                      {result.twitterConnected && (
+                        <div className="flex items-center gap-1 text-xs text-green-400">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Connected
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
             
