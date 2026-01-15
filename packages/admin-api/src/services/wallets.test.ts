@@ -6,15 +6,33 @@ import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 // Mock AWS
 vi.mock('@aws-sdk/lib-dynamodb', () => {
   const mockSend = vi.fn();
+  class MockPutCommand {
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
+  class MockGetCommand {
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
+  class MockQueryCommand {
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
   return {
     DynamoDBDocumentClient: {
       from: vi.fn(() => ({
-        send: mockSend
-      }))
+        send: mockSend,
+      })),
     },
-    PutCommand: vi.fn(),
-    GetCommand: vi.fn(),
-    QueryCommand: vi.fn(),
+    PutCommand: MockPutCommand,
+    GetCommand: MockGetCommand,
+    QueryCommand: MockQueryCommand,
   };
 });
 

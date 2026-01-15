@@ -1,35 +1,38 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 
-// Use vi.hoisted to ensure mock functions are available when vi.mock is hoisted
-const { mockCreateAgent, mockDynamoSend } = vi.hoisted(() => ({
-  mockCreateAgent: vi.fn(async (name: string, _session: unknown, desc?: string) => ({
+let mockCreateAgent: ReturnType<typeof vi.fn>;
+let mockDynamoSend: ReturnType<typeof vi.fn>;
+
+// Mock AWS SDK
+vi.mock('@aws-sdk/lib-dynamodb', () => {
+  mockDynamoSend = vi.fn();
+  return {
+    DynamoDBDocumentClient: {
+      from: vi.fn(() => ({
+        send: mockDynamoSend,
+      })),
+    },
+    GetCommand: vi.fn(x => x),
+    PutCommand: vi.fn(x => x),
+    ScanCommand: vi.fn(x => x),
+  };
+});
+
+// Mock agents service
+vi.mock('./agents.js', () => {
+  mockCreateAgent = vi.fn(async (name: string, _session: unknown, desc?: string) => ({
     agentId: 'new-agent',
     pk: 'AGENT#new-agent',
     sk: 'CONFIG',
     name,
     description: desc,
     status: 'draft',
-    createdAt: Date.now()
-  })),
-  mockDynamoSend: vi.fn()
-}));
-
-// Mock AWS SDK
-vi.mock('@aws-sdk/lib-dynamodb', () => ({
-  DynamoDBDocumentClient: {
-    from: vi.fn(() => ({
-      send: mockDynamoSend
-    }))
-  },
-  GetCommand: vi.fn(x => x),
-  PutCommand: vi.fn(x => x),
-  ScanCommand: vi.fn(x => x),
-}));
-
-// Mock agents service
-vi.mock('./agents.js', () => ({
-  createAgent: mockCreateAgent
-}));
+    createdAt: Date.now(),
+  }));
+  return {
+    createAgent: mockCreateAgent,
+  };
+});
 
 describe('TemplateService', () => {
   let templateService: typeof import('./templates.js');

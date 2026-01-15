@@ -7,26 +7,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { UserSession } from '../types.js';
 
-// Use vi.hoisted() to ensure mock functions are available before vi.mock() calls
-const {
-  mockDynamoSend,
-  mockSecretsSend,
-  mockTwitterLogin,
-  mockTwitterGenerateAuthLink,
-  mockTwitterMe,
-  mockStoreSecret,
-  mockDeleteSecret,
-  mockGetSecretValue,
-} = vi.hoisted(() => ({
-  mockDynamoSend: vi.fn(),
-  mockSecretsSend: vi.fn(),
-  mockTwitterLogin: vi.fn(),
-  mockTwitterGenerateAuthLink: vi.fn(),
-  mockTwitterMe: vi.fn(),
-  mockStoreSecret: vi.fn(),
-  mockDeleteSecret: vi.fn(),
-  mockGetSecretValue: vi.fn(),
-}));
+const mockDynamoSend = vi.fn();
+const mockSecretsSend = vi.fn();
+const mockTwitterLogin = vi.fn();
+const mockTwitterGenerateAuthLink = vi.fn();
+const mockTwitterMe = vi.fn();
+const mockStoreSecret = vi.fn();
+const mockDeleteSecret = vi.fn();
+const mockGetSecretValue = vi.fn();
 
 // Mock AWS SDK clients
 vi.mock('@aws-sdk/client-dynamodb', () => ({

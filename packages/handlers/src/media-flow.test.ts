@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { z } from 'zod';
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
 
 vi.mock('@aws-sdk/client-sqs', () => ({
@@ -19,19 +20,17 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
   PutCommand: vi.fn().mockImplementation((input: any) => ({ input })),
 }));
 
-vi.mock('@swarm/core', async () => {
-  const { z: zodLib } = await import('zod');
-
+vi.mock('@swarm/core', () => {
   // Create mock Zod schemas that match the structure expected by media-processor
-  const MockResponseActionSchema = zodLib.object({
-    type: zodLib.string(),
+  const MockResponseActionSchema = z.object({
+    type: z.string(),
   }).passthrough();
 
-  const MockSwarmResponseSchema = zodLib.object({
-    agentId: zodLib.string(),
-    platform: zodLib.string(),
-    conversationId: zodLib.string(),
-    actions: zodLib.array(zodLib.any()),
+  const MockSwarmResponseSchema = z.object({
+    agentId: z.string(),
+    platform: z.string(),
+    conversationId: z.string(),
+    actions: z.array(z.any()),
   }).passthrough();
 
   return {
