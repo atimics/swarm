@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgentStore } from './store';
-import { AgentSidebar, AgentLogsPanel, ChatPanel } from './components';
+import { useWalletAuth } from './store/walletAuth';
+import { AgentSidebar, AgentLogsPanel, ChatPanel, LandingPage } from './components';
 
 function getLogsAgentId(pathname: string): string | null {
   const match = pathname.match(/^\/agents\/([^/]+)\/logs\/?$/);
@@ -14,7 +15,9 @@ function getInhabitAgentId(pathname: string): string | null {
 
 function App() {
   const { agents, fetchAgents, activeAgentId, syncChatHistory, setActiveAgent, addMessage } = useAgentStore();
+  const { isAuthenticated, isLoading: authLoading, checkAuth } = useWalletAuth();
   const [initialized, setInitialized] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [logsAgentId, setLogsAgentId] = useState<string | null>(
     () => getLogsAgentId(window.location.pathname)
@@ -26,14 +29,21 @@ function App() {
 
   const isLogsRoute = useMemo(() => Boolean(logsAgentId), [logsAgentId]);
 
-  // Fetch agents from backend on mount
+  // Check auth status on mount
   useEffect(() => {
-    if (!initialized) {
+    if (!authChecked) {
+      checkAuth().finally(() => setAuthChecked(true));
+    }
+  }, [authChecked, checkAuth]);
+
+  // Fetch agents from backend once authenticated
+  useEffect(() => {
+    if (!initialized && authChecked && isAuthenticated) {
       fetchAgents()
         .catch(console.error)
         .finally(() => setInitialized(true));
     }
-  }, [initialized, fetchAgents]);
+  }, [initialized, authChecked, isAuthenticated, fetchAgents]);
 
   // Sync chat history from backend when agent is selected
   // ALWAYS sync on agent change to ensure cross-device consistency
@@ -107,6 +117,23 @@ function App() {
     window.history.pushState({}, '', '/');
     setLogsAgentId(null);
   }, []);
+
+  // Show loading state while checking auth
+  if (!authChecked || authLoading) {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-[var(--color-bg)]">
+        <div className="flex flex-col items-center gap-4">
+          <img src="/swarm.svg" alt="Swarm" className="w-12 h-12 animate-pulse" />
+          <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  // Show landing page for unauthenticated users
+  if (!isAuthenticated) {
+    return <LandingPage />;
+  }
 
   return (
     <div className="h-[100dvh] flex flex-col bg-[var(--color-bg)] relative">

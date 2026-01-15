@@ -90,20 +90,20 @@ export const createVoiceTools = (services: VoiceServices) => [
       description: z.string().min(1)
         .describe('Description of your desired voice - include personality traits, tone, gender, age, accent, speaking style. Example: "A warm female voice with a slight Southern accent, playful and energetic, speaks quickly with enthusiasm"'),
     }),
-    contextBuilder: async (context) => {
+    shouldShow: async (context) => {
+      // Hide this tool if voice is already configured (one-shot voice creation)
       try {
         const status = await services.hasVoice(context.agentId);
-        if (status.hasVoice) {
-          // Don't show this tool if voice is already configured
-          return `⚠️ SKIP THIS TOOL - You already have a voice configured (ID: ${status.voiceId}). Use send_voice_message instead to speak.`;
-        }
-        return '🎤 You do not have a voice yet. Use this tool to create one based on your personality, then use send_voice_message to speak.';
+        return !status.hasVoice;
       } catch {
-        return undefined;
+        return true; // Show on error (let them try)
       }
     },
+    contextBuilder: async () => {
+      return '🎤 Create your unique voice! Describe your desired voice personality and style.';
+    },
     execute: async (input, context): Promise<ToolResult> => {
-      // Check if voice already exists
+      // Double-check voice doesn't exist (in case tool was cached)
       try {
         const status = await services.hasVoice(context.agentId);
         if (status.hasVoice) {

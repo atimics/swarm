@@ -425,42 +425,134 @@ export function createVoiceServices(config: {
     sendVoiceMessage: async (params: {
       agentId: string;
       platform: string;
-      conversationId: string;
-      assetId?: string;
-      url?: string;
-      caption?: string;
+      text: string;
+      conversationId?: string;
+      voiceId?: string;
+      format?: AudioFormat;
+      speed?: number;
       replyToMessageId?: string;
-    }) => {
-      if (params.platform !== 'telegram') {
-        throw new Error(`Voice messaging not supported for platform: ${params.platform}`);
+    }): Promise<{ success: boolean; assetId?: string; url?: string; sent?: boolean }> => {
+      if (!config.mediaBucket) {
+        throw new Error('MEDIA_BUCKET not configured');
       }
 
-      if (!telegramToken) {
-        throw new Error('TELEGRAM_BOT_TOKEN not configured');
+      // Generate the voice message first
+      const format = params.format || config.voiceConfig?.format || 'ogg';
+      const referenceUrl = config.voiceConfig?.referenceUrl;
+      const voiceId = params.voiceId;
+      let assetId: string;
+      let url: string;
+
+      if (config.voiceConfig?.ttsProvider === 'voice-clone' && VOICE_TTS_MODEL && replicateKey && (referenceUrl || isUrl(voiceId))) {
+        const seedUrl = referenceUrl || (isUrl(voiceId) ? voiceId : undefined);
+        if (!seedUrl) {
+          throw new Error('Voice reference URL not configured');
+        }
+
+        const outputUrl = await runReplicatePrediction(
+          replicateKey,
+          VOICE_TTS_MODEL,
+          {
+            text: params.text,
+            speaker_wav: await makeUrlAccessible(seedUrl, config.cdnUrl),
+          },
+          { pollIntervalMs: config.replicatePollIntervalMs }
+        );
+
+        const audioResponse = await fetchWithTimeout(outputUrl);
+        if (!audioResponse.ok) {
+          const errorText = await audioResponse.text();
+          throw new Error(`Failed to download TTS audio: ${audioResponse.status} - ${errorText}`);
+        }
+
+        const buffer = Buffer.from(await audioResponse.arrayBuffer());
+        const contentType = audioResponse.headers.get('content-type');
+        const detectedFormat = detectAudioFormat(contentType, outputUrl);
+
+        const asset = await uploadAudioAsset({
+          agentId: config.agentId,
+          buffer,
+          format: detectedFormat,
+          mediaBucket: config.mediaBucket,
+          cdnUrl: config.cdnUrl,
+        });
+
+        assetId = asset.assetId;
+        url = asset.url;
+      } else {
+        if (!openAiKey) {
+          throw new Error('OPENAI_API_KEY not configured');
+        }
+
+        const voice = voiceId && !isUrl(voiceId) ? voiceId : OPENAI_TTS_VOICE;
+        const responseFormat = format === 'ogg' ? 'opus' : format;
+
+        const response = await fetch('https://api.openai.com/v1/audio/speech', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${openAiKey}`,
+          },
+          body: JSON.stringify({
+            model: OPENAI_TTS_MODEL,
+            voice,
+            input: params.text,
+            response_format: responseFormat,
+            ...(params.speed ? { speed: params.speed } : {}),
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`OpenAI TTS failed: ${response.status} - ${errorText}`);
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+
+        const asset = await uploadAudioAsset({
+          agentId: config.agentId,
+          buffer,
+          format,
+          mediaBucket: config.mediaBucket,
+          cdnUrl: config.cdnUrl,
+        });
+
+        assetId = asset.assetId;
+        url = asset.url;
       }
 
-      const voiceUrl = params.url;
-      if (!voiceUrl) {
-        throw new Error('Voice URL required for sendVoiceMessage');
+      const accessibleUrl = await makeUrlAccessible(url, config.cdnUrl);
+
+      // For Telegram, send directly to the chat
+      if (params.platform === 'telegram') {
+        if (!params.conversationId) {
+          throw new Error('conversationId is required for Telegram voice messages');
+        }
+
+        if (!telegramToken) {
+          throw new Error('TELEGRAM_BOT_TOKEN not configured');
+        }
+
+        const response = await fetch(`https://api.telegram.org/bot${telegramToken}/sendVoice`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: params.conversationId,
+            voice: accessibleUrl,
+            reply_to_message_id: params.replyToMessageId ? Number(params.replyToMessageId) : undefined,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Telegram sendVoice failed: ${response.status} - ${errorText}`);
+        }
+
+        return { success: true, assetId, url, sent: true };
       }
 
-      const response = await fetch(`https://api.telegram.org/bot${telegramToken}/sendVoice`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: params.conversationId,
-          voice: voiceUrl,
-          caption: params.caption,
-          reply_to_message_id: params.replyToMessageId ? Number(params.replyToMessageId) : undefined,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Telegram sendVoice failed: ${response.status} - ${errorText}`);
-      }
-
-      return { success: true };
+      // For web and other platforms, return the audio URL for playback
+      return { success: true, assetId, url, sent: false };
     },
   };
 }

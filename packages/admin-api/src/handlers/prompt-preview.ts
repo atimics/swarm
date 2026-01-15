@@ -198,9 +198,24 @@ export async function handler(
 
     // Get tools filtered by platform and toolsets
     const allTools = toolRegistry.getForPlatform(toolContext.platform);
-    const filteredTools = allTools.filter(tool =>
+    const toolsetFiltered = allTools.filter(tool =>
       effectiveToolsets.includes(tool.toolset || 'core')
     );
+
+    // Filter out tools where shouldShow returns false
+    const visibilityChecks = await Promise.all(
+      toolsetFiltered.map(async (tool) => {
+        if (tool.shouldShow) {
+          try {
+            return await tool.shouldShow(toolContext);
+          } catch {
+            return true; // Show on error
+          }
+        }
+        return true; // No shouldShow = always visible
+      })
+    );
+    const filteredTools = toolsetFiltered.filter((_, index) => visibilityChecks[index]);
 
     // Build tool previews
     const toolPreviews: ToolPreview[] = await Promise.all(

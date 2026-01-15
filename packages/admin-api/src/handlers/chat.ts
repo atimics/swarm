@@ -329,9 +329,24 @@ async function buildOpenRouterTools(
   const toolDefs = registry.getForPlatform(context.platform);
   const allowedToolsets = resolveAllowedToolsets(options.enabledCategories);
   // Include all tools from allowed toolsets - no keyword-based routing
-  const filtered = allowedToolsets
+  const toolsetFiltered = allowedToolsets
     ? toolDefs.filter(tool => allowedToolsets.includes(tool.toolset || 'core'))
     : toolDefs;
+
+  // Filter out tools where shouldShow returns false
+  const visibilityChecks = await Promise.all(
+    toolsetFiltered.map(async (tool) => {
+      if (tool.shouldShow) {
+        try {
+          return await tool.shouldShow(context);
+        } catch {
+          return true; // Show on error
+        }
+      }
+      return true; // No shouldShow = always visible
+    })
+  );
+  const filtered = toolsetFiltered.filter((_, index) => visibilityChecks[index]);
 
   return Promise.all(filtered.map(async (toolDef) => {
     let description = toolDef.description;

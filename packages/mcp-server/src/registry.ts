@@ -93,6 +93,8 @@ export interface ToolDefinition<TInput = any, TOutput = unknown> {
   platforms?: Array<'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api' | 'mcp'>;
   /** Dynamic context builder for description enhancement */
   contextBuilder?: (context: ToolContext) => Promise<string | undefined>;
+  /** Dynamic visibility check - return false to hide this tool from the list */
+  shouldShow?: (context: ToolContext) => Promise<boolean>;
 }
 
 // ============================================================================
@@ -424,6 +426,7 @@ export function defineTool<
   execute: ((input: z.infer<TInput>, context: ToolContext) => Promise<ToolResult<TOutput>>) | false;
   platforms?: ToolDefinition['platforms'];
   contextBuilder?: (context: ToolContext) => Promise<string | undefined>;
+  shouldShow?: (context: ToolContext) => Promise<boolean>;
 }): ToolDefinition<z.infer<TInput>, TOutput> {
   return definition as ToolDefinition<z.infer<TInput>, TOutput>;
 }

@@ -12,3 +12,4 @@ export { WalletProvider } from './WalletProvider';
 export { WalletLogin, GhostAvatar, UserAvatar } from './WalletLogin';
 export { ImageModal, useImageModal } from './ImageModal';
 export { PromptPreviewPanel } from './PromptPreviewPanel';
+export { LandingPage } from './LandingPage';
