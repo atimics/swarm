@@ -15,7 +15,7 @@ function getInhabitAgentId(pathname: string): string | null {
 
 function App() {
   const { agents, fetchAgents, activeAgentId, syncChatHistory, setActiveAgent, addMessage } = useAgentStore();
-  const { isAuthenticated, isLoading: authLoading, checkAuth } = useWalletAuth();
+  const { isAuthenticated, checkAuth } = useWalletAuth();
   const [initialized, setInitialized] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -29,10 +29,22 @@ function App() {
 
   const isLogsRoute = useMemo(() => Boolean(logsAgentId), [logsAgentId]);
 
-  // Check auth status on mount
+  // Check auth status on mount with timeout protection
   useEffect(() => {
     if (!authChecked) {
-      checkAuth().finally(() => setAuthChecked(true));
+      const timeoutId = setTimeout(() => {
+        // If auth check takes too long, assume not authenticated and continue
+        console.warn('[App] Auth check timeout - continuing without auth');
+        setAuthChecked(true);
+      }, 10000); // 10 second timeout
+      
+      checkAuth()
+        .finally(() => {
+          clearTimeout(timeoutId);
+          setAuthChecked(true);
+        });
+      
+      return () => clearTimeout(timeoutId);
     }
   }, [authChecked, checkAuth]);
 
@@ -118,8 +130,8 @@ function App() {
     setLogsAgentId(null);
   }, []);
 
-  // Show loading state while checking auth
-  if (!authChecked || authLoading) {
+  // Show loading state while checking auth (only use local authChecked state)
+  if (!authChecked) {
     return (
       <div className="h-[100dvh] flex items-center justify-center bg-[var(--color-bg)]">
         <div className="flex flex-col items-center gap-4">
