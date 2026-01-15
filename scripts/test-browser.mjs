@@ -700,8 +700,10 @@ async function runAutonomousBrowserTest() {
   if (Object.keys(cfHeaders).length > 0) {
     await page.setExtraHTTPHeaders(cfHeaders);
     console.log('🔐 Cloudflare Access headers set for browser requests');
+    console.log(`   Client ID: ${CF_ACCESS_CLIENT_ID?.slice(0, 8)}...${CF_ACCESS_CLIENT_ID?.slice(-4)}`);
   } else {
     console.warn('⚠️  No Cloudflare Access credentials - browser may hit auth wall');
+    console.warn('   Ensure CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are set');
   }
   
   const agentName = generateAgentName();
@@ -720,6 +722,43 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
   
   try {
     console.log('📸 Loading application...');
+    
+    // Debug: First make a fetch request to see what Cloudflare returns
+    if (Object.keys(cfHeaders).length > 0) {
+      console.log('🔍 Testing Cloudflare Access with service token...');
+      try {
+        const testResponse = await fetch(adminUrl, {
+          headers: cfHeaders,
+          redirect: 'manual', // Don't follow redirects
+        });
+        console.log(`   Response status: ${testResponse.status}`);
+        console.log(`   Location: ${testResponse.headers.get('location') || '(none)'}`);
+        const cfCookie = testResponse.headers.get('set-cookie');
+        if (cfCookie && cfCookie.includes('CF_Authorization')) {
+          console.log('   ✅ CF_Authorization cookie received');
+          // Extract and add the cookie to the browser context
+          const cfAuthMatch = cfCookie.match(/CF_Authorization=([^;]+)/);
+          if (cfAuthMatch) {
+            await context.addCookies([{
+              name: 'CF_Authorization',
+              value: cfAuthMatch[1],
+              domain: adminUrlParsed.hostname,
+              path: '/',
+              httpOnly: true,
+              secure: true,
+              sameSite: 'None',
+            }]);
+            console.log('   🍪 CF_Authorization cookie added to browser');
+          }
+        } else {
+          console.log(`   ⚠️  No CF_Authorization cookie - service token may not be valid for this app`);
+          console.log(`   Cookies received: ${cfCookie || '(none)'}`);
+        }
+      } catch (fetchErr) {
+        console.log(`   Fetch test failed: ${fetchErr.message}`);
+      }
+    }
+    
     await page.goto(adminUrl, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(2000);
     

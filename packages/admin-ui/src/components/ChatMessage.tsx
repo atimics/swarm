@@ -52,7 +52,7 @@ function SenderAvatar({ sender }: { sender?: MessageSender }) {
  * Parsed tool result from message content
  */
 interface ParsedToolResult {
-  type: 'image' | 'gallery' | 'audio' | 'success' | 'error' | 'info' | 'inhabit' | 'unknown';
+  type: 'image' | 'gallery' | 'audio' | 'success' | 'error' | 'info' | 'inhabit' | 'wallet' | 'unknown';
   data: Record<string, unknown>;
   imageUrl?: string;
   audioUrl?: string;
@@ -61,6 +61,13 @@ interface ParsedToolResult {
   agentId?: string;
   label?: string;
   isInhabited?: boolean;
+  // Wallet-specific fields
+  publicKey?: string;
+  walletName?: string;
+  pattern?: string;
+  attempts?: number;
+  generationTime?: string;
+  isVanity?: boolean;
 }
 
 /**
@@ -108,6 +115,26 @@ function processMessageContent(content: string): {
         label: typeof parsed.label === 'string' ? parsed.label : 'Inhabit this agent',
         message: typeof parsed.message === 'string' ? parsed.message : undefined,
         isInhabited: typeof parsed.isInhabited === 'boolean' ? parsed.isInhabited : undefined,
+      };
+    }
+
+    // Check for wallet creation result (including vanity wallets)
+    if (parsed.publicKey && typeof parsed.publicKey === 'string' && parsed.publicKey.length > 30) {
+      const isVanity = parsed._uiType === 'vanity_wallet_created' || 
+                       typeof parsed.pattern === 'string' ||
+                       typeof parsed.attempts === 'number';
+      return {
+        type: 'wallet',
+        data: parsed,
+        publicKey: parsed.publicKey as string,
+        walletName: typeof parsed.message === 'string' 
+          ? parsed.message.match(/wallet "([^"]+)"/)?.[1] || 'Wallet'
+          : 'Wallet',
+        message: typeof parsed.message === 'string' ? parsed.message : 'Wallet created!',
+        pattern: typeof parsed.pattern === 'string' ? parsed.pattern : undefined,
+        attempts: typeof parsed.attempts === 'number' ? parsed.attempts : undefined,
+        generationTime: typeof parsed.generationTime === 'string' ? parsed.generationTime : undefined,
+        isVanity,
       };
     }
 
@@ -349,9 +376,10 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
   const failedJobs = getFailedJobs(message.pendingJobs);
   
   const actionResults = toolResults.filter(r => r.type === 'inhabit');
-  // Filter tool results that should be shown (not images/audio - those are rendered separately)
+  const walletResults = toolResults.filter(r => r.type === 'wallet');
+  // Filter tool results that should be shown (not images/audio/wallet - those are rendered separately)
   const visibleToolResults = toolResults.filter(
-    r => r.type !== 'image' && r.type !== 'gallery' && r.type !== 'audio' && r.type !== 'inhabit'
+    r => r.type !== 'image' && r.type !== 'gallery' && r.type !== 'audio' && r.type !== 'inhabit' && r.type !== 'wallet'
   );
   
   // Filter out media generation tools for interactive display
@@ -372,6 +400,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
     message.isLoading ||
     cleanedContent ||
     actionResults.length > 0 ||
+    walletResults.length > 0 ||
     visibleToolResults.length > 0 ||
     images.length > 0 ||
     audios.length > 0 ||
@@ -491,6 +520,88 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
                       {state === 'error' && inhabitStates[result.agentId]?.error && (
                         <div className="mt-1 text-xs text-red-400">
                           {inhabitStates[result.agentId]?.error}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            
+            {/* Render wallet creation results with nice UI */}
+            {walletResults.length > 0 && (
+              <div className={`space-y-2 ${cleanedContent || actionResults.length > 0 ? 'mt-3' : ''}`}>
+                {walletResults.map((result, idx) => {
+                  const copyToClipboard = () => {
+                    if (result.publicKey) {
+                      navigator.clipboard.writeText(result.publicKey);
+                    }
+                  };
+                  
+                  // Highlight pattern in address if it's a vanity wallet
+                  const highlightedAddress = result.publicKey && result.pattern 
+                    ? result.publicKey.replace(
+                        new RegExp(`(${result.pattern})`, 'gi'), 
+                        '<span class="text-brand-400 font-bold">$1</span>'
+                      )
+                    : result.publicKey;
+                  
+                  return (
+                    <div
+                      key={idx}
+                      className="rounded-lg border border-brand-500/30 bg-gradient-to-br from-brand-500/10 to-purple-500/10 px-4 py-3"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-brand-500/20 flex items-center justify-center">
+                          <svg className="w-4 h-4 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                          </svg>
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-[var(--color-text)]">
+                            {result.isVanity ? '✨ Vanity Wallet Created' : '💳 Wallet Created'}
+                          </div>
+                          <div className="text-xs text-[var(--color-text-muted)]">
+                            {result.walletName || 'Solana'}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-[var(--color-bg-primary)] rounded-md px-3 py-2 mb-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <code 
+                            className="text-xs font-mono text-[var(--color-text-secondary)] break-all"
+                            dangerouslySetInnerHTML={{ __html: highlightedAddress || '' }}
+                          />
+                          <button
+                            onClick={copyToClipboard}
+                            className="flex-shrink-0 p-1.5 rounded hover:bg-[var(--color-bg-tertiary)] transition text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                            title="Copy address"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {result.isVanity && (
+                        <div className="flex items-center gap-3 text-xs text-[var(--color-text-muted)]">
+                          {result.pattern && (
+                            <span className="bg-brand-500/20 text-brand-300 px-2 py-0.5 rounded">
+                              Pattern: {result.pattern}
+                            </span>
+                          )}
+                          {result.attempts && (
+                            <span>
+                              {result.attempts.toLocaleString()} attempts
+                            </span>
+                          )}
+                          {result.generationTime && (
+                            <span>
+                              ⏱ {result.generationTime}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>

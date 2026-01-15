@@ -49,15 +49,17 @@ export interface TwitterOAuthHandlerDeps {
   };
 }
 
-// Default dependencies using real imports
-const defaultDeps: TwitterOAuthHandlerDeps = {
-  twitterOAuth: twitterOAuthDefault,
-  agentService: agentServiceDefault,
-  auth: {
-    authenticateRequest,
-    requireAdmin,
-  },
-};
+// Create default dependencies lazily to avoid issues with namespace imports at module load time
+function getDefaultDeps(): TwitterOAuthHandlerDeps {
+  return {
+    twitterOAuth: twitterOAuthDefault,
+    agentService: agentServiceDefault,
+    auth: {
+      authenticateRequest,
+      requireAdmin,
+    },
+  };
+}
 
 // CORS headers
 const allowedOrigin = process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:5173';
@@ -77,9 +79,11 @@ const corsHeaders = {
  */
 export async function handler(
   event: APIGatewayProxyEventV2,
-  deps: TwitterOAuthHandlerDeps = defaultDeps
+  deps?: TwitterOAuthHandlerDeps
 ): Promise<APIGatewayProxyResultV2> {
-  const { twitterOAuth, agentService, auth } = deps;
+  // Use provided deps or get defaults lazily
+  const resolvedDeps = deps || getDefaultDeps();
+  const { twitterOAuth, agentService, auth } = resolvedDeps;
 
   // Handle preflight
   if (event.requestContext.http.method === 'OPTIONS') {
@@ -101,7 +105,7 @@ export async function handler(
     // GET /oauth/twitter/callback - OAuth callback from Twitter (no auth needed)
     // This is called by Twitter after user authorizes - they won't have auth headers
     if (method === 'GET' && path === '/oauth/twitter/callback') {
-      return handleCallback(event, deps);
+      return handleCallback(event, resolvedDeps);
     }
 
     // GET /oauth/twitter/start?agentId=xxx - Start OAuth flow (no auth needed)
