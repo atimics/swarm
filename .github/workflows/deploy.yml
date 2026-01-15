@@ -237,6 +237,9 @@ jobs:
           role-session-name: browser-staging
 
       - name: Run Browser Tests
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: node scripts/test-browser.mjs staging
 
       - name: Upload Screenshots
