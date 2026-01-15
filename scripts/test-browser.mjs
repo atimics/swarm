@@ -996,8 +996,11 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
       }
     }
     
-    await page.goto(adminUrl, { waitUntil: 'networkidle', timeout: 30000 });
-    await page.waitForTimeout(2000);
+    // Use 'domcontentloaded' instead of 'networkidle' - the latter can timeout
+    // if there are persistent connections (websockets, SSE) or slow resources
+    await page.goto(adminUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Give the app time to hydrate and render
+    await page.waitForTimeout(3000);
     
     // Take initial screenshot for comparison
     let previousScreenshot = await takeScreenshotBase64(page);
