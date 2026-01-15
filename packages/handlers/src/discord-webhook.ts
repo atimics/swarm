@@ -93,10 +93,16 @@ export async function handler(
   event: APIGatewayProxyEvent,
   context: Context
 ): Promise<APIGatewayProxyResult> {
+  const startTime = Date.now();
   logger.setContext({
     agentId: AGENT_ID,
     platform: 'discord',
     requestId: context.awsRequestId,
+  });
+
+  logger.info('Discord webhook received', {
+    event: 'request_received',
+    subsystem: 'discord',
   });
 
   try {
@@ -111,7 +117,11 @@ export async function handler(
 
     const isValid = await discordAdapter.verifyRequest(body, headers);
     if (!isValid) {
-      logger.warn('Invalid Discord request signature');
+      logger.warn('Invalid Discord request signature', {
+        event: 'validation_error',
+        subsystem: 'discord',
+        reason: 'invalid_signature',
+      });
       return { statusCode: 401, body: 'Unauthorized' };
     }
 
@@ -119,7 +129,10 @@ export async function handler(
     try {
       payload = JSON.parse(body.toString());
     } catch (parseError) {
-      logger.error('Failed to parse Discord payload', parseError);
+      logger.error('Failed to parse Discord payload', parseError, {
+        event: 'parse_error',
+        subsystem: 'discord',
+      });
       return { statusCode: 400, body: 'Invalid JSON' };
     }
 
@@ -152,7 +165,11 @@ export async function handler(
     );
 
     if (!isNewMessage) {
-      logger.info('Duplicate Discord message, skipping', { messageId: envelope.messageId });
+      logger.info('Duplicate Discord message, skipping', {
+        event: 'duplicate_message',
+        subsystem: 'discord',
+        messageId: envelope.messageId,
+      });
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -166,7 +183,11 @@ export async function handler(
 
     const evaluation = await evaluator.evaluate(envelope);
     if (!evaluation.shouldRespond) {
-      logger.info('Not responding', { reason: evaluation.reason });
+      logger.info('Not responding', {
+        event: 'response_skipped',
+        subsystem: 'discord',
+        reason: evaluation.reason,
+      });
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -203,7 +224,12 @@ export async function handler(
       MessageDeduplicationId: envelope.metadata.idempotencyKey,
     }));
 
-    logger.info('Discord message queued', { messageId: envelope.messageId });
+    logger.info('Discord message queued', {
+      event: 'message_queued',
+      subsystem: 'discord',
+      messageId: envelope.messageId,
+      durationMs: Date.now() - startTime,
+    });
 
     return {
       statusCode: 200,
@@ -211,7 +237,11 @@ export async function handler(
       body: isInteraction(payload) ? JSON.stringify({ type: 5 }) : 'OK',
     };
   } catch (error) {
-    logger.error('Discord webhook handler error', error);
+    logger.error('Discord webhook handler error', error, {
+      event: 'handler_error',
+      subsystem: 'discord',
+      durationMs: Date.now() - startTime,
+    });
 
     try {
       await activityService.logError(

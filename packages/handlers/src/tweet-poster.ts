@@ -66,6 +66,7 @@ async function initialize(): Promise<void> {
 }
 
 export const handler: ScheduledHandler = async (_event, context: Context) => {
+  const startTime = Date.now();
   logger.setContext({
     agentId: AGENT_ID,
     platform: 'twitter',
@@ -73,10 +74,19 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
     template: TWEET_TEMPLATE,
   });
 
+  logger.info('Tweet poster started', {
+    event: 'handler_started',
+    subsystem: 'twitter',
+    template: TWEET_TEMPLATE,
+  });
+
   try {
     await initialize();
 
-    logger.info('Generating scheduled tweet');
+    logger.info('Generating scheduled tweet', {
+      event: 'llm_request',
+      subsystem: 'llm',
+    });
 
     // Generate tweet content using LLM
     const llmService = createLLMService(agentConfig.llm, secrets);
@@ -106,7 +116,12 @@ Respond with ONLY the tweet text, nothing else.`;
       tweetText = tweetText.slice(0, 277) + '...';
     }
 
-    logger.info('Tweet generated', { text: tweetText, length: tweetText.length });
+    logger.info('Tweet generated', {
+      event: 'llm_response',
+      subsystem: 'llm',
+      text: tweetText,
+      length: tweetText.length,
+    });
 
     // Optionally generate an image
     let mediaUrl: string | undefined;
@@ -127,14 +142,26 @@ Respond with ONLY the image prompt, nothing else.`,
         });
 
         const imagePrompt = imagePromptResponse.content.trim();
-        logger.info('Generating tweet image', { prompt: imagePrompt });
+        logger.info('Generating tweet image', {
+          event: 'media_request',
+          subsystem: 'media',
+          prompt: imagePrompt,
+        });
 
         const media = await mediaService.generateImage(imagePrompt, agentConfig.media.image);
         mediaUrl = media.url;
         
-        logger.info('Image generated', { url: mediaUrl });
+        logger.info('Image generated', {
+          event: 'media_response',
+          subsystem: 'media',
+          url: mediaUrl,
+        });
       } catch (error) {
-        logger.warn('Image generation failed, posting without image', error instanceof Error ? { error: error.message } : undefined);
+        logger.warn('Image generation failed, posting without image', {
+          event: 'media_error',
+          subsystem: 'media',
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 
@@ -144,7 +171,13 @@ Respond with ONLY the image prompt, nothing else.`,
       mediaUrl ? [{ type: 'image', url: mediaUrl }] : undefined
     );
 
-    logger.info('Tweet posted', { tweetId });
+    logger.info('Tweet posted', {
+      event: 'tweet_posted',
+      subsystem: 'twitter',
+      tweetId,
+      hasImage: !!mediaUrl,
+      durationMs: Date.now() - startTime,
+    });
 
     // Log activity
     await activityService.log({
@@ -157,7 +190,11 @@ Respond with ONLY the image prompt, nothing else.`,
     });
 
   } catch (error) {
-    logger.error('Failed to post tweet', error);
+    logger.error('Failed to post tweet', error, {
+      event: 'handler_error',
+      subsystem: 'twitter',
+      durationMs: Date.now() - startTime,
+    });
     
     await activityService.logError(
       AGENT_ID,

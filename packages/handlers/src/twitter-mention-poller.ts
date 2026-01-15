@@ -65,6 +65,7 @@ async function initialize(): Promise<void> {
 }
 
 export const handler: ScheduledHandler = async (_event, context: Context) => {
+  const startTime = Date.now();
   logger.setContext({
     agentId: AGENT_ID,
     platform: 'twitter',
@@ -72,30 +73,54 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
     handler: 'mention-poller',
   });
 
+  logger.info('Twitter mention poller started', {
+    event: 'handler_started',
+    subsystem: 'twitter',
+  });
+
   try {
     await initialize();
 
     if (!twitterAdapter.isConfigured()) {
-      logger.warn('Twitter adapter not configured, skipping mention poll');
+      logger.warn('Twitter adapter not configured, skipping mention poll', {
+        event: 'handler_skipped',
+        subsystem: 'twitter',
+        reason: 'not_configured',
+      });
       return;
     }
 
-    logger.info('Polling for Twitter mentions');
+    logger.info('Polling for Twitter mentions', {
+      event: 'poll_started',
+      subsystem: 'twitter',
+    });
 
     // Get the last processed mention ID from state
     const sinceId = await stateService.getLastMentionId(AGENT_ID);
 
-    logger.info('Fetching mentions', { sinceId });
+    logger.info('Fetching mentions', {
+      event: 'api_request',
+      subsystem: 'twitter',
+      sinceId,
+    });
 
     // Get new mentions
     const mentions = await twitterAdapter.getMentions(sinceId ?? undefined);
 
     if (mentions.length === 0) {
-      logger.info('No new mentions found');
+      logger.info('No new mentions found', {
+        event: 'poll_complete',
+        subsystem: 'twitter',
+        count: 0,
+      });
       return;
     }
 
-    logger.info('Found new mentions', { count: mentions.length });
+    logger.info('Found new mentions', {
+      event: 'mentions_found',
+      subsystem: 'twitter',
+      count: mentions.length,
+    });
 
     // Process mentions (oldest first)
     const sortedMentions = mentions.sort((a, b) => a.timestamp - b.timestamp);
@@ -104,7 +129,12 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
     for (const envelope of sortedMentions) {
       // Skip self-mentions (our own tweets)
       if (envelope.sender.username === agentConfig.platforms.twitter?.username) {
-        logger.debug('Skipping self-mention', { messageId: envelope.messageId });
+        logger.debug('Skipping self-mention', {
+          event: 'mention_skipped',
+          subsystem: 'twitter',
+          reason: 'self_mention',
+          messageId: envelope.messageId,
+        });
         continue;
       }
 
@@ -125,6 +155,8 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       }));
 
       logger.info('Queued mention for processing', {
+        event: 'mention_queued',
+        subsystem: 'twitter',
         messageId: envelope.messageId,
         from: envelope.sender.username,
       });
@@ -138,16 +170,27 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
     // Update the last processed mention ID
     if (newestMentionId && newestMentionId !== sinceId) {
       await stateService.setLastMentionId(AGENT_ID, newestMentionId);
-      logger.info('Updated last mention ID', { lastMentionId: newestMentionId });
+      logger.info('Updated last mention ID', {
+        event: 'state_updated',
+        subsystem: 'twitter',
+        lastMentionId: newestMentionId,
+      });
     }
 
     logger.info('Mention polling complete', {
+      event: 'poll_complete',
+      subsystem: 'twitter',
       processed: sortedMentions.length,
       lastMentionId: newestMentionId,
+      durationMs: Date.now() - startTime,
     });
 
   } catch (error) {
-    logger.error('Failed to poll Twitter mentions', error);
+    logger.error('Failed to poll Twitter mentions', error, {
+      event: 'handler_error',
+      subsystem: 'twitter',
+      durationMs: Date.now() - startTime,
+    });
 
     await activityService.logError(
       AGENT_ID,
