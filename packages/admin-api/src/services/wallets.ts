@@ -379,3 +379,137 @@ export async function getEthereumBalance(address: string, _agentId?: string, dep
     tokens: [], // ERC20 token support can be added later
   };
 }
+
+/**
+ * Vanity wallet generation result
+ */
+export interface VanityWalletResult {
+  publicKey: string;
+  secretKey: string;
+  attempts: number;
+  elapsedMs: number;
+  pattern: string;
+  matchStart: boolean;
+}
+
+/**
+ * Generate a vanity Solana wallet with a specific pattern
+ * This is CPU-intensive and may take time depending on pattern complexity
+ * 
+ * @param pattern - The pattern to search for (e.g., "RATi")
+ * @param matchStart - If true, pattern must be at start of address
+ * @param maxAttempts - Maximum attempts before giving up (default 10M)
+ * @returns VanityWalletResult or null if max attempts exceeded
+ */
+export async function generateVanityWallet(
+  pattern: string,
+  matchStart: boolean = false,
+  maxAttempts: number = 10_000_000,
+  deps: WalletServiceDeps = defaultDeps
+): Promise<VanityWalletResult | null> {
+  const startTime = Date.now();
+  let attempts = 0;
+  
+  // Validate pattern (Base58 only)
+  const BASE58_CHARS = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  for (const char of pattern) {
+    if (!BASE58_CHARS.includes(char)) {
+      throw new Error(`Invalid character '${char}' in pattern. Base58 excludes: 0, O, I, l`);
+    }
+  }
+  
+  while (attempts < maxAttempts) {
+    attempts++;
+    
+    const keypair = deps.solana.Keypair.generate();
+    const publicKey = keypair.publicKey.toBase58();
+    
+    const matches = matchStart 
+      ? publicKey.startsWith(pattern)
+      : publicKey.includes(pattern);
+    
+    if (matches) {
+      return {
+        publicKey,
+        secretKey: deps.bs58.encode(keypair.secretKey),
+        attempts,
+        elapsedMs: Date.now() - startTime,
+        pattern,
+        matchStart,
+      };
+    }
+    
+    // Yield occasionally to prevent blocking
+    if (attempts % 10000 === 0) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Generate and save a vanity Solana wallet
+ */
+export async function generateAndSaveVanityWallet(
+  agentId: string,
+  name: string,
+  pattern: string,
+  matchStart: boolean,
+  session: UserSession,
+  maxAttempts: number = 10_000_000,
+  deps: WalletServiceDeps = defaultDeps
+): Promise<WalletInfo & { attempts: number; elapsedMs: number }> {
+  // Generate vanity wallet
+  const result = await generateVanityWallet(pattern, matchStart, maxAttempts, deps);
+  
+  if (!result) {
+    throw new Error(`Could not find vanity wallet with pattern "${pattern}" in ${maxAttempts.toLocaleString()} attempts`);
+  }
+  
+  // Store the secret key securely
+  await deps.secrets.storeSecret(
+    agentId,
+    'solana_wallet_key',
+    name,
+    result.secretKey,
+    session,
+    `Vanity Solana wallet "${name}" (pattern: ${pattern}) for agent ${agentId}`
+  );
+
+  // Create wallet info record
+  const walletId = `${agentId}-solana-${name}`;
+  const now = Date.now();
+
+  const walletInfo: WalletInfo & { pk: string; sk: string } = {
+    pk: `AGENT#${agentId}`,
+    sk: `WALLET#solana#${name}`,
+    id: walletId,
+    agentId,
+    walletType: 'solana',
+    publicKey: result.publicKey,
+    address: result.publicKey,
+    name,
+    createdAt: now,
+    createdBy: session.email,
+  };
+
+  // Store wallet info in DynamoDB
+  await deps.dynamoClient.send(new PutCommand({
+    TableName: deps.tableName,
+    Item: walletInfo,
+  }));
+
+  return {
+    id: walletInfo.id,
+    agentId: walletInfo.agentId,
+    walletType: walletInfo.walletType,
+    publicKey: walletInfo.publicKey,
+    address: walletInfo.address,
+    name: walletInfo.name,
+    createdAt: walletInfo.createdAt,
+    createdBy: walletInfo.createdBy,
+    attempts: result.attempts,
+    elapsedMs: result.elapsedMs,
+  };
+}

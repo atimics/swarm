@@ -297,6 +297,23 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         };
       },
 
+      createVanityWallet: async (agentId, name, pattern, matchStart) => {
+        const result = await wallets.generateAndSaveVanityWallet(
+          agentId, 
+          name, 
+          pattern, 
+          matchStart, 
+          session
+        );
+        return {
+          publicKey: result.publicKey,
+          address: result.address,
+          walletType: result.walletType,
+          attempts: result.attempts,
+          elapsedMs: result.elapsedMs,
+        };
+      },
+
       getBalance: async (publicKey, agentId, chain = 'solana') => {
         const balance = chain === 'ethereum'
           ? await wallets.getEthereumBalance(publicKey, agentId)

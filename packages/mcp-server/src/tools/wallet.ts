@@ -20,6 +20,14 @@ export interface WalletInfo {
   balance?: number | null;
 }
 
+export interface VanityWalletResult {
+  publicKey: string;
+  attempts: number;
+  elapsedMs: number;
+  pattern: string;
+  matchStart: boolean;
+}
+
 export interface WalletServices {
   listWallets: (agentId: string) => Promise<WalletInfo[]>;
   
@@ -27,6 +35,14 @@ export interface WalletServices {
     publicKey: string;
     address?: string;
     walletType: string;
+  }>;
+  
+  createVanityWallet?: (agentId: string, name: string, pattern: string, matchStart: boolean) => Promise<{
+    publicKey: string;
+    address?: string;
+    walletType: string;
+    attempts: number;
+    elapsedMs: number;
   }>;
   
   getBalance: (publicKey: string, agentId: string, chain?: string) => Promise<{
@@ -121,8 +137,63 @@ export const createWalletTools = (services: WalletServices) => [
           message: `Solana wallet "${input.name}" created!`,
           publicKey: result.publicKey,
           address: result.address,
+          _uiType: 'wallet_created',
         },
       };
+    },
+  }),
+
+  defineTool({
+    name: 'create_vanity_solana_wallet',
+    description: `Create a Solana wallet with a custom vanity address pattern.
+The wallet address will contain your chosen pattern (e.g., "RATi", "MOON", etc.).
+This takes longer than regular wallet creation - from seconds to minutes depending on pattern length.
+Pattern must use Base58 characters only (no 0, O, I, or l).
+Short patterns (2-3 chars) are fast. 4+ chars take progressively longer.`,
+    category: 'wallet',
+    platforms: ['admin-ui', 'api'],
+    inputSchema: z.object({
+      name: z.string().min(1).describe('A friendly name for this wallet'),
+      pattern: z.string().min(1).max(6).describe('Pattern to include in address (e.g., "RATi", "MOON"). Max 6 chars.'),
+      matchStart: z.boolean().default(false).describe('If true, pattern must be at the START of the address (much harder)'),
+    }),
+    execute: async (input, context): Promise<ToolResult> => {
+      if (!services.createVanityWallet) {
+        return {
+          success: false,
+          error: 'Vanity wallet generation not available on this server',
+        };
+      }
+      
+      try {
+        const result = await services.createVanityWallet(
+          context.agentId, 
+          input.name, 
+          input.pattern,
+          input.matchStart
+        );
+
+        const elapsedSec = (result.elapsedMs / 1000).toFixed(1);
+        
+        return {
+          success: true,
+          data: {
+            message: `Vanity wallet "${input.name}" created with pattern "${input.pattern}"!`,
+            publicKey: result.publicKey,
+            address: result.address,
+            pattern: input.pattern,
+            matchStart: input.matchStart,
+            attempts: result.attempts,
+            generationTime: `${elapsedSec}s`,
+            _uiType: 'vanity_wallet_created',
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Vanity wallet generation failed',
+        };
+      }
     },
   }),
 
