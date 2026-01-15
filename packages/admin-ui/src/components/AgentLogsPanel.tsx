@@ -2,7 +2,7 @@
  * Agent Logs Panel - Consolidated log view for a single agent.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchAgentLogs, type AgentLogEvent, type FastLogEntry } from '../api/logs';
+import { fetchAgentLogs, type AgentLogEvent } from '../api/logs';
 import { fetchAgentIssues, type AgentIssue } from '../api/issues';
 import { fetchAgentEvents, type AgentEvent, type AgentFeedbackEvent, type AgentIssueEvent } from '../api/events';
 import { useActiveAgent, useAgentStore } from '../store/agents';
@@ -279,8 +279,8 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
   const { setActiveAgent } = useAgentStore();
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
-  // Tab state: 'fast' (DynamoDB) | 'cloudwatch' (slow)
-  const [activeTab, setActiveTab] = useState<'fast' | 'cloudwatch'>('fast');
+  // Tab state: 'events' (DynamoDB issues/feedback) | 'logs' (CloudWatch raw logs)
+  const [activeTab, setActiveTab] = useState<'events' | 'logs'>('events');
 
   const [since, setSince] = useState(DEFAULT_SINCE);
   const [level, setLevel] = useState('');
@@ -292,11 +292,6 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
     subsystem: '',
     query: '',
   });
-  
-  // Fast logs state (from DynamoDB - instant)
-  const [fastLogs, setFastLogs] = useState<FastLogEntry[]>([]);
-  const [fastLogsLoading, setFastLogsLoading] = useState(false);
-  const [fastLogsError, setFastLogsError] = useState<string | null>(null);
   
   // CloudWatch logs state (slow - fallback)
   const [logs, setLogs] = useState<AgentLogEvent[]>([]);
@@ -367,29 +362,6 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
     return undefined;
   }, [issueByTimestamp, issues]);
 
-  // Load fast logs from DynamoDB (instant)
-  const loadFastLogs = useCallback(async () => {
-    if (!agentId) return;
-    setFastLogsLoading(true);
-    setFastLogsError(null);
-
-    try {
-      const response = await fetchAgentLogs(agentId, {
-        fast: true,
-        since: filters.since,
-        level: filters.level,
-        subsystem: filters.subsystem,
-        query: filters.query,
-        limit: 200,
-      });
-      setFastLogs(response.logs || []);
-    } catch (err) {
-      setFastLogsError(err instanceof Error ? err.message : 'Failed to fetch logs');
-    } finally {
-      setFastLogsLoading(false);
-    }
-  }, [agentId, filters]);
-
   // Load events from DynamoDB (fast)
   const loadEvents = useCallback(async () => {
     if (!agentId) return;
@@ -436,17 +408,16 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
     }
   }, [agentId, filters]);
 
-  // Load fast logs on mount and when filter changes
+  // Load events on mount and when activeTab changes to 'events'
   useEffect(() => {
-    if (activeTab === 'fast') {
-      loadFastLogs();
-      loadEvents(); // Also load events for the sidebar
+    if (activeTab === 'events') {
+      loadEvents();
     }
-  }, [loadFastLogs, loadEvents, activeTab]);
+  }, [loadEvents, activeTab]);
 
-  // Load CloudWatch logs only when cloudwatch tab is active
+  // Load CloudWatch logs only when logs tab is active
   useEffect(() => {
-    if (activeTab === 'cloudwatch') {
+    if (activeTab === 'logs') {
       loadLogs();
     }
   }, [loadLogs, activeTab]);

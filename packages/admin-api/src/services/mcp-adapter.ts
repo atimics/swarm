@@ -1132,7 +1132,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
 
         try {
           const mediaIds = mediaUrls && mediaUrls.length > 0 
-            ? await uploadMediaToTwitter(client, mediaUrls)
+            ? await uploadMediaToTwitter(client, mediaUrls, _agentId)
             : undefined;
 
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = {
@@ -1257,7 +1257,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
 
         try {
           const mediaIds = mediaUrls && mediaUrls.length > 0 
-            ? await uploadMediaToTwitter(client, mediaUrls)
+            ? await uploadMediaToTwitter(client, mediaUrls, _agentId)
             : undefined;
 
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = {
