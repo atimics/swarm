@@ -93,13 +93,17 @@ const corsHeaders = {
 /**
  * Lambda handler for Twitter OAuth endpoints
  * @param event - API Gateway event
- * @param deps - Optional dependencies for testing (uses default production dependencies if not provided)
+ * @param depsOrContext - Optional dependencies for testing (Lambda context is passed but ignored)
  */
 export async function handler(
   event: APIGatewayProxyEventV2,
-  deps?: TwitterOAuthHandlerDeps
+  depsOrContext?: TwitterOAuthHandlerDeps | unknown
 ): Promise<APIGatewayProxyResultV2> {
-  // Use provided deps or get defaults lazily
+  // Check if deps has the expected shape (not Lambda context)
+  // Lambda context has properties like functionName, awsRequestId, etc.
+  const deps = depsOrContext && 'twitterOAuth' in (depsOrContext as object)
+    ? (depsOrContext as TwitterOAuthHandlerDeps)
+    : undefined;
   const resolvedDeps = deps || getDefaultDeps();
   const { twitterOAuth, agentService, auth } = resolvedDeps;
 
