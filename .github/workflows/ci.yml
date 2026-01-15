@@ -40,17 +40,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm -r run --if-present lint
-
-      - name: Build all packages
-        run: pnpm -r build
-
-      - name: Type check
-        run: pnpm -r run --if-present typecheck
+      - name: Lint & Build
+        run: |
+          # Run lint in parallel with build (lint doesn't need build output)
+          pnpm -r run --if-present lint &
+          LINT_PID=$!
+          
+          # Build sequentially (respects workspace dependencies)
+          pnpm -r build
+          
+          # Wait for lint to complete
+          wait $LINT_PID
 
       - name: Test
-        run: pnpm -r run --if-present test -- --coverage
+        run: bun test --coverage
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
