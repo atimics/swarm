@@ -583,6 +583,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       });
 
       logger.info('Processing message', {
+        event: 'processing_started',
+        subsystem: 'chat',
         sender: envelope.sender.username,
         text: envelope.content.text?.slice(0, 50),
         isMention: envelope.metadata.isMention,
@@ -612,6 +614,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       );
 
       logger.info('Channel state updated', {
+        event: 'state_updated',
+        subsystem: 'state',
         state: updatedState.state,
         bufferSize: updatedState.recentMessages.length,
         chatType: updatedState.chatType,
@@ -620,6 +624,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       const decision = stateService.evaluateResponseTrigger(updatedState);
 
       logger.info('Response decision', {
+        event: 'response_decision',
+        subsystem: 'chat',
         shouldRespond: decision.shouldRespond,
         trigger: decision.trigger,
         delay: decision.delay,
@@ -627,7 +633,11 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       });
 
       if (!decision.shouldRespond) {
-        logger.info('Skipping response', { reason: decision.trigger });
+        logger.info('Skipping response', {
+          event: 'response_skipped',
+          subsystem: 'chat',
+          reason: decision.trigger,
+        });
         continue;
       }
 
@@ -654,6 +664,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       const response = await generateResponse(envelope, toolClient, toolContext);
 
       logger.info('Response generated', {
+        event: 'response_generated',
+        subsystem: 'llm',
         actions: response.actions.length,
         tokensUsed: response.tokensUsed,
       });
@@ -680,7 +692,11 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       }
 
     } catch (error) {
-      logger.error('Failed to process message', error, { messageId: record.messageId });
+      logger.error('Failed to process message', error, {
+        event: 'processing_error',
+        subsystem: 'chat',
+        messageId: record.messageId,
+      });
       batchItemFailures.push({ itemIdentifier: record.messageId });
     }
   }
@@ -688,6 +704,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
   // Return partial batch failure response for SQS
   if (batchItemFailures.length > 0) {
     logger.warn('Partial batch failure', {
+      event: 'batch_partial_failure',
+      subsystem: 'chat',
       failedCount: batchItemFailures.length,
       totalCount: event.Records.length,
     });

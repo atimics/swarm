@@ -154,6 +154,12 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
     requestId: context.awsRequestId,
   });
 
+  logger.info('Response sender invoked', {
+    event: 'handler_started',
+    subsystem: 'outbound',
+    recordCount: event.Records.length,
+  });
+
   await initialize();
   const batchItemFailures: SQSBatchResponse['batchItemFailures'] = [];
 
@@ -164,6 +170,8 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
         response = JSON.parse(record.body);
       } catch (parseError) {
         logger.error('Failed to parse message body as JSON', parseError, {
+          event: 'parse_error',
+          subsystem: 'outbound',
           messageId: record.messageId,
           bodyPreview: record.body?.slice(0, 100),
         });
@@ -173,7 +181,12 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
 
       const responseKey = getResponseKey(response, record.messageId);
       if (await wasResponseHandled(responseKey)) {
-        logger.info('Skipping already handled response', { responseKey });
+        logger.info('Skipping already handled response', {
+          event: 'response_skipped',
+          subsystem: 'outbound',
+          reason: 'already_handled',
+          responseKey,
+        });
         continue;
       }
 
@@ -183,6 +196,8 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       });
 
       logger.info('Sending response', {
+        event: 'sending_response',
+        subsystem: 'outbound',
         actions: response.actions.length,
       });
 
@@ -280,6 +295,8 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       if (hasSendMessageAction && sentMessages.length === 0) {
         sendSuccess = false;
         logger.warn('send_message action failed to deliver', {
+          event: 'send_failed',
+          subsystem: 'outbound',
           conversationId: response.conversationId,
         });
       }
@@ -307,16 +324,27 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       if (actionsToSend && actionsToSend.length > 0 && !sendSuccess) {
         batchItemFailures.push({ itemIdentifier: record.messageId });
         logger.error('Response actions failed to send', {
+          event: 'send_error',
+          subsystem: 'outbound',
           messageId: record.messageId,
           platform: response.platform,
         });
         continue;
       }
 
-      logger.info('Response sent successfully');
+      logger.info('Response sent successfully', {
+        event: 'response_sent',
+        subsystem: 'outbound',
+        conversationId: response.conversationId,
+        platform: response.platform,
+        actionCount: actionsToSend?.length || 0,
+      });
 
     } catch (error) {
-      logger.error('Failed to send response', error);
+      logger.error('Failed to send response', error, {
+        event: 'handler_error',
+        subsystem: 'outbound',
+      });
       batchItemFailures.push({ itemIdentifier: record.messageId });
     }
   }
