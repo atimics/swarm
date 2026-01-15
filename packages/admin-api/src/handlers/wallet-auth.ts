@@ -21,6 +21,18 @@ import { getGateStatus } from '../services/nft-gate.js';
 import { listUnclaimedAgents } from '../services/agents.js';
 import { prepareLineageMint } from '../services/lineage-nft.js';
 
+// Internal test key for E2E tests - bypasses NFT gate requirements
+const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
+
+/**
+ * Check if request has valid internal test key
+ */
+function hasInternalTestKey(event: APIGatewayProxyEventV2): boolean {
+  if (!INTERNAL_TEST_KEY) return false;
+  const providedKey = event.headers['x-internal-test-key'];
+  return providedKey === INTERNAL_TEST_KEY;
+}
+
 // ============================================================================
 // Request Schemas
 // ============================================================================
@@ -99,6 +111,7 @@ function corsHeaders(event: APIGatewayProxyEventV2): Record<string, string> {
   // Allow localhost for development
   const allowedOrigins = [
     'https://admin.rati.chat',
+    'https://admin-staging.rati.chat',
     'http://localhost:5173',
     'http://localhost:3000',
   ];
@@ -109,7 +122,7 @@ function corsHeaders(event: APIGatewayProxyEventV2): Record<string, string> {
     'Access-Control-Allow-Origin': corsOrigin,
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-internal-test-key',
   };
 }
 
@@ -220,6 +233,12 @@ export async function handleVerify(
     const { getGateStatus } = await import('../services/nft-gate.js');
     const gateStatus = await getGateStatus(result.user.walletAddress);
 
+    // Bypass NFT gate for internal test key (E2E testing)
+    const isTestBypass = hasInternalTestKey(event);
+    if (isTestBypass) {
+      console.log('[WalletAuth] Internal test key detected - bypassing NFT gate requirements');
+    }
+
     // Set session cookie
     const cookie = setSessionCookie(result.session.sessionToken);
 
@@ -237,12 +256,13 @@ export async function handleVerify(
       // Include NFT info for display
       nftGate: result.nftGate,
       // Include gate status for access control
+      // Test bypass grants full access
       gateStatus: {
-        nftsHeld: gateStatus.nftsHeld,
+        nftsHeld: isTestBypass ? 999 : gateStatus.nftsHeld,
         agentsCreated: gateStatus.agentsCreated,
-        availableSlots: gateStatus.availableSlots,
-        canCreate: gateStatus.canCreate,
-        canAbandon: gateStatus.canAbandon,
+        availableSlots: isTestBypass ? 999 : gateStatus.availableSlots,
+        canCreate: isTestBypass ? true : gateStatus.canCreate,
+        canAbandon: isTestBypass ? true : gateStatus.canAbandon,
       },
     }, {
       ...cors,
@@ -288,6 +308,9 @@ export async function handleMe(
     const { getGateStatus } = await import('../services/nft-gate.js');
     const gateStatus = await getGateStatus(session.user.walletAddress);
 
+    // Bypass NFT gate for internal test key (E2E testing)
+    const isTestBypass = hasInternalTestKey(event);
+
     return jsonResponse(200, {
       authenticated: true,
       user: {
@@ -298,12 +321,13 @@ export async function handleMe(
         createdAt: session.user.createdAt,
         sessionCount: session.user.sessionCount,
       },
+      // Test bypass grants full access
       gateStatus: {
-        nftsHeld: gateStatus.nftsHeld,
+        nftsHeld: isTestBypass ? 999 : gateStatus.nftsHeld,
         agentsCreated: gateStatus.agentsCreated,
-        availableSlots: gateStatus.availableSlots,
-        canCreate: gateStatus.canCreate,
-        canAbandon: gateStatus.canAbandon,
+        availableSlots: isTestBypass ? 999 : gateStatus.availableSlots,
+        canCreate: isTestBypass ? true : gateStatus.canCreate,
+        canAbandon: isTestBypass ? true : gateStatus.canAbandon,
       },
     }, cors);
   } catch (error) {
