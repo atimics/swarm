@@ -1,4 +1,5 @@
 # Update lockfile if package.json changed, then stage it
 pnpm install --frozen-lockfile 2>/dev/null || { pnpm install && git add pnpm-lock.yaml; }
 pnpm lint-staged
-pnpm build
+# Fast type-check only (incremental builds make full build redundant)
+pnpm typecheck

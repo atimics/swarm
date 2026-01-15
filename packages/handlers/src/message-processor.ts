@@ -400,7 +400,7 @@ async function generateResponse(
   const systemPrompt = buildSystemPrompt(envelope);
   const toolDefinitions = toolClient
     .getToolDefinitions()
-    .filter(tool => agentConfig.tools.includes(tool.name));
+    .filter((tool: { name: string }) => agentConfig.tools.includes(tool.name));
   const enabledTools = toolClient.getOpenAIToolsForTools(toolDefinitions);
 
   // Build initial messages

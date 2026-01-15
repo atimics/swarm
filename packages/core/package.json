@@ -14,6 +14,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
     "test": "bun test",
     "lint": "eslint src/"

@@ -46,7 +46,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // Media Services
     // =========================================================================
     media: {
-      generateImage: async (params) => {
+      generateImage: async (params: { prompt: string }) => {
         if (!mediaService) {
           throw new Error('Media service not configured');
         }
@@ -54,7 +54,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
         return { id: result.s3Key || 'generated', url: result.url };
       },
 
-      generateVideo: async (params) => {
+      generateVideo: async (params: { prompt: string }) => {
         if (!mediaService || !agentConfig.media.video) {
           throw new Error('Video generation not configured');
         }
@@ -62,7 +62,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
         return { jobId: result.s3Key || `video-${Date.now()}`, status: 'processing' };
       },
 
-      generateSticker: async (params) => {
+      generateSticker: async (params: { prompt?: string }) => {
         if (!mediaService) {
           throw new Error('Media service not configured');
         }
@@ -132,7 +132,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
         throw new Error('Wallet creation not allowed from platform handlers');
       },
 
-      getBalance: async (_publicKey, _agentId, chain = 'solana') => ({
+      getBalance: async (_publicKey: string, _agentId: string, chain = 'solana') => ({
         balance: 0,
         chain,
         solBalance: chain === 'solana' ? 0 : undefined,
