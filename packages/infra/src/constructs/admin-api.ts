@@ -225,6 +225,14 @@ export class AdminApiConstruct extends Construct {
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'WebSearchApiKey', props.webSearchApiKeyArn)
       : undefined;
 
+    // Twitter App credentials for OAuth flow (needed by both Chat and Twitter OAuth handlers)
+    const twitterAppCredentialsSecret = secretsmanager.Secret.fromSecretNameV2(
+      this, 'TwitterAppCredentials', 'swarm/global/twitter-app-credentials'
+    );
+    const twitterOAuthCallbackUrl = props.apiDomain 
+      ? `https://${props.apiDomain}/oauth/twitter/callback`
+      : '';
+
     // Build webhook URL for Replicate callbacks
     const replicateWebhookUrl = props.apiDomain
       ? `https://${props.apiDomain}/webhook/replicate`
@@ -266,6 +274,9 @@ export class AdminApiConstruct extends Construct {
         REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
         RESPONSE_QUEUE_URL: responseQueue.queueUrl,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
+        // Twitter OAuth (for twitter_request_integration tool)
+        TWITTER_APP_CREDENTIALS_ARN: twitterAppCredentialsSecret.secretArn,
+        TWITTER_OAUTH_CALLBACK_URL: twitterOAuthCallbackUrl,
         // Internal testing (non-production only)
         INTERNAL_TEST_KEY: internalTestKey,
       },
@@ -306,6 +317,9 @@ export class AdminApiConstruct extends Construct {
     if (mediaBucket) {
       mediaBucket.grantReadWrite(this.chatHandler);
     }
+
+    // Grant Twitter OAuth credentials access
+    twitterAppCredentialsSecret.grantRead(this.chatHandler);
 
     // Grant SQS permissions for async callbacks
     responseQueue.grantSendMessages(this.chatHandler);
@@ -844,10 +858,6 @@ export class AdminApiConstruct extends Construct {
     }));
 
     // Twitter OAuth handler - for connecting X/Twitter accounts via OAuth 1.0a
-    const twitterAppCredentialsSecret = secretsmanager.Secret.fromSecretNameV2(
-      this, 'TwitterAppCredentials', 'swarm/global/twitter-app-credentials'
-    );
-
     const twitterOAuthHandler = new nodejs.NodejsFunction(this, 'TwitterOAuthHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/twitter-oauth.ts'),

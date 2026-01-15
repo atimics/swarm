@@ -541,7 +541,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
                     <img 
                       src={url} 
                       alt={`Generated image ${idx + 1}`}
-                      className="w-full h-auto max-h-64 object-cover"
+                      className="w-full h-auto max-w-md rounded-lg"
                       loading="lazy"
                     />
                   </button>

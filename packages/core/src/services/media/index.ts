@@ -26,7 +26,7 @@ export class SwarmMediaService implements MediaService {
         return this.generateImageOpenRouter(prompt, config.model);
       
       case 'replicate':
-        return this.generateImageReplicate(prompt, config.model);
+        return this.generateImageReplicate(prompt, config.model, config.aspectRatio);
       
       case 'dalle':
         return this.generateImageDalle(prompt, config.model);
@@ -116,7 +116,7 @@ export class SwarmMediaService implements MediaService {
   /**
    * Generate image using Replicate
    */
-  private async generateImageReplicate(prompt: string, model: string): Promise<GeneratedMedia> {
+  private async generateImageReplicate(prompt: string, model: string, aspectRatio?: string): Promise<GeneratedMedia> {
     // Check for various key names
     const apiKey = this.secrets['REPLICATE_API_TOKEN'] || this.secrets['REPLICATE_API_KEY'] || this.secrets['replicate_api_key'];
     if (!apiKey) {
@@ -137,6 +137,7 @@ export class SwarmMediaService implements MediaService {
           prompt,
           num_outputs: 1,
           output_format: 'png',
+          aspect_ratio: aspectRatio || '1:1',
         },
       }),
     });

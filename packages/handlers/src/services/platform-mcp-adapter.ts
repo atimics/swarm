@@ -46,11 +46,20 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // Media Services
     // =========================================================================
     media: {
-      generateImage: async (params: { prompt: string }) => {
+      generateImage: async (params: { prompt: string; aspectRatio?: string }) => {
         if (!mediaService) {
           throw new Error('Media service not configured');
         }
-        const result = await mediaService.generateImage(params.prompt, agentConfig.media.image);
+        // Validate and default aspect ratio
+        const validRatios = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'] as const;
+        const aspectRatio = validRatios.includes(params.aspectRatio as typeof validRatios[number])
+          ? params.aspectRatio as typeof validRatios[number]
+          : '1:1';
+        const config = {
+          ...agentConfig.media.image,
+          aspectRatio,
+        };
+        const result = await mediaService.generateImage(params.prompt, config);
         return { id: result.s3Key || 'generated', url: result.url };
       },
 

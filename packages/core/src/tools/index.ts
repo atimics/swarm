@@ -66,6 +66,10 @@ export const mediaTools: ToolDefinition[] = [
     parameters: z.object({
       prompt: z.string().describe('Detailed description of the image to generate'),
       style: z.string().optional().describe('Art style (e.g., "anime", "realistic", "3d render")'),
+      aspectRatio: z.enum(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'])
+        .optional()
+        .default('1:1')
+        .describe('Aspect ratio - use 1:1 for square, 2:3 or 9:16 for portrait, 3:2 or 16:9 for landscape'),
     }),
     execute: async () => ({ success: true }), // Executed by platform handler
   },
