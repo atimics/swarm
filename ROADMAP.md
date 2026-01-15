@@ -1,0 +1,29 @@
+# AWS Swarm Roadmap
+
+This roadmap focuses on product and platform milestones.
+
+## Near (0-3 months)
+Milestone M1: Paid Telegram MVP
+- Billing and entitlements with runtime enforcement.
+- Memory opt-in and retention defaults (stateless free tier).
+- Deploy or activate from admin UI and API.
+- Structured logging with correlation IDs and basic dashboards.
+- End-to-end Telegram canary and operational runbook.
+
+## Medium (3-9 months)
+Milestone M2: Multi-platform parity
+- Discord and X adapters reach feature parity with Telegram.
+- Unified tool registry shared across admin API and handlers.
+- Usage metering surfaced in admin UI.
+- SQS payload offload for large media and DLQ management.
+
+## Far (9-18 months)
+Milestone M3: Persistent swarm platform
+- Multi-agent coordination and cross-agent policies.
+- Durable memory tiers (ephemeral, durable, archival) with export and delete.
+- Marketplace-ready templates and persona packs.
+- SaaS reliability and cost optimization for scale.
+
+## Legacy
+Prior planning snapshots are archived in `docs/legacy/PLAN-2026-01-13.md` and
+`docs/legacy/PLAN2-empty.md`.
