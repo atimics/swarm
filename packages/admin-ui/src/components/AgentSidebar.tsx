@@ -219,17 +219,12 @@ export function AgentSidebar({ className, onClose }: AgentSidebarProps) {
             <p className="text-sm">
               {inhabitedAgentId && !hasOrbs 
                 ? 'You need an Orb to view other agents' 
-                : 'No agents available'}
+                : 'No agents yet'}
             </p>
             {showCreateButton && (
-              <button
-                onClick={handleCreateAgent}
-                disabled={isLoading}
-                className="mt-2 text-brand-500 hover:text-brand-400 text-sm disabled:opacity-50"
-                data-testid="create-first-agent-button"
-              >
-                Create your first agent
-              </button>
+              <p className="mt-2 text-brand-500/70 text-sm">
+                Start chatting to create one →
+              </p>
             )}
           </div>
         ) : (

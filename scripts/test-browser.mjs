@@ -290,7 +290,8 @@ ${history.length > 0 ? history.map((h, i) => `Step ${i + 1}: ${h}`).join('\n') :
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-internal-test-key': testKey
+      'x-internal-test-key': testKey,
+      ...getCloudflareAccessHeaders(),
     },
     body: JSON.stringify(payload)
   });
@@ -585,7 +586,8 @@ Be specific and actionable. Reference actual UI elements and behaviors observed.
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-internal-test-key': testKey
+      'x-internal-test-key': testKey,
+      ...getCloudflareAccessHeaders()
     },
     body: JSON.stringify(payload)
   });
@@ -739,6 +741,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
           // Extract and add the cookie to the browser context
           const cfAuthMatch = cfCookie.match(/CF_Authorization=([^;]+)/);
           if (cfAuthMatch) {
+            // Add cookie for admin UI domain
             await context.addCookies([{
               name: 'CF_Authorization',
               value: cfAuthMatch[1],
@@ -748,7 +751,20 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
               secure: true,
               sameSite: 'None',
             }]);
-            console.log('   🍪 CF_Authorization cookie added to browser');
+            console.log('   🍪 CF_Authorization cookie added for admin UI');
+            
+            // Also add cookie for API domain (different subdomain)
+            const apiUrlParsed = new URL(apiUrl);
+            await context.addCookies([{
+              name: 'CF_Authorization',
+              value: cfAuthMatch[1],
+              domain: apiUrlParsed.hostname,
+              path: '/',
+              httpOnly: true,
+              secure: true,
+              sameSite: 'None',
+            }]);
+            console.log('   🍪 CF_Authorization cookie added for API');
           }
         } else {
           console.log(`   ⚠️  No CF_Authorization cookie - service token may not be valid for this app`);

@@ -1,0 +1,10 @@
+{
+  "walletAddress": "8kopDShEBwHaRigkwComQs7wxYASuR6m8uDYWisvxUB2",
+  "goal": "Create a new AI agent by clicking the create/add button (usually a + icon or \"Create\" button).\nAfter the agent is created, send it a test message like \"Hello\" to verify it responds.\nThe agent name \"CleverPioneer-aywa\" may be auto-generated - you don't need to fill in forms manually.\nFocus on: 1) Find and click the create button, 2) Verify the agent appears, 3) Send a message.",
+  "agentName": "CleverPioneer-aywa",
+  "steps": 1,
+  "success": false,
+  "aborted": false,
+  "summary": "",
+  "history": []
+}

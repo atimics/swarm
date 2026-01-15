@@ -25,11 +25,13 @@ interface ChatPanelProps {
 export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
   const activeAgent = useActiveAgent();
   const messages = useActiveChat();
-  const { addMessage, updateMessage, removeMessage, clearChat, updateAgent, isLoading, setLoading, setError } = useAgentStore();
+  const { addMessage, updateMessage, removeMessage, clearChat, updateAgent, isLoading, setLoading, setError, createAgent } = useAgentStore();
   const { user: walletUser, isAuthenticated: isWalletAuthenticated, gateStatus } = useWalletAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
+  const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+  const [showHint, setShowHint] = useState(true);
 
   // Derive hasOrb from gateStatus
   const hasOrb = (gateStatus?.nftsHeld ?? 0) > 0;
@@ -77,9 +79,29 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
     };
   }, [activeAgent?.id]);
 
+  // Handle sending a message - creates agent first if needed
   const handleSendMessage = useCallback(
     async (content: string) => {
-      if (!activeAgent) return;
+      // Hide the hint when user starts chatting
+      setShowHint(false);
+      
+      // If no agent exists, create one first
+      let targetAgent = activeAgent;
+      if (!targetAgent) {
+        if (isCreatingAgent) return; // Already creating
+        setIsCreatingAgent(true);
+        try {
+          targetAgent = await createAgent();
+        } catch (err) {
+          console.error('Failed to create agent:', err);
+          setError('Failed to create agent');
+          setIsCreatingAgent(false);
+          return;
+        }
+        setIsCreatingAgent(false);
+        if (!targetAgent) return;
+      }
+      
       if (accessMode === 'browse') return; // Can't send in browse mode
 
       // Build sender context from wallet auth
@@ -91,10 +113,10 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       } : undefined;
 
       // Add user message with sender info
-      addMessage(activeAgent.id, { role: 'user', content, sender });
+      addMessage(targetAgent.id, { role: 'user', content, sender });
 
       // Add loading message
-      addMessage(activeAgent.id, {
+      addMessage(targetAgent.id, {
         role: 'assistant',
         content: '',
         isLoading: true,
@@ -116,19 +138,19 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
 
         // Send to API with agent context and sender info
         const response = await sendChatMessage(content, history, {
-          id: activeAgent.id,
-          name: activeAgent.name,
-          description: activeAgent.description,
-          persona: activeAgent.persona,
+          id: targetAgent.id,
+          name: targetAgent.name,
+          description: targetAgent.description,
+          persona: targetAgent.persona,
         }, sender);
 
         // Update agent avatar if profile image was changed
         if (response.agentUpdates?.profileImageUrl) {
-          updateAgent(activeAgent.id, { avatar: response.agentUpdates.profileImageUrl });
+          updateAgent(targetAgent.id, { avatar: response.agentUpdates.profileImageUrl });
         }
 
         // Update the loading message with the response
-        const currentMessages = useAgentStore.getState().chats[activeAgent.id] || [];
+        const currentMessages = useAgentStore.getState().chats[targetAgent.id] || [];
         const loadingMessage = currentMessages.find((m) => m.isLoading);
         if (loadingMessage) {
           // Check if there's a pending tool call that needs user input
@@ -161,7 +183,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             purpose: j.purpose,
           }));
 
-          updateMessage(activeAgent.id, loadingMessage.id, {
+          updateMessage(targetAgent.id, loadingMessage.id, {
             content: response.response,
             isLoading: false,
             // Only add tool calls that need user input (pendingToolCall)
@@ -181,7 +203,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             const jobId = pendingJob.jobId;
             if (!activePollers.has(jobId)) {
               const messageId = loadingMessage.id;
-              const agentIdForPolling = activeAgent.id;
+              const agentIdForPolling = targetAgent.id;
               const controller = new AbortController();
               activePollers.set(jobId, { controller, agentId: agentIdForPolling });
 
@@ -297,15 +319,15 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
           }
         }
       } catch (error) {
-        const currentMessages = useAgentStore.getState().chats[activeAgent.id] || [];
+        const currentMessages = useAgentStore.getState().chats[targetAgent.id] || [];
         const loadingMessage = currentMessages.find((m) => m.isLoading);
         if (loadingMessage) {
-          removeMessage(activeAgent.id, loadingMessage.id);
+          removeMessage(targetAgent.id, loadingMessage.id);
         }
 
         const errorMsg = error instanceof Error ? error.message : 'Failed to send message';
         setError(errorMsg);
-        addMessage(activeAgent.id, {
+        addMessage(targetAgent.id, {
           role: 'assistant',
           content: `❌ **Error:** ${errorMsg}\n\nPlease try again or check the agent configuration.`,
         });
@@ -313,19 +335,27 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         setLoading(false);
       }
     },
-    [activeAgent, messages, addMessage, updateMessage, removeMessage, setLoading, setError]
+    [activeAgent, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAgent, isCreatingAgent, accessMode, isWalletAuthenticated, walletUser, updateAgent]
   );
 
   // Handle audio message - transcribe and send as text
   const handleSendAudio = useCallback(
     async (audioBlob: Blob) => {
-      if (!activeAgent) return;
+      // Audio requires an existing agent for now
+      if (!activeAgent) {
+        // Create agent first, then handle audio
+        const newAgent = await createAgent();
+        if (!newAgent) return;
+      }
       if (accessMode === 'browse') return;
+
+      const targetAgent = activeAgent || useAgentStore.getState().agents.find(a => a.id === useAgentStore.getState().activeAgentId);
+      if (!targetAgent) return;
 
       setLoading(true);
       try {
         // Transcribe the audio
-        const result = await transcribeAudio(audioBlob, activeAgent.id);
+        const result = await transcribeAudio(audioBlob, targetAgent.id);
         if (result.text) {
           // Send the transcribed text as a regular message
           handleSendMessage(`🎤 ${result.text}`);
@@ -542,32 +572,61 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
   );
 
   if (!activeAgent) {
+    // Show chat interface ready to create agent on first message
     return (
-      <div className="flex-1 flex items-center justify-center bg-[var(--color-bg)] p-4">
-        <div className="text-center">
-          {/* Mobile menu button */}
-          <button
-            onClick={onMenuClick}
-            className="mb-6 w-12 h-12 mx-auto flex items-center justify-center rounded-lg bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-6 h-6">
-              <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
-            </svg>
-          </button>
-          <div className="w-20 h-20 lg:w-24 lg:h-24 mx-auto mb-4 lg:mb-6 rounded-full bg-[var(--color-bg-secondary)] ring-4 ring-brand-600 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-10 h-10 lg:w-12 lg:h-12 text-[var(--color-text-muted)]">
-              <path fillRule="evenodd" d="M4.848 2.771A49.144 49.144 0 0112 2.25c2.43 0 4.817.178 7.152.52 1.978.292 3.348 2.024 3.348 3.97v6.02c0 1.946-1.37 3.678-3.348 3.97a48.901 48.901 0 01-3.476.383.39.39 0 00-.297.17l-2.755 4.133a.75.75 0 01-1.248 0l-2.755-4.133a.39.39 0 00-.297-.17 48.9 48.9 0 01-3.476-.384c-1.978-.29-3.348-2.024-3.348-3.97V6.741c0-1.946 1.37-3.68 3.348-3.97z" clipRule="evenodd" />
-            </svg>
+      <div className="flex-1 flex flex-col h-full bg-[var(--color-bg)]">
+        {/* Minimal header with menu button */}
+        <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 lg:px-6 py-3 lg:py-4">
+          <div className="flex items-center gap-3 lg:gap-4">
+            <button
+              onClick={onMenuClick}
+              className="w-10 h-10 flex items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <div className="w-10 h-10 lg:w-12 lg:h-12 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 lg:w-6 lg:h-6 text-white">
+                <path d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 9a.75.75 0 00-1.5 0v2.25H9a.75.75 0 000 1.5h2.25V15a.75.75 0 001.5 0v-2.25H15a.75.75 0 000-1.5h-2.25V9z" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)]">New Agent</h1>
+              <p className="text-xs text-[var(--color-text-tertiary)]">Start chatting to create</p>
+            </div>
           </div>
-          <h3 className="text-lg lg:text-xl font-semibold text-[var(--color-text-secondary)] mb-2">No Agent Selected</h3>
-          <p className="text-sm lg:text-base text-[var(--color-text-muted)] mb-4">Create or select an agent to start chatting</p>
-          <button
-            onClick={() => useAgentStore.getState().createAgent()}
-            className="px-4 lg:px-6 py-2.5 lg:py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-medium transition-colors text-sm lg:text-base"
-            data-testid="create-agent-empty-state-button"
+        </header>
+
+        {/* Empty chat area with hint */}
+        <div className="flex-1 overflow-y-auto px-3 lg:px-6 py-4 flex items-center justify-center">
+          <div 
+            className={`text-center transition-opacity duration-500 ${showHint ? 'opacity-100' : 'opacity-0'}`}
           >
-            Create Your First Agent
-          </button>
+            <div className="w-20 h-20 lg:w-24 lg:h-24 mx-auto mb-4 lg:mb-6 rounded-full bg-gradient-to-br from-brand-500/20 to-brand-700/20 ring-2 ring-brand-600/30 flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-10 h-10 lg:w-12 lg:h-12 text-brand-500">
+                <path fillRule="evenodd" d="M4.848 2.771A49.144 49.144 0 0112 2.25c2.43 0 4.817.178 7.152.52 1.978.292 3.348 2.024 3.348 3.97v6.02c0 1.946-1.37 3.678-3.348 3.97a48.901 48.901 0 01-3.476.383.39.39 0 00-.297.17l-2.755 4.133a.75.75 0 01-1.248 0l-2.755-4.133a.39.39 0 00-.297-.17 48.9 48.9 0 01-3.476-.384c-1.978-.29-3.348-2.024-3.348-3.97V6.741c0-1.946 1.37-3.68 3.348-3.97z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <p className="text-lg lg:text-xl font-medium text-[var(--color-text-secondary)] mb-2">
+              Chat to create your first agent
+            </p>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Just say hello and we'll get started
+            </p>
+          </div>
+        </div>
+
+        {/* Input area */}
+        <div className="chat-input-container border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm px-3 lg:px-6 py-3 lg:py-4">
+          <div className="max-w-3xl mx-auto">
+            <ChatInput 
+              onSend={handleSendMessage} 
+              onSendAudio={handleSendAudio} 
+              disabled={isLoading || isCreatingAgent}
+              placeholder={isCreatingAgent ? "Creating your agent..." : "Say hello to create your agent..."}
+            />
+          </div>
         </div>
       </div>
     );

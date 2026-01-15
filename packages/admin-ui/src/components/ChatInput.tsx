@@ -5,9 +5,10 @@ interface ChatInputProps {
   onSendAudio?: (audioBlob: Blob) => void;
   disabled?: boolean;
   voiceEnabled?: boolean;
+  placeholder?: string;
 }
 
-export function ChatInput({ onSend, onSendAudio, disabled, voiceEnabled = true }: ChatInputProps) {
+export function ChatInput({ onSend, onSendAudio, disabled, voiceEnabled = true, placeholder = "Type a message..." }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -141,7 +142,7 @@ export function ChatInput({ onSend, onSendAudio, disabled, voiceEnabled = true }
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             onInput={handleInput}
-            placeholder="Type a message..."
+            placeholder={placeholder}
             disabled={disabled}
             rows={1}
             className="w-full px-3 lg:px-4 py-2.5 lg:py-3 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] placeholder-[var(--color-text-muted)] resize-none focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed max-h-36 text-sm lg:text-base"
