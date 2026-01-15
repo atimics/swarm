@@ -25,13 +25,16 @@
 import { chromium } from 'playwright';
 import { execSync } from 'child_process';
 import fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import path from 'path';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 
 const ENV = process.argv[2] || 'staging';
 const MAX_STEPS = 25;
-const STEP_DELAY = 1500;
+const INITIAL_WAIT = 500;      // Initial wait after action
+const MAX_WAIT = 8000;         // Max wait for page change (exponential backoff cap)
+const BACKOFF_MULTIPLIER = 1.5; // Exponential backoff multiplier
 
 function getStackOutput(exportNameSuffix) {
   const stack = `SwarmStack-${ENV === 'production' ? 'prod' : ENV}`;
@@ -83,6 +86,64 @@ function getCloudflareAccessHeaders() {
     'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
     'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
   };
+}
+
+// ============================================================================
+// Screenshot Comparison & Page Stability
+// ============================================================================
+
+/**
+ * Take a screenshot and return it as a base64 string
+ */
+async function takeScreenshotBase64(page) {
+  const buffer = await page.screenshot({ fullPage: false });
+  return buffer.toString('base64');
+}
+
+/**
+ * Compare two base64 screenshots - returns true if they are different
+ * Uses a simple byte comparison - any difference counts as a change
+ */
+function screenshotsAreDifferent(screenshot1, screenshot2) {
+  if (!screenshot1 || !screenshot2) return true;
+  return screenshot1 !== screenshot2;
+}
+
+/**
+ * Wait for the page to change with exponential backoff
+ * Returns the new screenshot when page has changed, or after max timeout
+ */
+async function waitForPageChange(page, previousScreenshot, actionType) {
+  let currentWait = INITIAL_WAIT;
+  let totalWaited = 0;
+  let attempts = 0;
+  
+  // Some actions don't cause visual changes - use shorter timeout
+  const quickActions = ['SCROLL', 'WAIT', 'KEY'];
+  const maxWaitForAction = quickActions.includes(actionType) ? MAX_WAIT / 2 : MAX_WAIT;
+  
+  while (totalWaited < maxWaitForAction) {
+    await page.waitForTimeout(currentWait);
+    totalWaited += currentWait;
+    attempts++;
+    
+    const newScreenshot = await takeScreenshotBase64(page);
+    
+    if (screenshotsAreDifferent(previousScreenshot, newScreenshot)) {
+      if (attempts > 1) {
+        console.log(`   📸 Page changed after ${totalWaited}ms (${attempts} checks)`);
+      }
+      return { screenshot: newScreenshot, changed: true, waitTime: totalWaited };
+    }
+    
+    // Exponential backoff
+    currentWait = Math.min(currentWait * BACKOFF_MULTIPLIER, MAX_WAIT - totalWaited);
+  }
+  
+  // Max timeout reached - return current screenshot anyway
+  const finalScreenshot = await takeScreenshotBase64(page);
+  console.log(`   ⏱️  Max wait reached (${totalWaited}ms) - page may not have changed`);
+  return { screenshot: finalScreenshot, changed: false, waitTime: totalWaited };
 }
 
 // ============================================================================
@@ -793,12 +854,16 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
     await page.goto(adminUrl, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(2000);
     
+    // Take initial screenshot for comparison
+    let previousScreenshot = await takeScreenshotBase64(page);
+    
     while (step < MAX_STEPS && !success) {
       step++;
       console.log(`\n--- Step ${step}/${MAX_STEPS} ---`);
       
+      // Save screenshot to file for debugging
       const screenshotPath = path.join(screenshotsDir, `step-${step.toString().padStart(2, '0')}.png`);
-      await page.screenshot({ path: screenshotPath, fullPage: false });
+      await fsPromises.writeFile(screenshotPath, Buffer.from(previousScreenshot, 'base64'));
       
       // Extract available elements from the page
       const pageElements = await getPageElements(page);
@@ -827,17 +892,30 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
         success = true;
         finalSummary = result.summary;
         history.push(`DONE: ${result.summary}`);
+        break; // Exit early on completion
       } else {
         console.log('✅ Action executed');
         history.push(`${action.type}: ${action.params} -> OK`);
       }
       
-      await page.waitForTimeout(STEP_DELAY);
+      // Wait for page to change with exponential backoff before next LLM call
+      const { screenshot: newScreenshot, changed } = await waitForPageChange(
+        page, 
+        previousScreenshot,
+        action.type
+      );
+      
+      if (!changed && step < MAX_STEPS) {
+        // Page didn't change - add context for the LLM
+        history.push(`[Note: Page did not visually change after action]`);
+      }
+      
+      previousScreenshot = newScreenshot;
     }
     
-    const finalScreenshot = path.join(screenshotsDir, 'final.png');
-    await page.screenshot({ path: finalScreenshot, fullPage: true });
-    console.log(`\n📸 Final screenshot: ${finalScreenshot}`);
+    const finalScreenshotPath = path.join(screenshotsDir, 'final.png');
+    await page.screenshot({ path: finalScreenshotPath, fullPage: true });
+    console.log(`\n📸 Final screenshot: ${finalScreenshotPath}`);
     
   } catch (err) {
     console.error(`\n❌ Test error: ${err.message}`);
