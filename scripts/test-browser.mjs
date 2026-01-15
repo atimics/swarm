@@ -854,6 +854,18 @@ async function runAutonomousBrowserTest() {
     console.warn('   Ensure CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are set');
   }
   
+  // Intercept API requests to add internal test key header
+  // This allows the browser to make authenticated API calls even without CF Access JWT
+  const apiUrlParsed = new URL(apiUrl);
+  await page.route(`${apiUrl}/**`, async (route, request) => {
+    const headers = {
+      ...request.headers(),
+      'x-internal-test-key': testKey,
+    };
+    await route.continue({ headers });
+  });
+  console.log(`🔑 Request interceptor added for API calls to ${apiUrlParsed.hostname}`);
+  
   const agentName = generateAgentName();
   const goal = `Create a new AI agent by clicking the create/add button (usually a + icon or "Create" button).
 After the agent is created, send it a test message like "Hello" to verify it responds.
