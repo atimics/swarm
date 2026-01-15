@@ -158,6 +158,12 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
     requestId: context.awsRequestId,
   });
 
+  logger.info('Media processor invoked', {
+    event: 'handler_started',
+    subsystem: 'media',
+    recordCount: event.Records.length,
+  });
+
   await initialize();
 
   const batchItemFailures: { itemIdentifier: string }[] = [];
@@ -168,6 +174,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       parsedBody = JSON.parse(record.body);
     } catch (parseError) {
       logger.error('Failed to parse message body as JSON', {
+        event: 'parse_error',
+        subsystem: 'media',
         messageId: record.messageId,
         error: parseError instanceof Error ? parseError.message : String(parseError),
         bodyPreview: record.body?.slice(0, 100)
@@ -179,6 +187,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
     const parseResult = MediaQueueItemSchema.safeParse(parsedBody);
     if (!parseResult.success) {
       logger.error('Invalid media queue item schema', {
+        event: 'validation_error',
+        subsystem: 'media',
         messageId: record.messageId,
         error: parseResult.error.message
       });
@@ -198,6 +208,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
 
       if (item.agentId && item.agentId !== getAgentId()) {
         logger.warn('Media job agentId mismatch', {
+          event: 'agent_mismatch',
+          subsystem: 'media',
           jobAgentId: item.agentId,
           handlerAgentId: getAgentId(),
         });
@@ -206,7 +218,12 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
 
       const claimed = await claimJob(item.jobId);
       if (!claimed) {
-        logger.info('Media job already claimed', { jobId: item.jobId });
+        logger.info('Media job already claimed', {
+          event: 'job_skipped',
+          subsystem: 'media',
+          reason: 'already_claimed',
+          jobId: item.jobId,
+        });
         continue;
       }
 
@@ -260,9 +277,19 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
         MessageDeduplicationId: `media_${item.jobId}`,
       }));
 
-      logger.info('Media job completed', { jobId: item.jobId, type: item.action.type });
+      logger.info('Media job completed', {
+        event: 'job_completed',
+        subsystem: 'media',
+        jobId: item.jobId,
+        type: item.action.type,
+      });
     } catch (error) {
-      logger.error('Media job failed', error, { jobId: item.jobId, messageId: record.messageId });
+      logger.error('Media job failed', error, {
+        event: 'job_failed',
+        subsystem: 'media',
+        jobId: item.jobId,
+        messageId: record.messageId,
+      });
       // Add to batch failures for partial batch failure handling
       batchItemFailures.push({ itemIdentifier: record.messageId });
     }
@@ -271,6 +298,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
   // Return partial batch failure response for SQS
   if (batchItemFailures.length > 0) {
     logger.warn('Partial batch failure', {
+      event: 'batch_partial_failure',
+      subsystem: 'media',
       failedCount: batchItemFailures.length,
       totalCount: event.Records.length
     });
