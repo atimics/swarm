@@ -417,10 +417,14 @@ HISTORY OF YOUR ACTIONS:
 ${history.length > 0 ? history.map((h, i) => `Step ${i + 1}: ${h}`).join('\n') : '(Starting fresh - explore the interface!)'}
 `;
 
+  // Use Haiku 4.5 for faster, cheaper browser testing
+  const BROWSER_TEST_MODEL = 'anthropic/claude-3-5-haiku-20241022';
+
   const payload = {
     message: 'Analyze the screenshot and decide your next action.',
     history: [],
     systemPrompt,
+    model: BROWSER_TEST_MODEL,
     attachments: [{
       type: 'image',
       data: `data:image/jpeg;base64,${base64Image}`,

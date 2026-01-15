@@ -380,6 +380,7 @@ export const ChatRequestSchema = z.object({
     data: z.string(), // base64 data URL
     name: z.string().optional(),
   })).optional(),
+  model: z.string().optional(), // Override default LLM model (e.g., 'anthropic/claude-3-5-haiku-20241022')
 });
 
 // Infer types from schemas

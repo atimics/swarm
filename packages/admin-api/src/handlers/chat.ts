@@ -591,6 +591,7 @@ function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
 interface ProcessChatOptions {
   customSystemPrompt?: string;
   attachments?: Array<{ type: 'image' | 'file'; data: string; name?: string }>;
+  model?: string; // Override default LLM model
 }
 
 /**
@@ -679,9 +680,12 @@ async function processChat(
   
   const input = buildModelInput(systemPrompt, messagesWithAttachments);
 
+  // Use provided model or fall back to default
+  const effectiveModel = options?.model || LLM_MODEL;
+
   logger.info('LLM request', {
     event: 'llm_request',
-    model: LLM_MODEL,
+    model: effectiveModel,
     messageCount: messages.length,
     toolsIncluded: tools.length > 0,
   });
@@ -696,7 +700,7 @@ async function processChat(
   try {
     // Tools from the SDK are already in the correct format
     modelResult = getOpenRouterClient().callModel({
-      model: LLM_MODEL,
+      model: effectiveModel,
       input,
       maxOutputTokens: 2048,
       ...(tools.length > 0 ? { tools, stopWhen: stepCountIs(10) } : {}),
@@ -726,7 +730,7 @@ async function processChat(
       ];
       
       const fallbackResult = await callLlmDirectFallback(
-        LLM_MODEL,
+        effectiveModel,
         apiMessages as Array<{ role: string; content: string }>,
         tools.length > 0 ? tools : undefined
       );
@@ -1082,7 +1086,7 @@ export async function handler(
         }),
       };
     }
-    const { message, history, agent, systemPrompt: customSystemPrompt, attachments } = parseResult.data;
+    const { message, history, agent, systemPrompt: customSystemPrompt, attachments, model } = parseResult.data;
 
     const agentRecord = agent?.id ? await agents.getAgent(agent.id) : null;
     const voiceEnabled = process.env.ENABLE_VOICE_TOOLS !== 'false';
@@ -1128,6 +1132,7 @@ export async function handler(
     const result = await processChat(message, history, session, agentContext, {
       customSystemPrompt,
       attachments,
+      model,
     });
 
     // Save the updated history to DynamoDB for cross-device sync
