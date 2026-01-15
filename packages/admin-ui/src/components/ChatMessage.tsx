@@ -424,8 +424,13 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
   const imagesFromJobs = extractImagesFromPendingJobs(message.pendingJobs);
   const audiosFromTools = extractAudiosFromToolCalls(message.toolCalls);
   
+  // Extract images from media array (gallery results, etc)
+  const imagesFromMedia = (message.media || [])
+    .filter(m => m.type === 'image' || m.type === 'sticker')
+    .map(m => m.url);
+  
   // Combine all image sources, deduplicate
-  const allImages = [...imagesFromTools, ...imagesFromJobs, ...embeddedImages];
+  const allImages = [...imagesFromTools, ...imagesFromJobs, ...embeddedImages, ...imagesFromMedia];
   const images = [...new Set(allImages)];
   
   // Combine all audio sources, deduplicate

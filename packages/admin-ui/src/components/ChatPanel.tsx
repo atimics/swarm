@@ -187,7 +187,6 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             content: response.response,
             isLoading: false,
             // Only add tool calls that need user input (pendingToolCall)
-            // Media is displayed via message.media, not as tool calls
             toolCalls: pendingToolCall ? [{
               id: pendingToolCall.id,
               name: pendingToolCall.name,
@@ -196,6 +195,8 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             }] : undefined,
             // Track pending jobs for status display
             pendingJobs: pendingJobsForState.length > 0 ? pendingJobsForState : undefined,
+            // Media items from tool results (gallery, generated images)
+            media: response.media,
           });
           
           // Start polling for all pending jobs
