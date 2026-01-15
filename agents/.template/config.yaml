@@ -41,7 +41,7 @@ platforms:
 # LLM configuration
 llm:
   provider: openrouter  # openrouter | bedrock | anthropic
-  model: anthropic/claude-sonnet-4
+  model: anthropic/claude-haiku-4.5
   temperature: 0.8
   maxTokens: 1024
 

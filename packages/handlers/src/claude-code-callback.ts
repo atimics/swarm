@@ -15,6 +15,7 @@ import {
   PlatformRegistry,
   createSecretsService,
   logger,
+  DEFAULT_LLM_MODEL,
   type AgentConfig,
   type ResponseAction,
 } from '@swarm/core';
@@ -81,7 +82,7 @@ async function getAgentContext(agentId: string) {
     platforms: {},
     llm: {
       provider: 'openrouter',
-      model: 'anthropic/claude-sonnet-4',
+      model: DEFAULT_LLM_MODEL,
       temperature: 0.8,
       maxTokens: 1024,
     },

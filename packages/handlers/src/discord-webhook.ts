@@ -11,6 +11,7 @@ import {
   createActivityService,
   createMessageEvaluator,
   logger,
+  DEFAULT_LLM_MODEL,
   type AgentConfig,
 } from '@swarm/core';
 
@@ -51,7 +52,7 @@ async function initialize(): Promise<void> {
     },
     llm: {
       provider: 'openrouter',
-      model: 'anthropic/claude-sonnet-4',
+      model: DEFAULT_LLM_MODEL,
       temperature: 0.8,
       maxTokens: 1024,
     },

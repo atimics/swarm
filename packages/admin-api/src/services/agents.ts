@@ -10,6 +10,7 @@ import {
   GetCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS } from '@swarm/core';
 import type { AgentRecord, UserSession } from '../types.js';
 import { syncAgentConfig } from './config-sync.js';
 import { getGateStatus, incrementCreatorCount, decrementCreatorCount, type GateStatus } from './nft-gate.js';
@@ -56,10 +57,10 @@ export async function createAgent(
       format: 'ogg',
     },
     llmConfig: {
-      provider: 'openrouter',
-      model: 'anthropic/claude-sonnet-4',
-      temperature: 0.8,
-      maxTokens: 1024,
+      provider: DEFAULT_LLM_PROVIDER,
+      model: DEFAULT_LLM_MODEL,
+      temperature: DEFAULT_LLM_TEMPERATURE,
+      maxTokens: DEFAULT_LLM_MAX_TOKENS,
       useGlobalKey: true,
     },
     currentEra: 0,
@@ -128,10 +129,10 @@ export async function createAgentWithWallet(
       format: 'ogg',
     },
     llmConfig: {
-      provider: 'openrouter',
-      model: 'anthropic/claude-sonnet-4',
-      temperature: 0.8,
-      maxTokens: 1024,
+      provider: DEFAULT_LLM_PROVIDER,
+      model: DEFAULT_LLM_MODEL,
+      temperature: DEFAULT_LLM_TEMPERATURE,
+      maxTokens: DEFAULT_LLM_MAX_TOKENS,
       useGlobalKey: true,
     },
     creatorWallet,  // Track who created for slot counting

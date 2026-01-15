@@ -5,6 +5,7 @@
  * This allows the unified tool definitions to work with our current infrastructure.
  */
 import type { AllServices, VoiceServices, NFTServices, PropertyServices } from '@swarm/mcp-server';
+import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS } from '@swarm/core';
 import type { UserSession, SecretType } from '../types.js';
 import * as agents from '../services/agents.js';
 import * as secrets from '../services/secrets.js';
@@ -391,22 +392,22 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       getConfig: async (agentId) => {
         const agent = await agents.getAgent(agentId);
         if (!agent) {
-          return { model: 'anthropic/claude-sonnet-4', temperature: 0.8, maxTokens: 1024 };
+          return { model: DEFAULT_LLM_MODEL, temperature: DEFAULT_LLM_TEMPERATURE, maxTokens: DEFAULT_LLM_MAX_TOKENS };
         }
         return {
-          model: agent.llmConfig?.model || 'anthropic/claude-sonnet-4',
-          temperature: agent.llmConfig?.temperature ?? 0.8,
-          maxTokens: agent.llmConfig?.maxTokens || 1024,
+          model: agent.llmConfig?.model || DEFAULT_LLM_MODEL,
+          temperature: agent.llmConfig?.temperature ?? DEFAULT_LLM_TEMPERATURE,
+          maxTokens: agent.llmConfig?.maxTokens || DEFAULT_LLM_MAX_TOKENS,
         };
       },
 
       updateConfig: async (agentId, config) => {
         const agent = await agents.getAgent(agentId);
         const currentConfig = agent?.llmConfig || {
-          provider: 'openrouter',
-          model: 'anthropic/claude-sonnet-4',
-          temperature: 0.8,
-          maxTokens: 1024,
+          provider: DEFAULT_LLM_PROVIDER,
+          model: DEFAULT_LLM_MODEL,
+          temperature: DEFAULT_LLM_TEMPERATURE,
+          maxTokens: DEFAULT_LLM_MAX_TOKENS,
           useGlobalKey: true,
         };
         const newLlmConfig = {

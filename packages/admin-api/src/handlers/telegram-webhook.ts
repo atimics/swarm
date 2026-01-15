@@ -37,7 +37,7 @@ import {
   createToolClient,
   registerAllTools,
 } from '@swarm/mcp-server';
-import { extractThinking, logger } from '@swarm/core';
+import { extractThinking, logger, DEFAULT_LLM_MODEL } from '@swarm/core';
 import { createTelegramMCPServices } from '../services/mcp-adapter.js';
 import { recordError } from '../services/auto-issues.js';
 import type { BufferedMessage, BufferedMedia, ChannelStateRecord } from '../types.js';
@@ -50,7 +50,7 @@ const secretsClient = new SecretsManagerClient({});
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
 const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'https://openrouter.ai/api/v1/chat/completions';
-const LLM_MODEL = process.env.LLM_MODEL || 'anthropic/claude-sonnet-4';
+const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
 const ENFORCE_IP_CHECK = process.env.ENFORCE_TELEGRAM_IP_CHECK !== 'false';
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
 

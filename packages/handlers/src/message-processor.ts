@@ -14,6 +14,7 @@
  */
 import type { SQSEvent, Context } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { DEFAULT_LLM_MODEL } from '@swarm/core';
 import {
   createStateService,
   createSecretsService,
@@ -105,7 +106,7 @@ async function initialize(): Promise<void> {
     platforms: {},
     llm: {
       provider: (process.env.LLM_PROVIDER as 'openrouter') || 'openrouter',
-      model: process.env.LLM_MODEL || 'anthropic/claude-sonnet-4',
+      model: process.env.LLM_MODEL || DEFAULT_LLM_MODEL,
       temperature: 0.8,
       maxTokens: 1024,
     },

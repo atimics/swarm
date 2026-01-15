@@ -7,7 +7,7 @@ import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { z } from 'zod';
-import { logger } from '@swarm/core';
+import { logger, DEFAULT_LLM_MODEL } from '@swarm/core';
 import {
   createMediaService,
   createSecretsService,
@@ -114,7 +114,7 @@ async function initialize(): Promise<void> {
     platforms: {},
     llm: {
       provider: (process.env.LLM_PROVIDER as 'openrouter') || 'openrouter',
-      model: process.env.LLM_MODEL || 'anthropic/claude-sonnet-4',
+      model: process.env.LLM_MODEL || DEFAULT_LLM_MODEL,
       temperature: 0.8,
       maxTokens: 1024,
     },

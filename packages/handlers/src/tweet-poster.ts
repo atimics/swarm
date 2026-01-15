@@ -11,6 +11,8 @@ import {
   createLLMService,
   createMediaService,
   logger,
+  DEFAULT_LLM_MODEL,
+  DEFAULT_LLM_PROVIDER,
   type AgentConfig,
 } from '@swarm/core';
 
@@ -45,7 +47,7 @@ async function initialize(): Promise<void> {
     platforms: {
       twitter: { enabled: true, username: '', features: ['scheduled_tweets'] },
     },
-    llm: { provider: 'openrouter', model: 'anthropic/claude-sonnet-4', temperature: 0.9, maxTokens: 280 },
+    llm: { provider: DEFAULT_LLM_PROVIDER, model: DEFAULT_LLM_MODEL, temperature: 0.9, maxTokens: 280 },
     media: { image: { provider: 'replicate', model: 'f2ab8a5bfe79f02f0789a146cf5e73d2a4ff2684a98c2b303d1e1ff3814271db' } }, // flux-schnell
     scheduling: {},
     behavior: { responseDelayMs: [0, 0], typingIndicator: false, ignoreBots: true, cooldownMinutes: 0, maxContextMessages: 0 },

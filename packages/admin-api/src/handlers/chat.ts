@@ -7,6 +7,7 @@ import type {
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { DEFAULT_LLM_MODEL } from '@swarm/core';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import * as chatHistory from '../services/chat-history.js';
 import { OpenRouter, fromChatMessages, hasExecuteFunction, toChatMessage, stepCountIs, type Tool } from '@openrouter/sdk';
@@ -34,7 +35,7 @@ import { isPauseForInputTool } from '../tools/index.js';
 import * as agents from '../services/agents.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
-const LLM_MODEL = process.env.LLM_MODEL || 'anthropic/claude-sonnet-4';
+const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
 
 // Timeout settings
 const LLM_TIMEOUT_MS = 60_000; // 60 seconds for LLM calls (can be slow)
