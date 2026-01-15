@@ -297,6 +297,27 @@ export async function listAgents(): Promise<AgentRecord[]> {
 }
 
 /**
+ * List agents created by a specific wallet
+ * Returns only agents where creatorWallet matches the given wallet address
+ */
+export async function listAgentsByWallet(walletAddress: string): Promise<AgentRecord[]> {
+  const result = await dynamoClient.send(new ScanCommand({
+    TableName: ADMIN_TABLE,
+    FilterExpression: 'sk = :sk AND #status <> :deleted AND creatorWallet = :wallet',
+    ExpressionAttributeNames: {
+      '#status': 'status',
+    },
+    ExpressionAttributeValues: {
+      ':sk': 'CONFIG',
+      ':deleted': 'deleted',
+      ':wallet': walletAddress,
+    },
+  }));
+
+  return (result.Items as AgentRecord[]) || [];
+}
+
+/**
  * Delete an agent (soft delete)
  */
 export async function deleteAgent(

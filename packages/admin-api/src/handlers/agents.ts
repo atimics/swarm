@@ -15,6 +15,7 @@ import * as telegramService from '../services/telegram.js';
 import * as agentEventsService from '../services/agent-events.js';
 import { recordError, listAgentIssues } from '../services/auto-issues.js';
 import { SecretType } from '../types.js';
+import { getSessionWithUser } from '../services/wallet-auth.js';
 
 // CORS headers - restricted to configured admin domain
 const allowedOrigin = process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:5173';
@@ -24,6 +25,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, CF-Access-JWT-Assertion',
   'Access-Control-Allow-Credentials': 'true',
 };
+
+// Cookie name for wallet session
+const WALLET_SESSION_COOKIE = 'swarm_session';
+
+/**
+ * Extract wallet session token from cookies
+ */
+function getWalletSessionFromCookie(event: APIGatewayProxyEventV2): string | null {
+  const cookies = event.cookies || [];
+  for (const cookie of cookies) {
+    const [name, value] = cookie.split('=');
+    if (name === WALLET_SESSION_COOKIE && value) {
+      return value;
+    }
+  }
+  return null;
+}
 
 /**
  * Lambda handler for agent management API
@@ -72,9 +90,28 @@ export async function handler(
       };
     }
 
-    // GET /agents - List all agents
+    // GET /agents - List agents (filtered by wallet if logged in with wallet)
     if (method === 'GET' && path === '/agents') {
-      const agents = await agentService.listAgents();
+      // Check for wallet session to filter agents by creator
+      const sessionToken = getWalletSessionFromCookie(event);
+      let agents: Awaited<ReturnType<typeof agentService.listAgents>>;
+
+      if (sessionToken) {
+        const walletSession = await getSessionWithUser(sessionToken);
+        if (walletSession?.walletAddress) {
+          // Wallet user: show only their created agents
+          agents = await agentService.listAgentsByWallet(walletSession.walletAddress);
+          logger.info(`[Agents] Listed ${agents.length} agents for wallet=${walletSession.walletAddress.slice(0, 8)}...`);
+        } else {
+          // Invalid/expired session - return empty list (they need to re-auth)
+          agents = [];
+          logger.warn('[Agents] Invalid wallet session, returning empty agent list');
+        }
+      } else {
+        // No wallet session (CF Access / internal test only) - return all agents
+        agents = await agentService.listAgents();
+        logger.info(`[Agents] Listed all ${agents.length} agents (no wallet session)`);
+      }
 
       return {
         statusCode: 200,
