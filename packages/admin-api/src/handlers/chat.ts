@@ -824,8 +824,48 @@ async function processChat(
 
   const toolResults: ToolResult[] = [];
   
-  // When using fallback, we skip the SDK's tool execution stream since we don't have it
-  // The fallback only returns tool calls, not execution results
+  // When using fallback, we need to manually execute tools since we don't have the SDK's streaming interface
+  if (toolCalls.length > 0 && usedFallback) {
+    logger.info('Executing tools manually (fallback mode)', { toolCallCount: toolCalls.length });
+    for (const toolCall of toolCalls) {
+      const toolName = String(toolCall.name);
+      const toolArgs = typeof toolCall.arguments === 'object' && toolCall.arguments !== null
+        ? toolCall.arguments as Record<string, unknown>
+        : {};
+      
+      try {
+        const tool = tools.find(t => t.function.name === toolName);
+        if (tool && hasExecuteFunction(tool)) {
+          logger.info('Executing tool', { toolName, toolCallId: toolCall.id });
+          const result = await tool.function.execute(toolArgs);
+          const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+          toolResults.push({
+            tool_call_id: String(toolCall.id),
+            role: 'tool',
+            content: resultStr,
+          });
+          logger.info('Tool executed successfully', { toolName, toolCallId: toolCall.id, resultLength: resultStr.length });
+        } else {
+          logger.warn('Tool not executable', { toolName, toolCallId: toolCall.id, hasExecute: !!tool && hasExecuteFunction(tool) });
+          toolResults.push({
+            tool_call_id: String(toolCall.id),
+            role: 'tool',
+            content: JSON.stringify({ error: `Tool ${toolName} is not executable` }),
+          });
+        }
+      } catch (error) {
+        logger.error('Tool execution failed', error, { toolName, toolCallId: toolCall.id });
+        toolResults.push({
+          tool_call_id: String(toolCall.id),
+          role: 'tool',
+          content: JSON.stringify({ error: error instanceof Error ? error.message : 'Tool execution failed' }),
+        });
+      }
+    }
+    logger.info('Manual tool execution complete', { toolResultCount: toolResults.length });
+  }
+  
+  // When using SDK, process the tool execution stream
   if (toolCalls.length > 0 && modelResult && !usedFallback) {
     logger.info('Processing tool execution stream', { toolCallCount: toolCalls.length });
     let streamItemCount = 0;
