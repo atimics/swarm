@@ -1,7 +1,7 @@
 /**
  * Twitter OAuth Handler
  * Handles the OAuth 1.0a 3-legged flow for connecting X/Twitter accounts
- * 
+ *
  * Routes:
  * - GET /oauth/twitter/start?agentId=xxx - Start OAuth flow
  * - GET /oauth/twitter/callback?oauth_token=xxx&oauth_verifier=xxx - OAuth callback
@@ -13,8 +13,51 @@ import type {
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
-import * as twitterOAuth from '../services/twitter-oauth.js';
-import * as agentService from '../services/agents.js';
+import * as twitterOAuthDefault from '../services/twitter-oauth.js';
+import * as agentServiceDefault from '../services/agents.js';
+import type { UserSession, AgentRecord } from '../types.js';
+
+/**
+ * Dependencies interface for dependency injection (testing)
+ */
+export interface TwitterOAuthHandlerDeps {
+  twitterOAuth: {
+    isConfigured: () => Promise<boolean>;
+    startOAuthFlow: (agentId: string) => Promise<{ authorizationUrl: string; oauthToken: string }>;
+    completeOAuthFlow: (oauthToken: string, oauthVerifier: string, session: UserSession) => Promise<{
+      success: boolean;
+      agentId: string;
+      username?: string;
+      userId?: string;
+      error?: string;
+    }>;
+    getConnectionStatus: (agentId: string) => Promise<{
+      connected: boolean;
+      username?: string;
+      userId?: string;
+      connectedAt?: number;
+    }>;
+    disconnectTwitter: (agentId: string, session: UserSession) => Promise<void>;
+  };
+  agentService: {
+    getAgent: (agentId: string) => Promise<AgentRecord | null>;
+    updateAgent: (agentId: string, updates: Partial<AgentRecord>, session: UserSession) => Promise<AgentRecord>;
+  };
+  auth: {
+    authenticateRequest: (event: APIGatewayProxyEventV2) => Promise<UserSession>;
+    requireAdmin: (session: UserSession) => boolean;
+  };
+}
+
+// Default dependencies using real imports
+const defaultDeps: TwitterOAuthHandlerDeps = {
+  twitterOAuth: twitterOAuthDefault,
+  agentService: agentServiceDefault,
+  auth: {
+    authenticateRequest,
+    requireAdmin,
+  },
+};
 
 // CORS headers
 const allowedOrigin = process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:5173';
@@ -29,10 +72,15 @@ const corsHeaders = {
 
 /**
  * Lambda handler for Twitter OAuth endpoints
+ * @param event - API Gateway event
+ * @param deps - Optional dependencies for testing (uses default production dependencies if not provided)
  */
 export async function handler(
-  event: APIGatewayProxyEventV2
+  event: APIGatewayProxyEventV2,
+  deps: TwitterOAuthHandlerDeps = defaultDeps
 ): Promise<APIGatewayProxyResultV2> {
+  const { twitterOAuth, agentService, auth } = deps;
+
   // Handle preflight
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders };
@@ -53,7 +101,7 @@ export async function handler(
     // GET /oauth/twitter/callback - OAuth callback from Twitter (no auth needed)
     // This is called by Twitter after user authorizes - they won't have auth headers
     if (method === 'GET' && path === '/oauth/twitter/callback') {
-      return handleCallback(event);
+      return handleCallback(event, deps);
     }
 
     // GET /oauth/twitter/start?agentId=xxx - Start OAuth flow (no auth needed)
@@ -61,7 +109,7 @@ export async function handler(
     // The callback will store tokens for the specified agentId
     if (method === 'GET' && path === '/oauth/twitter/start') {
       const agentId = event.queryStringParameters?.agentId;
-      
+
       if (!agentId) {
         return {
           statusCode: 400,
@@ -85,7 +133,7 @@ export async function handler(
         return {
           statusCode: 503,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             error: 'Twitter OAuth not configured',
             message: 'Ensure swarm/global/twitter-app-credentials secret exists and TWITTER_OAUTH_CALLBACK_URL is set',
           }),
@@ -98,7 +146,7 @@ export async function handler(
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           authorizationUrl,
           message: 'Redirect user to authorizationUrl to authorize',
         }),
@@ -106,8 +154,8 @@ export async function handler(
     }
 
     // Routes below require authentication
-    const session = await authenticateRequest(event);
-    if (!requireAdmin(session)) {
+    const session = await auth.authenticateRequest(event);
+    if (!auth.requireAdmin(session)) {
       return {
         statusCode: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -119,9 +167,9 @@ export async function handler(
     const statusMatch = path.match(/^\/oauth\/twitter\/status\/([^/]+)$/);
     if (method === 'GET' && statusMatch) {
       const agentId = statusMatch[1];
-      
+
       const status = await twitterOAuth.getConnectionStatus(agentId);
-      
+
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -133,7 +181,7 @@ export async function handler(
     const disconnectMatch = path.match(/^\/oauth\/twitter\/([^/]+)$/);
     if (method === 'DELETE' && disconnectMatch) {
       const agentId = disconnectMatch[1];
-      
+
       await twitterOAuth.disconnectTwitter(agentId, session);
 
       // Update agent config to disable Twitter
@@ -145,7 +193,7 @@ export async function handler(
           },
         },
       }, session);
-      
+
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -182,8 +230,10 @@ export async function handler(
  * This is called after the user authorizes on Twitter
  */
 async function handleCallback(
-  event: APIGatewayProxyEventV2
+  event: APIGatewayProxyEventV2,
+  deps: TwitterOAuthHandlerDeps
 ): Promise<APIGatewayProxyResultV2> {
+  const { twitterOAuth, agentService } = deps;
   const { oauth_token, oauth_verifier, denied } = event.queryStringParameters || {};
 
   // User denied authorization
@@ -253,7 +303,7 @@ async function handleCallback(
 
   } catch (error) {
     console.error('OAuth callback error:', error);
-    
+
     return {
       statusCode: 302,
       headers: {

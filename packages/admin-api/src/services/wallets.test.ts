@@ -1,179 +1,203 @@
 /**
  * Wallet Service Tests
+ * Tests wallet generation and balance checking with dependency injection
  */
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import {
+  generateSolanaWallet,
+  generateEthereumWallet,
+  getSolanaBalance,
+  getEthereumBalance,
+  listWallets,
+  type WalletServiceDeps,
+} from './wallets.js';
+import type { UserSession } from '../types.js';
 
-// Mock AWS
-vi.mock('@aws-sdk/lib-dynamodb', () => {
-  const mockSend = vi.fn();
-  class MockPutCommand {
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
-  class MockGetCommand {
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
-  class MockQueryCommand {
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
+// Helper to create mock deps
+function createMockDeps(): WalletServiceDeps {
+  const mockSend = mock(() => Promise.resolve({}));
+  const mockGetBalance = mock(() => Promise.resolve(1000000000)); // 1 SOL
+  const mockGetParsedTokenAccounts = mock(() => Promise.resolve({ value: [] }));
+  const mockEthGetBalance = mock(() => Promise.resolve(BigInt('1000000000000000000'))); // 1 ETH
+
   return {
-    DynamoDBDocumentClient: {
-      from: vi.fn(() => ({
-        send: mockSend,
-      })),
+    dynamoClient: {
+      send: mockSend as unknown as WalletServiceDeps['dynamoClient']['send'],
     },
-    PutCommand: MockPutCommand,
-    GetCommand: MockGetCommand,
-    QueryCommand: MockQueryCommand,
+    solana: {
+      Keypair: {
+        generate: () => ({
+          publicKey: {
+            toBase58: () => '11111111111111111111111111111111',
+          },
+          secretKey: new Uint8Array(64),
+        }),
+      },
+      Connection: class MockConnection {
+        getBalance = mockGetBalance;
+        getParsedTokenAccountsByOwner = mockGetParsedTokenAccounts;
+      } as unknown as WalletServiceDeps['solana']['Connection'],
+      PublicKey: class MockPublicKey {
+        private _key: string;
+        constructor(value: string | Buffer | Uint8Array) {
+          this._key = typeof value === 'string' ? value : 'mock-public-key';
+        }
+        toBase58(): string {
+          return this._key;
+        }
+      } as unknown as WalletServiceDeps['solana']['PublicKey'],
+      LAMPORTS_PER_SOL: 1000000000,
+    },
+    ethereum: {
+      Wallet: {
+        createRandom: () => ({
+          address: '0x1234567890123456789012345678901234567890',
+          privateKey: '0xabcdef',
+        }),
+      },
+      JsonRpcProvider: class MockProvider {
+        getBalance = mockEthGetBalance;
+      } as unknown as WalletServiceDeps['ethereum']['JsonRpcProvider'],
+      formatEther: (val: bigint) => (Number(val) / 1e18).toString(),
+    },
+    secrets: {
+      storeSecret: mock(() => Promise.resolve()) as unknown as WalletServiceDeps['secrets']['storeSecret'],
+      _getSecretValueInternal: mock(() => Promise.resolve(null)) as unknown as WalletServiceDeps['secrets']['_getSecretValueInternal'],
+    },
+    bs58: {
+      encode: () => 'encoded-secret-key',
+    },
+    tableName: 'test-admin-table',
+    solanaRpcUrl: 'https://api.mainnet-beta.solana.com',
+    ethereumRpcUrl: 'https://cloudflare-eth.com',
   };
-});
+}
 
-// Mock Secrets
-vi.mock('./secrets.js', () => ({
-  storeSecret: vi.fn(),
-  _getSecretValueInternal: vi.fn(),
-}));
-
-// Mock Solana
-vi.mock('@solana/web3.js', () => {
-  // Mock PublicKey class
-  class MockPublicKey {
-    private _key: Buffer;
-    constructor(value: Buffer | Uint8Array | string) {
-      if (typeof value === 'string') {
-        this._key = Buffer.from(value, 'base64');
-      } else {
-        this._key = Buffer.from(value);
-      }
-    }
-    toBase58(): string {
-      return '11111111111111111111111111111111';
-    }
-    toBuffer(): Buffer {
-      return this._key;
-    }
-  }
+// Helper to create test session
+function createTestSession(): UserSession {
   return {
-    PublicKey: MockPublicKey,
-    Keypair: {
-      generate: vi.fn(() => ({
-        publicKey: new MockPublicKey(Buffer.alloc(32)),
-        secretKey: new Uint8Array(64),
-      })),
-    },
-    Connection: vi.fn(() => ({
-      getBalance: vi.fn().mockResolvedValue(1000000000), // 1 SOL
-      getParsedTokenAccountsByOwner: vi.fn().mockResolvedValue({ value: [] }),
-    })),
-    LAMPORTS_PER_SOL: 1000000000,
+    email: 'test@example.com',
+    userId: 'user-123',
+    isAdmin: true,
+    accessToken: 'test-token',
   };
-});
-
-// Mock Ethers
-vi.mock('ethers', () => ({
-  Wallet: {
-    createRandom: vi.fn(() => ({
-      address: '0x123',
-      privateKey: '0xabc',
-    })),
-  },
-  JsonRpcProvider: vi.fn(() => ({
-    getBalance: vi.fn().mockResolvedValue(BigInt('1000000000000000000')), // 1 ETH
-  })),
-  formatEther: vi.fn((val) => (Number(val) / 1e18).toString()),
-}));
-
-let generateSolanaWallet: typeof import('./wallets.js').generateSolanaWallet;
-let generateEthereumWallet: typeof import('./wallets.js').generateEthereumWallet;
-let getSolanaBalance: typeof import('./wallets.js').getSolanaBalance;
-let getEthereumBalance: typeof import('./wallets.js').getEthereumBalance;
-let listWallets: typeof import('./wallets.js').listWallets;
-let storeSecret: typeof import('./secrets.js').storeSecret;
-let DynamoDBDocumentClient: typeof import('@aws-sdk/lib-dynamodb').DynamoDBDocumentClient;
-let PutCommand: typeof import('@aws-sdk/lib-dynamodb').PutCommand;
-let PublicKey: typeof import('@solana/web3.js').PublicKey;
-let mockDynamo: any;
-
-beforeAll(async () => {
-  ({ generateSolanaWallet, generateEthereumWallet, getSolanaBalance, getEthereumBalance, listWallets } = await import('./wallets.js'));
-  ({ storeSecret } = await import('./secrets.js'));
-  ({ DynamoDBDocumentClient, PutCommand } = await import('@aws-sdk/lib-dynamodb'));
-  ({ PublicKey } = await import('@solana/web3.js'));
-});
+}
 
 describe('WalletService', () => {
-  const session = { email: 'test@example.com' } as any;
+  let mockDeps: WalletServiceDeps;
+  const session = createTestSession();
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    mockDynamo = (DynamoDBDocumentClient.from as any)().send;
+    mockDeps = createMockDeps();
   });
 
   describe('generateSolanaWallet', () => {
     it('generates a keypair and stores it', async () => {
-      mockDynamo.mockResolvedValue({});
-      
-      const wallet = await generateSolanaWallet('agent-1', 'main', session);
-      
+      const wallet = await generateSolanaWallet('agent-1', 'main', session, mockDeps);
+
       expect(wallet.publicKey).toBeDefined();
       expect(wallet.walletType).toBe('solana');
-      expect(storeSecret).toHaveBeenCalled();
-      expect(mockDynamo).toHaveBeenCalledWith(expect.any(PutCommand));
+      expect(wallet.agentId).toBe('agent-1');
+      expect(wallet.name).toBe('main');
+      expect(mockDeps.secrets.storeSecret).toHaveBeenCalled();
+      expect(mockDeps.dynamoClient.send).toHaveBeenCalled();
+    });
+
+    it('returns correct wallet info structure', async () => {
+      const wallet = await generateSolanaWallet('agent-1', 'trading', session, mockDeps);
+
+      expect(wallet.id).toBe('agent-1-solana-trading');
+      expect(wallet.address).toBe(wallet.publicKey);
+      expect(wallet.createdBy).toBe('test@example.com');
+      expect(typeof wallet.createdAt).toBe('number');
     });
   });
 
   describe('getSolanaBalance', () => {
     it('returns balance from Solana connection', async () => {
-      const pubkey = new PublicKey(Buffer.alloc(32)).toBase58();
-      const balance = await getSolanaBalance(pubkey);
-      
+      const pubkey = '11111111111111111111111111111111';
+      const balance = await getSolanaBalance(pubkey, undefined, mockDeps);
+
       expect(balance.solBalance).toBe(1);
       expect(balance.publicKey).toBe(pubkey);
+      expect(balance.chain).toBe('solana');
+    });
+
+    it('includes balance in multiple formats', async () => {
+      const balance = await getSolanaBalance('test-key', undefined, mockDeps);
+
+      expect(balance.balance).toBe(1);
+      expect(balance.balanceRaw).toBe('1000000000');
+      expect(balance.solBalanceLamports).toBe(1000000000);
     });
   });
 
   describe('generateEthereumWallet', () => {
     it('generates a wallet and stores it', async () => {
-      mockDynamo.mockResolvedValue({});
-      
-      const wallet = await generateEthereumWallet('agent-1', 'main', session);
-      
-      expect(wallet.address).toBe('0x123');
+      const wallet = await generateEthereumWallet('agent-1', 'main', session, mockDeps);
+
+      expect(wallet.address).toBe('0x1234567890123456789012345678901234567890');
       expect(wallet.walletType).toBe('ethereum');
-      expect(storeSecret).toHaveBeenCalled();
-      expect(mockDynamo).toHaveBeenCalledWith(expect.any(PutCommand));
+      expect(mockDeps.secrets.storeSecret).toHaveBeenCalled();
+      expect(mockDeps.dynamoClient.send).toHaveBeenCalled();
+    });
+
+    it('returns correct wallet info structure', async () => {
+      const wallet = await generateEthereumWallet('agent-1', 'trading', session, mockDeps);
+
+      expect(wallet.id).toBe('agent-1-ethereum-trading');
+      expect(wallet.publicKey).toBe(wallet.address);
+      expect(wallet.createdBy).toBe('test@example.com');
     });
   });
 
   describe('getEthereumBalance', () => {
-    it('returns balance from Ethers connection', async () => {
-      const balance = await getEthereumBalance('0x123');
-      
+    it('returns balance from Ethereum provider', async () => {
+      const balance = await getEthereumBalance('0x123', undefined, mockDeps);
+
       expect(balance.balance).toBe(1);
       expect(balance.address).toBe('0x123');
       expect(balance.chain).toBe('ethereum');
+    });
+
+    it('includes balance in multiple formats', async () => {
+      const balance = await getEthereumBalance('0x123', undefined, mockDeps);
+
+      expect(balance.ethBalance).toBe(1);
+      expect(balance.balanceRaw).toBe('1000000000000000000');
+      expect(balance.ethBalanceWei).toBe('1000000000000000000');
     });
   });
 
   describe('listWallets', () => {
     it('queries DynamoDB for agent wallets', async () => {
-      mockDynamo.mockResolvedValue({
-        Items: [
-          { agentId: 'a1', publicKey: 'p1', chain: 'solana' }
-        ]
-      });
+      (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve({
+          Items: [
+            { id: 'a1-solana-main', agentId: 'a1', publicKey: 'p1', walletType: 'solana', address: 'p1', name: 'main', createdAt: 1000, createdBy: 'test@example.com' },
+          ],
+        })
+      );
 
-      const wallets = await listWallets('a1');
+      const wallets = await listWallets('a1', mockDeps);
+
       expect(wallets).toHaveLength(1);
       expect(wallets[0].publicKey).toBe('p1');
+      expect(wallets[0].walletType).toBe('solana');
+    });
+
+    it('returns empty array when no agentId provided', async () => {
+      const wallets = await listWallets(undefined, mockDeps);
+      expect(wallets).toHaveLength(0);
+    });
+
+    it('returns empty array when no wallets found', async () => {
+      (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve({ Items: [] })
+      );
+
+      const wallets = await listWallets('a1', mockDeps);
+      expect(wallets).toHaveLength(0);
     });
   });
 });

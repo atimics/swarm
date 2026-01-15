@@ -1,26 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-// Mock AWS SDK
-vi.mock('@aws-sdk/lib-dynamodb', () => {
-  const mockSend = vi.fn();
-  return {
-    DynamoDBDocumentClient: {
-      from: vi.fn(() => ({
-        send: mockSend
-      }))
-    },
-    GetCommand: vi.fn(x => x),
-    PutCommand: vi.fn(x => x),
-  };
-});
-
-const mocked = <T>(value: T) => (typeof (vi as any).mocked === 'function' ? (vi as any).mocked(value) : value as any);
+import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { DynamoDBUsageMeteringService } from './usage.js';
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
 describe('UsageMeteringService', () => {
-  let service: import('./usage.js').DynamoDBUsageMeteringService;
-  let DynamoDBUsageMeteringService: typeof import('./usage.js').DynamoDBUsageMeteringService;
-  let DynamoDBDocumentClient: typeof import('@aws-sdk/lib-dynamodb').DynamoDBDocumentClient;
-  let mockDocClient: ReturnType<typeof mocked>;
+  let service: DynamoDBUsageMeteringService;
+  let mockSend: ReturnType<typeof mock>;
+
   const tableName = 'test-table';
   const agentId = 'test-agent';
   const toolId = 'image_gen';
@@ -30,32 +15,30 @@ describe('UsageMeteringService', () => {
     rechargeIntervalMs: 24 * 60 * 60 * 1000 // 1 day
   };
 
-  beforeEach(async () => {
-    ({ DynamoDBDocumentClient } = await import('@aws-sdk/lib-dynamodb'));
-    ({ DynamoDBUsageMeteringService } = await import('./usage.js'));
-    vi.clearAllMocks();
-    service = new DynamoDBUsageMeteringService(tableName);
-    mockDocClient = mocked(DynamoDBDocumentClient.from(null as any));
+  beforeEach(() => {
+    mockSend = mock(() => Promise.resolve({ Item: undefined }));
+    const mockDocClient = { send: mockSend } as unknown as DynamoDBDocumentClient;
+    service = new DynamoDBUsageMeteringService(tableName, mockDocClient);
   });
 
   describe('getCredits', () => {
     it('returns max credits if no record exists', async () => {
-      mockDocClient.send.mockResolvedValueOnce({ Item: undefined });
+      mockSend.mockImplementation(() => Promise.resolve({ Item: undefined }));
 
       const result = await service.getCredits(agentId, toolId, config);
 
       expect(result.credits).toBe(config.maxCredits);
-      expect(mockDocClient.send).toHaveBeenCalledWith(expect.any(Object));
+      expect(mockSend).toHaveBeenCalled();
     });
 
     it('calculates recharged credits correctly', async () => {
       const lastRecharge = Date.now() - (1.5 * 24 * 60 * 60 * 1000); // 1.5 days ago
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: {
           credits: 1,
           lastRecharge
         }
-      });
+      }));
 
       const result = await service.getCredits(agentId, toolId, config);
 
@@ -65,12 +48,12 @@ describe('UsageMeteringService', () => {
 
     it('caps credits at maxCredits', async () => {
       const lastRecharge = Date.now() - (10 * 24 * 60 * 60 * 1000); // 10 days ago
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: {
           credits: 1,
           lastRecharge
         }
-      });
+      }));
 
       const result = await service.getCredits(agentId, toolId, config);
 
@@ -80,18 +63,18 @@ describe('UsageMeteringService', () => {
 
   describe('canUseTool', () => {
     it('returns true if credits > 0', async () => {
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: 1, lastRecharge: Date.now() }
-      });
+      }));
 
       const result = await service.canUseTool(agentId, toolId, config);
       expect(result).toBe(true);
     });
 
     it('returns false if credits == 0', async () => {
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: 0, lastRecharge: Date.now() }
-      });
+      }));
 
       const result = await service.canUseTool(agentId, toolId, config);
       expect(result).toBe(false);
@@ -101,43 +84,52 @@ describe('UsageMeteringService', () => {
   describe('consumeCredit', () => {
     it('decrements credits and saves to DynamoDB', async () => {
       const now = Date.now();
-      mockDocClient.send.mockResolvedValueOnce({
-        Item: { credits: 2, lastRecharge: now }
+      let callCount = 0;
+      mockSend.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ Item: { credits: 2, lastRecharge: now } });
+        }
+        return Promise.resolve({}); // PutCommand response
       });
-      mockDocClient.send.mockResolvedValueOnce({}); // PutCommand response
 
       const result = await service.consumeCredit(agentId, toolId, config);
 
       expect(result.allowed).toBe(true);
       expect(result.remaining).toBe(1);
-      
-      expect(mockDocClient.send).toHaveBeenCalledTimes(2);
-      const putCall = mocked(mockDocClient.send).mock.calls[1][0] as any;
-      expect(putCall.Item.credits).toBe(1);
-      expect(putCall.Item.pk).toBe(`AGENT#${agentId}`);
-      expect(putCall.Item.sk).toBe(`USAGE#${toolId}`);
+      expect(mockSend).toHaveBeenCalledTimes(2);
+
+      // Check the PutCommand call
+      const putCall = mockSend.mock.calls[1][0] as any;
+      expect(putCall.input.Item.credits).toBe(1);
+      expect(putCall.input.Item.pk).toBe(`AGENT#${agentId}`);
+      expect(putCall.input.Item.sk).toBe(`USAGE#${toolId}`);
     });
 
     it('denies consumption if no credits available', async () => {
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: 0, lastRecharge: Date.now() }
-      });
+      }));
 
       const result = await service.consumeCredit(agentId, toolId, config);
 
       expect(result.allowed).toBe(false);
       expect(result.remaining).toBe(0);
-      expect(mockDocClient.send).toHaveBeenCalledTimes(1); // Only GetCommand
+      expect(mockSend).toHaveBeenCalledTimes(1); // Only GetCommand
     });
 
     it('updates lastRecharge when credits are recharged during consumption', async () => {
       const interval = config.rechargeIntervalMs;
       const lastRecharge = Date.now() - (2.5 * interval); // 2.5 intervals ago
-      
-      mockDocClient.send.mockResolvedValueOnce({
-        Item: { credits: 0, lastRecharge }
+
+      let callCount = 0;
+      mockSend.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ Item: { credits: 0, lastRecharge } });
+        }
+        return Promise.resolve({}); // PutCommand
       });
-      mockDocClient.send.mockResolvedValueOnce({}); // PutCommand
 
       const result = await service.consumeCredit(agentId, toolId, config);
 
@@ -145,36 +137,33 @@ describe('UsageMeteringService', () => {
       // 0 + 2 (recharge) - 1 (consume) = 1
       expect(result.remaining).toBe(1);
 
-      const putCall = mocked(mockDocClient.send).mock.calls[1][0] as any;
+      const putCall = mockSend.mock.calls[1][0] as any;
       // Should have moved lastRecharge forward by 2 full intervals
-      expect(putCall.Item.lastRecharge).toBe(lastRecharge + (2 * interval));
+      expect(putCall.input.Item.lastRecharge).toBe(lastRecharge + (2 * interval));
     });
   });
 
-  /**
-   * Usage Metering: canUseTool denies when credits exhausted
-   */
   describe('canUseTool denies when credits exhausted', () => {
     it('denies tool use when credits are zero', async () => {
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: 0, lastRecharge: Date.now() }
-      });
+      }));
 
       const result = await service.canUseTool(agentId, toolId, config);
       expect(result).toBe(false);
     });
 
     it('denies tool use when credits are negative (edge case)', async () => {
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: -1, lastRecharge: Date.now() }
-      });
+      }));
 
       const result = await service.canUseTool(agentId, toolId, config);
       expect(result).toBe(false);
     });
 
     it('returns false on DynamoDB error (fail closed for safety)', async () => {
-      mockDocClient.send.mockRejectedValueOnce(new Error('DynamoDB timeout'));
+      mockSend.mockImplementation(() => Promise.reject(new Error('DynamoDB timeout')));
 
       const result = await service.canUseTool(agentId, toolId, config);
       // Fails with 0 credits on error, so canUseTool returns false
@@ -182,15 +171,16 @@ describe('UsageMeteringService', () => {
     });
   });
 
-  /**
-   * Usage Metering: consumeCredit decrements and enforces limits
-   */
   describe('consumeCredit decrements and enforces limits', () => {
     it('decrements from maxCredits to maxCredits-1', async () => {
-      mockDocClient.send.mockResolvedValueOnce({
-        Item: { credits: config.maxCredits, lastRecharge: Date.now() }
+      let callCount = 0;
+      mockSend.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ Item: { credits: config.maxCredits, lastRecharge: Date.now() } });
+        }
+        return Promise.resolve({});
       });
-      mockDocClient.send.mockResolvedValueOnce({});
 
       const result = await service.consumeCredit(agentId, toolId, config);
 
@@ -199,10 +189,14 @@ describe('UsageMeteringService', () => {
     });
 
     it('decrements from 1 to 0', async () => {
-      mockDocClient.send.mockResolvedValueOnce({
-        Item: { credits: 1, lastRecharge: Date.now() }
+      let callCount = 0;
+      mockSend.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ Item: { credits: 1, lastRecharge: Date.now() } });
+        }
+        return Promise.resolve({});
       });
-      mockDocClient.send.mockResolvedValueOnce({});
 
       const result = await service.consumeCredit(agentId, toolId, config);
 
@@ -211,9 +205,9 @@ describe('UsageMeteringService', () => {
     });
 
     it('enforces limit by denying when at zero', async () => {
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: 0, lastRecharge: Date.now() }
-      });
+      }));
 
       const result = await service.consumeCredit(agentId, toolId, config);
 
@@ -222,10 +216,14 @@ describe('UsageMeteringService', () => {
     });
 
     it('returns original credits on DynamoDB write failure', async () => {
-      mockDocClient.send.mockResolvedValueOnce({
-        Item: { credits: 2, lastRecharge: Date.now() }
+      let callCount = 0;
+      mockSend.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ Item: { credits: 2, lastRecharge: Date.now() } });
+        }
+        return Promise.reject(new Error('Write failed'));
       });
-      mockDocClient.send.mockRejectedValueOnce(new Error('Write failed'));
 
       const result = await service.consumeCredit(agentId, toolId, config);
 
@@ -234,17 +232,14 @@ describe('UsageMeteringService', () => {
     });
   });
 
-  /**
-   * Usage Metering: daily recharge restores tool credits
-   */
   describe('daily recharge restores tool credits', () => {
     it('restores 1 credit after 1 recharge interval', async () => {
       const interval = config.rechargeIntervalMs;
       const lastRecharge = Date.now() - interval; // Exactly 1 interval ago
 
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: 0, lastRecharge }
-      });
+      }));
 
       const result = await service.getCredits(agentId, toolId, config);
 
@@ -256,9 +251,9 @@ describe('UsageMeteringService', () => {
       const interval = config.rechargeIntervalMs;
       const lastRecharge = Date.now() - (3 * interval); // 3 intervals ago
 
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: 0, lastRecharge }
-      });
+      }));
 
       const result = await service.getCredits(agentId, toolId, config);
 
@@ -270,9 +265,9 @@ describe('UsageMeteringService', () => {
       const interval = config.rechargeIntervalMs;
       const lastRecharge = Date.now() - (100 * interval); // Long time ago
 
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: 1, lastRecharge }
-      });
+      }));
 
       const result = await service.getCredits(agentId, toolId, config);
 
@@ -283,9 +278,9 @@ describe('UsageMeteringService', () => {
       const interval = config.rechargeIntervalMs;
       const lastRecharge = Date.now() - (interval / 2); // Half interval ago
 
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: 1, lastRecharge }
-      });
+      }));
 
       const result = await service.getCredits(agentId, toolId, config);
 
@@ -297,9 +292,9 @@ describe('UsageMeteringService', () => {
       const interval = config.rechargeIntervalMs;
       const lastRecharge = Date.now() - interval; // 1 interval ago
 
-      mockDocClient.send.mockResolvedValueOnce({
+      mockSend.mockImplementation(() => Promise.resolve({
         Item: { credits: 1, lastRecharge }
-      });
+      }));
 
       const result = await service.getCredits(agentId, toolId, config);
 

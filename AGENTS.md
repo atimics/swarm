@@ -10,7 +10,7 @@
 - `pnpm install` installs workspace dependencies.
 - `pnpm build` builds all packages (`pnpm -r build`).
 - `pnpm dev` runs package dev/watch tasks in parallel.
-- `pnpm test` runs Vitest across packages.
+- `bun test` runs tests across packages (uses Bun's built-in test runner with vitest compatibility).
 - `pnpm lint` runs ESLint where configured (ex: `packages/core`, `packages/admin-ui`).
 - `pnpm cdk diff` or `pnpm synth` previews infra changes via `@swarm/infra`.
 - Deployments are typically handled via GitHub Actions; only run `pnpm deploy:dev`/`pnpm deploy:prod` if explicitly requested.
@@ -22,7 +22,8 @@
 - Agent folder names should be kebab-case IDs that match runtime agent IDs.
 
 ## Testing Guidelines
-- Vitest is configured in `vitest.config.ts` with test files matching `packages/**/*.test.ts`.
+- Tests use Bun's built-in test runner (`bun test`) which is vitest-compatible.
+- Test files match `packages/**/*.test.ts` and use vitest imports (`describe`, `it`, `expect`, `vi`).
 - Coverage uses the V8 provider and targets `packages/*/src/**/*.ts` (infra/admin-ui are excluded by default).
 - Name new tests `*.test.ts` and keep them near the package they validate.
 

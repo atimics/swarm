@@ -9,7 +9,7 @@
  *
  * @see packages/handlers/src/media-processor.ts
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { z } from 'zod';
 
 // Schema matching the one in media-processor.ts

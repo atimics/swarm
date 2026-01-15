@@ -7,7 +7,7 @@
  * This is where the character reference bug was - missing tool names in the routing logic.
  * These tests ensure we never regress on tool detection.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { isPauseForInputTool } from '../tools/index.js';
 
 /**

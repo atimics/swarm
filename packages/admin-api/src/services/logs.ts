@@ -9,7 +9,20 @@ import {
   type QueryStatus,
 } from '@aws-sdk/client-cloudwatch-logs';
 
-const logsClient = new CloudWatchLogsClient({});
+/**
+ * Dependencies interface for logs service (for testing)
+ */
+export interface LogsServiceDeps {
+  logsClient: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    send: (command: any) => Promise<any>;
+  };
+  logGroupPrefix: string;
+  adminLogGroups: string[];
+  adminLogGroupPrefixes: string[];
+}
+
+const defaultLogsClient = new CloudWatchLogsClient({});
 
 const DEFAULT_LOOKBACK_MINUTES = 30;
 const DEFAULT_LIMIT = 200;
@@ -24,6 +37,14 @@ const ADMIN_LOG_GROUP_PREFIXES = (process.env.ADMIN_LOG_GROUP_PREFIXES || '')
   .split(',')
   .map((name) => name.trim())
   .filter(Boolean);
+
+// Default dependencies
+const defaultDeps: LogsServiceDeps = {
+  logsClient: defaultLogsClient,
+  logGroupPrefix: LOG_GROUP_PREFIX,
+  adminLogGroups: ADMIN_LOG_GROUPS,
+  adminLogGroupPrefixes: ADMIN_LOG_GROUP_PREFIXES,
+};
 
 export interface LogQueryOptions {
   level?: string;
@@ -117,15 +138,18 @@ function buildInsightsQuery(agentId: string, options: LogQueryOptions, limit: nu
   ].join('\n');
 }
 
-async function describeLogGroups(prefix: string): Promise<string[]> {
+async function describeLogGroups(prefix: string, deps: LogsServiceDeps): Promise<string[]> {
   const names: string[] = [];
   let nextToken: string | undefined;
 
   do {
-    const response = await logsClient.send(new DescribeLogGroupsCommand({
+    const response = await deps.logsClient.send(new DescribeLogGroupsCommand({
       logGroupNamePrefix: prefix,
       nextToken,
-    }));
+    })) as {
+      logGroups?: Array<{ logGroupName?: string }>;
+      nextToken?: string;
+    };
 
     for (const group of response.logGroups || []) {
       if (group.logGroupName) {
@@ -138,35 +162,38 @@ async function describeLogGroups(prefix: string): Promise<string[]> {
   return names;
 }
 
-async function resolveLogGroups(agentId: string): Promise<string[]> {
+async function resolveLogGroups(agentId: string, deps: LogsServiceDeps): Promise<string[]> {
   const logGroups = new Set<string>();
 
-  const agentPrefix = `${LOG_GROUP_PREFIX}${agentId}-`;
-  const agentGroups = await describeLogGroups(agentPrefix);
+  const agentPrefix = `${deps.logGroupPrefix}${agentId}-`;
+  const agentGroups = await describeLogGroups(agentPrefix, deps);
   agentGroups.forEach((name) => logGroups.add(name));
 
-  for (const group of ADMIN_LOG_GROUPS) {
+  for (const group of deps.adminLogGroups) {
     logGroups.add(group);
   }
 
-  for (const prefix of ADMIN_LOG_GROUP_PREFIXES) {
-    const groups = await describeLogGroups(prefix);
+  for (const prefix of deps.adminLogGroupPrefixes) {
+    const groups = await describeLogGroups(prefix, deps);
     groups.forEach((name) => logGroups.add(name));
   }
 
   return Array.from(logGroups);
 }
 
-async function waitForQuery(queryId: string): Promise<{ status: QueryStatus; results: AgentLogEvent[] }> {
+async function waitForQuery(queryId: string, deps: LogsServiceDeps): Promise<{ status: QueryStatus; results: AgentLogEvent[] }> {
   const maxAttempts = 20;
   const delayMs = 500;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const response = await logsClient.send(new GetQueryResultsCommand({ queryId }));
+    const response = await deps.logsClient.send(new GetQueryResultsCommand({ queryId })) as {
+      status?: QueryStatus;
+      results?: Array<Array<{ field?: string; value?: string }>>;
+    };
     const status = response.status || 'Failed';
 
     if (status === 'Complete') {
-      const events = (response.results || []).map((row) => {
+      const events = (response.results || []).map((row: Array<{ field?: string; value?: string }>) => {
         const event: AgentLogEvent = {};
         for (const field of row) {
           if (!field.field || field.value === undefined) continue;
@@ -192,7 +219,8 @@ async function waitForQuery(queryId: string): Promise<{ status: QueryStatus; res
 
 export async function queryAgentLogs(
   agentId: string,
-  options: LogQueryOptions = {}
+  options: LogQueryOptions = {},
+  deps: LogsServiceDeps = defaultDeps
 ): Promise<AgentLogResult> {
   const now = Date.now();
   const limit = clampLimit(options.limit);
@@ -200,7 +228,7 @@ export async function queryAgentLogs(
   const startTime = options.startTime ?? (now - sinceMs);
   const endTime = options.endTime ?? now;
 
-  const logGroups = await resolveLogGroups(agentId);
+  const logGroups = await resolveLogGroups(agentId, deps);
 
   if (logGroups.length === 0) {
     return {
@@ -215,12 +243,12 @@ export async function queryAgentLogs(
 
   const queryString = buildInsightsQuery(agentId, options, limit);
 
-  const startResponse = await logsClient.send(new StartQueryCommand({
+  const startResponse = await deps.logsClient.send(new StartQueryCommand({
     logGroupNames: logGroups,
     startTime: Math.floor(startTime / 1000),
     endTime: Math.floor(endTime / 1000),
     queryString,
-  }));
+  })) as { queryId?: string };
 
   const queryId = startResponse.queryId;
   if (!queryId) {
@@ -234,7 +262,7 @@ export async function queryAgentLogs(
     };
   }
 
-  const { results } = await waitForQuery(queryId);
+  const { results } = await waitForQuery(queryId, deps);
 
   return {
     agentId,

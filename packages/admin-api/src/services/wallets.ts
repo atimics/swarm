@@ -14,10 +14,57 @@ import {
   QueryCommand,
   GetCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { storeSecret, _getSecretValueInternal } from './secrets.js';
+import { storeSecret as storeSecretDefault, _getSecretValueInternal as _getSecretValueInternalDefault } from './secrets.js';
 import type { WalletInfo, UserSession } from '../types.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+/**
+ * Dependencies interface for wallet service (for testing)
+ */
+export interface WalletServiceDeps {
+  dynamoClient: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    send: (command: any) => Promise<any>;
+  };
+  solana: {
+    Keypair: {
+      generate: () => {
+        publicKey: { toBase58: () => string };
+        secretKey: Uint8Array;
+      };
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Connection: any;
+    PublicKey: new (value: string | Buffer | Uint8Array) => {
+      toBase58: () => string;
+    };
+    LAMPORTS_PER_SOL: number;
+  };
+  ethereum: {
+    Wallet: {
+      createRandom: () => {
+        address: string;
+        privateKey: string;
+      };
+    };
+    JsonRpcProvider: new (url: string) => {
+      getBalance: (address: string) => Promise<bigint>;
+    };
+    formatEther: (value: bigint) => string;
+  };
+  secrets: {
+    storeSecret: typeof storeSecretDefault;
+    _getSecretValueInternal: typeof _getSecretValueInternalDefault;
+  };
+  bs58: {
+    encode: (source: Uint8Array) => string;
+  };
+  tableName: string;
+  solanaRpcUrl: string;
+  ethereumRpcUrl: string;
+}
+
+// Default dependencies using real imports
+const defaultDynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
@@ -27,6 +74,30 @@ const DEFAULT_SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-be
 
 // Default Ethereum RPC
 const DEFAULT_ETHEREUM_RPC = process.env.ETHEREUM_RPC_URL || 'https://cloudflare-eth.com';
+
+// Default dependencies
+const defaultDeps: WalletServiceDeps = {
+  dynamoClient: defaultDynamoClient,
+  solana: {
+    Keypair,
+    Connection,
+    PublicKey,
+    LAMPORTS_PER_SOL,
+  },
+  ethereum: {
+    Wallet,
+    JsonRpcProvider,
+    formatEther,
+  },
+  secrets: {
+    storeSecret: storeSecretDefault,
+    _getSecretValueInternal: _getSecretValueInternalDefault,
+  },
+  bs58,
+  tableName: ADMIN_TABLE,
+  solanaRpcUrl: DEFAULT_SOLANA_RPC,
+  ethereumRpcUrl: DEFAULT_ETHEREUM_RPC,
+};
 
 export interface WalletBalance {
   address: string;
@@ -51,14 +122,14 @@ export interface WalletBalance {
  * Get Solana RPC URL for an agent
  * Uses agent's Helius API key if configured, otherwise default
  */
-async function getSolanaRpcUrl(agentId?: string): Promise<string> {
+async function getSolanaRpcUrl(agentId?: string, deps: WalletServiceDeps = defaultDeps): Promise<string> {
   if (agentId) {
-    const heliusKey = await _getSecretValueInternal(agentId, 'helius_api_key', 'default');
+    const heliusKey = await deps.secrets._getSecretValueInternal(agentId, 'helius_api_key', 'default');
     if (heliusKey) {
       return `https://mainnet.helius-rpc.com/?api-key=${heliusKey}`;
     }
   }
-  return DEFAULT_SOLANA_RPC;
+  return deps.solanaRpcUrl;
 }
 
 /**
@@ -70,17 +141,18 @@ async function getSolanaRpcUrl(agentId?: string): Promise<string> {
 export async function generateSolanaWallet(
   agentId: string,
   name: string,
-  session: UserSession
+  session: UserSession,
+  deps: WalletServiceDeps = defaultDeps
 ): Promise<WalletInfo> {
   // Generate new keypair
-  const keypair = Keypair.generate();
-  
+  const keypair = deps.solana.Keypair.generate();
+
   // Convert secret key to base58 for storage
-  const secretKeyBase58 = bs58.encode(keypair.secretKey);
+  const secretKeyBase58 = deps.bs58.encode(keypair.secretKey);
   const publicKey = keypair.publicKey.toBase58();
-  
+
   // Store the secret key securely
-  await storeSecret(
+  await deps.secrets.storeSecret(
     agentId,
     'solana_wallet_key',
     name,
@@ -88,11 +160,11 @@ export async function generateSolanaWallet(
     session,
     `Solana wallet "${name}" for agent ${agentId}`
   );
-  
+
   // Create wallet info record
   const walletId = `${agentId}-solana-${name}`;
   const now = Date.now();
-  
+
   const walletInfo: WalletInfo & { pk: string; sk: string } = {
     pk: `AGENT#${agentId}`,
     sk: `WALLET#solana#${name}`,
@@ -105,13 +177,13 @@ export async function generateSolanaWallet(
     createdAt: now,
     createdBy: session.email,
   };
-  
+
   // Store wallet info in DynamoDB
-  await dynamoClient.send(new PutCommand({
-    TableName: ADMIN_TABLE,
+  await deps.dynamoClient.send(new PutCommand({
+    TableName: deps.tableName,
     Item: walletInfo,
   }));
-  
+
   return {
     id: walletInfo.id,
     agentId: walletInfo.agentId,
@@ -130,15 +202,16 @@ export async function generateSolanaWallet(
 export async function generateEthereumWallet(
   agentId: string,
   name: string,
-  session: UserSession
+  session: UserSession,
+  deps: WalletServiceDeps = defaultDeps
 ): Promise<WalletInfo> {
   // Generate random wallet
-  const wallet = Wallet.createRandom();
+  const wallet = deps.ethereum.Wallet.createRandom();
   const address = wallet.address;
   const privateKey = wallet.privateKey;
 
   // Store the private key securely
-  await storeSecret(
+  await deps.secrets.storeSecret(
     agentId,
     'ethereum_wallet_key',
     name,
@@ -165,8 +238,8 @@ export async function generateEthereumWallet(
   };
 
   // Store wallet info in DynamoDB
-  await dynamoClient.send(new PutCommand({
-    TableName: ADMIN_TABLE,
+  await deps.dynamoClient.send(new PutCommand({
+    TableName: deps.tableName,
     Item: walletInfo,
   }));
 
@@ -185,29 +258,29 @@ export async function generateEthereumWallet(
 /**
  * List wallets for an agent
  */
-export async function listWallets(agentId?: string): Promise<WalletInfo[]> {
+export async function listWallets(agentId?: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletInfo[]> {
   if (agentId) {
-    const result = await dynamoClient.send(new QueryCommand({
-      TableName: ADMIN_TABLE,
+    const result = await deps.dynamoClient.send(new QueryCommand({
+      TableName: deps.tableName,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
       ExpressionAttributeValues: {
         ':pk': `AGENT#${agentId}`,
         ':sk': 'WALLET#',
       },
-    }));
-    
-    return (result.Items || []).map(item => ({
-      id: item.id,
-      agentId: item.agentId,
-      walletType: item.walletType,
-      publicKey: item.publicKey,
-      address: item.address,
-      name: item.name,
-      createdAt: item.createdAt,
-      createdBy: item.createdBy,
+    })) as { Items?: Record<string, unknown>[] };
+
+    return (result.Items || []).map((item: Record<string, unknown>) => ({
+      id: item.id as string,
+      agentId: item.agentId as string,
+      walletType: item.walletType as 'solana' | 'ethereum',
+      publicKey: item.publicKey as string,
+      address: item.address as string,
+      name: item.name as string,
+      createdAt: item.createdAt as number,
+      createdBy: item.createdBy as string,
     }));
   }
-  
+
   // For all wallets, we'd need a GSI or scan
   // For now, return empty when no agentId
   return [];
@@ -216,54 +289,54 @@ export async function listWallets(agentId?: string): Promise<WalletInfo[]> {
 /**
  * Get a specific wallet
  */
-export async function getWallet(walletId: string): Promise<WalletInfo | null> {
+export async function getWallet(walletId: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletInfo | null> {
   // Parse wallet ID to get agentId and wallet info
   const parts = walletId.split('-');
   if (parts.length < 3) return null;
-  
+
   const [agentId, walletType, ...nameParts] = parts;
   const name = nameParts.join('-');
-  
-  const result = await dynamoClient.send(new GetCommand({
-    TableName: ADMIN_TABLE,
+
+  const result = await deps.dynamoClient.send(new GetCommand({
+    TableName: deps.tableName,
     Key: {
       pk: `AGENT#${agentId}`,
       sk: `WALLET#${walletType}#${name}`,
     },
-  }));
-  
+  })) as { Item?: Record<string, unknown> };
+
   if (!result.Item) return null;
-  
+
   return {
-    id: result.Item.id,
-    agentId: result.Item.agentId,
-    walletType: result.Item.walletType,
-    publicKey: result.Item.publicKey,
-    address: result.Item.address,
-    name: result.Item.name,
-    createdAt: result.Item.createdAt,
-    createdBy: result.Item.createdBy,
+    id: result.Item.id as string,
+    agentId: result.Item.agentId as string,
+    walletType: result.Item.walletType as 'solana' | 'ethereum',
+    publicKey: result.Item.publicKey as string,
+    address: result.Item.address as string,
+    name: result.Item.name as string,
+    createdAt: result.Item.createdAt as number,
+    createdBy: result.Item.createdBy as string,
   };
 }
 
 /**
  * Get Solana wallet balance (SOL and tokens)
  */
-export async function getSolanaBalance(publicKeyStr: string, agentId?: string): Promise<WalletBalance> {
-  const rpcUrl = await getSolanaRpcUrl(agentId);
-  const connection = new Connection(rpcUrl, 'confirmed');
-  const publicKey = new PublicKey(publicKeyStr);
-  
+export async function getSolanaBalance(publicKeyStr: string, agentId?: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletBalance> {
+  const rpcUrl = await getSolanaRpcUrl(agentId, deps);
+  const connection = new deps.solana.Connection(rpcUrl, 'confirmed');
+  const publicKey = new deps.solana.PublicKey(publicKeyStr);
+
   // Get SOL balance
   const balanceLamports = await connection.getBalance(publicKey);
-  const balanceSol = balanceLamports / LAMPORTS_PER_SOL;
-  
+  const balanceSol = balanceLamports / deps.solana.LAMPORTS_PER_SOL;
+
   // Get token accounts
   const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, {
-    programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
+    programId: new deps.solana.PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
   });
-  
-  const tokens = tokenAccounts.value.map(account => {
+
+  const tokens = (tokenAccounts.value as Array<{ account: { data: { parsed: { info: { mint: string; tokenAmount: { uiAmountString?: string; decimals: number } } } } } }>).map(account => {
     const info = account.account.data.parsed.info;
     return {
       mint: info.mint,
@@ -271,7 +344,7 @@ export async function getSolanaBalance(publicKeyStr: string, agentId?: string): 
       decimals: info.tokenAmount.decimals,
     };
   }).filter(t => t.balance > 0);
-  
+
   return {
     address: publicKeyStr,
     chain: 'solana',
@@ -288,12 +361,12 @@ export async function getSolanaBalance(publicKeyStr: string, agentId?: string): 
 /**
  * Get Ethereum wallet balance
  */
-export async function getEthereumBalance(address: string, _agentId?: string): Promise<WalletBalance> {
-  const rpcUrl = DEFAULT_ETHEREUM_RPC;
-  const provider = new JsonRpcProvider(rpcUrl);
+export async function getEthereumBalance(address: string, _agentId?: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletBalance> {
+  const rpcUrl = deps.ethereumRpcUrl;
+  const provider = new deps.ethereum.JsonRpcProvider(rpcUrl);
 
   const balanceWei = await provider.getBalance(address);
-  const balanceEth = parseFloat(formatEther(balanceWei));
+  const balanceEth = parseFloat(deps.ethereum.formatEther(balanceWei));
 
   return {
     address,

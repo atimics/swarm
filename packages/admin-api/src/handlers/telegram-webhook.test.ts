@@ -1,7 +1,7 @@
 /**
  * Telegram Webhook Handler Tests
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 
 describe('Telegram Webhook Handler', () => {
   describe('Message Decision Logic', () => {

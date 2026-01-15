@@ -7,7 +7,7 @@
  *
  * @see packages/core/src/platforms/telegram.ts
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { buildTelegramEnvelope, envelopeToBufferedMessage, type TelegramEnvelopeConfig } from './telegram.js';
 import type { Update, Message } from 'grammy/types';
 

@@ -1,7 +1,7 @@
 /**
  * Credits Service Tests
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 
 describe('Credits System', () => {
   // Simulated rate limits

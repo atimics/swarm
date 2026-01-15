@@ -1,7 +1,7 @@
 /**
  * Admin Tools Tests
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { createAdminTools } from './admin.js';
 
 describe('Admin tools - request_feature_toggle', () => {

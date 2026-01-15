@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { MessageEvaluator } from './message-evaluator.js';
 import type { AgentConfig } from '../types/index.js';
 
@@ -21,8 +21,8 @@ describe('MessageEvaluator', () => {
     } as any;
 
     mockStateService = {
-      getUserCooldown: vi.fn().mockResolvedValue(null),
-      getChannelState: vi.fn().mockResolvedValue(null),
+      getUserCooldown: mock(() => Promise.resolve(null)),
+      getChannelState: mock(() => Promise.resolve(null)),
     };
 
     mockEvaluatorConfig = {
@@ -71,11 +71,11 @@ describe('MessageEvaluator', () => {
         metadata: {}
       } as any;
 
-      mockStateService.getChannelState.mockResolvedValue({
+      mockStateService.getChannelState.mockImplementation(() => Promise.resolve({
         recentMessages: [
           { messageId: 'msg-bot-1', isBot: true }
         ]
-      });
+      }));
 
       const result = await evaluator.evaluate(envelope);
       expect(result.shouldRespond).toBe(true);
@@ -119,7 +119,7 @@ describe('MessageEvaluator', () => {
   describe('Cooldown', () => {
     it('should ignore users on cooldown', async () => {
       const cooldownUntil = Date.now() + 60000;
-      mockStateService.getUserCooldown.mockResolvedValue({ cooldownUntil });
+      mockStateService.getUserCooldown.mockImplementation(() => Promise.resolve({ cooldownUntil }));
 
       const envelope = {
         agentId: 'test-agent',
@@ -138,7 +138,7 @@ describe('MessageEvaluator', () => {
     it('should bypass cooldown for admin users', async () => {
       mockEvaluatorConfig.adminUserIds = ['admin-1'];
       const cooldownUntil = Date.now() + 60000;
-      mockStateService.getUserCooldown.mockResolvedValue({ cooldownUntil });
+      mockStateService.getUserCooldown.mockImplementation(() => Promise.resolve({ cooldownUntil }));
 
       const envelope = {
         agentId: 'test-agent',
@@ -185,9 +185,9 @@ describe('MessageEvaluator', () => {
         metadata: {}
       } as any;
 
-      mockStateService.getChannelState.mockResolvedValue({
+      mockStateService.getChannelState.mockImplementation(() => Promise.resolve({
         lastActivityAt: Date.now() - 60000, // 1 minute ago
-      });
+      }));
 
       const result = await evaluator.evaluate(envelope);
       expect(result.shouldRespond).toBe(true);

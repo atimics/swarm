@@ -15,7 +15,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "vitest run",
+    "test": "bun test",
     "lint": "eslint src/"
   },
   "dependencies": {

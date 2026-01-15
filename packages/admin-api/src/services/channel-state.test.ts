@@ -1,7 +1,7 @@
 /**
  * Channel State Service Tests
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import type { ChannelStateRecord, BufferedMessage } from '../types.js';
 
 describe('Channel State Service', () => {

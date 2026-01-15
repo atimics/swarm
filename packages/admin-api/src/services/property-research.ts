@@ -28,12 +28,31 @@ import type {
   AssessorInfo,
 } from '../types.js';
 
+/**
+ * Dependencies interface for property research service (for testing)
+ */
+export interface PropertyResearchDeps {
+  dynamoClient: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    send: (command: any) => Promise<any>;
+  };
+  tableName: string;
+  generateId: () => string;
+}
+
 const TABLE_NAME = process.env.ADMIN_TABLE || 'SwarmAdminTable';
 
 const client = new DynamoDBClient({});
-const ddb = DynamoDBDocumentClient.from(client, {
+const defaultDdb = DynamoDBDocumentClient.from(client, {
   marshallOptions: { removeUndefinedValues: true },
 });
+
+// Default dependencies
+const defaultDeps: PropertyResearchDeps = {
+  dynamoClient: defaultDdb,
+  tableName: TABLE_NAME,
+  generateId: randomUUID,
+};
 
 // TTL durations
 const JOB_TTL_DAYS = 7;
@@ -48,24 +67,24 @@ const AUTH_TTL_HOURS = 24;
  */
 export async function checkAuth(
   agentId: string,
-  walletAddress: string
+  walletAddress: string,
+  deps: PropertyResearchDeps = defaultDeps
 ): Promise<boolean> {
   if (!walletAddress) return false;
 
-  const result = await ddb.send(
+  const result = await deps.dynamoClient.send(
     new GetCommand({
-      TableName: TABLE_NAME,
+      TableName: deps.tableName,
       Key: {
         pk: `PROPERTY_AUTH#${agentId}`,
         sk: `USER#${walletAddress}`,
       },
     })
-  );
+  ) as { Item?: PropertyResearchAuth };
 
   if (!result.Item) return false;
 
-  const auth = result.Item as PropertyResearchAuth;
-  return auth.expiresAt > Date.now();
+  return result.Item.expiresAt > Date.now();
 }
 
 /**
@@ -73,7 +92,8 @@ export async function checkAuth(
  */
 export async function grantAuth(
   agentId: string,
-  walletAddress: string
+  walletAddress: string,
+  deps: PropertyResearchDeps = defaultDeps
 ): Promise<PropertyResearchAuth> {
   const now = Date.now();
   const expiresAt = now + AUTH_TTL_HOURS * 60 * 60 * 1000;
@@ -89,9 +109,9 @@ export async function grantAuth(
     ttl,
   };
 
-  await ddb.send(
+  await deps.dynamoClient.send(
     new PutCommand({
-      TableName: TABLE_NAME,
+      TableName: deps.tableName,
       Item: auth,
     })
   );
@@ -105,11 +125,12 @@ export async function grantAuth(
  */
 export async function revokeAuth(
   agentId: string,
-  walletAddress: string
+  walletAddress: string,
+  deps: PropertyResearchDeps = defaultDeps
 ): Promise<void> {
-  await ddb.send(
+  await deps.dynamoClient.send(
     new DeleteCommand({
-      TableName: TABLE_NAME,
+      TableName: deps.tableName,
       Key: {
         pk: `PROPERTY_AUTH#${agentId}`,
         sk: `USER#${walletAddress}`,
@@ -144,9 +165,10 @@ function createInitialProgress(): ResearchProgress {
 export async function createJob(
   agentId: string,
   property: PropertyAddress,
-  requestedBy?: string
+  requestedBy?: string,
+  deps: PropertyResearchDeps = defaultDeps
 ): Promise<PropertyResearchJob> {
-  const jobId = randomUUID();
+  const jobId = deps.generateId();
   const now = Date.now();
   const ttl = Math.floor((now + JOB_TTL_DAYS * 24 * 60 * 60 * 1000) / 1000);
 
@@ -166,9 +188,9 @@ export async function createJob(
     gsi2sk: `queued#${now}`,
   };
 
-  await ddb.send(
+  await deps.dynamoClient.send(
     new PutCommand({
-      TableName: TABLE_NAME,
+      TableName: deps.tableName,
       Item: job,
     })
   );
@@ -180,18 +202,21 @@ export async function createJob(
 /**
  * Get a job by ID
  */
-export async function getJob(jobId: string): Promise<PropertyResearchJob | null> {
-  const result = await ddb.send(
+export async function getJob(
+  jobId: string,
+  deps: PropertyResearchDeps = defaultDeps
+): Promise<PropertyResearchJob | null> {
+  const result = await deps.dynamoClient.send(
     new GetCommand({
-      TableName: TABLE_NAME,
+      TableName: deps.tableName,
       Key: {
         pk: `PROPERTY_RESEARCH#${jobId}`,
         sk: 'JOB',
       },
     })
-  );
+  ) as { Item?: PropertyResearchJob };
 
-  return (result.Item as PropertyResearchJob) || null;
+  return result.Item || null;
 }
 
 /**
@@ -200,10 +225,11 @@ export async function getJob(jobId: string): Promise<PropertyResearchJob | null>
 export async function updateJobStatus(
   jobId: string,
   status: PropertyResearchStatus,
-  updates?: Partial<Pick<PropertyResearchJob, 'progress' | 'findings' | 'reportMarkdown' | 'error'>>
+  updates?: Partial<Pick<PropertyResearchJob, 'progress' | 'findings' | 'reportMarkdown' | 'error'>>,
+  deps: PropertyResearchDeps = defaultDeps
 ): Promise<void> {
   const now = Date.now();
-  const job = await getJob(jobId);
+  const job = await getJob(jobId, deps);
   if (!job) return;
 
   const updateExpressions: string[] = [
@@ -242,9 +268,9 @@ export async function updateJobStatus(
     expressionValues[':completedAt'] = now;
   }
 
-  await ddb.send(
+  await deps.dynamoClient.send(
     new UpdateCommand({
-      TableName: TABLE_NAME,
+      TableName: deps.tableName,
       Key: {
         pk: `PROPERTY_RESEARCH#${jobId}`,
         sk: 'JOB',
@@ -265,7 +291,8 @@ export async function updateJobStatus(
  */
 export async function getJobsForAgent(
   agentId: string,
-  statusFilter?: PropertyResearchStatus
+  statusFilter?: PropertyResearchStatus,
+  deps: PropertyResearchDeps = defaultDeps
 ): Promise<PropertyResearchJob[]> {
   // Build filter expression
   let filterExpression = 'begins_with(pk, :jobPrefix) AND agentId = :agentId';
@@ -279,28 +306,31 @@ export async function getJobsForAgent(
     expressionValues[':status'] = statusFilter;
   }
 
-  const result = await ddb.send(
+  const result = await deps.dynamoClient.send(
     new ScanCommand({
-      TableName: TABLE_NAME,
+      TableName: deps.tableName,
       FilterExpression: filterExpression,
       ExpressionAttributeNames: statusFilter ? { '#status': 'status' } : undefined,
       ExpressionAttributeValues: expressionValues,
       Limit: 50,
     })
-  );
+  ) as { Items?: PropertyResearchJob[] };
 
   // Sort by createdAt descending (most recent first)
-  const jobs = (result.Items as PropertyResearchJob[]) || [];
+  const jobs: PropertyResearchJob[] = result.Items || [];
   return jobs.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /**
  * Delete a job
  */
-export async function deleteJob(jobId: string): Promise<void> {
-  await ddb.send(
+export async function deleteJob(
+  jobId: string,
+  deps: PropertyResearchDeps = defaultDeps
+): Promise<void> {
+  await deps.dynamoClient.send(
     new DeleteCommand({
-      TableName: TABLE_NAME,
+      TableName: deps.tableName,
       Key: {
         pk: `PROPERTY_RESEARCH#${jobId}`,
         sk: 'JOB',

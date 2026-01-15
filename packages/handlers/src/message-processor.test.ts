@@ -9,7 +9,7 @@
  *
  * @see packages/handlers/src/message-processor.ts
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { z } from 'zod';
 
 // Schema matching MessageQueueItemSchema

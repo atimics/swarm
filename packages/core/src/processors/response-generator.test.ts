@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { ResponseGenerator } from './response-generator.js';
 import type { SwarmEnvelope, AgentConfig } from '../types/index.js';
 
@@ -21,16 +21,16 @@ describe('ResponseGenerator', () => {
     } as any;
 
     mockLLMService = {
-      generateResponse: vi.fn().mockResolvedValue({
+      generateResponse: mock(() => Promise.resolve({
         content: 'Hello from LLM!',
         model: 'gpt-4',
         tokensUsed: 10,
         finishReason: 'end_turn'
-      }),
+      })),
     };
 
     mockStateService = {
-      getChannelState: vi.fn().mockResolvedValue(null),
+      getChannelState: mock(() => Promise.resolve(null)),
     };
 
     mockTools = [];
@@ -86,14 +86,14 @@ describe('ResponseGenerator', () => {
   });
 
   it('should generate tool calls when returned by LLM', async () => {
-    mockLLMService.generateResponse.mockResolvedValue({
+    mockLLMService.generateResponse.mockImplementation(() => Promise.resolve({
       toolCalls: [
         { id: 'tc-1', name: 'send_message', input: { text: 'Tool response' } }
       ],
       model: 'gpt-4',
       tokensUsed: 15,
       finishReason: 'tool_use'
-    });
+    }));
 
     const envelope = {
       agentId: 'test-agent',
@@ -114,12 +114,12 @@ describe('ResponseGenerator', () => {
   });
 
   it('should correctly format message history from channel state', async () => {
-    mockStateService.getChannelState.mockResolvedValue({
+    mockStateService.getChannelState.mockImplementation(() => Promise.resolve({
       recentMessages: [
         { sender: 'Bot', content: 'Hi there!', isBot: true },
         { sender: 'User', content: 'Hello!', isBot: false }
       ]
-    });
+    }));
 
     const envelope = {
       agentId: 'test-agent',

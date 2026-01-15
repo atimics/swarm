@@ -5,8 +5,24 @@ import { randomUUID } from 'crypto';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-const s3Client = new S3Client({});
+// Default S3 client - lazy initialized
+let defaultS3Client: S3Client | null = null;
 const REPLICATE_ENDPOINT = 'https://api.replicate.com/v1/predictions';
+
+function getDefaultS3Client(): S3Client {
+  if (!defaultS3Client) {
+    defaultS3Client = new S3Client({});
+  }
+  return defaultS3Client;
+}
+
+// Type for injected fetch function
+type FetchFn = typeof fetch;
+
+// Type for injected S3 client
+interface S3ClientLike {
+  send: (command: unknown) => Promise<unknown>;
+}
 
 // VOICE_TTS_MODEL: Used for voice cloning and TTS with a reference audio
 // Default: lucataco/xtts-v2 - popular voice cloning model (4.7M runs)
@@ -94,7 +110,7 @@ async function makeUrlAccessible(url: string, cdnUrl?: string): Promise<string> 
   if (!parsed) return url;
 
   const command = new GetObjectCommand({ Bucket: parsed.bucket, Key: parsed.key });
-  return getSignedUrl(s3Client, command, { expiresIn: 3600 });
+  return getSignedUrl(getDefaultS3Client(), command, { expiresIn: 3600 });
 }
 
 async function runReplicatePrediction(
@@ -164,7 +180,7 @@ async function uploadAudioAsset(params: {
   const assetId = randomUUID();
   const s3Key = `agents/${params.agentId}/audio/${assetId}.${params.format}`;
 
-  await s3Client.send(new PutObjectCommand({
+  await getDefaultS3Client().send(new PutObjectCommand({
     Bucket: params.mediaBucket,
     Key: s3Key,
     Body: params.buffer,
@@ -207,10 +223,18 @@ export function createVoiceServices(config: {
   mediaBucket?: string;
   cdnUrl?: string;
   replicatePollIntervalMs?: number;
+  // Optional dependency injection for testing
+  _deps?: {
+    fetch?: FetchFn;
+    s3Client?: S3ClientLike;
+  };
 }) {
   const openAiKey = config.secrets.OPENAI_API_KEY || config.secrets.openai_api_key;
   const replicateKey = config.secrets.REPLICATE_API_TOKEN || config.secrets.REPLICATE_API_KEY || config.secrets.replicate_api_key;
   const telegramToken = config.secrets.TELEGRAM_BOT_TOKEN || config.secrets.telegram_bot_token;
+
+  // Note: _deps available for future DI/testing support but currently unused
+  // since helper functions use getDefaultS3Client() directly
 
   return {
     transcribeAudio: async (params: {

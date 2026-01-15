@@ -6,6 +6,8 @@
  */
 import { spawn } from 'child_process';
 import { createInterface } from 'readline';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import {
   SQSClient,
   ReceiveMessageCommand,
@@ -18,6 +20,10 @@ import {
   PutCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+
+// Get the path to the claude binary in node_modules
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const CLAUDE_BIN = join(__dirname, '..', 'node_modules', '.bin', 'claude');
 import type {
   ClaudeCodeQueueMessage,
   ClaudeCodeCallback,
@@ -82,9 +88,9 @@ async function executeClaudeCode(
     // Add the task as the prompt
     args.push(task);
 
-    console.log(`[ClaudeCode] Spawning: claude ${args.join(' ')}`);
+    console.log(`[ClaudeCode] Spawning: ${CLAUDE_BIN} ${args.join(' ')}`);
 
-    const proc = spawn('claude', args, {
+    const proc = spawn(CLAUDE_BIN, args, {
       cwd: options.workingDir,
       env: {
         ...process.env,
@@ -344,10 +350,10 @@ export async function runWorker(): Promise<void> {
   // Verify claude CLI is available
   try {
     const { execSync } = await import('child_process');
-    const version = execSync('claude --version', { encoding: 'utf8' }).trim();
+    const version = execSync(`"${CLAUDE_BIN}" --version`, { encoding: 'utf8' }).trim();
     console.log(`Claude Code CLI: ${version}`);
   } catch {
-    console.error('Claude Code CLI not found! Make sure @anthropic-ai/claude-code is installed.');
+    console.error(`Claude Code CLI not found at ${CLAUDE_BIN}! Make sure @anthropic-ai/claude-code is installed.`);
     process.exit(1);
   }
 

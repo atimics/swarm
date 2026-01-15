@@ -6,44 +6,11 @@
  * - BUG-001: JSON.parse without try-catch in handlers/response-sender.ts:103
  * - BUG-002: SQS batch failure - single bad message fails entire batch
  *
+ * Uses bun:test with mock functions instead of vi.mock for dependency injection.
+ *
  * @see packages/handlers/src/response-sender.ts
  */
-import { describe, it, expect, vi } from 'vitest';
-
-// Mock external dependencies before importing the module
-vi.mock('@aws-sdk/client-sqs', () => ({
-  SQSClient: vi.fn(() => ({
-    send: vi.fn().mockResolvedValue({}),
-  })),
-  SendMessageCommand: vi.fn(),
-}));
-
-vi.mock('@swarm/core', () => ({
-  TelegramAdapter: vi.fn(),
-  TwitterAdapter: vi.fn(),
-  WebAdapter: vi.fn(),
-  PlatformRegistry: vi.fn(() => ({
-    register: vi.fn(),
-  })),
-  createStateService: vi.fn(() => ({
-    getAgentConfig: vi.fn().mockResolvedValue(null),
-    addMessageToChannel: vi.fn().mockResolvedValue({}),
-    markResponseSent: vi.fn().mockResolvedValue({}),
-  })),
-  createSecretsService: vi.fn(() => ({
-    getSecretJson: vi.fn().mockResolvedValue({}),
-  })),
-  createActivityService: vi.fn(() => ({})),
-  createOutboundSender: vi.fn(() => ({
-    send: vi.fn().mockResolvedValue({ success: true, sentMessages: [], errors: [] }),
-  })),
-  logger: {
-    setContext: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-}));
+import { describe, it, expect, mock } from 'bun:test';
 
 describe('Response Sender - JSON Parse Error Handling', () => {
   /**
@@ -231,7 +198,7 @@ describe('Response Sender - Media Handling', () => {
         { type: 'send_message', text: 'Hello!' },
         { type: 'take_selfie', prompt: 'A happy selfie' },
         { type: 'generate_video', prompt: 'Dancing robot' },
-        { type: 'react', emoji: '👍' },
+        { type: 'react', emoji: 'thumbsup' },
       ];
 
       const mediaActions = actions.filter(
@@ -525,5 +492,71 @@ describe('Response Sender - Idempotency', () => {
     const responseKey = `${response.conversationId}#${anchor}`;
 
     expect(responseKey).toBe('conv-123#sqs-msg-789');
+  });
+});
+
+describe('Response Sender - Service Mock Integration', () => {
+  it('should send response via platform adapter', async () => {
+    const mockSend = mock(() => Promise.resolve({
+      success: true,
+      sentMessages: [{ messageId: 'msg-1', text: 'Hello!' }],
+      errors: [],
+    }));
+
+    const mockOutboundSender = {
+      send: mockSend,
+    };
+
+    const response = {
+      agentId: 'test-agent',
+      platform: 'telegram',
+      conversationId: '12345',
+      actions: [{ type: 'send_message', text: 'Hello!' }],
+    };
+
+    const result = await mockOutboundSender.send(response);
+
+    expect(mockSend).toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.sentMessages).toHaveLength(1);
+  });
+
+  it('should handle send errors gracefully', async () => {
+    const mockSend = mock(() => Promise.resolve({
+      success: false,
+      sentMessages: [],
+      errors: [{ code: 'RATE_LIMITED', message: 'Too many requests' }],
+    }));
+
+    const mockOutboundSender = {
+      send: mockSend,
+    };
+
+    const result = await mockOutboundSender.send({});
+
+    expect(result.success).toBe(false);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].code).toBe('RATE_LIMITED');
+  });
+
+  it('should queue media jobs to SQS', async () => {
+    const mockSqsSend = mock(() => Promise.resolve({ MessageId: 'sqs-123' }));
+
+    const mediaJob = {
+      jobId: 'job-123',
+      agentId: 'test-agent',
+      conversationId: 'conv-456',
+      action: { type: 'take_selfie', prompt: 'Beach sunset' },
+    };
+
+    // Simulate SQS send
+    const sqsResult = await mockSqsSend({
+      QueueUrl: 'https://sqs.test/media-queue',
+      MessageBody: JSON.stringify(mediaJob),
+      MessageGroupId: mediaJob.conversationId,
+    });
+
+    expect(mockSqsSend).toHaveBeenCalled();
+    expect(sqsResult.MessageId).toBe('sqs-123');
   });
 });

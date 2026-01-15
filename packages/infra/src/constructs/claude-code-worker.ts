@@ -166,11 +166,11 @@ export class ClaudeCodeWorker extends Construct {
       }),
       environment: containerEnv,
       healthCheck: {
-        command: ['CMD-SHELL', 'pgrep -f "node dist/index.js" || exit 1'],
+        command: ['CMD-SHELL', 'pgrep -f "node.*index.js" || exit 1'],
         interval: cdk.Duration.seconds(30),
-        timeout: cdk.Duration.seconds(5),
+        timeout: cdk.Duration.seconds(10),
         retries: 3,
-        startPeriod: cdk.Duration.seconds(60),
+        startPeriod: cdk.Duration.seconds(120),
       },
     });
 

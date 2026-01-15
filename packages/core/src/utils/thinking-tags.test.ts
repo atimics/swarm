@@ -1,7 +1,7 @@
 /**
  * Tests for thinking-tags utility
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { extractThinking, formatThinkingForMemory, hasThinkingTags } from './thinking-tags.js';
 
 describe('extractThinking', () => {

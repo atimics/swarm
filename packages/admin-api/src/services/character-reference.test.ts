@@ -2,12 +2,11 @@
  * Character Reference Service Tests
  *
  * Pure logic tests for character reference functionality.
- * These tests don't require mocking and work with both vitest and bun.
+ * These tests use vitest-compatible imports that work with bun test.
  *
- * For integration tests that require AWS mocking, use vitest directly:
- *   pnpm vitest run src/services/character-reference.test.ts
+ * Run tests with: bun test src/services/character-reference.test.ts
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 
 describe('Character Reference - S3 Key Generation', () => {
   it('should generate correct S3 key pattern for character reference', () => {

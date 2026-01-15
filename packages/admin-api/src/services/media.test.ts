@@ -9,7 +9,7 @@
  *
  * @see packages/admin-api/src/services/media.ts
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 
 describe('Media URL Generation', () => {
   describe('URL accessibility conversion', () => {

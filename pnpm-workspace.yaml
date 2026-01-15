@@ -1,4 +1,7 @@
 packages:
-  - 'packages/*'
-  - 'agents/*'
-  - 'agents/*'
+  - packages/*
+  - agents/*
+  - agents/*
+
+ignoredBuiltDependencies:
+  - '@anthropic-ai/claude-code'

@@ -26,11 +26,17 @@ export class TwitterAdapter extends PlatformAdapter {
   private config: TwitterConfig;
   private botUserId: string | null = null;
 
-  constructor(agentConfig: AgentConfig, private readonly credentials: TwitterCredentials) {
+  constructor(
+    agentConfig: AgentConfig,
+    private readonly credentials: TwitterCredentials,
+    injectedClient?: TwitterApi
+  ) {
     super(agentConfig);
     this.config = agentConfig.platforms.twitter!;
-    
-    if (this.isConfigured()) {
+
+    if (injectedClient) {
+      this.client = injectedClient;
+    } else if (this.isConfigured()) {
       this.client = new TwitterApi({
         appKey: credentials.appKey,
         appSecret: credentials.appSecret,

@@ -20,13 +20,17 @@ export class DynamoDBUsageMeteringService implements UsageMeteringService {
   private docClient: DynamoDBDocumentClient;
   private tableName: string;
 
-  constructor(tableName: string, region: string = 'us-east-1') {
-    const client = new DynamoDBClient({ region });
-    this.docClient = DynamoDBDocumentClient.from(client, {
-      marshallOptions: {
-        removeUndefinedValues: true,
-      },
-    });
+  constructor(tableName: string, docClient?: DynamoDBDocumentClient) {
+    if (docClient) {
+      this.docClient = docClient;
+    } else {
+      const client = new DynamoDBClient({ region: 'us-east-1' });
+      this.docClient = DynamoDBDocumentClient.from(client, {
+        marshallOptions: {
+          removeUndefinedValues: true,
+        },
+      });
+    }
     this.tableName = tableName;
   }
 
@@ -144,5 +148,12 @@ export class DynamoDBUsageMeteringService implements UsageMeteringService {
  * Factory function to create a usage metering service
  */
 export function createUsageMeteringService(tableName: string, region?: string) {
-  return new DynamoDBUsageMeteringService(tableName, region);
+  if (region) {
+    const client = new DynamoDBClient({ region });
+    const docClient = DynamoDBDocumentClient.from(client, {
+      marshallOptions: { removeUndefinedValues: true },
+    });
+    return new DynamoDBUsageMeteringService(tableName, docClient);
+  }
+  return new DynamoDBUsageMeteringService(tableName);
 }

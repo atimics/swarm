@@ -8,10 +8,8 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     ca-certificates \
+    procps \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code
 
 # Create non-root user for security
 RUN useradd -m -s /bin/bash claude
@@ -19,11 +17,11 @@ RUN useradd -m -s /bin/bash claude
 # Set up working directories
 WORKDIR /home/claude/app
 
-# Copy package files for dependency installation
-COPY package.json pnpm-lock.yaml* ./
+# Copy package files for dependency installation  
+COPY package.json ./
 
-# Install dependencies (production only)
-RUN npm install --omit=dev || npm install
+# Install dependencies (production only) - includes @anthropic-ai/claude-code
+RUN npm install --omit=dev
 
 # Copy compiled code
 COPY dist/ ./dist/
@@ -38,9 +36,9 @@ USER claude
 # Set environment
 ENV NODE_ENV=production
 
-# Health check - worker stays alive, check process exists
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD pgrep -f "node dist/index.js" || exit 1
+# Health check - use longer start period for initialization
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD pgrep -f "node.*index.js" || exit 1
 
 # Run the worker
 CMD ["node", "dist/index.js"]
