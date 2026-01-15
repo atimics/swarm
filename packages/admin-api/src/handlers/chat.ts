@@ -1086,15 +1086,23 @@ export async function handler(
 
     const agentRecord = agent?.id ? await agents.getAgent(agent.id) : null;
     const voiceEnabled = process.env.ENABLE_VOICE_TOOLS !== 'false';
+    // Get enabled toolsets from mcpConfig, defaulting to voice enabled
+    const mcpConfig = agentRecord?.mcpConfig;
+    const enabledToolsets = mcpConfig?.enabledToolsets || [];
     const enabledCategories = agentRecord
       ? detectEnabledCategories({
-          voice: voiceEnabled && Boolean(agentRecord.voiceConfig?.enabled),
-          memory: false,
+          // Voice enabled by default (unless env var disables it)
+          voice: voiceEnabled,
+          // Memory enabled if in mcpConfig.enabledToolsets
+          memory: enabledToolsets.includes('memory'),
+          // Platform toolsets enabled based on platform config
           telegram: Boolean(agentRecord.platforms?.telegram?.enabled),
           twitter: Boolean(agentRecord.platforms?.twitter?.enabled),
           discord: Boolean(agentRecord.platforms?.discord?.enabled),
+          // NFT enabled by default for inhabitation
           nft: true,
-          property: true,
+          // Property requires explicit opt-in via mcpConfig
+          property: enabledToolsets.includes('property'),
         })
       : undefined;
     const agentContext = agent ? {

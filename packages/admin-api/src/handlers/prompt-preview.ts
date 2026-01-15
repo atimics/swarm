@@ -144,15 +144,24 @@ export async function handler(
     }
 
     // Determine enabled categories based on agent configuration
+    const voiceEnabled = process.env.ENABLE_VOICE_TOOLS !== 'false';
+    const mcpConfig = agentRecord.mcpConfig;
+    const enabledToolsets = mcpConfig?.enabledToolsets || [];
+
     const enabledCategories: ToolCategory[] = [
       'secrets', 'profile', 'media', 'gallery', 'wallets', 'diagnostics'
     ];
-    if (agentRecord.voiceConfig?.enabled) enabledCategories.push('voice');
+    // Voice enabled by default (unless env var disables it)
+    if (voiceEnabled) enabledCategories.push('voice');
+    // Platform categories based on platform config
     if (agentRecord.platforms?.telegram?.enabled) enabledCategories.push('telegram');
     if (agentRecord.platforms?.twitter?.enabled) enabledCategories.push('twitter');
     if (agentRecord.platforms?.discord?.enabled) enabledCategories.push('discord');
-    // memory, nft, property are opt-in
-    enabledCategories.push('memory', 'nft', 'property');
+    // NFT always enabled for inhabitation
+    enabledCategories.push('nft');
+    // Memory and property require explicit opt-in via mcpConfig
+    if (enabledToolsets.includes('memory')) enabledCategories.push('memory');
+    if (enabledToolsets.includes('property')) enabledCategories.push('property');
 
     // Build system prompt
     const systemPrompt = buildDynamicSystemPrompt({

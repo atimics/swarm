@@ -32,6 +32,13 @@ import { createMcpAdminServices } from '../services/mcp-config.js';
 const API_TIMEOUT_MS = 10_000;
 
 /**
+ * Check if URL is a Replicate delivery URL (which expire quickly)
+ */
+function isReplicateUrl(url: string): boolean {
+  return url.includes('replicate.delivery') || url.includes('replicate.com/v1');
+}
+
+/**
  * Detect mime type from URL or response headers
  */
 function detectMimeType(url: string, contentType: string | null): string {
@@ -50,17 +57,37 @@ function detectMimeType(url: string, contentType: string | null): string {
 
 /**
  * Upload media URLs to Twitter and return media IDs
+ * If a Replicate URL fails (expired), tries to find the S3 version from gallery
  */
 async function uploadMediaToTwitter(
   client: InstanceType<typeof import('twitter-api-v2').TwitterApi>,
-  mediaUrls: string[]
+  mediaUrls: string[],
+  agentId?: string
 ): Promise<string[]> {
   const mediaIds: string[] = [];
   
-  for (const url of mediaUrls.slice(0, 4)) {
+  for (let url of mediaUrls.slice(0, 4)) {
     try {
       console.log('Fetching media from URL:', url);
-      const response = await fetch(url);
+      let response = await fetch(url);
+      
+      // If Replicate URL failed (expired), try to find S3 version from gallery
+      if (!response.ok && isReplicateUrl(url) && agentId) {
+        console.warn(`Replicate URL expired (${response.status}), searching gallery for S3 URL`);
+        try {
+          const galleryItems = await gallery.getGallery(agentId, { type: 'image', limit: 20 });
+          // Find most recent image (gallery items are sorted by recency)
+          const recentImage = galleryItems[0];
+          if (recentImage?.url && !isReplicateUrl(recentImage.url)) {
+            console.log('Found S3 URL from gallery:', recentImage.url);
+            url = recentImage.url;
+            response = await fetch(url);
+          }
+        } catch (galleryErr) {
+          console.error('Failed to search gallery for S3 URL:', galleryErr);
+        }
+      }
+      
       if (!response.ok) {
         console.error('Failed to fetch media:', response.status, response.statusText);
         continue;
@@ -933,7 +960,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         try {
           // Handle media uploads if provided
           const mediaIds = mediaUrls && mediaUrls.length > 0 
-            ? await uploadMediaToTwitter(client, mediaUrls)
+            ? await uploadMediaToTwitter(client, mediaUrls, _agentId)
             : undefined;
 
           // Post the tweet
