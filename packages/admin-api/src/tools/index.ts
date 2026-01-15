@@ -16,6 +16,7 @@ export const MANUAL_TOOL_NAMES = [
   'request_model_selection',
   'request_feature_toggle',
   'request_twitter_connection',
+  'twitter_request_integration', // Actual tool name in MCP registry
   'request_property_research',
 ] as const;
 

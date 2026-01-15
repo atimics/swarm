@@ -860,6 +860,7 @@ export function ToolPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
     case 'request_feature_toggle':
       return <FeatureTogglePrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
     case 'request_twitter_connection':
+    case 'twitter_request_integration':
       return <TwitterConnectPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
     default:
       // Unknown tool - show debug info

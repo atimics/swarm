@@ -695,6 +695,15 @@ async function runAutonomousBrowserTest() {
   
   const page = await context.newPage();
   
+  // Set Cloudflare Access headers for all page requests
+  const cfHeaders = getCloudflareAccessHeaders();
+  if (Object.keys(cfHeaders).length > 0) {
+    await page.setExtraHTTPHeaders(cfHeaders);
+    console.log('🔐 Cloudflare Access headers set for browser requests');
+  } else {
+    console.warn('⚠️  No Cloudflare Access credentials - browser may hit auth wall');
+  }
+  
   const agentName = generateAgentName();
   const goal = `Create a new AI agent by clicking the create/add button (usually a + icon or "Create" button).
 After the agent is created, send it a test message like "Hello" to verify it responds.

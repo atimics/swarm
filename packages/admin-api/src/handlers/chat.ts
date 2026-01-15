@@ -460,7 +460,7 @@ function buildPendingToolResponse(toolName: string, args: Record<string, unknown
     const label = typeof args.label === 'string' ? args.label : 'the requested secret';
     return `Please enter ${label}.`;
   }
-  if (toolName === 'request_twitter_connection') {
+  if (toolName === 'request_twitter_connection' || toolName === 'twitter_request_integration') {
     return 'Please connect your X/Twitter account:';
   }
   if (toolName === 'request_property_research') {
@@ -785,7 +785,7 @@ async function processChat(
         pendingArgs = await buildModelSelectorPayload(mcpServices.models, agentId, family);
       } else if (toolName === 'request_feature_toggle') {
         pendingArgs = await buildFeatureTogglePayload(agentId, pendingArgs);
-      } else if (toolName === 'request_twitter_connection') {
+      } else if (toolName === 'request_twitter_connection' || toolName === 'twitter_request_integration') {
         pendingArgs = { type: 'twitter_connect', ...pendingArgs };
       } else if (
         toolName === 'get_profile_upload_url' ||
