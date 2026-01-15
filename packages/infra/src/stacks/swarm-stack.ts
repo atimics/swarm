@@ -3,6 +3,7 @@
  * Main CDK stack that deploys shared infrastructure and agents
  */
 import * as cdk from 'aws-cdk-lib';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
@@ -11,6 +12,7 @@ import { SharedInfrastructure } from '../constructs/shared.js';
 import { AgentConstruct } from '../constructs/agent.js';
 import { AdminUi } from '../constructs/admin-ui.js';
 import { AdminApiConstruct } from '../constructs/admin-api.js';
+import { ClaudeCodeWorker } from '../constructs/claude-code-worker.js';
 import type { AgentConfig } from '@swarm/core';
 
 export interface SwarmStackProps extends cdk.StackProps {
@@ -94,12 +96,38 @@ export interface SwarmStackProps extends cdk.StackProps {
    * Web search provider (default: serpapi)
    */
   webSearchProvider?: string;
+
+  /**
+   * Anthropic API key secret ARN (for Claude Code worker)
+   */
+  anthropicApiKeyArn?: string;
+
+  /**
+   * Enable Claude Code worker (default: false)
+   */
+  enableClaudeCode?: boolean;
+
+  /**
+   * Claude Code worker min capacity (default: 0 - scales to zero)
+   */
+  claudeCodeMinCapacity?: number;
+
+  /**
+   * Claude Code worker max capacity (default: 5)
+   */
+  claudeCodeMaxCapacity?: number;
+
+  /**
+   * Use OpenRouter instead of direct Anthropic API for Claude Code
+   */
+  claudeCodeUseOpenRouter?: boolean;
 }
 
 export class SwarmStack extends cdk.Stack {
   public readonly shared: SharedInfrastructure;
   public readonly adminUi: AdminUi;
   public readonly adminApi?: AdminApiConstruct;
+  public readonly claudeCodeWorker?: ClaudeCodeWorker;
   public readonly agents: Map<string, AgentConstruct> = new Map();
 
   constructor(scope: Construct, id: string, props: SwarmStackProps) {
@@ -122,6 +150,11 @@ export class SwarmStack extends cdk.Stack {
       webSearchProvider,
       galleryDomain,
       galleryCertificateArn,
+      anthropicApiKeyArn,
+      enableClaudeCode = false,
+      claudeCodeMinCapacity = 0,
+      claudeCodeMaxCapacity = 5,
+      claudeCodeUseOpenRouter = false,
     } = props;
 
     // Create shared infrastructure
@@ -165,6 +198,44 @@ export class SwarmStack extends cdk.Stack {
       domainName: adminDomain,
       certificateArn: adminCertificateArn,
     });
+
+    // Create Claude Code worker if enabled
+    if (enableClaudeCode) {
+      // Create a shared callback queue for Claude Code results
+      const claudeCodeCallbackQueue = new sqs.Queue(this, 'ClaudeCodeCallbackQueue', {
+        queueName: `swarm-claude-code-callbacks-${environment}.fifo`,
+        fifo: true,
+        contentBasedDeduplication: true,
+        visibilityTimeout: cdk.Duration.seconds(60),
+      });
+
+      this.claudeCodeWorker = new ClaudeCodeWorker(this, 'ClaudeCodeWorker', {
+        environment,
+        cluster: this.shared.discordCluster, // Reuse existing ECS cluster
+        stateTable: this.shared.stateTable,
+        responseQueue: claudeCodeCallbackQueue,
+        anthropicApiKeyArn,
+        openRouterApiKeyArn,
+        useOpenRouter: claudeCodeUseOpenRouter,
+        minCapacity: claudeCodeMinCapacity,
+        maxCapacity: claudeCodeMaxCapacity,
+        handlersCodePath: handlersPath,
+        dependencyLayer: this.shared.dependencyLayer,
+      });
+
+      // Output the queue URL for agents to use
+      new cdk.CfnOutput(this, 'ClaudeCodeQueueUrl', {
+        value: this.claudeCodeWorker.queue.queueUrl,
+        description: 'Claude Code task queue URL',
+        exportName: `swarm-claude-code-queue-url-${environment}`,
+      });
+
+      new cdk.CfnOutput(this, 'ClaudeCodeCallbackQueueUrl', {
+        value: claudeCodeCallbackQueue.queueUrl,
+        description: 'Claude Code callback queue URL',
+        exportName: `swarm-claude-code-callback-queue-url-${environment}`,
+      });
+    }
 
     // Load and deploy agents (skip if agents directory doesn't exist)
     if (!fs.existsSync(agentsPath)) {

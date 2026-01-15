@@ -268,7 +268,7 @@ export async function generateSticker(
     }, { email: 'system', userId: 'system', isAdmin: true, accessToken: '' });
 
     // Save to gallery as sticker type
-    await gallery.addToGallery(agentId, {
+    const galleryItem = {
       id: stickerId,
       type: 'sticker',
       url: stickerUrl,
@@ -283,7 +283,9 @@ export async function generateSticker(
         stickerUrl,
         convertedAt: Date.now(),
       },
-    } as any);
+    } satisfies Parameters<typeof gallery.addToGallery>[1];
+
+    await gallery.addToGallery(agentId, galleryItem);
 
     // Update S3 manifest
     let manifest = await getStickerSetManifest(MEDIA_BUCKET, agentId, packName);

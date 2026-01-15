@@ -2,6 +2,9 @@
  * Diagnostics Tools
  * 
  * Tools for agents to report issues and help debug problems.
+ * 
+ * These tools write to CloudWatch logs (always) and optionally to
+ * DynamoDB via an injected service (for fast queries in the admin UI).
  */
 import { z } from 'zod';
 import { defineTool, type ToolResult } from '../registry.js';
@@ -26,10 +29,40 @@ export type IssueSeverity = z.infer<typeof IssueSeveritySchema>;
 export type IssueCategory = z.infer<typeof IssueCategorySchema>;
 
 // ============================================================================
+// Service Interface (optional, for DynamoDB persistence)
+// ============================================================================
+
+export interface DiagnosticsServices {
+  recordIssue?: (params: {
+    agentId: string;
+    platform: string;
+    severity: IssueSeverity;
+    category: IssueCategory;
+    title: string;
+    description: string;
+    userMessage?: string;
+    context?: {
+      toolName?: string;
+      expectedBehavior?: string;
+      actualBehavior?: string;
+      reproSteps?: string[];
+    };
+  }) => Promise<{ id: string }>;
+
+  recordFeedback?: (params: {
+    agentId: string;
+    platform: string;
+    sentiment: 'positive' | 'negative' | 'neutral';
+    feature: string;
+    feedback: string;
+  }) => Promise<{ id: string }>;
+}
+
+// ============================================================================
 // Tool Definitions
 // ============================================================================
 
-export const createDiagnosticsTools = () => [
+export const createDiagnosticsTools = (services?: DiagnosticsServices) => [
   defineTool({
     name: 'report_issue',
     description: `Report a technical issue or bug you've detected. Use this when:
@@ -39,7 +72,7 @@ export const createDiagnosticsTools = () => [
 - A user is experiencing repeated problems
 This helps developers debug and fix issues faster.`,
     category: 'diagnostics',
-    platforms: ['admin-ui', 'telegram', 'api'],
+    platforms: ['admin-ui', 'telegram', 'api', 'mcp'],
     inputSchema: z.object({
       category: IssueCategorySchema.describe('The type of issue'),
       severity: IssueSeveritySchema.describe('How severe is the issue (low=minor annoyance, critical=blocking functionality)'),
@@ -54,7 +87,10 @@ This helps developers debug and fix issues faster.`,
       }).optional().describe('Additional context about the issue'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      // Log the issue in a structured format that can be queried
+      const now = Date.now();
+      let issueId = `issue-${now}`;
+
+      // Always log to CloudWatch for audit trail
       console.log(JSON.stringify({
         level: input.severity === 'critical' ? 'ERROR' : input.severity === 'high' ? 'WARN' : 'INFO',
         subsystem: 'diagnostics',
@@ -72,11 +108,30 @@ This helps developers debug and fix issues faster.`,
         timestamp: new Date().toISOString(),
       }));
 
+      // Persist to DynamoDB if service is available
+      if (services?.recordIssue) {
+        try {
+          const result = await services.recordIssue({
+            agentId: context.agentId,
+            platform: context.platform,
+            severity: input.severity,
+            category: input.category,
+            title: input.title,
+            description: input.description,
+            userMessage: input.userMessage,
+            context: input.context,
+          });
+          issueId = result.id;
+        } catch (err) {
+          console.error('[diagnostics] Failed to persist issue:', err);
+        }
+      }
+
       return {
         success: true,
         data: {
           message: 'Issue reported successfully. The development team will investigate.',
-          issueId: `issue-${Date.now()}`,
+          issueId,
           category: input.category,
           severity: input.severity,
         },
@@ -88,13 +143,17 @@ This helps developers debug and fix issues faster.`,
     name: 'report_user_feedback',
     description: 'Log positive or negative user feedback about a feature or interaction.',
     category: 'diagnostics',
-    platforms: ['admin-ui', 'telegram', 'api'],
+    platforms: ['admin-ui', 'telegram', 'api', 'mcp'],
     inputSchema: z.object({
       sentiment: z.enum(['positive', 'negative', 'neutral']).describe('Overall sentiment'),
       feature: z.string().describe('Which feature the feedback is about (e.g., "image_generation", "profile_upload", "chat")'),
       feedback: z.string().max(500).describe('The feedback or observation'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
+      const now = Date.now();
+      let feedbackId = `feedback-${now}`;
+
+      // Always log to CloudWatch
       console.log(JSON.stringify({
         level: 'INFO',
         subsystem: 'diagnostics',
@@ -109,10 +168,27 @@ This helps developers debug and fix issues faster.`,
         timestamp: new Date().toISOString(),
       }));
 
+      // Persist to DynamoDB if service is available
+      if (services?.recordFeedback) {
+        try {
+          const result = await services.recordFeedback({
+            agentId: context.agentId,
+            platform: context.platform,
+            sentiment: input.sentiment,
+            feature: input.feature,
+            feedback: input.feedback,
+          });
+          feedbackId = result.id;
+        } catch (err) {
+          console.error('[diagnostics] Failed to persist feedback:', err);
+        }
+      }
+
       return {
         success: true,
         data: {
           message: 'Feedback logged. Thanks for helping improve the system!',
+          feedbackId,
         },
       };
     },

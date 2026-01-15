@@ -37,6 +37,7 @@ const TOOLSET_KEYWORDS: Record<ToolsetId, string[]> = {
   property: ['property', 'real estate', 'listing', 'comps', 'assessor', 'schools', 'address'],
   memory: ['memory', 'remember', 'recall', 'note'],
   nft: ['nft', 'ownership', 'inhabit', 'claim'],
+  'claude-code': ['code', 'coding', 'implement', 'refactor', 'debug', 'fix bug', 'write code', 'programming'],
 };
 
 const TOOLSET_PRIORITY: ToolsetId[] = [
@@ -59,6 +60,7 @@ const TOOLSET_PRIORITY: ToolsetId[] = [
   'config',
   'reference',
   'nft',
+  'claude-code',
 ];
 
 function scoreToolset(text: string, keywords: string[]): number {

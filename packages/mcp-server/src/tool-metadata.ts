@@ -21,6 +21,7 @@ export const TOOLSETS = [
   'property',
   'memory',
   'nft',
+  'claude-code',
 ] as const;
 
 export type ToolsetId = typeof TOOLSETS[number];
@@ -63,6 +64,9 @@ export const TOOL_TAGS = [
   'nft',
   'ownership',
   'inhabitation',
+  'claude-code',
+  'coding',
+  'agent',
 ] as const;
 
 export type ToolTag = typeof TOOL_TAGS[number];
@@ -101,4 +105,5 @@ export const TOOLSET_DEFAULT_TAGS: Record<ToolsetId, ToolTag[]> = {
   property: ['property', 'listings', 'assessor', 'schools'],
   memory: ['memory', 'recall', 'remember'],
   nft: ['nft', 'ownership', 'inhabitation'],
+  'claude-code': ['claude-code', 'coding', 'agent'],
 };

@@ -23,6 +23,7 @@ import * as nftGate from '../services/nft-gate.js';
 import * as lineageNft from '../services/lineage-nft.js';
 import * as propertyResearch from '../services/property-research.js';
 import * as stickers from '../services/stickers.js';
+import * as agentEvents from '../services/agent-events.js';
 import { createWebSearch } from '../services/web-search.js';
 
 // Timeout for external API calls
@@ -1270,6 +1271,33 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Sticker Services
     // =========================================================================
     stickers: stickers.createStickerServices(),
+
+    // =========================================================================
+    // Diagnostics Services (Issues & Feedback)
+    // =========================================================================
+    diagnostics: {
+      recordIssue: async (params) => {
+        return agentEvents.recordIssue({
+          agentId: params.agentId,
+          platform: params.platform,
+          severity: params.severity,
+          category: params.category,
+          title: params.title,
+          description: params.description,
+          userMessage: params.userMessage,
+          context: params.context,
+        });
+      },
+      recordFeedback: async (params) => {
+        return agentEvents.recordFeedback({
+          agentId: params.agentId,
+          platform: params.platform,
+          sentiment: params.sentiment,
+          feature: params.feature,
+          feedback: params.feedback,
+        });
+      },
+    },
   };
 }
 

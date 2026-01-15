@@ -32,9 +32,12 @@ const webSearchApiKeyArn = app.node.tryGetContext('webSearchApiKeyArn') || envCo
 const webSearchProvider = app.node.tryGetContext('webSearchProvider') || envConfig.webSearchProvider;
 const galleryDomain = app.node.tryGetContext('galleryDomain') || envConfig.galleryDomain;
 const galleryCertificateArn = app.node.tryGetContext('galleryCertificateArn') || envConfig.galleryCertificateArn;
+const enableClaudeCode = app.node.tryGetContext('enableClaudeCode') ?? envConfig.enableClaudeCode ?? false;
+const claudeCodeUseOpenRouter = app.node.tryGetContext('claudeCodeUseOpenRouter') ?? envConfig.claudeCodeUseOpenRouter ?? false;
 
 // Resolve paths relative to monorepo root
-const monorepoRoot = path.resolve(__dirname, '../../../..');
+// From packages/infra/bin/ -> go up 3 levels to reach monorepo root
+const monorepoRoot = path.resolve(__dirname, '../../..');
 const agentsPath = path.join(monorepoRoot, 'agents');
 const handlersPath = path.join(monorepoRoot, 'packages/handlers/dist');
 
@@ -55,6 +58,8 @@ new SwarmStack(app, `SwarmStack-${environment}`, {
   webSearchProvider,
   galleryDomain,
   galleryCertificateArn,
+  enableClaudeCode,
+  claudeCodeUseOpenRouter,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION || 'us-east-1',

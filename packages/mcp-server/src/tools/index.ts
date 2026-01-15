@@ -12,7 +12,7 @@ export { createSecretTools, type SecretServices, type SecretType, type SecretInf
 export { createAdminTools, type AdminToolServices, type ToggleableFeature } from './admin.js';
 export { createJobTools, type JobServices, type JobInfo, type CreditServices as JobCreditServices, type CreditStatus, type EnergyStatus } from './jobs.js';
 export { createReferenceImageTools, type ReferenceImageServices, type ReferenceImage, type ReferenceImageCategory } from './reference.js';
-export { createDiagnosticsTools, type IssueSeverity, type IssueCategory } from './diagnostics.js';
+export { createDiagnosticsTools, type IssueSeverity, type IssueCategory, type DiagnosticsServices } from './diagnostics.js';
 export { createTelegramTools, type TelegramServices, type TelegramUserProfile, type TelegramPhoto, type ChatModificationProposal } from './telegram.js';
 export { createTwitterTools, type TwitterServices, type TwitterConnectionStatus, type Tweet } from './twitter.js';
 export { createVoiceTools, type VoiceServices, type VoiceTranscription, type VoiceMessage } from './voice.js';
@@ -54,6 +54,12 @@ export {
   type StickerPackInfo,
   type GalleryItemForSticker,
 } from './stickers.js';
+export {
+  createClaudeCodeTools,
+  type ClaudeCodeServices,
+  type ClaudeCodeJob,
+  type ClaudeCodeJobStatus,
+} from './claude-code.js';
 
 import { createMediaTools, type CreditServices as MediaCreditServices } from './media.js';
 import { createGalleryTools } from './gallery.js';
@@ -73,6 +79,7 @@ import { createMemoryTools } from './memory.js';
 import { createNFTTools } from './nft.js';
 import { createPropertyTools } from './property.js';
 import { createStickerTools } from './stickers.js';
+import { createClaudeCodeTools } from './claude-code.js';
 import type { ToolRegistry } from '../registry.js';
 
 /**
@@ -97,6 +104,8 @@ export interface AllServices {
   nft?: import('./nft.js').NFTServices;
   property?: import('./property.js').PropertyServices;
   stickers?: import('./stickers.js').StickerServices;
+  claudeCode?: import('./claude-code.js').ClaudeCodeServices;
+  diagnostics?: import('./diagnostics.js').DiagnosticsServices;
 }
 
 /**
@@ -115,7 +124,7 @@ export function registerAllTools(
   registry.registerAll(createAdminTools({ twitter: services.twitter }));
   registry.registerAll(createJobTools(services.jobs, services.jobCredits));
   registry.registerAll(createReferenceImageTools(services.reference));
-  registry.registerAll(createDiagnosticsTools());
+  registry.registerAll(createDiagnosticsTools(services.diagnostics));
   if (services.voice) {
     registry.registerAll(createVoiceTools(services.voice));
   }
@@ -139,5 +148,8 @@ export function registerAllTools(
   }
   if (services.stickers) {
     registry.registerAll(createStickerTools(services.stickers));
+  }
+  if (services.claudeCode) {
+    registry.registerAll(createClaudeCodeTools(services.claudeCode));
   }
 }

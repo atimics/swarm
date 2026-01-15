@@ -26,7 +26,7 @@ export interface ToolContext {
   /** The agent ID executing the tool */
   agentId: string;
   /** Platform the request originated from */
-  platform: 'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api';
+  platform: 'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api' | 'mcp';
   /** User or chat identifier */
   userId?: string;
   /** Conversation/chat ID for async callbacks (raw ID, not prefixed) */
@@ -56,7 +56,7 @@ export interface ToolResult<T = unknown> {
   /** Pending async job */
   pendingJob?: {
     jobId: string;
-    type: 'image' | 'video' | 'sticker' | 'property_research';
+    type: 'image' | 'video' | 'sticker' | 'property_research' | 'claude_code';
     prompt?: string;
     purpose?: string;
     status?: string;
@@ -90,7 +90,7 @@ export interface ToolDefinition<TInput = any, TOutput = unknown> {
   /** Execute the tool (false = manual/UI tool) */
   execute: ((input: TInput, context: ToolContext) => Promise<ToolResult<TOutput>>) | false;
   /** Platforms this tool is available on (default: all) */
-  platforms?: Array<'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api'>;
+  platforms?: Array<'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api' | 'mcp'>;
   /** Dynamic context builder for description enhancement */
   contextBuilder?: (context: ToolContext) => Promise<string | undefined>;
 }

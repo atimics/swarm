@@ -12,6 +12,7 @@ import * as agentService from '../services/agents.js';
 import * as secretsService from '../services/secrets.js';
 import * as logsService from '../services/logs.js';
 import * as telegramService from '../services/telegram.js';
+import * as agentEventsService from '../services/agent-events.js';
 import { recordError, listAgentIssues } from '../services/auto-issues.js';
 import { SecretType } from '../types.js';
 
@@ -289,7 +290,7 @@ export async function handler(
       };
     }
 
-    // GET /agents/{id}/issues - List issues for an agent
+    // GET /agents/{id}/issues - List issues for an agent (from CloudWatch - legacy)
     const issuesMatch = path.match(/^\/agents\/([^/]+)\/issues$/);
     if (method === 'GET' && issuesMatch) {
       const agentId = issuesMatch[1];
@@ -304,6 +305,72 @@ export async function handler(
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ agentId, issues }),
+      };
+    }
+
+    // GET /agents/{id}/events - List events (issues + feedback) from DynamoDB
+    const eventsMatch = path.match(/^\/agents\/([^/]+)\/events$/);
+    if (method === 'GET' && eventsMatch) {
+      const agentId = eventsMatch[1];
+      const params = event.queryStringParameters || {};
+      const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
+      const type = params.type as 'issue' | 'feedback' | undefined;
+      const severity = params.severity as agentEventsService.IssueSeverity | undefined;
+      const sentiment = params.sentiment as agentEventsService.FeedbackSentiment | undefined;
+      const status = params.status as agentEventsService.IssueStatus | undefined;
+      const since = params.since ? Number.parseInt(params.since, 10) : undefined;
+
+      const events = await agentEventsService.listAgentEvents(agentId, {
+        type,
+        limit,
+        since,
+        severity,
+        sentiment,
+        status,
+      });
+
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, events, count: events.length }),
+      };
+    }
+
+    // GET /agents/{id}/events/counts - Get event summary for dashboard
+    const eventCountsMatch = path.match(/^\/agents\/([^/]+)\/events\/counts$/);
+    if (method === 'GET' && eventCountsMatch) {
+      const agentId = eventCountsMatch[1];
+      const counts = await agentEventsService.getAgentEventCounts(agentId);
+
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, ...counts }),
+      };
+    }
+
+    // PATCH /agents/{id}/events/{eventId} - Update issue status
+    const eventUpdateMatch = path.match(/^\/agents\/([^/]+)\/events\/([^/]+)$/);
+    if (method === 'PATCH' && eventUpdateMatch) {
+      const agentId = eventUpdateMatch[1];
+      const eventId = eventUpdateMatch[2];
+      const body = JSON.parse(event.body || '{}');
+      const { status } = body;
+
+      if (!status || !['open', 'acknowledged', 'resolved', 'wont_fix'].includes(status)) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Valid status required: open, acknowledged, resolved, wont_fix' }),
+        };
+      }
+
+      await agentEventsService.updateIssueStatus(agentId, eventId, status, session?.email);
+
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ success: true, eventId, status }),
       };
     }
 

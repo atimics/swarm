@@ -252,6 +252,13 @@ AVAILABLE ACTIONS:
 - SCROLL: down/up - Scroll the page
 - NAVIGATE: /path - Navigate to a URL path (e.g., "/agents/new")
 - DONE: summary - Task complete, provide summary
+- ABORT: reason - End test early due to blocking issue (auth wall, crash, wrong app, etc.)
+
+WHEN TO USE ABORT:
+- You see a login/authentication page that blocks access (e.g., Cloudflare Access, SSO login)
+- The application shows an error page or has crashed
+- The page is clearly not the expected admin UI application
+- You're stuck in an unrecoverable state after multiple failed attempts
 
 CRITICAL RULES:
 1. For CLICK: Copy the EXACT text from the "Buttons" or "Links" list above
@@ -502,6 +509,10 @@ async function executeAction(page, action) {
         return { success: true, done: true, summary: params };
       }
       
+      case 'ABORT': {
+        return { success: true, aborted: true, reason: params };
+      }
+      
       default:
         return { success: false, error: `Unknown action: ${type}` };
     }
@@ -727,6 +738,11 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
       if (result.error) {
         console.log(`⚠️  Action failed: ${result.error}`);
         history.push(`${action.type}: ${action.params} -> FAILED: ${result.error}`);
+      } else if (result.aborted) {
+        console.log(`🛑 Agent aborted test: ${result.reason}`);
+        history.push(`ABORT: ${result.reason}`);
+        finalSummary = `ABORTED: ${result.reason}`;
+        break; // Exit the while loop
       } else if (result.done) {
         console.log(`✅ Agent completed: ${result.summary}`);
         success = true;
@@ -752,6 +768,9 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
     await browser.close();
   }
   
+  // Determine test result status
+  const wasAborted = finalSummary.startsWith('ABORTED:');
+  
   console.log('\n' + '='.repeat(50));
   console.log('📊 Test Summary:');
   console.log(`   Steps taken: ${step}`);
@@ -760,6 +779,9 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
   if (success) {
     console.log(`   Result: ✅ SUCCESS`);
     console.log(`   Summary: ${finalSummary}`);
+  } else if (wasAborted) {
+    console.log(`   Result: 🛑 ABORTED`);
+    console.log(`   Reason: ${finalSummary.replace('ABORTED: ', '')}`);
   } else if (step >= MAX_STEPS) {
     console.log(`   Result: ⚠️  MAX STEPS REACHED`);
     console.log('   The agent did not complete the task within the step limit.');
@@ -771,6 +793,9 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
   console.log('\n📝 Generating test report...');
   const report = await generateTestReport(apiUrl, testKey, screenshotsDir, history, goal, success, agentName, walletAddress);
   
+  // Determine result string for report
+  const resultString = success ? 'SUCCESS' : wasAborted ? 'ABORTED' : step >= MAX_STEPS ? 'MAX STEPS' : 'FAILED';
+  
   if (report) {
     console.log('\n' + '='.repeat(50));
     console.log('📋 TEST REPORT');
@@ -780,7 +805,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
     
     // Save report to file
     const reportFile = path.join(screenshotsDir, 'report.md');
-    fs.writeFileSync(reportFile, `# Browser Test Report\n\n**Date:** ${new Date().toISOString()}\n**Signing Wallet:** \`${walletAddress}\`\n**Goal:** ${goal}\n**Agent Name:** ${agentName}\n**Steps:** ${step}\n**Result:** ${success ? 'SUCCESS' : step >= MAX_STEPS ? 'MAX STEPS' : 'FAILED'}\n\n---\n\n${report}`);
+    fs.writeFileSync(reportFile, `# Browser Test Report\n\n**Date:** ${new Date().toISOString()}\n**Signing Wallet:** \`${walletAddress}\`\n**Goal:** ${goal}\n**Agent Name:** ${agentName}\n**Steps:** ${step}\n**Result:** ${resultString}\n\n---\n\n${report}`);
     console.log(`\n📄 Report saved to: ${reportFile}`);
   } else {
     console.log('⚠️  Could not generate report');
@@ -797,12 +822,15 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
     agentName,
     steps: step,
     success,
+    aborted: wasAborted,
     summary: finalSummary,
     history
   }, null, 2));
   
-  // Allow max steps as soft pass - agent explored
-  if (!success && step < MAX_STEPS) {
+  // Exit codes:
+  // - 0: Success or max steps reached (explored the app)
+  // - 1: Failed, aborted (blocked by auth/crash), or error
+  if (!success) {
     process.exit(1);
   }
 }

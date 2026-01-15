@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchAgentLogs, type AgentLogEvent } from '../api/logs';
 import { fetchAgentIssues, type AgentIssue } from '../api/issues';
+import { fetchAgentEvents, type AgentEvent, type AgentFeedbackEvent, type AgentIssueEvent } from '../api/events';
 import { useActiveAgent, useAgentStore } from '../store/agents';
 import { AgentAvatar } from './AgentSidebar';
 import { IssueCard, IssueNavigation } from './IssueCard';
@@ -278,6 +279,9 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
   const { setActiveAgent } = useAgentStore();
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
+  // Tab state: 'logs' | 'events'
+  const [activeTab, setActiveTab] = useState<'logs' | 'events'>('events');
+
   const [since, setSince] = useState(DEFAULT_SINCE);
   const [level, setLevel] = useState('');
   const [subsystem, setSubsystem] = useState('');
@@ -293,10 +297,16 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Issue state
+  // Issue state (from CloudWatch - legacy)
   const [issues, setIssues] = useState<AgentIssue[]>([]);
   const [currentIssueIndex, setCurrentIssueIndex] = useState(0);
   const [expandedIssueId, setExpandedIssueId] = useState<string | null>(null);
+
+  // Events state (from DynamoDB - fast)
+  const [events, setEvents] = useState<AgentEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [eventTypeFilter, setEventTypeFilter] = useState<'all' | 'issue' | 'feedback'>('all');
 
   useEffect(() => {
     if (agentId) {
@@ -350,6 +360,26 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
     return undefined;
   }, [issueByTimestamp, issues]);
 
+  // Load events from DynamoDB (fast)
+  const loadEvents = useCallback(async () => {
+    if (!agentId) return;
+    setEventsLoading(true);
+    setEventsError(null);
+
+    try {
+      const response = await fetchAgentEvents(agentId, {
+        type: eventTypeFilter === 'all' ? undefined : eventTypeFilter,
+        limit: 100,
+      });
+      setEvents(response.events || []);
+    } catch (err) {
+      setEventsError(err instanceof Error ? err.message : 'Failed to fetch events');
+    } finally {
+      setEventsLoading(false);
+    }
+  }, [agentId, eventTypeFilter]);
+
+  // Load CloudWatch logs (slow)
   const loadLogs = useCallback(async () => {
     if (!agentId) return;
     setIsLoading(true);
@@ -376,9 +406,19 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
     }
   }, [agentId, filters]);
 
+  // Load events on mount and when filter changes
   useEffect(() => {
-    loadLogs();
-  }, [loadLogs]);
+    if (activeTab === 'events') {
+      loadEvents();
+    }
+  }, [loadEvents, activeTab]);
+
+  // Load logs only when logs tab is active
+  useEffect(() => {
+    if (activeTab === 'logs') {
+      loadLogs();
+    }
+  }, [loadLogs, activeTab]);
 
   // Navigate to issue and scroll to corresponding log
   const handleIssueNavigate = useCallback((index: number) => {
@@ -429,7 +469,7 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
                 {activeAgent?.name || agentId} logs
               </h1>
               <p className="text-xs text-[var(--color-text-tertiary)] truncate">
-                {logGroups.length} log group{logGroups.length === 1 ? '' : 's'} queried
+                {activeTab === 'events' ? `${events.length} events` : `${logGroups.length} log group${logGroups.length === 1 ? '' : 's'}`}
               </p>
             </div>
           </div>
@@ -443,7 +483,7 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
               </button>
             )}
             <button
-              onClick={loadLogs}
+              onClick={activeTab === 'events' ? loadEvents : loadLogs}
               className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-medium transition-colors"
             >
               Refresh
@@ -452,22 +492,68 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
         </div>
       </header>
 
-      <div className="border-b border-[var(--color-border)] px-4 lg:px-6 py-3 bg-[var(--color-bg-secondary)]">
-        <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-text-secondary)]">
-          <label className="flex items-center gap-2">
-            <span className="text-[var(--color-text-tertiary)]">Since</span>
+      {/* Tab navigation */}
+      <div className="border-b border-[var(--color-border)] px-4 lg:px-6 bg-[var(--color-bg-secondary)]">
+        <div className="flex gap-4">
+          <button
+            onClick={() => setActiveTab('events')}
+            className={`py-2 px-1 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'events'
+                ? 'border-brand-500 text-brand-400'
+                : 'border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'
+            }`}
+          >
+            Events (Fast)
+          </button>
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`py-2 px-1 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'logs'
+                ? 'border-brand-500 text-brand-400'
+                : 'border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'
+            }`}
+          >
+            Raw Logs (CloudWatch)
+          </button>
+        </div>
+      </div>
+
+      {/* Events tab filters */}
+      {activeTab === 'events' && (
+        <div className="border-b border-[var(--color-border)] px-4 lg:px-6 py-2 bg-[var(--color-bg-secondary)]">
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-[var(--color-text-tertiary)]">Show:</span>
             <select
-              value={since}
-              onChange={(event) => setSince(event.target.value)}
+              value={eventTypeFilter}
+              onChange={(e) => setEventTypeFilter(e.target.value as 'all' | 'issue' | 'feedback')}
               className="bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-md px-2 py-1 text-[var(--color-text)]"
             >
-              <option value="15m">15m</option>
-              <option value="30m">30m</option>
-              <option value="1h">1h</option>
-              <option value="6h">6h</option>
-              <option value="24h">24h</option>
+              <option value="all">All Events</option>
+              <option value="issue">Issues Only</option>
+              <option value="feedback">Feedback Only</option>
             </select>
-          </label>
+          </div>
+        </div>
+      )}
+
+      {/* Logs tab filters */}
+      {activeTab === 'logs' && (
+        <div className="border-b border-[var(--color-border)] px-4 lg:px-6 py-3 bg-[var(--color-bg-secondary)]">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-text-secondary)]">
+            <label className="flex items-center gap-2">
+              <span className="text-[var(--color-text-tertiary)]">Since</span>
+              <select
+                value={since}
+                onChange={(event) => setSince(event.target.value)}
+                className="bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-md px-2 py-1 text-[var(--color-text)]"
+              >
+                <option value="15m">15m</option>
+                <option value="30m">30m</option>
+                <option value="1h">1h</option>
+                <option value="6h">6h</option>
+                <option value="24h">24h</option>
+              </select>
+            </label>
           <label className="flex items-center gap-2">
             <span className="text-[var(--color-text-tertiary)]">Level</span>
             <input
@@ -503,9 +589,10 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
           </button>
         </div>
       </div>
+      )}
 
-      {/* Issue navigation bar */}
-      {issues.length > 0 && (
+      {/* Issue navigation bar (logs tab only) */}
+      {activeTab === 'logs' && issues.length > 0 && (
         <div className="border-b border-[var(--color-border)] px-4 lg:px-6 py-2 bg-yellow-500/5">
           <IssueNavigation
             issues={issues}
@@ -515,31 +602,219 @@ export function AgentLogsPanel({ agentId, onMenuClick, onBack }: AgentLogsPanelP
         </div>
       )}
 
-      <div ref={logsContainerRef} className="flex-1 overflow-y-auto px-4 lg:px-6 py-4 space-y-2">
-        {isLoading && (
-          <div className="text-[var(--color-text-tertiary)] text-sm">Loading logs…</div>
-        )}
-        {error && (
-          <div className="text-sm text-red-400 bg-red-900/20 border border-red-900/40 rounded-lg px-3 py-2">
-            {error}
+      {/* Events content (DynamoDB - fast) */}
+      {activeTab === 'events' && (
+        <div className="flex-1 overflow-y-auto px-4 lg:px-6 py-4 space-y-3">
+          {eventsLoading && (
+            <div className="text-[var(--color-text-tertiary)] text-sm">Loading events…</div>
+          )}
+          {eventsError && (
+            <div className="text-sm text-red-400 bg-red-900/20 border border-red-900/40 rounded-lg px-3 py-2">
+              {eventsError}
+            </div>
+          )}
+          {!eventsLoading && !eventsError && events.length === 0 && (
+            <div className="text-[var(--color-text-tertiary)] text-sm">No events found.</div>
+          )}
+          {events.map((event) => (
+            <EventCard key={event.id} event={event} />
+          ))}
+        </div>
+      )}
+
+      {/* Logs content (CloudWatch - slow) */}
+      {activeTab === 'logs' && (
+        <div ref={logsContainerRef} className="flex-1 overflow-y-auto px-4 lg:px-6 py-4 space-y-2">
+          {isLoading && (
+            <div className="text-[var(--color-text-tertiary)] text-sm">Loading logs…</div>
+          )}
+          {error && (
+            <div className="text-sm text-red-400 bg-red-900/20 border border-red-900/40 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
+          {!isLoading && !error && logs.length === 0 && (
+            <div className="text-[var(--color-text-tertiary)] text-sm">No log events found.</div>
+          )}
+          {logs.map((event, index) => {
+            const linkedIssue = findLinkedIssue(event);
+            const isActiveIssue = linkedIssue?.id === expandedIssueId;
+            return (
+              <LogEntry 
+                key={`${event.logStream || 'stream'}-${index}`} 
+                event={event}
+                linkedIssue={linkedIssue}
+                isActiveIssue={isActiveIssue}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Event card component for displaying issues and feedback
+ */
+function EventCard({ event }: { event: AgentEvent }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (event.type === 'issue') {
+    return <IssueEventCard event={event} isExpanded={isExpanded} onToggle={() => setIsExpanded(!isExpanded)} />;
+  }
+
+  return <FeedbackEventCard event={event} isExpanded={isExpanded} onToggle={() => setIsExpanded(!isExpanded)} />;
+}
+
+/**
+ * Issue event card
+ */
+function IssueEventCard({ 
+  event, 
+  isExpanded, 
+  onToggle 
+}: { 
+  event: AgentIssueEvent; 
+  isExpanded: boolean; 
+  onToggle: () => void;
+}) {
+  const severityColors: Record<string, string> = {
+    critical: 'bg-red-500/30 text-red-300 border-red-500/50',
+    high: 'bg-orange-500/30 text-orange-300 border-orange-500/50',
+    medium: 'bg-yellow-500/30 text-yellow-300 border-yellow-500/50',
+    low: 'bg-blue-500/30 text-blue-300 border-blue-500/50',
+  };
+
+  const statusColors: Record<string, string> = {
+    open: 'bg-red-500/20 text-red-400',
+    acknowledged: 'bg-yellow-500/20 text-yellow-400',
+    resolved: 'bg-green-500/20 text-green-400',
+    wont_fix: 'bg-gray-500/20 text-gray-400',
+  };
+
+  return (
+    <div className={`border rounded-lg overflow-hidden ${severityColors[event.severity] || 'border-[var(--color-border)]'}`}>
+      <button
+        onClick={onToggle}
+        className="w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-[var(--color-bg-tertiary)]/50 transition-colors"
+      >
+        <svg 
+          className={`w-4 h-4 text-yellow-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+          fill="none" 
+          viewBox="0 0 24 24" 
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium uppercase ${severityColors[event.severity]?.split(' ').slice(0, 2).join(' ')}`}>
+          {event.severity}
+        </span>
+        
+        <span className={`text-xs px-2 py-0.5 rounded ${statusColors[event.status]}`}>
+          {event.status}
+        </span>
+        
+        <span className="flex-1 text-sm font-medium text-[var(--color-text)] truncate">
+          {event.title}
+        </span>
+        
+        <span className="text-xs text-[var(--color-text-muted)]">
+          {new Date(event.timestamp).toLocaleString()}
+        </span>
+      </button>
+
+      {isExpanded && (
+        <div className="px-3 py-2 border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/50 space-y-2">
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+              {event.category}
+            </span>
+            <span className="px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+              {event.platform}
+            </span>
           </div>
-        )}
-        {!isLoading && !error && logs.length === 0 && (
-          <div className="text-[var(--color-text-tertiary)] text-sm">No log events found.</div>
-        )}
-        {logs.map((event, index) => {
-          const linkedIssue = findLinkedIssue(event);
-          const isActiveIssue = linkedIssue?.id === expandedIssueId;
-          return (
-            <LogEntry 
-              key={`${event.logStream || 'stream'}-${index}`} 
-              event={event}
-              linkedIssue={linkedIssue}
-              isActiveIssue={isActiveIssue}
-            />
-          );
-        })}
-      </div>
+          <p className="text-sm text-[var(--color-text-secondary)]">{event.description}</p>
+          {event.userMessage && (
+            <div className="text-xs">
+              <span className="text-[var(--color-text-tertiary)]">User message:</span>
+              <p className="text-[var(--color-text-secondary)] mt-1 italic">"{event.userMessage}"</p>
+            </div>
+          )}
+          {event.context && (
+            <details className="text-xs">
+              <summary className="text-[var(--color-text-tertiary)] cursor-pointer">Context</summary>
+              <pre className="mt-1 p-2 rounded bg-[var(--color-bg)] text-[var(--color-text-secondary)] overflow-x-auto">
+                {JSON.stringify(event.context, null, 2)}
+              </pre>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Feedback event card
+ */
+function FeedbackEventCard({ 
+  event, 
+  isExpanded, 
+  onToggle 
+}: { 
+  event: AgentFeedbackEvent; 
+  isExpanded: boolean; 
+  onToggle: () => void;
+}) {
+  const sentimentColors: Record<string, string> = {
+    positive: 'bg-green-500/20 text-green-400 border-green-500/40',
+    negative: 'bg-red-500/20 text-red-400 border-red-500/40',
+    neutral: 'bg-gray-500/20 text-gray-400 border-gray-500/40',
+  };
+
+  const sentimentIcons: Record<string, string> = {
+    positive: '👍',
+    negative: '👎',
+    neutral: '➖',
+  };
+
+  return (
+    <div className={`border rounded-lg overflow-hidden ${sentimentColors[event.sentiment]}`}>
+      <button
+        onClick={onToggle}
+        className="w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-[var(--color-bg-tertiary)]/50 transition-colors"
+      >
+        <span className="text-lg">{sentimentIcons[event.sentiment]}</span>
+        
+        <span className={`text-xs px-2 py-0.5 rounded font-medium ${sentimentColors[event.sentiment]?.split(' ').slice(0, 2).join(' ')}`}>
+          {event.sentiment}
+        </span>
+        
+        <span className="text-xs px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+          {event.feature}
+        </span>
+        
+        <span className="flex-1 text-sm text-[var(--color-text)] truncate">
+          {event.feedback}
+        </span>
+        
+        <span className="text-xs text-[var(--color-text-muted)]">
+          {new Date(event.timestamp).toLocaleString()}
+        </span>
+      </button>
+
+      {isExpanded && (
+        <div className="px-3 py-2 border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/50">
+          <p className="text-sm text-[var(--color-text-secondary)]">{event.feedback}</p>
+          <div className="flex gap-2 mt-2 text-xs text-[var(--color-text-tertiary)]">
+            <span>Platform: {event.platform}</span>
+            <span>•</span>
+            <span>Agent: {event.agentId}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

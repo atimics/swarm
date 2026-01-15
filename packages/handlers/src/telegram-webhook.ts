@@ -88,10 +88,16 @@ export async function handler(
   event: APIGatewayProxyEvent,
   context: Context
 ): Promise<APIGatewayProxyResult> {
+  const startTime = Date.now();
   logger.setContext({
     agentId: AGENT_ID,
     platform: 'telegram',
     requestId: context.awsRequestId,
+  });
+
+  logger.info('Telegram webhook received', {
+    event: 'request_received',
+    subsystem: 'telegram',
   });
 
   try {
@@ -105,7 +111,11 @@ export async function handler(
 
     const isValid = await telegramAdapter.verifyRequest(body, headers);
     if (!isValid) {
-      logger.warn('Invalid request signature');
+      logger.warn('Invalid request signature', {
+        event: 'validation_error',
+        subsystem: 'telegram',
+        reason: 'invalid_signature',
+      });
       return { statusCode: 401, body: 'Unauthorized' };
     }
 
@@ -114,7 +124,10 @@ export async function handler(
     try {
       update = JSON.parse(body.toString());
     } catch (parseError) {
-      logger.error('Failed to parse Telegram update as JSON', parseError);
+      logger.error('Failed to parse Telegram update as JSON', parseError, {
+        event: 'parse_error',
+        subsystem: 'telegram',
+      });
       return { statusCode: 400, body: 'Invalid JSON' };
     }
     const envelope = await telegramAdapter.parseMessage(update);
@@ -190,15 +203,22 @@ export async function handler(
     }));
 
     logger.info('Message queued for processing', {
+      event: 'message_queued',
+      subsystem: 'telegram',
       messageId: envelope.messageId,
       reason: evaluation.reason,
+      durationMs: Date.now() - startTime,
     });
 
     // Return 200 immediately (async processing)
     return { statusCode: 200, body: 'OK' };
 
   } catch (error) {
-    logger.error('Handler error', error);
+    logger.error('Handler error', error, {
+      event: 'handler_error',
+      subsystem: 'telegram',
+      durationMs: Date.now() - startTime,
+    });
     
     // Log error to activity feed
     try {
