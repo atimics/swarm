@@ -583,9 +583,12 @@ function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
         });
       }
 
-      // Gallery items
-      if (Array.isArray(parsed.items)) {
-        for (const item of parsed.items) {
+      // Gallery items (can be in .items or .data array)
+      const itemsArray = Array.isArray(parsed.items) ? parsed.items 
+        : Array.isArray(parsed.data) ? parsed.data 
+        : null;
+      if (itemsArray) {
+        for (const item of itemsArray) {
           if (item.url) {
             media.push({
               type: item.type || 'image',
