@@ -471,7 +471,7 @@ describe('Message Processor - Tool Execution E2E', () => {
           { type: 'send_message', text: 'Hello!', replyToMessageId: 'msg-456' },
         ],
         generatedAt: Date.now(),
-        llmModel: 'anthropic/claude-3-5-haiku-20241022',
+        llmModel: 'anthropic/claude-haiku-4.5',
         tokensUsed: 150,
       };
 

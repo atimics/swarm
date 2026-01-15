@@ -418,7 +418,7 @@ ${history.length > 0 ? history.map((h, i) => `Step ${i + 1}: ${h}`).join('\n') :
 `;
 
   // Use Haiku 4.5 for faster, cheaper browser testing
-  const BROWSER_TEST_MODEL = 'anthropic/claude-3-5-haiku-20241022';
+  const BROWSER_TEST_MODEL = 'anthropic/claude-haiku-4.5';
 
   const payload = {
     message: 'Analyze the screenshot and decide your next action.',
