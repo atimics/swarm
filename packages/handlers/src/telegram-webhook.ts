@@ -54,7 +54,7 @@ async function initialize(): Promise<void> {
     },
     llm: {
       provider: 'openrouter',
-      model: 'anthropic/claude-sonnet-4',
+      model: 'anthropic/claude-3-5-haiku-20241022',
       temperature: 0.8,
       maxTokens: 1024,
     },
