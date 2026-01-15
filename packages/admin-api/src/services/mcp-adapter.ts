@@ -32,6 +32,60 @@ import { createMcpAdminServices } from '../services/mcp-config.js';
 const API_TIMEOUT_MS = 10_000;
 
 /**
+ * Detect mime type from URL or response headers
+ */
+function detectMimeType(url: string, contentType: string | null): string {
+  // Use Content-Type header if it's a real image type
+  if (contentType && !['application/octet-stream', 'binary/octet-stream'].includes(contentType)) {
+    return contentType.split(';')[0];
+  }
+  
+  // Infer from URL extension
+  const urlLower = url.toLowerCase();
+  if (urlLower.includes('.webp')) return 'image/webp';
+  if (urlLower.includes('.jpg') || urlLower.includes('.jpeg')) return 'image/jpeg';
+  if (urlLower.includes('.gif')) return 'image/gif';
+  return 'image/png';
+}
+
+/**
+ * Upload media URLs to Twitter and return media IDs
+ */
+async function uploadMediaToTwitter(
+  client: InstanceType<typeof import('twitter-api-v2').TwitterApi>,
+  mediaUrls: string[]
+): Promise<string[]> {
+  const mediaIds: string[] = [];
+  
+  for (const url of mediaUrls.slice(0, 4)) {
+    try {
+      console.log('Fetching media from URL:', url);
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.error('Failed to fetch media:', response.status, response.statusText);
+        continue;
+      }
+      
+      const mimeType = detectMimeType(url, response.headers.get('content-type'));
+      console.log('Uploading media to Twitter with mimeType:', mimeType);
+      
+      const buffer = Buffer.from(await response.arrayBuffer());
+      console.log('Buffer size:', buffer.length, 'bytes');
+      
+      const mediaId = await client.v1.uploadMedia(buffer, {
+        mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+      });
+      console.log('Media uploaded successfully, mediaId:', mediaId);
+      mediaIds.push(mediaId);
+    } catch (err) {
+      console.error('Failed to upload media to Twitter:', err);
+    }
+  }
+  
+  return mediaIds;
+}
+
+/**
  * Get bot token from secrets for a given agent
  */
 async function getBotToken(agentId: string): Promise<string> {
@@ -878,22 +932,9 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
 
         try {
           // Handle media uploads if provided
-          let mediaIds: string[] | undefined;
-          if (mediaUrls && mediaUrls.length > 0) {
-            mediaIds = [];
-            for (const url of mediaUrls.slice(0, 4)) {
-              try {
-                const response = await fetch(url);
-                const buffer = Buffer.from(await response.arrayBuffer());
-                const mediaId = await client.v1.uploadMedia(buffer, {
-                  mimeType: 'image/png',
-                });
-                mediaIds.push(mediaId);
-              } catch (err) {
-                console.error('Failed to upload media to Twitter:', err);
-              }
-            }
-          }
+          const mediaIds = mediaUrls && mediaUrls.length > 0 
+            ? await uploadMediaToTwitter(client, mediaUrls)
+            : undefined;
 
           // Post the tweet
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = { text };
@@ -1063,20 +1104,9 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         });
 
         try {
-          let mediaIds: string[] | undefined;
-          if (mediaUrls && mediaUrls.length > 0) {
-            mediaIds = [];
-            for (const url of mediaUrls.slice(0, 4)) {
-              try {
-                const response = await fetch(url);
-                const buffer = Buffer.from(await response.arrayBuffer());
-                const mediaId = await client.v1.uploadMedia(buffer, { mimeType: 'image/png' });
-                mediaIds.push(mediaId);
-              } catch (err) {
-                console.error('Failed to upload media:', err);
-              }
-            }
-          }
+          const mediaIds = mediaUrls && mediaUrls.length > 0 
+            ? await uploadMediaToTwitter(client, mediaUrls)
+            : undefined;
 
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = {
             text,
@@ -1199,20 +1229,9 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         });
 
         try {
-          let mediaIds: string[] | undefined;
-          if (mediaUrls && mediaUrls.length > 0) {
-            mediaIds = [];
-            for (const url of mediaUrls.slice(0, 4)) {
-              try {
-                const response = await fetch(url);
-                const buffer = Buffer.from(await response.arrayBuffer());
-                const mediaId = await client.v1.uploadMedia(buffer, { mimeType: 'image/png' });
-                mediaIds.push(mediaId);
-              } catch (err) {
-                console.error('Failed to upload media:', err);
-              }
-            }
-          }
+          const mediaIds = mediaUrls && mediaUrls.length > 0 
+            ? await uploadMediaToTwitter(client, mediaUrls)
+            : undefined;
 
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = {
             text,
