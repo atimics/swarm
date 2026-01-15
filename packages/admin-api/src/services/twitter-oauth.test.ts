@@ -58,8 +58,8 @@ vi.mock('./secrets.js', () => ({
 }));
 
 // Set environment variables before any imports
-vi.stubEnv('ADMIN_TABLE', 'test-admin-table');
-vi.stubEnv('TWITTER_OAUTH_CALLBACK_URL', 'https://admin.test.com/oauth/twitter/callback');
+process.env.ADMIN_TABLE = 'test-admin-table';
+process.env.TWITTER_OAUTH_CALLBACK_URL = 'https://admin.test.com/oauth/twitter/callback';
 
 // Store module reference after dynamic import
 let twitterOAuth: typeof import('./twitter-oauth.js');
@@ -142,7 +142,7 @@ describe('Twitter OAuth - Configuration', () => {
   // Skip: TWITTER_OAUTH_CALLBACK_URL is read at module load time, so stubEnv
   // changes don't affect the already-evaluated constant.
   it.skip('isConfigured returns false when callback URL missing', async () => {
-    vi.stubEnv('TWITTER_OAUTH_CALLBACK_URL', '');
+    process.env.TWITTER_OAUTH_CALLBACK_URL = '';
     mockSecretsSend.mockResolvedValueOnce(createAppCredentialsResponse());
 
     const { isConfigured } = await import('./twitter-oauth.js');
@@ -666,8 +666,8 @@ describe('Twitter OAuth - Disconnect', () => {
 
     const { disconnectTwitter } = await import('./twitter-oauth.js');
 
-    // Should not throw
-    await expect(disconnectTwitter('agent-123', session)).resolves.not.toThrow();
+    // Should resolve without throwing
+    await expect(disconnectTwitter('agent-123', session)).resolves.toBeUndefined();
   });
 
   it('disconnectTwitter deletes connection record from DynamoDB', async () => {

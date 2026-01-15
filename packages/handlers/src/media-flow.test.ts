@@ -34,28 +34,6 @@ vi.mock('@swarm/core', () => {
   }).passthrough();
 
   return {
-    createMediaService: vi.fn(() => ({
-      generateImage: vi.fn().mockResolvedValue({ url: 'https://example.com/img.png' }),
-      generateVideo: vi.fn().mockResolvedValue({ url: 'https://example.com/vid.mp4' }),
-    })),
-    createSecretsService: vi.fn(() => ({
-      getSecretJson: vi.fn().mockResolvedValue({ REPLICATE_API_KEY: 'test' }),
-    })),
-    createStateService: vi.fn(() => ({
-      getAgentConfig: vi.fn().mockResolvedValue({
-        id: 'agent-1',
-        name: 'test',
-        version: '1.0.0',
-        persona: 'test',
-        tools: [],
-        secrets: [],
-        media: { image: { provider: 'replicate', model: 'test' } },
-        behavior: { responseDelayMs: [0, 0] },
-        platforms: { telegram: { enabled: true, botUsername: 'test', webhookPath: 'test' } },
-        llm: { provider: 'openrouter', model: 'test', temperature: 0, maxTokens: 0 },
-        scheduling: {}
-      }),
-    })),
     logger: {
       setContext: vi.fn(),
       info: vi.fn(),
@@ -66,6 +44,31 @@ vi.mock('@swarm/core', () => {
     SwarmResponseSchema: MockSwarmResponseSchema,
   };
 });
+
+vi.mock('@swarm/core/services', () => ({
+  createMediaService: vi.fn(() => ({
+    generateImage: vi.fn().mockResolvedValue({ url: 'https://example.com/img.png' }),
+    generateVideo: vi.fn().mockResolvedValue({ url: 'https://example.com/vid.mp4' }),
+  })),
+  createSecretsService: vi.fn(() => ({
+    getSecretJson: vi.fn().mockResolvedValue({ REPLICATE_API_KEY: 'test' }),
+  })),
+  createStateService: vi.fn(() => ({
+    getAgentConfig: vi.fn().mockResolvedValue({
+      id: 'agent-1',
+      name: 'test',
+      version: '1.0.0',
+      persona: 'test',
+      tools: [],
+      secrets: [],
+      media: { image: { provider: 'replicate', model: 'test' } },
+      behavior: { responseDelayMs: [0, 0] },
+      platforms: { telegram: { enabled: true, botUsername: 'test', webhookPath: 'test' } },
+      llm: { provider: 'openrouter', model: 'test', temperature: 0, maxTokens: 0 },
+      scheduling: {},
+    }),
+  })),
+}));
 
 const mocked = <T>(value: T) => (typeof (vi as any).mocked === 'function' ? (vi as any).mocked(value) : value as any);
 
