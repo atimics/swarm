@@ -672,8 +672,9 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
     if (!activeAgent?.id || disabled || isSubmitting) return;
 
     setIsSubmitting(true);
+    // Redirect to OAuth start endpoint - it will redirect to Twitter
     const url = `${API_BASE}/oauth/twitter/start?agentId=${encodeURIComponent(activeAgent.id)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    window.location.href = url;
 
     try {
       await onSubmit(toolCall.id, { started: true });

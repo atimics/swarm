@@ -168,14 +168,14 @@ export async function handler(
 
       const { authorizationUrl } = await twitterOAuth.startOAuthFlow(agentId);
 
-      // Return authorization URL (admin UI will redirect the user)
+      // Redirect directly to Twitter for OAuth authorization
       return {
-        statusCode: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          authorizationUrl,
-          message: 'Redirect user to authorizationUrl to authorize',
-        }),
+        statusCode: 302,
+        headers: {
+          ...corsHeaders,
+          'Location': authorizationUrl,
+        },
+        body: '',
       };
     }
 

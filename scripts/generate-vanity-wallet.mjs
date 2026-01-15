@@ -27,10 +27,13 @@ const NUM_WORKERS = cpus().length;
 
 // Worker thread code
 if (!isMainThread) {
-  const { pattern, matchStart, caseInsensitive } = workerData;
+  const { pattern, matchStart, caseInsensitive, workerIndex } = workerData;
   
   const nacl = (await import('tweetnacl')).default;
   const bs58 = (await import('bs58')).default;
+  const encodeBase58 = bs58.encode;
+  const useCaseInsensitive = caseInsensitive && /[A-Za-z]/.test(pattern);
+  const patternLower = useCaseInsensitive ? pattern.toLowerCase() : pattern;
   
   let attempts = 0;
   
@@ -38,13 +41,12 @@ if (!isMainThread) {
     attempts++;
     
     const keypair = nacl.sign.keyPair();
-    const publicKey = bs58.encode(keypair.publicKey);
+    const publicKey = encodeBase58(keypair.publicKey);
     
     let matches = false;
-    if (caseInsensitive) {
+    if (useCaseInsensitive) {
       const lowerKey = publicKey.toLowerCase();
-      const lowerPattern = pattern.toLowerCase();
-      matches = matchStart ? lowerKey.startsWith(lowerPattern) : lowerKey.includes(lowerPattern);
+      matches = matchStart ? lowerKey.startsWith(patternLower) : lowerKey.includes(patternLower);
     } else {
       matches = matchStart ? publicKey.startsWith(pattern) : publicKey.includes(pattern);
     }
@@ -53,14 +55,14 @@ if (!isMainThread) {
       parentPort.postMessage({
         type: 'found',
         publicKey,
-        secretKey: bs58.encode(keypair.secretKey),
+        secretKey: encodeBase58(keypair.secretKey),
         attempts,
       });
       break;
     }
     
     if (attempts % 10000 === 0) {
-      parentPort.postMessage({ type: 'progress', attempts });
+      parentPort.postMessage({ type: 'progress', attempts, workerIndex });
     }
   }
 } else {
@@ -119,21 +121,20 @@ if (!isMainThread) {
   let totalAttempts = 0;
   let found = null;
   const workers = [];
-  const workerAttempts = new Map();
+  const workerAttempts = new Array(NUM_WORKERS).fill(0);
 
   const scriptPath = fileURLToPath(import.meta.url);
   
   for (let i = 0; i < NUM_WORKERS; i++) {
     const worker = new Worker(scriptPath, {
-      workerData: { pattern, matchStart, caseInsensitive },
+      workerData: { pattern, matchStart, caseInsensitive, workerIndex: i },
     });
-    
-    workerAttempts.set(worker.threadId, 0);
     
     worker.on('message', (msg) => {
       if (msg.type === 'progress') {
-        workerAttempts.set(worker.threadId, msg.attempts);
-        totalAttempts = Array.from(workerAttempts.values()).reduce((a, b) => a + b, 0);
+        const prevAttempts = workerAttempts[msg.workerIndex] || 0;
+        workerAttempts[msg.workerIndex] = msg.attempts;
+        totalAttempts += msg.attempts - prevAttempts;
         
         const elapsed = (Date.now() - startTime) / 1000;
         const rate = Math.round(totalAttempts / elapsed);
