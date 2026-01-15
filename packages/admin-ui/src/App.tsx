@@ -29,33 +29,53 @@ function App() {
 
   const isLogsRoute = useMemo(() => Boolean(logsAgentId), [logsAgentId]);
 
-  // Check auth status on mount with timeout protection
+  // Check auth status on mount (run once)
   useEffect(() => {
-    if (!authChecked) {
-      const timeoutId = setTimeout(() => {
-        // If auth check takes too long, assume not authenticated and continue
-        console.warn('[App] Auth check timeout - continuing without auth');
+    let mounted = true;
+    
+    const doAuthCheck = async () => {
+      try {
+        await checkAuth();
+      } catch (e) {
+        console.error('[App] Auth check failed:', e);
+      }
+      if (mounted) {
         setAuthChecked(true);
-      }, 10000); // 10 second timeout
-      
-      checkAuth()
-        .finally(() => {
-          clearTimeout(timeoutId);
-          setAuthChecked(true);
-        });
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [authChecked, checkAuth]);
+      }
+    };
+    
+    // Use a timeout as a fallback
+    const timeoutId = setTimeout(() => {
+      if (mounted && !authChecked) {
+        console.warn('[App] Auth check timeout');
+        setAuthChecked(true);
+      }
+    }, 10000);
+    
+    doAuthCheck();
+    
+    return () => {
+      mounted = false;
+      clearTimeout(timeoutId);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
 
-  // Fetch agents from backend once authenticated
+  // Fetch agents from backend once authenticated (run once when conditions are met)
   useEffect(() => {
-    if (!initialized && authChecked && isAuthenticated) {
-      fetchAgents()
-        .catch(console.error)
-        .finally(() => setInitialized(true));
-    }
-  }, [initialized, authChecked, isAuthenticated, fetchAgents]);
+    if (initialized || !authChecked || !isAuthenticated) return;
+    
+    let mounted = true;
+    
+    fetchAgents()
+      .catch(console.error)
+      .finally(() => {
+        if (mounted) setInitialized(true);
+      });
+    
+    return () => { mounted = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authChecked, isAuthenticated]); // Don't include initialized or fetchAgents
 
   // Sync chat history from backend when agent is selected
   // ALWAYS sync on agent change to ensure cross-device consistency
