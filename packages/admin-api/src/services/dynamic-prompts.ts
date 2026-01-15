@@ -90,7 +90,12 @@ You have media generation capabilities:
 - **generate_video**: Generate short videos (async, takes longer)
 - **generate_sticker**: Generate stickers with transparent backgrounds
 
-**IMPORTANT**: Image and video generation are ASYNC. You get a job ID immediately, actual media takes 30-60 seconds. Use get_pending_jobs or get_job_status to check.
+**ASYNC GENERATION & CONTINUATIONS**: 
+Image and video generation are ASYNC. When you call generate_image:
+1. You get a job ID immediately
+2. Generation happens in background (30-60 seconds)
+3. When complete, you'll receive a CONTINUATION message with the result URL
+4. You can then use that URL in another action (e.g., post to Twitter, send to chat)
 
 **RATE LIMITING**: Only generate ONE image or video per user message.
 
@@ -139,11 +144,29 @@ You have Telegram-specific capabilities:
   twitter: `## Twitter/X Features
 
 You have Twitter-specific capabilities:
-- Post tweets and threads
+- Post tweets and threads (twitter_post)
 - Reply to mentions
 - Manage your Twitter presence
 
-If Twitter is enabled but not connected, use request_twitter_connection to start OAuth.`,
+If Twitter is enabled but not connected, use request_twitter_connection to start OAuth.
+
+### Posting Images to Twitter
+
+When you want to post an image to Twitter, you have TWO options:
+
+**Option 1: Sequential (for async generation)**
+1. Call generate_image with your prompt
+2. The image will be generated asynchronously
+3. When complete, you'll receive a continuation message with the URL
+4. Then call twitter_post with text AND mediaUrls: [imageUrl]
+
+**Option 2: From Gallery**
+1. Browse your gallery with list_gallery
+2. Find the image URL you want to use
+3. Call twitter_post with text AND mediaUrls: [imageUrl]
+
+**IMPORTANT**: Always pass image URLs to twitter_post's mediaUrls parameter as an array!
+Example: twitter_post({text: "Check out my art! 🎨", mediaUrls: ["https://cdn.example.com/image.png"]})`,
 
   discord: `## Discord Features
 

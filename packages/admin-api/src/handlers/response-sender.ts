@@ -28,6 +28,7 @@ const TELEGRAM_RETRY_COUNT = 2;
 const secretCache = new Map<string, { value: string; expiresAt: number }>();
 const SECRET_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Legacy message types (still supported for backward compatibility)
 interface MediaCompleteMessage {
   type: 'image_complete' | 'video_complete' | 'sticker_complete';
   agentId: string;
@@ -56,7 +57,43 @@ interface MediaFailedMessage {
   };
 }
 
-type ResponseMessage = MediaCompleteMessage | MediaFailedMessage;
+// New continuation message format
+interface ContinuationMediaGenerated {
+  type: 'media_generated';
+  agentId: string;
+  platform: string;
+  conversationId: string;
+  replyToMessageId?: string;
+  jobId?: string;
+  timestamp: number;
+  data: {
+    mediaType: 'image' | 'video' | 'sticker';
+    mediaUrl: string;
+    prompt: string;
+    purpose?: 'profile' | 'post_to_twitter' | 'send_to_chat' | 'gallery';
+  };
+}
+
+interface ContinuationMediaFailed {
+  type: 'media_failed';
+  agentId: string;
+  platform: string;
+  conversationId: string;
+  replyToMessageId?: string;
+  jobId?: string;
+  timestamp: number;
+  data: {
+    mediaType: 'image' | 'video' | 'sticker';
+    error: string;
+    prompt: string;
+  };
+}
+
+type ResponseMessage = 
+  | MediaCompleteMessage 
+  | MediaFailedMessage 
+  | ContinuationMediaGenerated 
+  | ContinuationMediaFailed;
 
 /**
  * Get secret value with caching
@@ -330,13 +367,83 @@ async function sendTelegramMessage(
 }
 
 /**
+ * Normalize message to common format (handles both legacy and continuation formats)
+ */
+function normalizeMessage(message: ResponseMessage): {
+  agentId: string;
+  platform: string;
+  conversationId: string;
+  replyToMessageId?: string;
+  type: string;
+  success: boolean;
+  mediaUrl?: string;
+  mediaType?: string;
+  prompt?: string;
+  error?: string;
+  purpose?: string;
+} {
+  // Handle new continuation format
+  if (message.type === 'media_generated') {
+    return {
+      agentId: message.agentId,
+      platform: message.platform,
+      conversationId: message.conversationId,
+      replyToMessageId: message.replyToMessageId,
+      type: `${message.data.mediaType}_complete`,
+      success: true,
+      mediaUrl: message.data.mediaUrl,
+      mediaType: message.data.mediaType,
+      prompt: message.data.prompt,
+      purpose: message.data.purpose,
+    };
+  }
+
+  if (message.type === 'media_failed') {
+    return {
+      agentId: message.agentId,
+      platform: message.platform,
+      conversationId: message.conversationId,
+      replyToMessageId: message.replyToMessageId,
+      type: `${message.data.mediaType}_failed`,
+      success: false,
+      mediaType: message.data.mediaType,
+      prompt: message.data.prompt,
+      error: message.data.error,
+    };
+  }
+
+  // Handle legacy format
+  // We need to type assert here because MediaFailedMessage.result doesn't have mediaUrl/mediaType
+  const legacyResult = message.result as {
+    success: boolean;
+    mediaUrl?: string;
+    mediaType?: string;
+    prompt?: string;
+    error?: string;
+  };
+  return {
+    agentId: message.agentId,
+    platform: message.platform,
+    conversationId: message.conversationId,
+    replyToMessageId: message.replyToMessageId,
+    type: message.type,
+    success: legacyResult.success,
+    mediaUrl: legacyResult.mediaUrl,
+    mediaType: legacyResult.mediaType,
+    prompt: legacyResult.prompt,
+    error: legacyResult.error,
+  };
+}
+
+/**
  * Process a single response message
  */
 async function processMessage(message: ResponseMessage): Promise<void> {
-  const { agentId, platform, conversationId, replyToMessageId, result } = message;
+  const normalized = normalizeMessage(message);
+  const { agentId, platform, conversationId, replyToMessageId, type, success, mediaUrl, mediaType, prompt, error, purpose } = normalized;
   
   logger.setContext({ agentId, platform, conversationId });
-  logger.info('Processing response message', { type: message.type, success: result.success });
+  logger.info('Processing response message', { type, success, purpose });
 
   // Only handle Telegram for now
   if (platform !== 'telegram') {
@@ -364,9 +471,9 @@ async function processMessage(message: ResponseMessage): Promise<void> {
     ? Number(replyToMessageId)
     : undefined;
 
-  if (message.type.includes('failed') || !result.success) {
+  if (type.includes('failed') || !success) {
     // Send error message
-    const errorMessage = result.error || 'Media generation failed';
+    const errorMessage = error || 'Media generation failed';
     const sent = await sendTelegramMessage(token, chatId, `❌ ${errorMessage}`, replyTo);
     if (!sent) {
       throw new Error('Failed to send error message to Telegram');
@@ -375,34 +482,34 @@ async function processMessage(message: ResponseMessage): Promise<void> {
   }
 
   // Handle successful media
-  if (!result.mediaUrl) {
+  if (!mediaUrl) {
     logger.error('No media URL in success response');
     return;
   }
 
   // Simple caption from prompt
-  const caption = result.prompt 
-    ? `🎨 ${result.prompt.slice(0, 200)}${result.prompt.length > 200 ? '...' : ''}`
+  const caption = prompt 
+    ? `🎨 ${prompt.slice(0, 200)}${prompt.length > 200 ? '...' : ''}`
     : undefined;
 
-  if (message.type === 'image_complete' || result.mediaType === 'image') {
-    const sent = await sendTelegramPhoto(token, chatId, result.mediaUrl, caption, replyTo);
+  if (type === 'image_complete' || mediaType === 'image') {
+    const sent = await sendTelegramPhoto(token, chatId, mediaUrl, caption, replyTo);
     if (!sent) {
       throw new Error('Failed to send Telegram photo');
     }
-  } else if (message.type === 'video_complete' || result.mediaType === 'video') {
-    const sent = await sendTelegramVideo(token, chatId, result.mediaUrl, caption, replyTo);
+  } else if (type === 'video_complete' || mediaType === 'video') {
+    const sent = await sendTelegramVideo(token, chatId, mediaUrl, caption, replyTo);
     if (!sent) {
       throw new Error('Failed to send Telegram video');
     }
-  } else if (message.type === 'sticker_complete' || result.mediaType === 'sticker') {
+  } else if (type === 'sticker_complete' || mediaType === 'sticker') {
     // Stickers are sent as photos for now
-    const sent = await sendTelegramPhoto(token, chatId, result.mediaUrl, undefined, replyTo);
+    const sent = await sendTelegramPhoto(token, chatId, mediaUrl, undefined, replyTo);
     if (!sent) {
       throw new Error('Failed to send Telegram sticker as photo');
     }
   } else {
-    logger.warn('Unknown media type', { type: message.type, mediaType: result.mediaType });
+    logger.warn('Unknown media type', { type, mediaType });
   }
 }
 

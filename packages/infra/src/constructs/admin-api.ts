@@ -549,6 +549,53 @@ export class AdminApiConstruct extends Construct {
       integration: agentsIntegration,
     });
 
+    this.api.addRoutes({
+      path: '/agents/{agentId}/events',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.PATCH],
+      integration: agentsIntegration,
+    });
+
+    // Issues handler - for auto-issue tracking system (used by CI/CD, browser tests)
+    const issuesHandler = new nodejs.NodejsFunction(this, 'IssuesHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/issues.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 256,
+      environment: {
+        ADMIN_TABLE: this.table.tableName,
+        NODE_ENV: environment,
+        ALLOWED_ORIGINS: allowedOrigins.join(','),
+        INTERNAL_TEST_KEY: internalTestKey,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Grant permissions to issues handler
+    this.table.grantReadWriteData(issuesHandler);
+
+    const issuesIntegration = new integrations.HttpLambdaIntegration(
+      'IssuesIntegration',
+      issuesHandler
+    );
+
+    // Issues routes
+    this.api.addRoutes({
+      path: '/issues',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.POST],
+      integration: issuesIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/issues/{issueId}',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.PATCH],
+      integration: issuesIntegration,
+    });
+
     // Health check endpoint
     const healthHandler = new nodejs.NodejsFunction(this, 'HealthHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,

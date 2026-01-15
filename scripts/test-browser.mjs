@@ -29,7 +29,57 @@ import { promises as fsPromises } from 'fs';
 import path from 'path';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
-import { reportError, reportWarning } from './lib/github-issues.mjs';
+
+// ============================================================================
+// Issue Reporting (via internal API)
+// ============================================================================
+
+/**
+ * Report an error/warning to the internal auto-issues system
+ * Uses fingerprinting for deduplication
+ */
+async function reportIssue(apiUrl, testKey, params) {
+  const { error, stack, subsystem, category, context } = params;
+
+  try {
+    const response = await fetch(`${apiUrl}/issues`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-test-key': testKey,
+        ...getCloudflareAccessHeaders(),
+      },
+      body: JSON.stringify({
+        error,
+        stack,
+        subsystem,
+        category,
+        context,
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.warn(`   ⚠️ Failed to report issue: ${response.status} ${text}`);
+      return null;
+    }
+
+    const result = await response.json();
+    console.log(`   📋 Issue ${result.isNew ? 'created' : 'updated'}: ${result.issueId} (${result.occurrenceCount} occurrences)`);
+    return result;
+  } catch (err) {
+    console.warn(`   ⚠️ Failed to report issue: ${err.message}`);
+    return null;
+  }
+}
+
+async function reportError(apiUrl, testKey, params) {
+  return reportIssue(apiUrl, testKey, { ...params, category: 'error' });
+}
+
+async function reportWarning(apiUrl, testKey, params) {
+  return reportIssue(apiUrl, testKey, { ...params, category: 'warning' });
+}
 
 const ENV = process.argv[2] || 'staging';
 const MAX_STEPS = 25;
@@ -970,10 +1020,9 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
         history.push(`ABORT: ${result.reason}`);
         finalSummary = `ABORTED: ${result.reason}`;
 
-        // Report abort to GitHub Issues
-        await reportError({
-          title: `Browser test aborted: ${result.reason.slice(0, 60)}`,
-          error: result.reason,
+        // Report abort to auto-issues system
+        await reportError(apiUrl, testKey, {
+          error: `Browser test aborted: ${result.reason}`,
           subsystem: 'browser-test',
           context: {
             environment: ENV,
@@ -982,9 +1031,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
             goal,
             history: history.slice(-5), // Last 5 actions for context
           },
-          runId: runId,
-          environment: ENV,
-        }).catch(err => console.warn(`   ⚠️ Failed to report to GitHub: ${err.message}`));
+        }).catch(err => console.warn(`   ⚠️ Failed to report issue: ${err.message}`));
 
         break; // Exit the while loop
       } else if (result.done) {
@@ -1022,10 +1069,9 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
     const errorScreenshot = path.join(screenshotsDir, 'error.png');
     await page.screenshot({ path: errorScreenshot, fullPage: true }).catch(() => {});
 
-    // Report test error to GitHub Issues
-    await reportError({
-      title: `Browser test error: ${err.message.slice(0, 60)}`,
-      error: err.message,
+    // Report test error to auto-issues system
+    await reportError(apiUrl, testKey, {
+      error: `Browser test error: ${err.message}`,
       stack: err.stack,
       subsystem: 'browser-test',
       context: {
@@ -1035,9 +1081,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
         goal,
         history: history.slice(-5),
       },
-      runId: runId,
-      environment: ENV,
-    }).catch(reportErr => console.warn(`   ⚠️ Failed to report to GitHub: ${reportErr.message}`));
+    }).catch(reportErr => console.warn(`   ⚠️ Failed to report issue: ${reportErr.message}`));
   } finally {
     await browser.close();
   }
@@ -1061,9 +1105,8 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
     console.log('   The agent did not complete the task within the step limit.');
 
     // Report max steps as a warning (might indicate UX issues)
-    await reportWarning({
-      title: `Browser test reached max steps without completing`,
-      error: `Test did not complete goal within ${MAX_STEPS} steps. This may indicate UX issues or unclear navigation.`,
+    await reportWarning(apiUrl, testKey, {
+      error: `Browser test reached max steps: Test did not complete goal within ${MAX_STEPS} steps. This may indicate UX issues or unclear navigation.`,
       subsystem: 'browser-test',
       context: {
         environment: ENV,
@@ -1071,9 +1114,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
         goal,
         history: history.slice(-10), // Last 10 actions
       },
-      runId: runId,
-      environment: ENV,
-    }).catch(err => console.warn(`   ⚠️ Failed to report to GitHub: ${err.message}`));
+    }).catch(err => console.warn(`   ⚠️ Failed to report issue: ${err.message}`));
   } else {
     console.log(`   Result: ❌ FAILED`);
   }

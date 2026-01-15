@@ -1121,3 +1121,9 @@ export function parseJson<T>(json: string, schema: z.ZodSchema<T>): T {
   const parsed = JSON.parse(json);
   return schema.parse(parsed);
 }
+
+// =============================================================================
+// CONTINUATION TYPES (re-exported from continuation.ts)
+// =============================================================================
+
+export * from './continuation.js';

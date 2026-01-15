@@ -9,3 +9,5 @@ export { handler as tweetPoster } from './tweet-poster.js';
 export { handler as twitterMentionPoller } from './twitter-mention-poller.js';
 export { handler as webChat } from './web-chat.js';
 export { handler as discordWebhook } from './discord-webhook.js';
+export { handler as continuationProcessor } from './continuation-processor.js';
+export { getPendingContinuationContext } from './continuation-processor.js';

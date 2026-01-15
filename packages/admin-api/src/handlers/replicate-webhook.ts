@@ -154,21 +154,26 @@ export async function handler(
       // Send callback message to response queue if configured
       // Allow sending when we have conversationId (will post to chat) or replyToMessageId (will reply to specific message)
       if (RESPONSE_QUEUE_URL && (job.conversationId || job.replyToMessageId)) {
+        // Send as a continuation message that can trigger the agent
+        const continuationMessage = {
+          type: 'media_generated',
+          agentId: job.agentId,
+          platform: job.platform,
+          conversationId: job.conversationId,
+          replyToMessageId: job.replyToMessageId,
+          jobId,
+          timestamp: Date.now(),
+          data: {
+            mediaType: job.type,
+            mediaUrl: publicUrl,
+            prompt: job.prompt,
+            purpose: job.purpose, // e.g., 'post_to_twitter'
+          },
+        };
+
         await sqsClient.send(new SendMessageCommand({
           QueueUrl: RESPONSE_QUEUE_URL,
-          MessageBody: JSON.stringify({
-            type: `${job.type}_complete`,
-            agentId: job.agentId,
-            platform: job.platform,
-            conversationId: job.conversationId,
-            replyToMessageId: job.replyToMessageId,
-            result: {
-              success: true,
-              mediaUrl: publicUrl,
-              mediaType: job.type,
-              prompt: job.prompt,
-            },
-          }),
+          MessageBody: JSON.stringify(continuationMessage),
         }));
       }
 
@@ -183,22 +188,26 @@ export async function handler(
         error: errorMessage,
       });
 
-      // Send failure callback
-      if (RESPONSE_QUEUE_URL && job.replyToMessageId) {
+      // Send failure callback as continuation message
+      if (RESPONSE_QUEUE_URL && (job.conversationId || job.replyToMessageId)) {
+        const continuationMessage = {
+          type: 'media_failed',
+          agentId: job.agentId,
+          platform: job.platform,
+          conversationId: job.conversationId,
+          replyToMessageId: job.replyToMessageId,
+          jobId,
+          timestamp: Date.now(),
+          data: {
+            mediaType: job.type,
+            error: errorMessage,
+            prompt: job.prompt,
+          },
+        };
+
         await sqsClient.send(new SendMessageCommand({
           QueueUrl: RESPONSE_QUEUE_URL,
-          MessageBody: JSON.stringify({
-            type: `${job.type}_failed`,
-            agentId: job.agentId,
-            platform: job.platform,
-            conversationId: job.conversationId,
-            replyToMessageId: job.replyToMessageId,
-            result: {
-              success: false,
-              error: errorMessage,
-              prompt: job.prompt,
-            },
-          }),
+          MessageBody: JSON.stringify(continuationMessage),
         }));
       }
 

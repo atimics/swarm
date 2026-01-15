@@ -290,6 +290,10 @@ export interface MediaJob {
   platform: string;
   replyToMessageId?: string;
 
+  // Purpose hint for agent continuation
+  // e.g., 'post_to_twitter' tells the agent to chain this to a tweet
+  purpose?: 'profile' | 'post_to_twitter' | 'send_to_chat' | 'gallery';
+
   // Provider tracking
   provider: string;
   externalId?: string;     // Replicate prediction ID, etc.
