@@ -69,7 +69,7 @@ vi.mock('@swarm/core', () => {
 
 const mocked = <T>(value: T) => (typeof (vi as any).mocked === 'function' ? (vi as any).mocked(value) : value as any);
 
-import { handler } from './media-processor.js';
+let handler: typeof import('./media-processor.js').handler;
 
 describe('Media Pipeline Integration', () => {
   beforeEach(() => {
@@ -81,6 +81,7 @@ describe('Media Pipeline Integration', () => {
   });
 
   it('should process a media job and send results to response queue', async () => {
+    ({ handler } = await import('./media-processor.js'));
     const event = {
       Records: [{
         messageId: 'msg-1',
