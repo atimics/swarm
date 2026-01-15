@@ -174,26 +174,15 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     hasVoice: async (agentIdParam: string) => {
       return voice.hasVoice(agentIdParam);
     },
-    generateVoiceMessage: async (params: Parameters<VoiceServices['generateVoiceMessage']>[0]) => {
-      return voice.generateVoiceMessage({
-        agentId,
-        text: params.text,
-        voiceId: params.voiceId,
-        format: params.format,
-        speed: params.speed,
-        pitch: params.pitch,
-        emotion: params.emotion,
-        maxDurationMs: params.maxDurationMs,
-      });
-    },
     sendVoiceMessage: async (params: Parameters<VoiceServices['sendVoiceMessage']>[0]) => {
       return voice.sendVoiceMessage({
         agentId,
         platform: params.platform,
+        text: params.text,
         conversationId: params.conversationId,
-        assetId: params.assetId,
-        url: params.url,
-        caption: params.caption,
+        voiceId: params.voiceId,
+        format: params.format,
+        speed: params.speed,
         replyToMessageId: params.replyToMessageId,
       });
     },

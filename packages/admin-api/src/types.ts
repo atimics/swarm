@@ -376,8 +376,8 @@ export const ChatRequestSchema = z.object({
   sender: MessageSenderSchema.optional(),
   systemPrompt: z.string().optional(), // Override default system prompt
   attachments: z.array(z.object({
-    type: z.enum(['image', 'file']),
-    data: z.string(), // base64 data URL
+    type: z.enum(['image', 'file', 'audio']),
+    data: z.string(), // base64 data URL or public URL for audio
     name: z.string().optional(),
   })).optional(),
   model: z.string().optional(), // Override default LLM model (e.g., 'anthropic/claude-3-5-haiku-20241022')

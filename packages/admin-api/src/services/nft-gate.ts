@@ -304,6 +304,9 @@ export async function countAgentsCreatedBy(walletAddress: string): Promise<numbe
 /**
  * Get full gate status for a wallet
  * Used for creation gating and abandonment checks
+ * 
+ * Every wallet gets 1 free agent slot. Additional slots require holding Orb NFTs.
+ * Formula: availableSlots = (1 + nftsHeld) - agentsCreated
  */
 export async function getGateStatus(walletAddress: string): Promise<GateStatus> {
   // Get NFT count from on-chain
@@ -313,13 +316,17 @@ export async function getGateStatus(walletAddress: string): Promise<GateStatus> 
   // Get agents created by this wallet from DynamoDB
   const agentsCreated = await countAgentsCreatedBy(walletAddress);
 
-  const availableSlots = Math.max(0, nftsHeld - agentsCreated);
+  // Every wallet gets 1 free slot + 1 slot per NFT held
+  const FREE_SLOTS = 1;
+  const totalSlots = FREE_SLOTS + nftsHeld;
+  const availableSlots = Math.max(0, totalSlots - agentsCreated);
 
   return {
     nftsHeld,
     agentsCreated,
     availableSlots,
     canCreate: availableSlots > 0,
+    // Can abandon if holding at least 1 NFT (to receive lineage NFT)
     canAbandon: nftsHeld >= 1,
     ownedNFTs: nftResult.ownedNFTs,
   };

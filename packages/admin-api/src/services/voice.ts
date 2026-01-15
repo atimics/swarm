@@ -734,50 +734,67 @@ export async function generateVoiceMessage(params: {
   return { assetId: asset.assetId, url: asset.url, format };
 }
 
+/**
+ * Send a voice message - generates audio and sends/returns it
+ *
+ * On Telegram: generates voice and sends directly to chat
+ * On Web/other: generates voice and returns URL for playback
+ */
 export async function sendVoiceMessage(params: {
   agentId: string;
   platform: string;
-  conversationId: string;
-  assetId?: string;
-  url?: string;
-  caption?: string;
+  text: string;
+  conversationId?: string;
+  voiceId?: string;
+  format?: 'ogg' | 'mp3' | 'wav';
+  speed?: number;
   replyToMessageId?: string;
-}): Promise<{ success: boolean }> {
-  if (params.platform !== 'telegram') {
-    throw new Error(`Voice messaging not supported for platform: ${params.platform}`);
-  }
-
-  let voiceUrl = params.url;
-  if (!voiceUrl && params.assetId) {
-    const asset = await getAudioAsset(params.assetId);
-    if (!asset) throw new Error(`Audio asset not found: ${params.assetId}`);
-    voiceUrl = await makeUrlAccessible(asset.url);
-  }
-
-  if (!voiceUrl) {
-    throw new Error('No voice URL provided');
-  }
-
-  const botToken = await _getSecretValueInternal(params.agentId, 'telegram_bot_token', 'default');
-  if (!botToken) {
-    throw new Error('Telegram bot token not configured');
-  }
-
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/sendVoice`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: params.conversationId,
-      voice: voiceUrl,
-      caption: params.caption,
-      reply_to_message_id: params.replyToMessageId ? Number(params.replyToMessageId) : undefined,
-    }),
+}): Promise<{ success: boolean; assetId?: string; url?: string; sent?: boolean }> {
+  // Generate the voice message first
+  const generated = await generateVoiceMessage({
+    agentId: params.agentId,
+    text: params.text,
+    voiceId: params.voiceId,
+    format: params.format || 'ogg',
+    speed: params.speed,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Telegram sendVoice failed: ${response.status} - ${errorText}`);
+  const voiceUrl = await makeUrlAccessible(generated.url);
+
+  // For Telegram, send directly to the chat
+  if (params.platform === 'telegram') {
+    if (!params.conversationId) {
+      throw new Error('conversationId is required for Telegram voice messages');
+    }
+
+    const botToken = await _getSecretValueInternal(params.agentId, 'telegram_bot_token', 'default');
+    if (!botToken) {
+      throw new Error('Telegram bot token not configured');
+    }
+
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendVoice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: params.conversationId,
+        voice: voiceUrl,
+        reply_to_message_id: params.replyToMessageId ? Number(params.replyToMessageId) : undefined,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Telegram sendVoice failed: ${response.status} - ${errorText}`);
+    }
+
+    return { success: true, assetId: generated.assetId, url: generated.url, sent: true };
   }
 
-  return { success: true };
+  // For web and other platforms, return the audio URL for playback
+  return {
+    success: true,
+    assetId: generated.assetId,
+    url: generated.url,
+    sent: false, // Not sent directly, client should play the URL
+  };
 }

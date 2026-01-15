@@ -33,6 +33,7 @@ import {
 import { createMCPServices } from '../services/mcp-adapter.js';
 import { isPauseForInputTool } from '../tools/index.js';
 import * as agents from '../services/agents.js';
+import * as voice from '../services/voice.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
 const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
@@ -590,7 +591,7 @@ function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
 
 interface ProcessChatOptions {
   customSystemPrompt?: string;
-  attachments?: Array<{ type: 'image' | 'file'; data: string; name?: string }>;
+  attachments?: Array<{ type: 'image' | 'file' | 'audio'; data: string; name?: string }>;
   model?: string; // Override default LLM model
 }
 
@@ -655,28 +656,71 @@ async function processChat(
   
   // Use custom system prompt if provided (for e.g. browser automation agents)
   const systemPrompt = options?.customSystemPrompt || buildSystemPrompt(agent);
-  
+
+  // Auto-transcribe audio attachments
+  let transcribedText = '';
+  if (agentId && options?.attachments) {
+    const audioAttachments = options.attachments.filter(a => a.type === 'audio');
+    if (audioAttachments.length > 0) {
+      logger.info('Auto-transcribing audio attachments', {
+        event: 'audio_transcription_start',
+        agentId,
+        audioCount: audioAttachments.length,
+      });
+
+      for (const audio of audioAttachments) {
+        try {
+          const transcription = await voice.transcribeAudio({
+            agentId,
+            url: audio.data, // Audio data is a URL
+          });
+          if (transcription.text) {
+            transcribedText += `\n\n[Voice message transcription]: "${transcription.text}"`;
+            logger.info('Audio transcription successful', {
+              event: 'audio_transcription_success',
+              agentId,
+              textLength: transcription.text.length,
+            });
+          }
+        } catch (err) {
+          logger.warn('Audio transcription failed', {
+            event: 'audio_transcription_error',
+            agentId,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+          // Don't block the message if transcription fails
+          transcribedText += '\n\n[Voice message received but transcription failed]';
+        }
+      }
+    }
+  }
+
+  // Combine original message with transcribed audio
+  const messageWithTranscription = transcribedText ? userMessage + transcribedText : userMessage;
+
   // Build the user message content - may include attachments
-  let userMessageContent: string | Array<{ type: string; text?: string; image_url?: { url: string } }> = userMessage;
+  let userMessageContent: string | Array<{ type: string; text?: string; image_url?: { url: string } }> = messageWithTranscription;
   if (options?.attachments && options.attachments.length > 0) {
-    userMessageContent = [
-      { type: 'text', text: userMessage },
-      ...options.attachments
-        .filter(a => a.type === 'image')
-        .map(a => ({
+    const imageAttachments = options.attachments.filter(a => a.type === 'image');
+    if (imageAttachments.length > 0) {
+      userMessageContent = [
+        { type: 'text', text: messageWithTranscription },
+        ...imageAttachments.map(a => ({
           type: 'image_url' as const,
           image_url: { url: a.data },
         })),
-    ];
+      ];
+    }
   }
   
-  // Update the last message with attachments if present
-  const messagesWithAttachments: AdminChatMessage[] = userMessageContent === userMessage
-    ? messages
-    : [
+  // Update the last message with attachments/transcription if present
+  const hasModifications = userMessageContent !== messageWithTranscription || transcribedText !== '';
+  const messagesWithAttachments: AdminChatMessage[] = hasModifications
+    ? [
         ...conversationHistory,
         { role: 'user' as const, content: userMessageContent as string },
-      ];
+      ]
+    : messages;
   
   const input = buildModelInput(systemPrompt, messagesWithAttachments);
 

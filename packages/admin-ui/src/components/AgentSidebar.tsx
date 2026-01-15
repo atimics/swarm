@@ -235,7 +235,9 @@ export function AgentSidebar({ className, onClose }: AgentSidebarProps) {
             <span className="font-medium">New Agent</span>
             {gateStatus?.availableSlots !== undefined && (
               <span className="ml-auto text-xs text-[var(--color-text-muted)]">
-                {gateStatus.availableSlots} slot{gateStatus.availableSlots !== 1 ? 's' : ''}
+                {gateStatus.availableSlots === 1 && gateStatus.nftsHeld === 0
+                  ? '1 free'
+                  : `${gateStatus.availableSlots} slot${gateStatus.availableSlots !== 1 ? 's' : ''}`}
               </span>
             )}
           </button>
