@@ -13,8 +13,17 @@ import type {
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
-import * as twitterOAuthDefault from '../services/twitter-oauth.js';
-import * as agentServiceDefault from '../services/agents.js';
+import {
+  isConfigured as twitterIsConfigured,
+  startOAuthFlow as twitterStartOAuthFlow,
+  completeOAuthFlow as twitterCompleteOAuthFlow,
+  getConnectionStatus as twitterGetConnectionStatus,
+  disconnectTwitter as twitterDisconnectTwitter,
+} from '../services/twitter-oauth.js';
+import {
+  getAgent as agentGetAgent,
+  updateAgent as agentUpdateAgent,
+} from '../services/agents.js';
 import type { UserSession, AgentRecord } from '../types.js';
 
 /**
@@ -52,8 +61,17 @@ export interface TwitterOAuthHandlerDeps {
 // Create default dependencies lazily to avoid issues with namespace imports at module load time
 function getDefaultDeps(): TwitterOAuthHandlerDeps {
   return {
-    twitterOAuth: twitterOAuthDefault,
-    agentService: agentServiceDefault,
+    twitterOAuth: {
+      isConfigured: twitterIsConfigured,
+      startOAuthFlow: twitterStartOAuthFlow,
+      completeOAuthFlow: twitterCompleteOAuthFlow,
+      getConnectionStatus: twitterGetConnectionStatus,
+      disconnectTwitter: twitterDisconnectTwitter,
+    },
+    agentService: {
+      getAgent: agentGetAgent,
+      updateAgent: agentUpdateAgent,
+    },
     auth: {
       authenticateRequest,
       requireAdmin,
