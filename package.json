@@ -1,7 +1,7 @@
 {
   "name": "aws-swarm",
   "version": "1.0.0",
-  "description": "Social media agent swarm framework for AWS",
+  "description": "Social media avatar swarm framework for AWS",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.19.0",
@@ -15,7 +15,7 @@
     "clean": "pnpm -r exec rm -rf dist node_modules",
     "deploy": "pnpm --filter @swarm/infra deploy",
     "deploy:all": "pnpm --filter @swarm/infra cdk deploy --all",
-    "deploy:agent": "pnpm --filter @swarm/infra cdk deploy",
+    "deploy:avatar": "pnpm --filter @swarm/infra cdk deploy",
     "deploy:dev": "pnpm --filter @swarm/infra cdk deploy -c environment=dev",
     "deploy:prod": "pnpm --filter @swarm/infra cdk deploy -c environment=prod",
     "synth": "pnpm --filter @swarm/infra synth",
@@ -30,7 +30,7 @@
     "telegram",
     "twitter",
     "ai",
-    "agents",
+    "avatars",
     "solana"
   ],
   "author": "",
