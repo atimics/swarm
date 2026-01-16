@@ -2,7 +2,7 @@
  * Login Options Component
  * Provides both Crossmint (email/social) and native wallet login options
  */
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useAuth as useCrossmintAuthHook } from '@crossmint/client-sdk-react-ui';
 import { useWalletAuth } from '../store/walletAuth';
@@ -25,13 +25,31 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   const crossmintIsLoading = status === 'in-progress';
   const isLoading = walletAuth.isLoading || crossmintAuth.isLoading || crossmintIsLoading;
 
+  // Track sync attempts to prevent infinite loops
+  const syncAttemptedRef = useRef(false);
+  const lastJwtRef = useRef<string | null>(null);
+
   // When Crossmint auth completes, sync with our backend
   useEffect(() => {
     const isLoggedIn = status === 'logged-in';
-    if (isLoggedIn && crossmintUser && jwt && !crossmintAuth.isAuthenticated) {
-      crossmintAuth.syncWithBackend(jwt, crossmintUser).catch(console.error);
+    const hasWallet = !!crossmintUser?.wallet?.address;
+    const isNewJwt = jwt !== lastJwtRef.current;
+
+    // Only sync if:
+    // 1. User is logged in with a wallet address
+    // 2. We haven't already synced this JWT
+    // 3. We're not already authenticated
+    if (isLoggedIn && crossmintUser && jwt && hasWallet && !crossmintAuth.isAuthenticated && (!syncAttemptedRef.current || isNewJwt)) {
+      syncAttemptedRef.current = true;
+      lastJwtRef.current = jwt;
+      crossmintAuth.syncWithBackend(jwt, crossmintUser).catch((error) => {
+        console.error('[LoginOptions] Sync failed:', error);
+        // Don't retry - syncAttemptedRef prevents further attempts
+      });
+    } else if (isLoggedIn && !hasWallet) {
+      console.warn('[LoginOptions] Crossmint user logged in but no wallet address available');
     }
-  }, [status, crossmintUser, jwt, crossmintAuth]);
+  }, [status, crossmintUser, jwt, crossmintAuth.isAuthenticated]);
 
   const handleWalletConnect = useCallback(() => {
     walletAuth.clearError();

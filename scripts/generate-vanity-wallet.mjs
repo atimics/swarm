@@ -6,12 +6,13 @@
  * Uses all CPU cores for maximum speed. Always saves to GitHub secrets.
  * 
  * Usage:
- *   node scripts/generate-vanity-wallet.mjs [pattern] [--start] [--secret-name NAME]
+ *   node scripts/generate-vanity-wallet.mjs [pattern] [--start] [--secret-name NAME] [--workers N] [--progress-every N] [--quiet]
  * 
  * Examples:
  *   node scripts/generate-vanity-wallet.mjs RATi                    # "RATi" anywhere
  *   node scripts/generate-vanity-wallet.mjs RATi --start            # "RATi" at start
  *   node scripts/generate-vanity-wallet.mjs RATi --secret-name RELEASE_SIGNING_KEY
+ *   node scripts/generate-vanity-wallet.mjs RATi --workers 8 --progress-every 200000
  * 
  * Environment:
  *   GITHUB_ACTIONS=true  - Running in CI (uses gh secret set)
@@ -27,42 +28,47 @@ const NUM_WORKERS = cpus().length;
 
 // Worker thread code
 if (!isMainThread) {
-  const { pattern, matchStart, caseInsensitive, workerIndex } = workerData;
+  const { pattern, matchStart, caseInsensitive, workerIndex, progressEvery } = workerData;
   
   const nacl = (await import('tweetnacl')).default;
   const bs58 = (await import('bs58')).default;
   const encodeBase58 = bs58.encode;
   const useCaseInsensitive = caseInsensitive && /[A-Za-z]/.test(pattern);
   const patternLower = useCaseInsensitive ? pattern.toLowerCase() : pattern;
+  const progressInterval = Number.isFinite(progressEvery) ? progressEvery : 250000;
+
+  // Reuse key buffers to reduce per-attempt allocations.
+  const publicKeyBytes = new Uint8Array(nacl.lowlevel.crypto_sign_PUBLICKEYBYTES);
+  const secretKeyBytes = new Uint8Array(nacl.lowlevel.crypto_sign_SECRETKEYBYTES);
+  const matchesPattern = useCaseInsensitive
+    ? (publicKey) => {
+        const lowerKey = publicKey.toLowerCase();
+        return matchStart ? lowerKey.startsWith(patternLower) : lowerKey.includes(patternLower);
+      }
+    : (publicKey) => (matchStart ? publicKey.startsWith(pattern) : publicKey.includes(pattern));
   
   let attempts = 0;
+  let nextProgress = progressInterval;
   
   while (true) {
     attempts++;
     
-    const keypair = nacl.sign.keyPair();
-    const publicKey = encodeBase58(keypair.publicKey);
+    nacl.lowlevel.crypto_sign_keypair(publicKeyBytes, secretKeyBytes);
+    const publicKey = encodeBase58(publicKeyBytes);
     
-    let matches = false;
-    if (useCaseInsensitive) {
-      const lowerKey = publicKey.toLowerCase();
-      matches = matchStart ? lowerKey.startsWith(patternLower) : lowerKey.includes(patternLower);
-    } else {
-      matches = matchStart ? publicKey.startsWith(pattern) : publicKey.includes(pattern);
-    }
-    
-    if (matches) {
+    if (matchesPattern(publicKey)) {
       parentPort.postMessage({
         type: 'found',
         publicKey,
-        secretKey: encodeBase58(keypair.secretKey),
+        secretKey: encodeBase58(secretKeyBytes),
         attempts,
       });
       break;
     }
     
-    if (attempts % 10000 === 0) {
+    if (progressInterval > 0 && attempts === nextProgress) {
       parentPort.postMessage({ type: 'progress', attempts, workerIndex });
+      nextProgress += progressInterval;
     }
   }
 } else {
@@ -72,10 +78,26 @@ if (!isMainThread) {
   const matchStart = args.includes('--start');
   const caseInsensitive = args.includes('--ignore-case');
   const dryRun = args.includes('--dry-run');
+  const quiet = args.includes('--quiet');
   
   // Parse --secret-name NAME
   const secretNameIndex = args.indexOf('--secret-name');
   const secretName = secretNameIndex >= 0 ? args[secretNameIndex + 1] : 'TEST_WALLET_PRIVATE_KEY';
+
+  // Parse --workers N
+  const workerCountIndex = args.indexOf('--workers');
+  const defaultWorkerCount = Math.max(1, NUM_WORKERS - 1);
+  const workerCountArg = workerCountIndex >= 0 ? Number(args[workerCountIndex + 1]) : defaultWorkerCount;
+  const workerCount = Number.isFinite(workerCountArg) && workerCountArg > 0
+    ? Math.floor(workerCountArg)
+    : defaultWorkerCount;
+
+  // Parse --progress-every N (attempts)
+  const progressEveryIndex = args.indexOf('--progress-every');
+  const progressEveryArg = progressEveryIndex >= 0 ? Number(args[progressEveryIndex + 1]) : 250000;
+  const progressEvery = quiet ? 0 : (Number.isFinite(progressEveryArg) && progressEveryArg > 0
+    ? Math.floor(progressEveryArg)
+    : 250000);
   
   // Also output public key to a separate secret
   const publicKeySecretName = secretName.replace('PRIVATE', 'PUBLIC').replace('_KEY', '_ADDRESS');
@@ -102,7 +124,7 @@ if (!isMainThread) {
   }
 
   const expectedAttempts = calculateExpectedAttempts(pattern.length, matchStart);
-  const estimatedSeconds = expectedAttempts / (10000 * NUM_WORKERS);
+  const estimatedSeconds = expectedAttempts / (10000 * workerCount);
   const timeStr = estimatedSeconds < 60 
     ? `${Math.round(estimatedSeconds)}s` 
     : estimatedSeconds < 3600 
@@ -112,7 +134,7 @@ if (!isMainThread) {
   console.log('🔑 Vanity Wallet Generator');
   console.log('='.repeat(50));
   console.log(`Pattern: "${pattern}" (${matchStart ? 'prefix' : 'anywhere'})`);
-  console.log(`Workers: ${NUM_WORKERS} threads`);
+  console.log(`Workers: ${workerCount} threads`);
   console.log(`Target secret: ${secretName}`);
   console.log(`Expected: ~${Math.round(expectedAttempts).toLocaleString()} attempts (~${timeStr})`);
   console.log();
@@ -121,13 +143,13 @@ if (!isMainThread) {
   let totalAttempts = 0;
   let found = null;
   const workers = [];
-  const workerAttempts = new Array(NUM_WORKERS).fill(0);
+  const workerAttempts = new Array(workerCount).fill(0);
 
   const scriptPath = fileURLToPath(import.meta.url);
   
-  for (let i = 0; i < NUM_WORKERS; i++) {
+  for (let i = 0; i < workerCount; i++) {
     const worker = new Worker(scriptPath, {
-      workerData: { pattern, matchStart, caseInsensitive, workerIndex: i },
+      workerData: { pattern, matchStart, caseInsensitive, workerIndex: i, progressEvery },
     });
     
     worker.on('message', (msg) => {

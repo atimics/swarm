@@ -47,7 +47,7 @@ interface CrossmintAuthState {
 
 export const useCrossmintAuth = create<CrossmintAuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       isAuthenticated: false,
       isLoading: false,
       user: null,
@@ -59,6 +59,24 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
        * Creates/updates user record and session based on Crossmint wallet address
        */
       syncWithBackend: async (crossmintJwt, crossmintUser) => {
+        // Guard: Require wallet address
+        if (!crossmintUser.wallet?.address) {
+          console.warn('[CrossmintAuth] Cannot sync: wallet address not available');
+          set({ isLoading: false, error: 'Wallet address not available. Please ensure your wallet is set up in Crossmint.' });
+          return; // Don't throw - prevents retry loops
+        }
+
+        // Guard: Don't sync if already syncing or authenticated
+        const state = get();
+        if (state.isLoading) {
+          console.debug('[CrossmintAuth] Sync already in progress, skipping');
+          return;
+        }
+        if (state.isAuthenticated && state.user?.walletAddress === crossmintUser.wallet.address) {
+          console.debug('[CrossmintAuth] Already authenticated with this wallet');
+          return;
+        }
+
         set({ isLoading: true, error: null });
         try {
           // Verify with our backend and create session
@@ -69,7 +87,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
               jwt: crossmintJwt,
               userId: crossmintUser.id,
               email: crossmintUser.email,
-              walletAddress: crossmintUser.wallet?.address,
+              walletAddress: crossmintUser.wallet.address,
             }),
             credentials: 'include',
           });
@@ -106,7 +124,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
             isLoading: false,
             error: error instanceof Error ? error.message : 'Authentication failed',
           });
-          throw error;
+          // Don't re-throw - prevents retry loops from callers
         }
       },
 
