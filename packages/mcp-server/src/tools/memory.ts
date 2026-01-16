@@ -132,6 +132,7 @@ export const createMemoryTools = (memory: MemoryServices) => [
             facts: result.facts.map(f => ({
               fact: f.fact,
               about: f.about,
+              strength: f.strength,
               savedAt: new Date(f.timestamp).toISOString(),
             })),
           },
@@ -140,6 +141,96 @@ export const createMemoryTools = (memory: MemoryServices) => [
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to recall facts',
+        };
+      }
+    },
+  }),
+
+  // Admin tools for managing memory embeddings
+  defineTool({
+    name: 'memory_stats',
+    description: 'Get statistics about memory embedding coverage. Shows how many memories have semantic embeddings enabled.',
+    category: 'config',
+    toolset: 'memory',
+    inputSchema: z.object({}),
+    execute: async (_input, _context): Promise<ToolResult> => {
+      try {
+        if (!memory.getEmbeddingStats) {
+          return {
+            success: false,
+            error: 'Embedding stats not available for this agent',
+          };
+        }
+
+        const stats = await memory.getEmbeddingStats();
+        return {
+          success: true,
+          data: {
+            total: stats.total,
+            withEmbedding: stats.withEmbedding,
+            withoutEmbedding: stats.withoutEmbedding,
+            outdatedEmbedding: stats.outdatedEmbedding,
+            coveragePercent: stats.coveragePercent,
+            message: stats.coveragePercent === 100
+              ? 'All memories have current embeddings'
+              : `${stats.withoutEmbedding + stats.outdatedEmbedding} memories need embedding updates`,
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get memory stats',
+        };
+      }
+    },
+  }),
+
+  defineTool({
+    name: 'backfill_embeddings',
+    description: 'Generate embeddings for memories that lack them. This enables semantic search for better recall quality.',
+    category: 'config',
+    toolset: 'memory',
+    inputSchema: z.object({
+      dryRun: z.boolean().optional().describe('If true, only show what would be processed without making changes'),
+    }),
+    execute: async (input, _context): Promise<ToolResult> => {
+      try {
+        if (!memory.backfillEmbeddings) {
+          return {
+            success: false,
+            error: 'Embedding backfill not available for this agent',
+          };
+        }
+
+        const result = await memory.backfillEmbeddings({ dryRun: input.dryRun });
+
+        if (input.dryRun) {
+          return {
+            success: true,
+            data: {
+              dryRun: true,
+              wouldProcess: result.processed,
+              message: `Would process ${result.processed} memories (dry run)`,
+            },
+          };
+        }
+
+        return {
+          success: true,
+          data: {
+            processed: result.processed,
+            succeeded: result.succeeded,
+            failed: result.failed,
+            skipped: result.skipped,
+            message: result.failed > 0
+              ? `Processed ${result.processed} memories: ${result.succeeded} succeeded, ${result.failed} failed`
+              : `Successfully processed ${result.succeeded} memories`,
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to backfill embeddings',
         };
       }
     },

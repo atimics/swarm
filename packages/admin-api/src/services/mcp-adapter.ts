@@ -26,6 +26,7 @@ import * as propertyResearch from '../services/property-research.js';
 import * as stickers from '../services/stickers.js';
 import * as agentEvents from '../services/agent-events.js';
 import * as memory from '../services/memory.js';
+import * as memoryMigration from '../services/memory-migration.js';
 import { createWebSearch } from '../services/web-search.js';
 import { createMcpAdminServices } from '../services/mcp-config.js';
 
@@ -818,8 +819,19 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
             about: f.about,
             userId,
             timestamp: f.timestamp,
+            strength: f.strength,
           })),
         };
+      },
+
+      getEmbeddingStats: async () => {
+        return memoryMigration.getEmbeddingStats(agentId);
+      },
+
+      backfillEmbeddings: async (options?: { dryRun?: boolean }) => {
+        return memoryMigration.backfillEmbeddings(agentId, {
+          dryRun: options?.dryRun,
+        });
       },
     },
 
