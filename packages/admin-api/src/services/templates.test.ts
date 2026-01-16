@@ -4,9 +4,9 @@
  */
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import {
-  exportAgentAsTemplate,
+  exportAvatarAsTemplate,
   listTemplates,
-  createAgentFromTemplate,
+  createAvatarFromTemplate,
   type TemplateServiceDeps,
 } from './templates.js';
 import type { AvatarRecord, UserSession } from '../types.js';
@@ -14,7 +14,7 @@ import type { AvatarRecord, UserSession } from '../types.js';
 // Helper to create mock deps
 function createMockDeps(): TemplateServiceDeps {
   const mockSend = mock(() => Promise.resolve({}));
-  const mockCreateAgent = mock((name: string, _session: UserSession, desc?: string) =>
+  const mockCreateAvatar = mock((name: string, _session: UserSession, desc?: string) =>
     Promise.resolve({
       pk: 'AVATAR#new-avatar',
       sk: 'CONFIG',
@@ -33,7 +33,7 @@ function createMockDeps(): TemplateServiceDeps {
       send: mockSend as unknown as TemplateServiceDeps['dynamoClient']['send'],
     },
     avatarService: {
-      createAvatar: mockCreateAgent as unknown as TemplateServiceDeps['avatarService']['createAvatar'],
+      createAvatar: mockCreateAvatar as unknown as TemplateServiceDeps['avatarService']['createAvatar'],
     },
     tableName: 'test-admin-table',
   };
@@ -57,7 +57,7 @@ describe('TemplateService', () => {
     mockDeps = createMockDeps();
   });
 
-  describe('exportAgentAsTemplate', () => {
+  describe('exportAvatarAsTemplate', () => {
     it('returns template metadata + config', async () => {
       const avatar: AvatarRecord = {
         pk: 'AVATAR#avatar-1',
@@ -74,7 +74,7 @@ describe('TemplateService', () => {
         createdBy: 'test@example.com',
       };
 
-      const template = await exportAgentAsTemplate(avatar, 'Test Template', 'Template Description', mockDeps);
+      const template = await exportAvatarAsTemplate(avatar, 'Test Template', 'Template Description', mockDeps);
 
       expect(template.name).toBe('Test Template');
       expect(template.description).toBe('Template Description');
@@ -102,7 +102,7 @@ describe('TemplateService', () => {
         return Promise.resolve({});
       });
 
-      await exportAgentAsTemplate(avatar, 'Template', 'Desc', mockDeps);
+      await exportAvatarAsTemplate(avatar, 'Template', 'Desc', mockDeps);
 
       expect(capturedCommand).toBeDefined();
       const putCmd = capturedCommand as { input?: { Item?: { sk?: string } }; Item?: { sk?: string } };
@@ -140,7 +140,7 @@ describe('TemplateService', () => {
     });
   });
 
-  describe('createAgentFromTemplate', () => {
+  describe('createAvatarFromTemplate', () => {
     it('creates an avatar from template', async () => {
       let callCount = 0;
       (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() => {
@@ -161,7 +161,7 @@ describe('TemplateService', () => {
         return Promise.resolve({});
       });
 
-      const avatar = await createAgentFromTemplate('t1', session, 'Custom Name', mockDeps);
+      const avatar = await createAvatarFromTemplate('t1', session, 'Custom Name', mockDeps);
 
       expect(avatar.name).toBe('Custom Name');
       expect(avatar.persona).toBe('From template');
@@ -187,7 +187,7 @@ describe('TemplateService', () => {
         return Promise.resolve({});
       });
 
-      const avatar = await createAgentFromTemplate('t1', session, undefined, mockDeps);
+      const avatar = await createAvatarFromTemplate('t1', session, undefined, mockDeps);
 
       expect(avatar.name).toBe('Default Template Name');
     });
@@ -197,7 +197,7 @@ describe('TemplateService', () => {
         Promise.resolve({ Item: undefined })
       );
 
-      await expect(createAgentFromTemplate('nonexistent', session, undefined, mockDeps)).rejects.toThrow(
+      await expect(createAvatarFromTemplate('nonexistent', session, undefined, mockDeps)).rejects.toThrow(
         'Template not found: nonexistent'
       );
     });

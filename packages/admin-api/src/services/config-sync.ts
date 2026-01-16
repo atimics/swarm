@@ -98,7 +98,7 @@ const STATE_TABLE = process.env.STATE_TABLE;
 /**
  * Convert AdminAPI AvatarRecord to Core AvatarConfig format
  */
-function convertToAgentConfig(record: AvatarRecord): AvatarConfig {
+function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
   const defaultVoiceConfig = {
     enabled: true,
     ttsProvider: 'voice-clone' as const,
@@ -252,7 +252,7 @@ export async function syncAvatarConfig(record: AvatarRecord): Promise<void> {
     return;
   }
 
-  const config = convertToAgentConfig(record);
+  const config = convertToAvatarConfig(record);
 
   await dynamoClient.send(new PutCommand({
     TableName: STATE_TABLE,

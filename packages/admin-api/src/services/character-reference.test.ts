@@ -223,7 +223,7 @@ describe('Character Reference - Integration Test Scenarios', () => {
     // 3. Reference image is included in generation prompt
     // 4. Generated image maintains character consistency
 
-    const _agentId = 'avatar-456';
+    const _avatarId = 'avatar-456';
     
     // Character reference from database
     const characterReference = {
@@ -328,7 +328,7 @@ describe('Character Reference - Integration Test Scenarios', () => {
       dailyLimit: 10,
     };
 
-    const _agentId = 'avatar-rate-test';
+    const _avatarId = 'avatar-rate-test';
 
     // Initial state: full credits
     const creditState = {

@@ -14,7 +14,7 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda
 import { z } from 'zod';
 import { logger } from '@swarm/core';
 import { getSessionWithUser } from '../services/wallet-auth.js';
-import { getInhabitedAgent } from '../services/avatar-ownership.js';
+import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
@@ -144,9 +144,9 @@ function corsHeaders(event: APIGatewayProxyEventV2): Record<string, string> {
  * Returns ghost if authenticated but not inhabiting, avatar if inhabiting
  */
 async function buildSenderIdentity(walletAddress: string): Promise<MessageSender> {
-  const inhabitedAgent = await getInhabitedAgent(walletAddress);
+  const inhabitedAvatar = await getInhabitedAvatar(walletAddress);
 
-  if (!inhabitedAgent) {
+  if (!inhabitedAvatar) {
     // Ghost user - authenticated but no avatar
     return {
       walletAddress,
@@ -158,10 +158,10 @@ async function buildSenderIdentity(walletAddress: string): Promise<MessageSender
   // Inhabiting user - show as avatar
   return {
     walletAddress,
-    displayName: inhabitedAgent.name,
-    avatarUrl: inhabitedAgent.profileImage?.url,
-    inhabitedAvatarId: inhabitedAgent.avatarId,
-    inhabitedAvatarName: inhabitedAgent.name,
+    displayName: inhabitedAvatar.name,
+    avatarUrl: inhabitedAvatar.profileImage?.url,
+    inhabitedAvatarId: inhabitedAvatar.avatarId,
+    inhabitedAvatarName: inhabitedAvatar.name,
     isGhost: false,
   };
 }

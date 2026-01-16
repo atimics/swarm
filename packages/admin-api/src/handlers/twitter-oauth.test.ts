@@ -71,8 +71,8 @@ describe('Twitter OAuth Handler', () => {
   let mockCompleteOAuthFlow: ReturnType<typeof mock>;
   let mockGetConnectionStatus: ReturnType<typeof mock>;
   let mockDisconnectTwitter: ReturnType<typeof mock>;
-  let mockGetAgent: ReturnType<typeof mock>;
-  let mockUpdateAgent: ReturnType<typeof mock>;
+  let mockGetAvatar: ReturnType<typeof mock>;
+  let mockUpdateAvatar: ReturnType<typeof mock>;
   let mockAuthenticateRequest: ReturnType<typeof mock>;
   let mockRequireAdmin: ReturnType<typeof mock>;
 
@@ -102,8 +102,8 @@ describe('Twitter OAuth Handler', () => {
       })
     );
     mockDisconnectTwitter = mock(() => Promise.resolve());
-    mockGetAgent = mock(() => Promise.resolve(createMockAvatar('test-avatar')));
-    mockUpdateAgent = mock(() => Promise.resolve(createMockAvatar('test-avatar')));
+    mockGetAvatar = mock(() => Promise.resolve(createMockAvatar('test-avatar')));
+    mockUpdateAvatar = mock(() => Promise.resolve(createMockAvatar('test-avatar')));
     mockAuthenticateRequest = mock(() => Promise.resolve(createTestSession()));
     mockRequireAdmin = mock(() => true);
 
@@ -116,8 +116,8 @@ describe('Twitter OAuth Handler', () => {
         disconnectTwitter: mockDisconnectTwitter as unknown as TwitterOAuthHandlerDeps['twitterOAuth']['disconnectTwitter'],
       },
       avatarService: {
-        getAvatar: mockGetAgent as unknown as TwitterOAuthHandlerDeps['avatarService']['getAvatar'],
-        updateAvatar: mockUpdateAgent as unknown as TwitterOAuthHandlerDeps['avatarService']['updateAvatar'],
+        getAvatar: mockGetAvatar as unknown as TwitterOAuthHandlerDeps['avatarService']['getAvatar'],
+        updateAvatar: mockUpdateAvatar as unknown as TwitterOAuthHandlerDeps['avatarService']['updateAvatar'],
       },
       auth: {
         authenticateRequest: mockAuthenticateRequest as unknown as TwitterOAuthHandlerDeps['auth']['authenticateRequest'],
@@ -156,7 +156,7 @@ describe('Twitter OAuth Handler', () => {
     });
 
     it('returns 404 when avatar does not exist', async () => {
-      mockGetAgent.mockImplementation(() => Promise.resolve(null));
+      mockGetAvatar.mockImplementation(() => Promise.resolve(null));
 
       const event = createEvent({
         rawPath: '/oauth/twitter/start',
@@ -256,7 +256,7 @@ describe('Twitter OAuth Handler', () => {
 
       await handler(event, mockDeps);
 
-      expect(mockUpdateAgent).toHaveBeenCalledWith(
+      expect(mockUpdateAvatar).toHaveBeenCalledWith(
         'test-avatar',
         expect.objectContaining({
           platforms: {
@@ -370,7 +370,7 @@ describe('Twitter OAuth Handler', () => {
       const body = JSON.parse(result.body as string);
       expect(body.success).toBe(true);
       expect(mockDisconnectTwitter).toHaveBeenCalled();
-      expect(mockUpdateAgent).toHaveBeenCalledWith(
+      expect(mockUpdateAvatar).toHaveBeenCalledWith(
         'test-avatar',
         expect.objectContaining({
           platforms: {

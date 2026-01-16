@@ -7,7 +7,7 @@ import {
   checkAuth,
   grantAuth,
   createJob,
-  getJobsForAgent,
+  getJobsForAvatar,
   updateJobStatus,
   type PropertyResearchDeps,
 } from './property-research.js';
@@ -114,7 +114,7 @@ describe('PropertyResearchService', () => {
         })
       );
 
-      const jobs = await getJobsForAgent(avatarId, undefined, mockDeps);
+      const jobs = await getJobsForAvatar(avatarId, undefined, mockDeps);
 
       expect(jobs).toHaveLength(2);
       expect(jobs[0].jobId).toBe('job-2'); // Sorted by createdAt desc
