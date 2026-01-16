@@ -7,7 +7,7 @@
 import type { AllServices, VoiceServices, NFTServices, PropertyServices } from '@swarm/mcp-server';
 import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS } from '@swarm/core';
 import type { UserSession, SecretType } from '../types.js';
-import * as agents from '../services/agents.js';
+import * as avatars from '../services/avatars.js';
 import * as secrets from '../services/secrets.js';
 import * as wallets from '../services/wallets.js';
 import * as telegram from '../services/telegram.js';
@@ -19,12 +19,12 @@ import * as gallery from '../services/gallery.js';
 import * as credits from '../services/credits.js';
 import * as mediaJobs from '../services/media-jobs.js';
 import * as voice from '../services/voice.js';
-import * as agentOwnership from '../services/agent-ownership.js';
+import * as avatarwnership from '../services/avatar-ownership.js';
 import * as nftGate from '../services/nft-gate.js';
 import * as lineageNft from '../services/lineage-nft.js';
 import * as propertyResearch from '../services/property-research.js';
 import * as stickers from '../services/stickers.js';
-import * as agentEvents from '../services/agent-events.js';
+import * as avatarvents from '../services/avatar-events.js';
 import * as memory from '../services/memory.js';
 import * as memoryMigration from '../services/memory-migration.js';
 import { createWebSearch } from '../services/web-search.js';
@@ -64,7 +64,7 @@ function detectMimeType(url: string, contentType: string | null): string {
 async function uploadMediaToTwitter(
   client: InstanceType<typeof import('twitter-api-v2').TwitterApi>,
   mediaUrls: string[],
-  agentId?: string
+  avatarId?: string
 ): Promise<string[]> {
   const mediaIds: string[] = [];
   
@@ -74,10 +74,10 @@ async function uploadMediaToTwitter(
       let response = await fetch(url);
       
       // If Replicate URL failed (expired), try to find S3 version from gallery
-      if (!response.ok && isReplicateUrl(url) && agentId) {
+      if (!response.ok && isReplicateUrl(url) && avatarId) {
         console.warn(`Replicate URL expired (${response.status}), searching gallery for S3 URL`);
         try {
-          const galleryItems = await gallery.getGallery(agentId, { type: 'image', limit: 20 });
+          const galleryItems = await gallery.getGallery(avatarId, { type: 'image', limit: 20 });
           // Find most recent image (gallery items are sorted by recency)
           const recentImage = galleryItems[0];
           if (recentImage?.url && !isReplicateUrl(recentImage.url)) {
@@ -115,10 +115,10 @@ async function uploadMediaToTwitter(
 }
 
 /**
- * Get bot token from secrets for a given agent
+ * Get bot token from secrets for a given avatar
  */
-async function getBotToken(agentId: string): Promise<string> {
-  const botToken = await secrets._getSecretValueInternal(agentId, 'telegram_bot_token', 'default');
+async function getBotToken(avatarId: string): Promise<string> {
+  const botToken = await secrets._getSecretValueInternal(avatarId, 'telegram_bot_token', 'default');
   if (!botToken) {
     throw new Error('No Telegram bot token configured');
   }
@@ -144,21 +144,21 @@ async function fetchWithTimeout(
 }
 
 /**
- * Create MCP-compatible services for a specific agent
+ * Create MCP-compatible services for a specific avatar
  */
-export function createMCPServices(_agentId: string, session: UserSession): AllServices {
-  const agentId = _agentId;
+export function createMCPServices(_avatarId: string, session: UserSession): AllServices {
+  const avatarId = _avatarId;
   // Voice tools enabled by default; set ENABLE_VOICE_TOOLS=false to disable
   const voiceEnabled = process.env.ENABLE_VOICE_TOOLS !== 'false';
   const voiceServices: VoiceServices | undefined = voiceEnabled ? {
     transcribeAudio: async (params: Parameters<VoiceServices['transcribeAudio']>[0]) => {
       let audioUrl = params.url;
       if (!audioUrl && params.platformFileId) {
-        const botToken = await getBotToken(agentId);
+        const botToken = await getBotToken(avatarId);
         audioUrl = await telegram.getFileUrl(botToken, params.platformFileId);
       }
       return voice.transcribeAudio({
-        agentId,
+        avatarId,
         assetId: params.assetId,
         url: audioUrl,
         language: params.language,
@@ -168,17 +168,17 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     },
     createMyVoice: async (params: Parameters<VoiceServices['createMyVoice']>[0]) => {
       return voice.createMyVoice({
-        agentId: params.agentId,
+        avatarId: params.avatarId,
         description: params.description,
         updatedBy: session.email,
       });
     },
-    hasVoice: async (agentIdParam: string) => {
-      return voice.hasVoice(agentIdParam);
+    hasVoice: async (avatardParam: string) => {
+      return voice.hasVoice(avatardParam);
     },
     sendVoiceMessage: async (params: Parameters<VoiceServices['sendVoiceMessage']>[0]) => {
       return voice.sendVoiceMessage({
-        agentId,
+        avatarId,
         platform: params.platform,
         text: params.text,
         conversationId: params.conversationId,
@@ -200,7 +200,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         // The image will be delivered via webhook callback
         const job = await media.generateImageAsync({
           prompt: params.prompt,
-          agentId: params.agentId,
+          avatarId: params.avatarId,
           platform: params.platform,
           referenceImageUrls: params.referenceImageUrls,
           resolution: params.resolution as '1K' | '2K' | '4K' | undefined,
@@ -214,7 +214,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       generateVideo: async (params) => {
         const result = await media.generateVideo({
           prompt: params.prompt,
-          agentId: params.agentId,
+          avatarId: params.avatarId,
           platform: params.platform,
           referenceImageUrl: params.referenceImageUrl,
           conversationId: params.conversationId || `mcp-${Date.now()}`,
@@ -226,30 +226,30 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       generateSticker: async (params) => {
         const result = await media.generateSticker({
           prompt: params.prompt || 'sticker',
-          agentId: params.agentId,
+          avatarId: params.avatarId,
           sourceImageId: params.sourceImageId,
         });
         return { id: result.id, url: result.url };
       },
 
-      getProfileImageUrl: async (agentId) => {
-        const agent = await agents.getAgent(agentId);
-        return agent?.profileImage?.url;
+      getProfileImageUrl: async (avatarId) => {
+        const avatar = await avatars.getAvatar(avatarId);
+        return avatar?.profileImage?.url;
       },
 
-      getReferenceImageUrl: async (agentId, category) => {
-        const images = await media.listReferenceImages(agentId);
+      getReferenceImageUrl: async (avatarId, category) => {
+        const images = await media.listReferenceImages(avatarId);
         const found = images.find(img => img.category === category);
         return found?.url;
       },
 
-      getCharacterReferenceUrl: async (agentId) => {
-        const agent = await agents.getAgent(agentId);
-        return agent?.characterReference?.url;
+      getCharacterReferenceUrl: async (avatarId) => {
+        const avatar = await avatars.getAvatar(avatarId);
+        return avatar?.characterReference?.url;
       },
 
-      getBestReferenceImageUrl: async (agentId) => {
-        return media.getBestReferenceImageUrl(agentId);
+      getBestReferenceImageUrl: async (avatarId) => {
+        return media.getBestReferenceImageUrl(avatarId);
       },
     },
 
@@ -257,12 +257,12 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Media Credits
     // =========================================================================
     mediaCredits: {
-      canUseTool: async (agentId, tool) => {
-        const result = await credits.canUseTool(agentId, tool);
+      canUseTool: async (avatarId, tool) => {
+        const result = await credits.canUseTool(avatarId, tool);
         return { allowed: result.allowed, reason: result.reason };
       },
-      consumeCredit: async (agentId, tool) => {
-        return credits.consumeCredit(agentId, tool);
+      consumeCredit: async (avatarId, tool) => {
+        return credits.consumeCredit(avatarId, tool);
       },
     },
 
@@ -270,13 +270,13 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Job Credits (same as media credits for now)
     // =========================================================================
     jobCredits: {
-      getToolStatus: async (agentId) => {
+      getToolStatus: async (avatarId) => {
         // Return structured credit data
-        const status = await credits.getToolStatusStructured(agentId);
+        const status = await credits.getToolStatusStructured(avatarId);
         return status;
       },
-      getEnergyStatus: async (agentId) => {
-        return credits.getEnergyStatus(agentId);
+      getEnergyStatus: async (avatarId) => {
+        return credits.getEnergyStatus(avatarId);
       },
     },
 
@@ -284,8 +284,8 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Gallery Services
     // =========================================================================
     gallery: {
-      getGallery: async (agentId, options) => {
-        const items = await gallery.getGallery(agentId, {
+      getGallery: async (avatarId, options) => {
+        const items = await gallery.getGallery(avatarId, {
           type: options.type,
           limit: options.limit,
         });
@@ -298,8 +298,8 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         }));
       },
 
-      getGalleryItem: async (agentId, itemId) => {
-        const item = await gallery.getGalleryItem(agentId, itemId);
+      getGalleryItem: async (avatarId, itemId) => {
+        const item = await gallery.getGalleryItem(avatarId, itemId);
         if (!item) return null;
         return {
           id: item.id,
@@ -310,8 +310,8 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         };
       },
 
-      searchGallery: async (agentId, query, type) => {
-        const items = await gallery.findByDescription(agentId, query, type);
+      searchGallery: async (avatarId, query, type) => {
+        const items = await gallery.findByDescription(avatarId, query, type);
         return items.map(item => ({
           id: item.id,
           type: item.type as 'image' | 'video' | 'sticker',
@@ -326,14 +326,14 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Wallet Services
     // =========================================================================
     wallets: {
-      listWallets: async (agentId) => {
-        const walletList = await wallets.listWallets(agentId);
+      listWallets: async (avatarId) => {
+        const walletList = await wallets.listWallets(avatarId);
         return Promise.all(
           walletList.map(async (w) => {
             try {
               const balance = w.walletType === 'ethereum'
-                ? await wallets.getEthereumBalance(w.address, agentId)
-                : await wallets.getSolanaBalance(w.publicKey, agentId);
+                ? await wallets.getEthereumBalance(w.address, avatarId)
+                : await wallets.getSolanaBalance(w.publicKey, avatarId);
               
               return {
                 name: w.name,
@@ -359,10 +359,10 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         );
       },
 
-      createWallet: async (agentId, name, chain = 'solana') => {
+      createWallet: async (avatarId, name, chain = 'solana') => {
         const result = chain === 'ethereum'
-          ? await wallets.generateEthereumWallet(agentId, name, session)
-          : await wallets.generateSolanaWallet(agentId, name, session);
+          ? await wallets.generateEthereumWallet(avatarId, name, session)
+          : await wallets.generateSolanaWallet(avatarId, name, session);
         return { 
           publicKey: result.publicKey, 
           address: result.address,
@@ -370,9 +370,9 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         };
       },
 
-      createVanityWallet: async (agentId, name, pattern, matchStart) => {
+      createVanityWallet: async (avatarId, name, pattern, matchStart) => {
         const result = await wallets.generateAndSaveVanityWallet(
-          agentId, 
+          avatarId, 
           name, 
           pattern, 
           matchStart, 
@@ -387,10 +387,10 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         };
       },
 
-      getBalance: async (publicKey, agentId, chain = 'solana') => {
+      getBalance: async (publicKey, avatarId, chain = 'solana') => {
         const balance = chain === 'ethereum'
-          ? await wallets.getEthereumBalance(publicKey, agentId)
-          : await wallets.getSolanaBalance(publicKey, agentId);
+          ? await wallets.getEthereumBalance(publicKey, avatarId)
+          : await wallets.getSolanaBalance(publicKey, avatarId);
         return {
           balance: balance.balance,
           chain: balance.chain,
@@ -461,21 +461,21 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         }));
       },
 
-      getConfig: async (agentId) => {
-        const agent = await agents.getAgent(agentId);
-        if (!agent) {
+      getConfig: async (avatarId) => {
+        const avatar = await avatars.getAvatar(avatarId);
+        if (!avatar) {
           return { model: DEFAULT_LLM_MODEL, temperature: DEFAULT_LLM_TEMPERATURE, maxTokens: DEFAULT_LLM_MAX_TOKENS };
         }
         return {
-          model: agent.llmConfig?.model || DEFAULT_LLM_MODEL,
-          temperature: agent.llmConfig?.temperature ?? DEFAULT_LLM_TEMPERATURE,
-          maxTokens: agent.llmConfig?.maxTokens || DEFAULT_LLM_MAX_TOKENS,
+          model: avatar.llmConfig?.model || DEFAULT_LLM_MODEL,
+          temperature: avatar.llmConfig?.temperature ?? DEFAULT_LLM_TEMPERATURE,
+          maxTokens: avatar.llmConfig?.maxTokens || DEFAULT_LLM_MAX_TOKENS,
         };
       },
 
-      updateConfig: async (agentId, config) => {
-        const agent = await agents.getAgent(agentId);
-        const currentConfig = agent?.llmConfig || {
+      updateConfig: async (avatarId, config) => {
+        const avatar = await avatars.getAvatar(avatarId);
+        const currentConfig = avatar?.llmConfig || {
           provider: DEFAULT_LLM_PROVIDER,
           model: DEFAULT_LLM_MODEL,
           temperature: DEFAULT_LLM_TEMPERATURE,
@@ -486,7 +486,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
           ...currentConfig,
           ...config,
         };
-        await agents.updateAgent(agentId, { llmConfig: newLlmConfig } as Record<string, unknown>, session);
+        await avatars.updateAvatar(avatarId, { llmConfig: newLlmConfig } as Record<string, unknown>, session);
       },
     },
 
@@ -494,72 +494,72 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Profile Services
     // =========================================================================
     profile: {
-      getProfile: async (agentId) => {
-        const agent = await agents.getAgent(agentId);
-        if (!agent) {
+      getProfile: async (avatarId) => {
+        const avatar = await avatars.getAvatar(avatarId);
+        if (!avatar) {
           return { name: 'Unknown' };
         }
         return {
-          name: agent.name || 'Unnamed',
-          description: agent.description,
-          persona: agent.persona,
-          profileImage: agent.profileImage ? { url: agent.profileImage.url } : undefined,
-          characterReference: agent.characterReference ? { 
-            url: agent.characterReference.url, 
-            description: agent.characterReference.description 
+          name: avatar.name || 'Unnamed',
+          description: avatar.description,
+          persona: avatar.persona,
+          profileImage: avatar.profileImage ? { url: avatar.profileImage.url } : undefined,
+          characterReference: avatar.characterReference ? { 
+            url: avatar.characterReference.url, 
+            description: avatar.characterReference.description 
           } : undefined,
         };
       },
 
-      updateProfile: async (agentId, updates) => {
-        await agents.updateAgent(agentId, updates, session);
+      updateProfile: async (avatarId, updates) => {
+        await avatars.updateAvatar(avatarId, updates, session);
       },
 
-      setProfileImage: async (agentId, source) => {
+      setProfileImage: async (avatarId, source) => {
         if (source.type === 'generate') {
           if (!source.prompt) {
             throw new Error('Prompt is required to generate a profile image.');
           }
-          const job = await media.generateProfileImageAsync(agentId, source.prompt);
+          const job = await media.generateProfileImageAsync(avatarId, source.prompt);
           return { jobId: job.jobId, status: job.status };
         }
 
-        const result = await media.setProfileImage(agentId, source);
-        await agents.updateAgent(agentId, {
+        const result = await media.setProfileImage(avatarId, source);
+        await avatars.updateAvatar(avatarId, {
           profileImage: { url: result.url, s3Key: result.s3Key, updatedAt: Date.now() }
         }, session);
         return { url: result.url };
       },
 
-      getProfileUploadUrl: async (agentId) => {
-        return media.getProfileImageUploadUrl(agentId);
+      getProfileUploadUrl: async (avatarId) => {
+        return media.getProfileImageUploadUrl(avatarId);
       },
 
-      saveProfileImage: async (agentId, s3Key, publicUrl) => {
-        await agents.updateAgent(agentId, {
+      saveProfileImage: async (avatarId, s3Key, publicUrl) => {
+        await avatars.updateAvatar(avatarId, {
           profileImage: { url: publicUrl, s3Key, updatedAt: Date.now() }
         }, session);
       },
 
       // Character reference (full-body) for image/video generation
-      setCharacterReference: async (agentId, source, description) => {
+      setCharacterReference: async (avatarId, source, description) => {
         // For now, we handle url and gallery directly; generate would need async job
         if (source.type === 'generate') {
           // Character sheet generation - uses wider aspect ratio
-          const result = await media.setCharacterReference(agentId, source, description);
+          const result = await media.setCharacterReference(avatarId, source, description);
           return { url: result.url };
         }
 
-        const result = await media.setCharacterReference(agentId, source, description);
+        const result = await media.setCharacterReference(avatarId, source, description);
         return { url: result.url };
       },
 
-      getCharacterReferenceUploadUrl: async (agentId) => {
-        return media.getCharacterReferenceUploadUrl(agentId);
+      getCharacterReferenceUploadUrl: async (avatarId) => {
+        return media.getCharacterReferenceUploadUrl(avatarId);
       },
 
-      saveCharacterReference: async (agentId, s3Key, publicUrl, description) => {
-        await agents.updateAgent(agentId, {
+      saveCharacterReference: async (avatarId, s3Key, publicUrl, description) => {
+        await avatars.updateAvatar(avatarId, {
           characterReference: { url: publicUrl, s3Key, description, updatedAt: Date.now() }
         }, session);
       },
@@ -569,8 +569,8 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Secret Services
     // =========================================================================
     secrets: {
-      listSecrets: async (agentId) => {
-        const secretList = await secrets.listSecrets(agentId);
+      listSecrets: async (avatarId) => {
+        const secretList = await secrets.listSecrets(avatarId);
         return secretList.map(s => ({
           secretType: s.secretType as SecretType,
           name: s.name,
@@ -579,8 +579,8 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         }));
       },
 
-      storeSecret: async (agentId, secretType, name, value, description) => {
-        await secrets.storeSecret(agentId, secretType as SecretType, name, value, session, description);
+      storeSecret: async (avatarId, secretType, name, value, description) => {
+        await secrets.storeSecret(avatarId, secretType as SecretType, name, value, session, description);
 
         // Special handling for Telegram bot tokens - register webhook automatically
         if (secretType === 'telegram_bot_token') {
@@ -588,7 +588,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
             level: 'INFO',
             subsystem: 'telegram',
             event: 'telegram_token_stored',
-            agentId,
+            avatarId,
             message: 'Telegram bot token stored, validating and registering webhook...',
           }));
 
@@ -598,7 +598,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
               level: 'WARN',
               subsystem: 'telegram',
               event: 'telegram_token_invalid',
-              agentId,
+              avatarId,
               error: validation.error,
             }));
             return;
@@ -608,11 +608,11 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
             level: 'INFO',
             subsystem: 'telegram',
             event: 'telegram_token_valid',
-            agentId,
+            avatarId,
             botUsername: validation.botInfo?.username,
           }));
 
-          await agents.updateAgent(agentId, {
+          await avatars.updateAvatar(avatarId, {
             platforms: {
               telegram: {
                 enabled: true,
@@ -621,21 +621,21 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
             }
           }, session);
 
-          const webhookResult = await telegram.registerTelegramWebhook(value, agentId);
+          const webhookResult = await telegram.registerTelegramWebhook(value, avatarId);
           if (webhookResult.success && webhookResult.secretToken) {
             await secrets.storeSecret(
-              agentId,
+              avatarId,
               'telegram_webhook_secret',
               'default',
               webhookResult.secretToken,
               session,
-              `Telegram webhook secret for ${agentId}`
+              `Telegram webhook secret for ${avatarId}`
             );
             console.log(JSON.stringify({
               level: 'INFO',
               subsystem: 'telegram',
               event: 'telegram_webhook_registered',
-              agentId,
+              avatarId,
               webhookUrl: webhookResult.webhookUrl,
             }));
           } else {
@@ -643,7 +643,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
               level: 'ERROR',
               subsystem: 'telegram',
               event: 'telegram_webhook_failed',
-              agentId,
+              avatarId,
               error: webhookResult.message,
             }));
           }
@@ -655,7 +655,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
             level: 'INFO',
             subsystem: 'media',
             event: 'replicate_key_stored',
-            agentId,
+            avatarId,
             message: 'Replicate API key stored, validating...',
           }));
 
@@ -671,7 +671,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
                 level: 'INFO',
                 subsystem: 'media',
                 event: 'replicate_key_valid',
-                agentId,
+                avatarId,
                 username: account.username,
               }));
             } else {
@@ -679,7 +679,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
                 level: 'WARN',
                 subsystem: 'media',
                 event: 'replicate_key_invalid',
-                agentId,
+                avatarId,
                 status: response.status,
               }));
             }
@@ -688,7 +688,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
               level: 'WARN',
               subsystem: 'media',
               event: 'replicate_key_validation_error',
-              agentId,
+              avatarId,
               error: err instanceof Error ? err.message : 'Unknown error',
             }));
           }
@@ -702,19 +702,19 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Job Services
     // =========================================================================
     jobs: {
-      getPendingJobs: async (agentId) => {
-        let pendingJobs = await mediaJobs.getPendingJobs(agentId);
+      getPendingJobs: async (avatarId) => {
+        let pendingJobs = await mediaJobs.getPendingJobs(avatarId);
 
         // Poll Replicate for processing jobs
         if (pendingJobs.length > 0) {
-          const replicateKey = await media.getProviderApiKey(agentId, 'replicate');
+          const replicateKey = await media.getProviderApiKey(avatarId, 'replicate');
           if (replicateKey) {
             for (const job of pendingJobs) {
               if ((job.status === 'processing' || job.status === 'pending') && job.externalId) {
                 await mediaJobs.pollAndCompleteJob(job.jobId, replicateKey);
               }
             }
-            pendingJobs = await mediaJobs.getPendingJobs(agentId);
+            pendingJobs = await mediaJobs.getPendingJobs(avatarId);
           }
         }
 
@@ -729,18 +729,18 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         }));
       },
 
-      getJob: async (agentId, jobId) => {
+      getJob: async (avatarId, jobId) => {
         let job = await mediaJobs.getJob(jobId);
         if (!job) return null;
 
-        // Verify job belongs to this agent
-        if (job.agentId !== agentId) {
+        // Verify job belongs to this avatar
+        if (job.avatarId !== avatarId) {
           return null;
         }
 
         // Poll if still processing
         if ((job.status === 'processing' || job.status === 'pending') && job.externalId) {
-          const replicateKey = await media.getProviderApiKey(job.agentId, 'replicate');
+          const replicateKey = await media.getProviderApiKey(job.avatarId, 'replicate');
           if (replicateKey) {
             const polledJob = await mediaJobs.pollAndCompleteJob(job.jobId, replicateKey);
             if (polledJob) job = polledJob;
@@ -764,13 +764,13 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Reference Image Services
     // =========================================================================
     reference: {
-      getUploadUrl: async (agentId, category, name, _description) => {
-        return media.getReferenceImageUploadUrl(agentId, category, name);
+      getUploadUrl: async (avatarId, category, name, _description) => {
+        return media.getReferenceImageUploadUrl(avatarId, category, name);
       },
 
-      saveReferenceImage: async (agentId, data) => {
+      saveReferenceImage: async (avatarId, data) => {
         const result = await media.saveReferenceImage(
-          agentId,
+          avatarId,
           data.category,
           data.s3Key,
           data.publicUrl,
@@ -780,8 +780,8 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         return { id: result.id };
       },
 
-      listReferenceImages: async (agentId, category) => {
-        const images = await media.listReferenceImages(agentId, category);
+      listReferenceImages: async (avatarId, category) => {
+        const images = await media.listReferenceImages(avatarId, category);
         return images.map(img => ({
           id: img.id,
           category: img.category as 'profile' | 'character' | 'style' | 'background' | 'other',
@@ -792,8 +792,8 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         }));
       },
 
-      deleteReferenceImage: async (agentId, imageId) => {
-        await media.deleteReferenceImage(agentId, imageId);
+      deleteReferenceImage: async (avatarId, imageId) => {
+        await media.deleteReferenceImage(avatarId, imageId);
       },
     },
 
@@ -807,12 +807,12 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // =========================================================================
     memory: {
       remember: async (fact: string, about?: string, userId?: string) => {
-        const result = await memory.remember(agentId, fact, about, userId);
+        const result = await memory.remember(avatarId, fact, about, userId);
         return { saved: result.saved };
       },
 
       recall: async (query: string, userId?: string) => {
-        const result = await memory.recall(agentId, query, userId);
+        const result = await memory.recall(avatarId, query, userId);
         return {
           facts: result.facts.map(f => ({
             fact: f.fact,
@@ -825,11 +825,11 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       },
 
       getEmbeddingStats: async () => {
-        return memoryMigration.getEmbeddingStats(agentId);
+        return memoryMigration.getEmbeddingStats(avatarId);
       },
 
       backfillEmbeddings: async (options?: { dryRun?: boolean }) => {
-        return memoryMigration.backfillEmbeddings(agentId, {
+        return memoryMigration.backfillEmbeddings(avatarId, {
           dryRun: options?.dryRun,
         });
       },
@@ -839,8 +839,8 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Telegram Services
     // =========================================================================
     telegram: {
-      getUserProfilePhotos: async (agentId, userId, options) => {
-        const botToken = await getBotToken(agentId);
+      getUserProfilePhotos: async (avatarId, userId, options) => {
+        const botToken = await getBotToken(avatarId);
         
         const result = await telegram.getUserProfilePhotos(botToken, userId, options);
         
@@ -874,38 +874,38 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         };
       },
 
-      getBotName: async (agentId) => {
-        const botToken = await getBotToken(agentId);
+      getBotName: async (avatarId) => {
+        const botToken = await getBotToken(avatarId);
         return telegram.getBotName(botToken);
       },
 
-      setBotName: async (agentId, name, languageCode) => {
-        const botToken = await getBotToken(agentId);
+      setBotName: async (avatarId, name, languageCode) => {
+        const botToken = await getBotToken(avatarId);
         await telegram.setBotName(botToken, name, languageCode);
       },
 
-      getBotDescription: async (agentId) => {
-        const botToken = await getBotToken(agentId);
+      getBotDescription: async (avatarId) => {
+        const botToken = await getBotToken(avatarId);
         return telegram.getBotDescription(botToken);
       },
 
-      setBotDescription: async (agentId, description, languageCode) => {
-        const botToken = await getBotToken(agentId);
+      setBotDescription: async (avatarId, description, languageCode) => {
+        const botToken = await getBotToken(avatarId);
         await telegram.setBotDescription(botToken, description, languageCode);
       },
 
-      getBotShortDescription: async (agentId) => {
-        const botToken = await getBotToken(agentId);
+      getBotShortDescription: async (avatarId) => {
+        const botToken = await getBotToken(avatarId);
         return telegram.getBotShortDescription(botToken);
       },
 
-      setBotShortDescription: async (agentId, shortDescription, languageCode) => {
-        const botToken = await getBotToken(agentId);
+      setBotShortDescription: async (avatarId, shortDescription, languageCode) => {
+        const botToken = await getBotToken(avatarId);
         await telegram.setBotShortDescription(botToken, shortDescription, languageCode);
       },
 
-      sendChatAction: async (agentId, chatId, action) => {
-        const botToken = await getBotToken(agentId);
+      sendChatAction: async (avatarId, chatId, action) => {
+        const botToken = await getBotToken(avatarId);
         await telegram.sendChatAction(botToken, chatId, action);
       },
 
@@ -914,14 +914,14 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         return chatVoting.getChatBots(chatId);
       },
 
-      proposeModification: async (agentId, chatId, type, newValue, reason) => {
-        const proposal = await chatVoting.createProposal(agentId, chatId, type, newValue, reason);
+      proposeModification: async (avatarId, chatId, type, newValue, reason) => {
+        const proposal = await chatVoting.createProposal(avatarId, chatId, type, newValue, reason);
         const withCounts = chatVoting.computeProposalCounts(proposal);
         return withCounts;
       },
 
-      voteOnProposal: async (agentId, proposalId, vote, comment) => {
-        const proposal = await chatVoting.voteOnProposal(agentId, proposalId, vote, comment);
+      voteOnProposal: async (avatarId, proposalId, vote, comment) => {
+        const proposal = await chatVoting.voteOnProposal(avatarId, proposalId, vote, comment);
         return chatVoting.computeProposalCounts(proposal);
       },
 
@@ -940,9 +940,9 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         return chatVoting.canModifyChat(chatId, type);
       },
 
-      executeModification: async (agentId, proposalId) => {
-        const botToken = await getBotToken(agentId);
-        return chatVoting.executeModification(agentId, proposalId, botToken);
+      executeModification: async (avatarId, proposalId) => {
+        const botToken = await getBotToken(avatarId);
+        return chatVoting.executeModification(avatarId, proposalId, botToken);
       },
     },
 
@@ -951,12 +951,12 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // =========================================================================
     twitter: {
       getConnectionStatus: async () => {
-        return twitterOAuth.getConnectionStatus(_agentId);
+        return twitterOAuth.getConnectionStatus(_avatarId);
       },
 
       startOAuthFlow: async () => {
         try {
-          const result = await twitterOAuth.startOAuthFlow(_agentId);
+          const result = await twitterOAuth.startOAuthFlow(_avatarId);
           return { authorizationUrl: result.authorizationUrl };
         } catch (error) {
           console.error('Failed to start Twitter OAuth flow:', error);
@@ -966,7 +966,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
 
       postTweet: async (text: string, mediaUrls?: string[], galleryIds?: string[]) => {
         // Get credentials
-        const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
+        const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) {
           return null;
         }
@@ -978,7 +978,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
           console.log('Resolving gallery IDs to URLs:', galleryIds);
           for (const galleryId of galleryIds.slice(0, 4)) {
             try {
-              const item = await gallery.getGalleryItem(_agentId, galleryId);
+              const item = await gallery.getGalleryItem(_avatarId, galleryId);
               if (item?.url) {
                 console.log(`Gallery item ${galleryId} resolved to: ${item.url}`);
                 resolvedMediaUrls.push(item.url);
@@ -1010,7 +1010,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         try {
           // Handle media uploads if provided
           const twitterMediaIds = resolvedMediaUrls.length > 0 
-            ? await uploadMediaToTwitter(client, resolvedMediaUrls, _agentId)
+            ? await uploadMediaToTwitter(client, resolvedMediaUrls, _avatarId)
             : undefined;
 
           // Post the tweet
@@ -1023,7 +1023,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
           const tweetId = result.data.id;
 
           // Get connection status for username
-          const status = await twitterOAuth.getConnectionStatus(_agentId);
+          const status = await twitterOAuth.getConnectionStatus(_avatarId);
           const username = status.username || 'unknown';
 
           return {
@@ -1038,7 +1038,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
 
       // Extended Twitter methods
       getTimeline: async (count = 20) => {
-        const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
+        const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) return [];
 
         const { TwitterApi } = await import('twitter-api-v2');
@@ -1083,7 +1083,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       },
 
       getMentions: async (sinceId?: string, count = 20) => {
-        const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
+        const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) return [];
 
         const { TwitterApi } = await import('twitter-api-v2');
@@ -1124,7 +1124,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       },
 
       getTweet: async (tweetId: string) => {
-        const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
+        const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) return null;
 
         const { TwitterApi } = await import('twitter-api-v2');
@@ -1169,7 +1169,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       },
 
       reply: async (tweetId: string, text: string, mediaUrls?: string[], galleryIds?: string[]) => {
-        const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
+        const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) return null;
 
         // Resolve gallery IDs to URLs (preferred over raw URLs)
@@ -1179,7 +1179,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
           console.log('Reply: Resolving gallery IDs to URLs:', galleryIds);
           for (const galleryId of galleryIds.slice(0, 4)) {
             try {
-              const item = await gallery.getGalleryItem(_agentId, galleryId);
+              const item = await gallery.getGalleryItem(_avatarId, galleryId);
               if (item?.url) {
                 resolvedMediaUrls.push(item.url);
               }
@@ -1203,7 +1203,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
 
         try {
           const twitterMediaIds = resolvedMediaUrls.length > 0 
-            ? await uploadMediaToTwitter(client, resolvedMediaUrls, _agentId)
+            ? await uploadMediaToTwitter(client, resolvedMediaUrls, _avatarId)
             : undefined;
 
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = {
@@ -1215,7 +1215,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
           }
 
           const result = await client.v2.tweet(tweetParams);
-          const status = await twitterOAuth.getConnectionStatus(_agentId);
+          const status = await twitterOAuth.getConnectionStatus(_avatarId);
           return {
             tweetId: result.data.id,
             url: `https://x.com/${status.username || 'unknown'}/status/${result.data.id}`,
@@ -1227,7 +1227,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       },
 
       like: async (tweetId: string) => {
-        const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
+        const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) return false;
 
         const { TwitterApi } = await import('twitter-api-v2');
@@ -1249,7 +1249,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       },
 
       unlike: async (tweetId: string) => {
-        const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
+        const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) return false;
 
         const { TwitterApi } = await import('twitter-api-v2');
@@ -1271,7 +1271,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       },
 
       retweet: async (tweetId: string) => {
-        const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
+        const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) return false;
 
         const { TwitterApi } = await import('twitter-api-v2');
@@ -1293,7 +1293,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       },
 
       unretweet: async (tweetId: string) => {
-        const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
+        const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) return false;
 
         const { TwitterApi } = await import('twitter-api-v2');
@@ -1315,7 +1315,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
       },
 
       quoteTweet: async (tweetId: string, text: string, mediaUrls?: string[], galleryIds?: string[]) => {
-        const creds = await twitterOAuth.getAgentTwitterCredentials(_agentId);
+        const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) return null;
 
         // Resolve gallery IDs to URLs (preferred over raw URLs)
@@ -1325,7 +1325,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
           console.log('Quote: Resolving gallery IDs to URLs:', galleryIds);
           for (const galleryId of galleryIds.slice(0, 4)) {
             try {
-              const item = await gallery.getGalleryItem(_agentId, galleryId);
+              const item = await gallery.getGalleryItem(_avatarId, galleryId);
               if (item?.url) {
                 resolvedMediaUrls.push(item.url);
               }
@@ -1349,7 +1349,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
 
         try {
           const twitterMediaIds = resolvedMediaUrls.length > 0 
-            ? await uploadMediaToTwitter(client, resolvedMediaUrls, _agentId)
+            ? await uploadMediaToTwitter(client, resolvedMediaUrls, _avatarId)
             : undefined;
 
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = {
@@ -1361,7 +1361,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
           }
 
           const result = await client.v2.tweet(tweetParams);
-          const status = await twitterOAuth.getConnectionStatus(_agentId);
+          const status = await twitterOAuth.getConnectionStatus(_avatarId);
           return {
             tweetId: result.data.id,
             url: `https://x.com/${status.username || 'unknown'}/status/${result.data.id}`,
@@ -1378,51 +1378,51 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // =========================================================================
     discord: {
       getConnectionStatus: async () => {
-        return discord.getConnectionStatus(_agentId);
+        return discord.getConnectionStatus(_avatarId);
       },
 
       sendMessage: async (channelId, content, options) => {
-        return discord.sendMessage(_agentId, channelId, content, options);
+        return discord.sendMessage(_avatarId, channelId, content, options);
       },
 
       sendWebhookMessage: async (content, options) => {
-        return discord.sendWebhookMessage(_agentId, content, options);
+        return discord.sendWebhookMessage(_avatarId, content, options);
       },
 
       getChannel: async (channelId) => {
-        return discord.getChannel(_agentId, channelId);
+        return discord.getChannel(_avatarId, channelId);
       },
 
       listChannels: async (guildId) => {
-        return discord.listChannels(_agentId, guildId);
+        return discord.listChannels(_avatarId, guildId);
       },
 
       listGuilds: async () => {
-        return discord.listGuilds(_agentId);
+        return discord.listGuilds(_avatarId);
       },
 
       getMessages: async (channelId, limit) => {
-        return discord.getMessages(_agentId, channelId, limit);
+        return discord.getMessages(_avatarId, channelId, limit);
       },
 
       addReaction: async (channelId, messageId, emoji) => {
-        return discord.addReaction(_agentId, channelId, messageId, emoji);
+        return discord.addReaction(_avatarId, channelId, messageId, emoji);
       },
 
       removeReaction: async (channelId, messageId, emoji) => {
-        return discord.removeReaction(_agentId, channelId, messageId, emoji);
+        return discord.removeReaction(_avatarId, channelId, messageId, emoji);
       },
     },
 
     // =========================================================================
-    // NFT Services (Agent Inhabitation & Lineage)
+    // NFT Services (Avatar Inhabitation & Lineage)
     // =========================================================================
     nft: createNFTServices(),
 
     // =========================================================================
     // Property Research Services
     // =========================================================================
-    property: createPropertyServices(_agentId, session),
+    property: createPropertyServices(_avatarId, session),
 
     // =========================================================================
     // Sticker Services
@@ -1434,8 +1434,8 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // =========================================================================
     diagnostics: {
       recordIssue: async (params) => {
-        return agentEvents.recordIssue({
-          agentId: params.agentId,
+        return avatarvents.recordIssue({
+          avatarId: params.avatarId,
           platform: params.platform,
           severity: params.severity,
           category: params.category,
@@ -1446,8 +1446,8 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
         });
       },
       recordFeedback: async (params) => {
-        return agentEvents.recordFeedback({
-          agentId: params.agentId,
+        return avatarvents.recordFeedback({
+          avatarId: params.avatarId,
           platform: params.platform,
           sentiment: params.sentiment,
           feature: params.feature,
@@ -1464,7 +1464,7 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
 }
 
 /**
- * Create NFT services for agent inhabitation and lineage
+ * Create NFT services for avatar inhabitation and lineage
  */
 function createNFTServices(): NFTServices {
   return {
@@ -1479,39 +1479,39 @@ function createNFTServices(): NFTServices {
 
     // Inhabitation operations
     getInhabitationInfo: async (walletAddress: string) => {
-      return agentOwnership.getInhabitationInfo(walletAddress);
+      return avatarwnership.getInhabitationInfo(walletAddress);
     },
 
-    listUnclaimedAgents: async () => {
-      // Get all agents without an inhabitant
-      const allAgents = await agents.listAgents();
+    listUnclaimedAvatars: async () => {
+      // Get all avatars without an inhabitant
+      const allAgents = await avatars.listAvatars();
       return allAgents
-        .filter((agent) => !agent.inhabitantWallet)
-        .map((agent) => ({
-          agentId: agent.agentId,
-          name: agent.name,
-          description: agent.description,
-          avatarUrl: agent.profileImage?.url,
-          era: agent.currentEra || 0,
+        .filter((avatar) => !avatar.inhabitantWallet)
+        .map((avatar) => ({
+          avatarId: avatar.avatarId,
+          name: avatar.name,
+          description: avatar.description,
+          avatarUrl: avatar.profileImage?.url,
+          era: avatar.currentEra || 0,
         }));
     },
 
-    inhabitAgent: async (walletAddress: string, agentId: string) => {
-      return agentOwnership.inhabitAgent(walletAddress, agentId);
+    inhabitAvatar: async (walletAddress: string, avatarId: string) => {
+      return avatarwnership.inhabitAvatar(walletAddress, avatarId);
     },
 
     canAbandon: async (walletAddress: string) => {
-      const result = await agentOwnership.canAbandon(walletAddress);
+      const result = await avatarwnership.canAbandon(walletAddress);
       return {
         canAbandon: result.canAbandon,
         gateStatus: result.gateStatus,
-        inhabitedAgentId: result.inhabitedAgent?.agentId,
-        inhabitedAgentName: result.inhabitedAgent?.name,
+        inhabitedAvatarId: result.inhabitedAvatar?.avatarId,
+        inhabitedAvatarName: result.inhabitedAvatar?.name,
       };
     },
 
-    abandonAgent: async (walletAddress: string, burnTxSignature: string) => {
-      return agentOwnership.abandonAgent(walletAddress, burnTxSignature);
+    abandonAvatar: async (walletAddress: string, burnTxSignature: string) => {
+      return avatarwnership.abandonAvatar(walletAddress, burnTxSignature);
     },
 
     // Burn verification
@@ -1520,32 +1520,32 @@ function createNFTServices(): NFTServices {
     },
 
     // Lineage NFT operations
-    getLineageCollection: async (agentId: string) => {
-      return lineageNft.getLineageCollection(agentId);
+    getLineageCollection: async (avatarId: string) => {
+      return lineageNft.getLineageCollection(avatarId);
     },
 
-    prepareLineageMint: async (agentId: string, walletAddress: string) => {
-      return lineageNft.prepareLineageMint(agentId, walletAddress);
+    prepareLineageMint: async (avatarId: string, walletAddress: string) => {
+      return lineageNft.prepareLineageMint(avatarId, walletAddress);
     },
 
     recordLineageMint: async (
-      agentId: string,
+      avatarId: string,
       walletAddress: string,
       nftMint: string,
       era: number,
       burnSignature?: string
     ) => {
-      return lineageNft.recordLineageMint(agentId, walletAddress, nftMint, era, burnSignature);
+      return lineageNft.recordLineageMint(avatarId, walletAddress, nftMint, era, burnSignature);
     },
 
     generateLineageMetadata: (metadata) => {
       return lineageNft.generateLineageMetadataJson(metadata);
     },
 
-    // Agent self-awareness (what agents can actually use)
-    getAgentInhabitationStatus: async (agentId: string) => {
-      const agent = await agents.getAgent(agentId);
-      if (!agent) {
+    // Avatar self-awareness (what avatars can actually use)
+    getAvatarInhabitationStatus: async (avatarId: string) => {
+      const avatar = await avatars.getAvatar(avatarId);
+      if (!avatar) {
         return {
           isInhabited: false,
           currentEra: 0,
@@ -1554,18 +1554,18 @@ function createNFTServices(): NFTServices {
       }
 
       return {
-        isInhabited: !!agent.inhabitantWallet,
-        inhabitantWallet: agent.inhabitantWallet,
-        inhabitedAt: agent.inhabitedAt,
-        currentEra: agent.currentEra || 0,
-        totalEras: agent.currentEra || 0, // Era increments on each abandon
+        isInhabited: !!avatar.inhabitantWallet,
+        inhabitantWallet: avatar.inhabitantWallet,
+        inhabitedAt: avatar.inhabitedAt,
+        currentEra: avatar.currentEra || 0,
+        totalEras: avatar.currentEra || 0, // Era increments on each abandon
       };
     },
 
-    getInhabitationUrl: (agentId: string) => {
-      // URL to the inhabitation page for this agent
+    getInhabitationUrl: (avatarId: string) => {
+      // URL to the inhabitation page for this avatar
       const baseUrl = process.env.ADMIN_UI_URL || 'https://admin.rati.chat';
-      return `${baseUrl}/inhabit/${agentId}`;
+      return `${baseUrl}/inhabit/${avatarId}`;
     },
   };
 }
@@ -1573,50 +1573,50 @@ function createNFTServices(): NFTServices {
 /**
  * Create MCP services for Telegram context (minimal session)
  */
-export function createTelegramMCPServices(agentId: string): AllServices {
+export function createTelegramMCPServices(avatarId: string): AllServices {
   const telegramSession: UserSession = {
     email: 'telegram-user@telegram.bot',
-    userId: `telegram-${agentId}`,
+    userId: `telegram-${avatarId}`,
     isAdmin: false,
     accessToken: '',
   };
-  return createMCPServices(agentId, telegramSession);
+  return createMCPServices(avatarId, telegramSession);
 }
 
 /**
  * Create property research services
  */
-function createPropertyServices(_agentId: string, _session: UserSession): PropertyServices {
+function createPropertyServices(_avatarId: string, _session: UserSession): PropertyServices {
   const webSearch = createWebSearch();
 
   return {
     // Authorization
-    checkAuth: async (agentId: string, walletAddress: string) => {
-      return propertyResearch.checkAuth(agentId, walletAddress);
+    checkAuth: async (avatarId: string, walletAddress: string) => {
+      return propertyResearch.checkAuth(avatarId, walletAddress);
     },
 
-    grantAuth: async (agentId: string, walletAddress: string) => {
-      await propertyResearch.grantAuth(agentId, walletAddress);
+    grantAuth: async (avatarId: string, walletAddress: string) => {
+      await propertyResearch.grantAuth(avatarId, walletAddress);
     },
 
-    revokeAuth: async (agentId: string, walletAddress: string) => {
-      await propertyResearch.revokeAuth(agentId, walletAddress);
+    revokeAuth: async (avatarId: string, walletAddress: string) => {
+      await propertyResearch.revokeAuth(avatarId, walletAddress);
     },
 
     // Job management
-    createJob: async (agentId: string, property, requestedBy) => {
-      return propertyResearch.createJob(agentId, property, requestedBy);
+    createJob: async (avatarId: string, property, requestedBy) => {
+      return propertyResearch.createJob(avatarId, property, requestedBy);
     },
 
     getJob: async (jobId: string) => {
       return propertyResearch.getJob(jobId);
     },
 
-    getJobsForAgent: async (agentId: string, statusFilter) => {
-      return propertyResearch.getJobsForAgent(
-        agentId,
-        statusFilter as 'queued' | 'researching' | 'completed' | 'failed' | undefined
-      );
+    getJobsForAvatar: async (
+      avatarId: string,
+      statusFilter?: string
+    ) => {
+      return propertyResearch.getJobsForAvatar(avatarId, statusFilter as any);
     },
 
     deleteJob: async (jobId: string) => {

@@ -31,7 +31,7 @@ const SECRET_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // Legacy message types (still supported for backward compatibility)
 interface MediaCompleteMessage {
   type: 'image_complete' | 'video_complete' | 'sticker_complete';
-  agentId: string;
+  avatarId: string;
   platform: string;
   conversationId: string;
   replyToMessageId?: string;
@@ -46,7 +46,7 @@ interface MediaCompleteMessage {
 
 interface MediaFailedMessage {
   type: 'image_failed' | 'video_failed' | 'sticker_failed';
-  agentId: string;
+  avatarId: string;
   platform: string;
   conversationId: string;
   replyToMessageId?: string;
@@ -60,7 +60,7 @@ interface MediaFailedMessage {
 // New continuation message format
 interface ContinuationMediaGenerated {
   type: 'media_generated';
-  agentId: string;
+  avatarId: string;
   platform: string;
   conversationId: string;
   replyToMessageId?: string;
@@ -76,7 +76,7 @@ interface ContinuationMediaGenerated {
 
 interface ContinuationMediaFailed {
   type: 'media_failed';
-  agentId: string;
+  avatarId: string;
   platform: string;
   conversationId: string;
   replyToMessageId?: string;
@@ -119,12 +119,12 @@ async function getSecret(secretArn: string): Promise<string | null> {
 }
 
 /**
- * Get Telegram bot token for an agent
+ * Get Telegram bot token for an avatar
  */
-async function getTelegramToken(agentId: string): Promise<string | null> {
+async function getTelegramToken(avatarId: string): Promise<string | null> {
   const result = await dynamoClient.send(new GetCommand({
     TableName: ADMIN_TABLE,
-    Key: { pk: `AGENT#${agentId}`, sk: 'SECRET#telegram_bot_token#default' },
+    Key: { pk: `AVATAR#${avatarId}`, sk: 'SECRET#telegram_bot_token#default' },
   }));
   if (!result.Item?.secretArn) return null;
   return getSecret(result.Item.secretArn);
@@ -370,7 +370,7 @@ async function sendTelegramMessage(
  * Normalize message to common format (handles both legacy and continuation formats)
  */
 function normalizeMessage(message: ResponseMessage): {
-  agentId: string;
+  avatarId: string;
   platform: string;
   conversationId: string;
   replyToMessageId?: string;
@@ -385,7 +385,7 @@ function normalizeMessage(message: ResponseMessage): {
   // Handle new continuation format
   if (message.type === 'media_generated') {
     return {
-      agentId: message.agentId,
+      avatarId: message.avatarId,
       platform: message.platform,
       conversationId: message.conversationId,
       replyToMessageId: message.replyToMessageId,
@@ -400,7 +400,7 @@ function normalizeMessage(message: ResponseMessage): {
 
   if (message.type === 'media_failed') {
     return {
-      agentId: message.agentId,
+      avatarId: message.avatarId,
       platform: message.platform,
       conversationId: message.conversationId,
       replyToMessageId: message.replyToMessageId,
@@ -422,7 +422,7 @@ function normalizeMessage(message: ResponseMessage): {
     error?: string;
   };
   return {
-    agentId: message.agentId,
+    avatarId: message.avatarId,
     platform: message.platform,
     conversationId: message.conversationId,
     replyToMessageId: message.replyToMessageId,
@@ -440,9 +440,9 @@ function normalizeMessage(message: ResponseMessage): {
  */
 async function processMessage(message: ResponseMessage): Promise<void> {
   const normalized = normalizeMessage(message);
-  const { agentId, platform, conversationId, replyToMessageId, type, success, mediaUrl, mediaType, prompt, error, purpose } = normalized;
+  const { avatarId, platform, conversationId, replyToMessageId, type, success, mediaUrl, mediaType, prompt, error, purpose } = normalized;
   
-  logger.setContext({ agentId, platform, conversationId });
+  logger.setContext({ avatarId, platform, conversationId });
   logger.info('Processing response message', { type, success, purpose });
 
   // Only handle Telegram for now
@@ -452,14 +452,14 @@ async function processMessage(message: ResponseMessage): Promise<void> {
   }
 
   if (!conversationId) {
-    logger.error('Missing conversationId for response sender', { agentId, platform });
+    logger.error('Missing conversationId for response sender', { avatarId, platform });
     throw new Error('Missing conversationId for response sender');
   }
 
   // Get bot token
-  const token = await getTelegramToken(agentId);
+  const token = await getTelegramToken(avatarId);
   if (!token) {
-    logger.error('No Telegram token found for agent', undefined, { agentId });
+    logger.error('No Telegram token found for avatar', undefined, { avatarId });
     return;
   }
 

@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { handler, type TwitterOAuthHandlerDeps } from './twitter-oauth.js';
-import type { UserSession, AgentRecord } from '../types.js';
+import type { UserSession, AvatarRecord } from '../types.js';
 
 // Helper to create a mock API Gateway event
 function createEvent(overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 {
@@ -50,13 +50,13 @@ function createTestSession(overrides: Partial<UserSession> = {}): UserSession {
   };
 }
 
-// Helper to create a mock agent record
-function createMockAgent(agentId: string): AgentRecord {
+// Helper to create a mock avatar record
+function createMockAvatar(avatarId: string): AvatarRecord {
   return {
-    pk: `AGENT#${agentId}`,
+    pk: `AVATAR#${avatarId}`,
     sk: 'CONFIG',
-    agentId,
-    name: 'Test Agent',
+    avatarId,
+    name: 'Test Avatar',
     status: 'active',
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -88,7 +88,7 @@ describe('Twitter OAuth Handler', () => {
     mockCompleteOAuthFlow = mock(() =>
       Promise.resolve({
         success: true,
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         username: 'testuser',
         userId: '12345',
       })
@@ -102,8 +102,8 @@ describe('Twitter OAuth Handler', () => {
       })
     );
     mockDisconnectTwitter = mock(() => Promise.resolve());
-    mockGetAgent = mock(() => Promise.resolve(createMockAgent('test-agent')));
-    mockUpdateAgent = mock(() => Promise.resolve(createMockAgent('test-agent')));
+    mockGetAgent = mock(() => Promise.resolve(createMockAvatar('test-avatar')));
+    mockUpdateAgent = mock(() => Promise.resolve(createMockAvatar('test-avatar')));
     mockAuthenticateRequest = mock(() => Promise.resolve(createTestSession()));
     mockRequireAdmin = mock(() => true);
 
@@ -115,9 +115,9 @@ describe('Twitter OAuth Handler', () => {
         getConnectionStatus: mockGetConnectionStatus as unknown as TwitterOAuthHandlerDeps['twitterOAuth']['getConnectionStatus'],
         disconnectTwitter: mockDisconnectTwitter as unknown as TwitterOAuthHandlerDeps['twitterOAuth']['disconnectTwitter'],
       },
-      agentService: {
-        getAgent: mockGetAgent as unknown as TwitterOAuthHandlerDeps['agentService']['getAgent'],
-        updateAgent: mockUpdateAgent as unknown as TwitterOAuthHandlerDeps['agentService']['updateAgent'],
+      avatarService: {
+        getAvatar: mockGetAgent as unknown as TwitterOAuthHandlerDeps['avatarService']['getAvatar'],
+        updateAvatar: mockUpdateAgent as unknown as TwitterOAuthHandlerDeps['avatarService']['updateAvatar'],
       },
       auth: {
         authenticateRequest: mockAuthenticateRequest as unknown as TwitterOAuthHandlerDeps['auth']['authenticateRequest'],
@@ -142,7 +142,7 @@ describe('Twitter OAuth Handler', () => {
   });
 
   describe('GET /oauth/twitter/start', () => {
-    it('returns 400 when agentId is missing', async () => {
+    it('returns 400 when avatarId is missing', async () => {
       const event = createEvent({
         rawPath: '/oauth/twitter/start',
         queryStringParameters: {},
@@ -152,22 +152,22 @@ describe('Twitter OAuth Handler', () => {
 
       expect(result.statusCode).toBe(400);
       const body = JSON.parse(result.body as string);
-      expect(body.error).toContain('agentId');
+      expect(body.error).toContain('avatarId');
     });
 
-    it('returns 404 when agent does not exist', async () => {
+    it('returns 404 when avatar does not exist', async () => {
       mockGetAgent.mockImplementation(() => Promise.resolve(null));
 
       const event = createEvent({
         rawPath: '/oauth/twitter/start',
-        queryStringParameters: { agentId: 'nonexistent' },
+        queryStringParameters: { avatarId: 'nonexistent' },
       });
 
       const result = await handler(event, mockDeps);
 
       expect(result.statusCode).toBe(404);
       const body = JSON.parse(result.body as string);
-      expect(body.error).toBe('Agent not found');
+      expect(body.error).toBe('Avatar not found');
     });
 
     it('returns 503 when Twitter OAuth is not configured', async () => {
@@ -175,7 +175,7 @@ describe('Twitter OAuth Handler', () => {
 
       const event = createEvent({
         rawPath: '/oauth/twitter/start',
-        queryStringParameters: { agentId: 'test-agent' },
+        queryStringParameters: { avatarId: 'test-avatar' },
       });
 
       const result = await handler(event, mockDeps);
@@ -188,7 +188,7 @@ describe('Twitter OAuth Handler', () => {
     it('returns authorization URL on success', async () => {
       const event = createEvent({
         rawPath: '/oauth/twitter/start',
-        queryStringParameters: { agentId: 'test-agent' },
+        queryStringParameters: { avatarId: 'test-avatar' },
       });
 
       const result = await handler(event, mockDeps);
@@ -196,7 +196,7 @@ describe('Twitter OAuth Handler', () => {
       // Returns 302 redirect to Twitter OAuth
       expect(result.statusCode).toBe(302);
       expect(result.headers?.Location).toContain('twitter.com');
-      expect(mockStartOAuthFlow).toHaveBeenCalledWith('test-agent');
+      expect(mockStartOAuthFlow).toHaveBeenCalledWith('test-avatar');
     });
   });
 
@@ -245,7 +245,7 @@ describe('Twitter OAuth Handler', () => {
       );
     });
 
-    it('updates agent config after successful OAuth', async () => {
+    it('updates avatar config after successful OAuth', async () => {
       const event = createEvent({
         rawPath: '/oauth/twitter/callback',
         queryStringParameters: {
@@ -257,7 +257,7 @@ describe('Twitter OAuth Handler', () => {
       await handler(event, mockDeps);
 
       expect(mockUpdateAgent).toHaveBeenCalledWith(
-        'test-agent',
+        'test-avatar',
         expect.objectContaining({
           platforms: {
             twitter: {
@@ -274,7 +274,7 @@ describe('Twitter OAuth Handler', () => {
       mockCompleteOAuthFlow.mockImplementation(() =>
         Promise.resolve({
           success: false,
-          agentId: 'test-agent',
+          avatarId: 'test-avatar',
           error: 'Token expired',
         })
       );
@@ -294,12 +294,12 @@ describe('Twitter OAuth Handler', () => {
     });
   });
 
-  describe('GET /oauth/twitter/status/{agentId}', () => {
+  describe('GET /oauth/twitter/status/{avatarId}', () => {
     it('requires authentication', async () => {
       mockRequireAdmin.mockImplementation(() => false);
 
       const event = createEvent({
-        rawPath: '/oauth/twitter/status/test-agent',
+        rawPath: '/oauth/twitter/status/test-avatar',
       });
 
       const result = await handler(event, mockDeps);
@@ -309,7 +309,7 @@ describe('Twitter OAuth Handler', () => {
 
     it('returns connection status', async () => {
       const event = createEvent({
-        rawPath: '/oauth/twitter/status/test-agent',
+        rawPath: '/oauth/twitter/status/test-avatar',
       });
 
       const result = await handler(event, mockDeps);
@@ -318,7 +318,7 @@ describe('Twitter OAuth Handler', () => {
       const body = JSON.parse(result.body as string);
       expect(body.connected).toBe(true);
       expect(body.username).toBe('testuser');
-      expect(mockGetConnectionStatus).toHaveBeenCalledWith('test-agent');
+      expect(mockGetConnectionStatus).toHaveBeenCalledWith('test-avatar');
     });
 
     it('returns not connected status', async () => {
@@ -327,7 +327,7 @@ describe('Twitter OAuth Handler', () => {
       );
 
       const event = createEvent({
-        rawPath: '/oauth/twitter/status/disconnected-agent',
+        rawPath: '/oauth/twitter/status/disconnected-avatar',
       });
 
       const result = await handler(event, mockDeps);
@@ -338,12 +338,12 @@ describe('Twitter OAuth Handler', () => {
     });
   });
 
-  describe('DELETE /oauth/twitter/{agentId}', () => {
+  describe('DELETE /oauth/twitter/{avatarId}', () => {
     it('requires authentication', async () => {
       mockRequireAdmin.mockImplementation(() => false);
 
       const event = createEvent({
-        rawPath: '/oauth/twitter/test-agent',
+        rawPath: '/oauth/twitter/test-avatar',
         requestContext: {
           ...createEvent().requestContext,
           http: { ...createEvent().requestContext.http, method: 'DELETE' },
@@ -355,9 +355,9 @@ describe('Twitter OAuth Handler', () => {
       expect(result.statusCode).toBe(403);
     });
 
-    it('disconnects Twitter and updates agent', async () => {
+    it('disconnects Twitter and updates avatar', async () => {
       const event = createEvent({
-        rawPath: '/oauth/twitter/test-agent',
+        rawPath: '/oauth/twitter/test-avatar',
         requestContext: {
           ...createEvent().requestContext,
           http: { ...createEvent().requestContext.http, method: 'DELETE' },
@@ -371,7 +371,7 @@ describe('Twitter OAuth Handler', () => {
       expect(body.success).toBe(true);
       expect(mockDisconnectTwitter).toHaveBeenCalled();
       expect(mockUpdateAgent).toHaveBeenCalledWith(
-        'test-agent',
+        'test-avatar',
         expect.objectContaining({
           platforms: {
             twitter: {
@@ -404,7 +404,7 @@ describe('Twitter OAuth Handler', () => {
       });
 
       const event = createEvent({
-        rawPath: '/oauth/twitter/status/test-agent',
+        rawPath: '/oauth/twitter/status/test-avatar',
       });
 
       const result = await handler(event, mockDeps);

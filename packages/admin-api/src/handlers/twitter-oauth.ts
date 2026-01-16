@@ -3,10 +3,10 @@
  * Handles the OAuth 1.0a 3-legged flow for connecting X/Twitter accounts
  *
  * Routes:
- * - GET /oauth/twitter/start?agentId=xxx - Start OAuth flow
+ * - GET /oauth/twitter/start?avatarId=xxx - Start OAuth flow
  * - GET /oauth/twitter/callback?oauth_token=xxx&oauth_verifier=xxx - OAuth callback
- * - GET /oauth/twitter/status/{agentId} - Check connection status
- * - DELETE /oauth/twitter/{agentId} - Disconnect Twitter
+ * - GET /oauth/twitter/status/{avatarId} - Check connection status
+ * - DELETE /oauth/twitter/{avatarId} - Disconnect Twitter
  */
 import type {
   APIGatewayProxyEventV2,
@@ -21,10 +21,10 @@ import {
   disconnectTwitter as twitterDisconnectTwitter,
 } from '../services/twitter-oauth.js';
 import {
-  getAgent as agentGetAgent,
-  updateAgent as agentUpdateAgent,
-} from '../services/agents.js';
-import type { UserSession, AgentRecord } from '../types.js';
+  getAvatar as avataretAgent,
+  updateAvatar as avatarpdateAgent,
+} from '../services/avatars.js';
+import type { UserSession, AvatarRecord } from '../types.js';
 
 /**
  * Dependencies interface for dependency injection (testing)
@@ -32,25 +32,25 @@ import type { UserSession, AgentRecord } from '../types.js';
 export interface TwitterOAuthHandlerDeps {
   twitterOAuth: {
     isConfigured: () => Promise<boolean>;
-    startOAuthFlow: (agentId: string) => Promise<{ authorizationUrl: string; oauthToken: string }>;
+    startOAuthFlow: (avatarId: string) => Promise<{ authorizationUrl: string; oauthToken: string }>;
     completeOAuthFlow: (oauthToken: string, oauthVerifier: string, session: UserSession) => Promise<{
       success: boolean;
-      agentId: string;
+      avatarId: string;
       username?: string;
       userId?: string;
       error?: string;
     }>;
-    getConnectionStatus: (agentId: string) => Promise<{
+    getConnectionStatus: (avatarId: string) => Promise<{
       connected: boolean;
       username?: string;
       userId?: string;
       connectedAt?: number;
     }>;
-    disconnectTwitter: (agentId: string, session: UserSession) => Promise<void>;
+    disconnectTwitter: (avatarId: string, session: UserSession) => Promise<void>;
   };
-  agentService: {
-    getAgent: (agentId: string) => Promise<AgentRecord | null>;
-    updateAgent: (agentId: string, updates: Partial<AgentRecord>, session: UserSession) => Promise<AgentRecord>;
+  avatarService: {
+    getAvatar: (avatarId: string) => Promise<AvatarRecord | null>;
+    updateAvatar: (avatarId: string, updates: Partial<AvatarRecord>, session: UserSession) => Promise<AvatarRecord>;
   };
   auth: {
     authenticateRequest: (event: APIGatewayProxyEventV2) => Promise<UserSession>;
@@ -68,9 +68,9 @@ function getDefaultDeps(): TwitterOAuthHandlerDeps {
       getConnectionStatus: twitterGetConnectionStatus,
       disconnectTwitter: twitterDisconnectTwitter,
     },
-    agentService: {
-      getAgent: agentGetAgent,
-      updateAgent: agentUpdateAgent,
+    avatarService: {
+      getAvatar: avataretAgent,
+      updateAvatar: avatarpdateAgent,
     },
     auth: {
       authenticateRequest,
@@ -105,7 +105,7 @@ export async function handler(
     ? (depsOrContext as TwitterOAuthHandlerDeps)
     : undefined;
   const resolvedDeps = deps || getDefaultDeps();
-  const { twitterOAuth, agentService, auth } = resolvedDeps;
+  const { twitterOAuth, avatarService, auth } = resolvedDeps;
 
   // Handle preflight
   if (event.requestContext.http.method === 'OPTIONS') {
@@ -130,27 +130,27 @@ export async function handler(
       return handleCallback(event, resolvedDeps);
     }
 
-    // GET /oauth/twitter/start?agentId=xxx - Start OAuth flow (no auth needed)
+    // GET /oauth/twitter/start?avatarId=xxx - Start OAuth flow (no auth needed)
     // This just redirects to Twitter - the actual authorization happens there
-    // The callback will store tokens for the specified agentId
+    // The callback will store tokens for the specified avatarId
     if (method === 'GET' && path === '/oauth/twitter/start') {
-      const agentId = event.queryStringParameters?.agentId;
+      const avatarId = event.queryStringParameters?.avatarId;
 
-      if (!agentId) {
+      if (!avatarId) {
         return {
           statusCode: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'agentId query parameter is required' }),
+          body: JSON.stringify({ error: 'avatarId query parameter is required' }),
         };
       }
 
-      // Verify agent exists
-      const agent = await agentService.getAgent(agentId);
-      if (!agent) {
+      // Verify avatar exists
+      const avatar = await avatarService.getAvatar(avatarId);
+      if (!avatar) {
         return {
           statusCode: 404,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Agent not found' }),
+          body: JSON.stringify({ error: 'Avatar not found' }),
         };
       }
 
@@ -166,7 +166,7 @@ export async function handler(
         };
       }
 
-      const { authorizationUrl } = await twitterOAuth.startOAuthFlow(agentId);
+      const { authorizationUrl } = await twitterOAuth.startOAuthFlow(avatarId);
 
       // Redirect directly to Twitter for OAuth authorization
       return {
@@ -189,12 +189,12 @@ export async function handler(
       };
     }
 
-    // GET /oauth/twitter/status/{agentId} - Get connection status
+    // GET /oauth/twitter/status/{avatarId} - Get connection status
     const statusMatch = path.match(/^\/oauth\/twitter\/status\/([^/]+)$/);
     if (method === 'GET' && statusMatch) {
-      const agentId = statusMatch[1];
+      const avatarId = statusMatch[1];
 
-      const status = await twitterOAuth.getConnectionStatus(agentId);
+      const status = await twitterOAuth.getConnectionStatus(avatarId);
 
       return {
         statusCode: 200,
@@ -203,15 +203,15 @@ export async function handler(
       };
     }
 
-    // DELETE /oauth/twitter/{agentId} - Disconnect Twitter
+    // DELETE /oauth/twitter/{avatarId} - Disconnect Twitter
     const disconnectMatch = path.match(/^\/oauth\/twitter\/([^/]+)$/);
     if (method === 'DELETE' && disconnectMatch) {
-      const agentId = disconnectMatch[1];
+      const avatarId = disconnectMatch[1];
 
-      await twitterOAuth.disconnectTwitter(agentId, session);
+      await twitterOAuth.disconnectTwitter(avatarId, session);
 
-      // Update agent config to disable Twitter
-      await agentService.updateAgent(agentId, {
+      // Update avatar config to disable Twitter
+      await avatarService.updateAvatar(avatarId, {
         platforms: {
           twitter: {
             enabled: false,
@@ -259,7 +259,7 @@ async function handleCallback(
   event: APIGatewayProxyEventV2,
   deps: TwitterOAuthHandlerDeps
 ): Promise<APIGatewayProxyResultV2> {
-  const { twitterOAuth, agentService } = deps;
+  const { twitterOAuth, avatarService } = deps;
   const { oauth_token, oauth_verifier, denied } = event.queryStringParameters || {};
 
   // User denied authorization
@@ -308,8 +308,8 @@ async function handleCallback(
       };
     }
 
-    // Update agent config to enable Twitter with the connected username
-    await agentService.updateAgent(result.agentId, {
+    // Update avatar config to enable Twitter with the connected username
+    await avatarService.updateAvatar(result.avatarId, {
       platforms: {
         twitter: {
           enabled: true,
@@ -322,7 +322,7 @@ async function handleCallback(
     return {
       statusCode: 302,
       headers: {
-        Location: `${ADMIN_UI_URL}/agents/${result.agentId}?twitter_connected=${result.username}`,
+        Location: `${ADMIN_UI_URL}/avatars/${result.avatarId}?twitter_connected=${result.username}`,
       },
       body: '',
     };

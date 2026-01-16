@@ -2,8 +2,8 @@
  * Dynamic System Prompt Builder
  * 
  * Builds system prompts dynamically based on which tools/capabilities
- * are enabled for an agent. This avoids bloating prompts with irrelevant
- * instructions about tools the agent doesn't have access to.
+ * are enabled for an avatar. This avoids bloating prompts with irrelevant
+ * instructions about tools the avatar doesn't have access to.
  */
 
 import { getPlatformPromptSection } from './platform-prompts.js';
@@ -31,9 +31,9 @@ export type ToolCategory =
   | 'diagnostics'; // Issue reporting
 
 /**
- * Agent context for prompt building
+ * Avatar context for prompt building
  */
-export interface AgentPromptContext {
+export interface AvatarPromptContext {
   id: string;
   name?: string;
   description?: string;
@@ -185,7 +185,7 @@ You can remember and recall information:
   nft: `## NFT & Ownership
 
 You have NFT-related capabilities:
-- Manage agent inhabitation (wallet ownership)
+- Manage avatar inhabitation (wallet ownership)
 - Track lineage and ownership history
 - Handle Gate NFT mechanics`,
 
@@ -243,10 +243,10 @@ You can report issues to help improve the system:
 /**
  * Build the base prompt (always included)
  */
-function buildBasePrompt(agent: AgentPromptContext): string {
-  return `You are ${agent.name || 'an AI agent'}, an AI agent being configured by your owner.
-${agent.description ? `Your purpose: ${agent.description}` : ''}
-${agent.persona ? `Your personality: ${agent.persona}` : ''}
+function buildBasePrompt(avatar: AvatarPromptContext): string {
+  return `You are ${avatar.name || 'an AI avatar'}, an AI avatar being configured by your owner.
+${avatar.description ? `Your purpose: ${avatar.description}` : ''}
+${avatar.persona ? `Your personality: ${avatar.persona}` : ''}
 
 You are setting yourself up. The user is your owner who is helping configure you.
 
@@ -257,17 +257,17 @@ Your personality should come through in your messages, but you must still execut
 /**
  * Build a dynamic system prompt based on enabled capabilities
  */
-export function buildDynamicSystemPrompt(agent: AgentPromptContext): string {
+export function buildDynamicSystemPrompt(avatar: AvatarPromptContext): string {
   const sections: string[] = [];
   
   // Base prompt is always included
-  sections.push(buildBasePrompt(agent));
+  sections.push(buildBasePrompt(avatar));
   
   // Add section header
   sections.push('\n## Your Capabilities\n');
   
   // Add enabled category sections
-  for (const category of agent.enabledCategories) {
+  for (const category of avatar.enabledCategories) {
     const section = PROMPT_SECTIONS[category];
     if (section) {
       sections.push(section);
@@ -275,7 +275,7 @@ export function buildDynamicSystemPrompt(agent: AgentPromptContext): string {
   }
   
   // Add platform-specific section
-  const platformSection = getPlatformPromptSection(agent.platform);
+  const platformSection = getPlatformPromptSection(avatar.platform);
   if (platformSection) {
     sections.push(platformSection);
   }

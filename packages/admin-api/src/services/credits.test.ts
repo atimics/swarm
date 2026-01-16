@@ -127,10 +127,10 @@ describe('Gallery System', () => {
     it('should create valid gallery item', () => {
       const item = {
         id: 'test-uuid-123',
-        agentId: 'agent-1',
+        avatarId: 'avatar-1',
         type: 'image' as const,
-        url: 'https://media.example.com/agents/agent-1/images/test.png',
-        s3Key: 'agents/agent-1/images/test.png',
+        url: 'https://media.example.com/avatars/avatar-1/images/test.png',
+        s3Key: 'avatars/avatar-1/images/test.png',
         prompt: 'A cute whale swimming',
         model: 'google/nano-banana-pro',
         platform: 'telegram',

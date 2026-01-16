@@ -1,5 +1,5 @@
 /**
- * Agent Management Service
+ * Avatar Management Service
  */
 import {
   DynamoDBClient,
@@ -11,8 +11,8 @@ import {
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS } from '@swarm/core';
-import type { AgentRecord, UserSession } from '../types.js';
-import { syncAgentConfig } from './config-sync.js';
+import type { AvatarRecord, UserSession } from '../types.js';
+import { syncAvatarConfig } from './config-sync.js';
 import { getGateStatus, incrementCreatorCount, decrementCreatorCount, type GateStatus } from './nft-gate.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -21,9 +21,9 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 /**
- * Generate a URL-safe agent ID from name
+ * Generate a URL-safe avatar ID from name
  */
-function generateAgentId(name: string): string {
+function generateAvatarId(name: string): string {
   const base = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -34,20 +34,20 @@ function generateAgentId(name: string): string {
 }
 
 /**
- * Create a new agent (legacy - uses email session)
+ * Create a new avatar (legacy - uses email session)
  */
-export async function createAgent(
+export async function createAvatar(
   name: string,
   session: UserSession,
   description?: string
-): Promise<AgentRecord> {
-  const agentId = generateAgentId(name);
+): Promise<AvatarRecord> {
+  const avatarId = generateAvatarId(name);
   const now = Date.now();
 
-  const agent: AgentRecord = {
-    pk: `AGENT#${agentId}`,
+  const avatar: AvatarRecord = {
+    pk: `AVATAR#${avatarId}`,
     sk: 'CONFIG',
-    agentId,
+    avatarId,
     name,
     description,
     platforms: {},
@@ -73,39 +73,39 @@ export async function createAgent(
 
   await dynamoClient.send(new PutCommand({
     TableName: ADMIN_TABLE,
-    Item: agent,
+    Item: avatar,
     ConditionExpression: 'attribute_not_exists(pk)',
   }));
 
   // Sync to state table so handlers can access it
-  await syncAgentConfig(agent);
+  await syncAvatarConfig(avatar);
 
-  return agent;
+  return avatar;
 }
 
 /**
- * Create agent result with gate status
+ * Create avatar result with gate status
  */
-export interface CreateAgentResult {
+export interface CreateAvatarResult {
   success: boolean;
-  agent?: AgentRecord;
+  avatar?: AvatarRecord;
   gateStatus?: GateStatus;
   error?: 'no_gate_slot' | 'invalid_name' | 'name_taken' | 'gate_check_failed';
 }
 
 /**
- * Create a new agent with wallet-based gating
+ * Create a new avatar with wallet-based gating
  * Requires the wallet to hold an unused Gate NFT slot
  */
-export async function createAgentWithWallet(
+export async function createAvatarWithWallet(
   name: string,
   creatorWallet: string,
   description?: string
-): Promise<CreateAgentResult> {
+): Promise<CreateAvatarResult> {
   // 1. Check gate status (optimistic)
   const gateStatus = await getGateStatus(creatorWallet);
   if (!gateStatus.canCreate) {
-    console.log(`[Agents] No gate slot for wallet=${creatorWallet.slice(0, 8)}... (held=${gateStatus.nftsHeld}, created=${gateStatus.agentsCreated})`);
+    console.log(`[Avatars] No gate slot for wallet=${creatorWallet.slice(0, 8)}... (held=${gateStatus.nftsHeld}, created=${gateStatus.avatarsCreated})`);
     return {
       success: false,
       error: 'no_gate_slot',
@@ -113,13 +113,13 @@ export async function createAgentWithWallet(
     };
   }
 
-  const agentId = generateAgentId(name);
+  const avatarId = generateAvatarId(name);
   const now = Date.now();
 
-  const agent: AgentRecord = {
-    pk: `AGENT#${agentId}`,
+  const avatar: AvatarRecord = {
+    pk: `AVATAR#${avatarId}`,
     sk: 'CONFIG',
-    agentId,
+    avatarId,
     name,
     description,
     platforms: {},
@@ -147,7 +147,7 @@ export async function createAgentWithWallet(
   try {
     await dynamoClient.send(new PutCommand({
       TableName: ADMIN_TABLE,
-      Item: agent,
+      Item: avatar,
       ConditionExpression: 'attribute_not_exists(pk)',
     }));
   } catch (err: unknown) {
@@ -160,15 +160,15 @@ export async function createAgentWithWallet(
   await incrementCreatorCount(creatorWallet);
 
   // 2. Re-verify gate status (pessimistic check for race conditions)
-  // Uses canCreate which properly accounts for free slot: availableSlots = (1 + nftsHeld) - agentsCreated
+  // Uses canCreate which properly accounts for free slot: availableSlots = (1 + nftsHeld) - avatarsCreated
   const finalStatus = await getGateStatus(creatorWallet);
   if (!finalStatus.canCreate && finalStatus.availableSlots < 0) {
     // Race condition: user sold NFT between check and create, now over limit
-    // Rollback by deleting the agent
-    console.log(`[Agents] Gate slot race condition for wallet=${creatorWallet.slice(0, 8)}... (created=${finalStatus.agentsCreated}, slots=${finalStatus.nftsHeld + 1})`);
+    // Rollback by deleting the avatar
+    console.log(`[Avatars] Gate slot race condition for wallet=${creatorWallet.slice(0, 8)}... (created=${finalStatus.avatarsCreated}, slots=${finalStatus.nftsHeld + 1})`);
     await dynamoClient.send(new PutCommand({
       TableName: ADMIN_TABLE,
-      Item: { ...agent, status: 'deleted' },
+      Item: { ...avatar, status: 'deleted' },
     }));
     await decrementCreatorCount(creatorWallet);
     return {
@@ -179,22 +179,22 @@ export async function createAgentWithWallet(
   }
 
   // Sync to state table so handlers can access it
-  await syncAgentConfig(agent);
+  await syncAvatarConfig(avatar);
 
-  console.log(`[Agents] Created agent=${agentId} by wallet=${creatorWallet.slice(0, 8)}...`);
+  console.log(`[Avatars] Created avatar=${avatarId} by wallet=${creatorWallet.slice(0, 8)}...`);
 
   return {
     success: true,
-    agent,
+    avatar,
     gateStatus: finalStatus,
   };
 }
 
 /**
- * List unclaimed agents (no inhabitant)
+ * List unclaimed avatars (no inhabitant)
  * Only checks inhabitantWallet - ownerWallet is a legacy field
  */
-export async function listUnclaimedAgents(): Promise<AgentRecord[]> {
+export async function listUnclaimedAvatars(): Promise<AvatarRecord[]> {
   const result = await dynamoClient.send(new ScanCommand({
     TableName: ADMIN_TABLE,
     FilterExpression: 'sk = :sk AND #status <> :deleted AND attribute_not_exists(inhabitantWallet)',
@@ -207,31 +207,31 @@ export async function listUnclaimedAgents(): Promise<AgentRecord[]> {
     },
   }));
 
-  return (result.Items as AgentRecord[]) || [];
+  return (result.Items as AvatarRecord[]) || [];
 }
 
 /**
- * Get an agent by ID
+ * Get an avatar by ID
  */
-export async function getAgent(agentId: string): Promise<AgentRecord | null> {
+export async function getAvatar(avatarId: string): Promise<AvatarRecord | null> {
   const result = await dynamoClient.send(new GetCommand({
     TableName: ADMIN_TABLE,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: 'CONFIG',
     },
   }));
 
-  return result.Item as AgentRecord | null;
+  return result.Item as AvatarRecord | null;
 }
 
 /**
- * Update an agent
+ * Update an avatar
  */
-export async function updateAgent(
-  agentId: string,
+export async function updateAvatar(
+  avatarId: string,
   updates: Partial<Pick<
-    AgentRecord,
+    AvatarRecord,
     'name'
     | 'description'
     | 'persona'
@@ -245,10 +245,10 @@ export async function updateAgent(
     | 'stickerPack'
   >>,
   session: UserSession
-): Promise<AgentRecord> {
-  const existing = await getAgent(agentId);
+): Promise<AvatarRecord> {
+  const existing = await getAvatar(avatarId);
   if (!existing) {
-    throw new Error(`Agent not found: ${agentId}`);
+    throw new Error(`Avatar not found: ${avatarId}`);
   }
 
   // Filter out undefined values to avoid overwriting existing fields
@@ -256,7 +256,7 @@ export async function updateAgent(
     Object.entries(updates).filter(([, v]) => v !== undefined)
   );
 
-  const updated: AgentRecord = {
+  const updated: AvatarRecord = {
     ...existing,
     ...cleanUpdates,
     voiceConfig: updates.voiceConfig
@@ -272,15 +272,15 @@ export async function updateAgent(
   }));
 
   // Sync to state table so handlers can access it
-  await syncAgentConfig(updated);
+  await syncAvatarConfig(updated);
 
   return updated;
 }
 
 /**
- * List all agents
+ * List all avatars
  */
-export async function listAgents(): Promise<AgentRecord[]> {
+export async function listAvatars(): Promise<AvatarRecord[]> {
   // Use a scan with filter for CONFIG records
   // In production, use a GSI for better performance
   const result = await dynamoClient.send(new ScanCommand({
@@ -295,17 +295,17 @@ export async function listAgents(): Promise<AgentRecord[]> {
     },
   }));
 
-  return (result.Items as AgentRecord[]) || [];
+  return (result.Items as AvatarRecord[]) || [];
 }
 
 /**
- * List agents owned by a specific wallet
- * Returns agents where:
- * - creatorWallet matches (agents the wallet created)
- * - OR inhabitantWallet matches (agents the wallet inhabits)
- * This ensures wallet users see all agents they have access to
+ * List avatars owned by a specific wallet
+ * Returns avatars where:
+ * - creatorWallet matches (avatars the wallet created)
+ * - OR inhabitantWallet matches (avatars the wallet inhabits)
+ * This ensures wallet users see all avatars they have access to
  */
-export async function listAgentsByWallet(walletAddress: string): Promise<AgentRecord[]> {
+export async function listAvatarsByWallet(walletAddress: string): Promise<AvatarRecord[]> {
   const result = await dynamoClient.send(new ScanCommand({
     TableName: ADMIN_TABLE,
     FilterExpression: 'sk = :sk AND #status <> :deleted AND (creatorWallet = :wallet OR inhabitantWallet = :wallet)',
@@ -319,37 +319,37 @@ export async function listAgentsByWallet(walletAddress: string): Promise<AgentRe
     },
   }));
 
-  return (result.Items as AgentRecord[]) || [];
+  return (result.Items as AvatarRecord[]) || [];
 }
 
 /**
- * Delete an agent (soft delete)
+ * Delete an avatar (soft delete)
  */
-export async function deleteAgent(
-  agentId: string,
+export async function deleteAvatar(
+  avatarId: string,
   session: UserSession
 ): Promise<void> {
-  const existing = await getAgent(agentId);
+  const existing = await getAvatar(avatarId);
   if (existing?.creatorWallet && existing.status !== 'deleted') {
     await decrementCreatorCount(existing.creatorWallet);
   }
-  await updateAgent(agentId, { status: 'deleted' }, session);
+  await updateAvatar(avatarId, { status: 'deleted' }, session);
 }
 
 /**
- * Configure Telegram for an agent
+ * Configure Telegram for an avatar
  */
 export async function configureTelegram(
-  agentId: string,
+  avatarId: string,
   botUsername: string,
   session: UserSession
-): Promise<AgentRecord> {
-  const existing = await getAgent(agentId);
+): Promise<AvatarRecord> {
+  const existing = await getAvatar(avatarId);
   if (!existing) {
-    throw new Error(`Agent not found: ${agentId}`);
+    throw new Error(`Avatar not found: ${avatarId}`);
   }
 
-  return updateAgent(agentId, {
+  return updateAvatar(avatarId, {
     platforms: {
       ...existing.platforms,
       telegram: {
@@ -361,19 +361,19 @@ export async function configureTelegram(
 }
 
 /**
- * Configure Twitter for an agent
+ * Configure Twitter for an avatar
  */
 export async function configureTwitter(
-  agentId: string,
+  avatarId: string,
   username: string,
   session: UserSession
-): Promise<AgentRecord> {
-  const existing = await getAgent(agentId);
+): Promise<AvatarRecord> {
+  const existing = await getAvatar(avatarId);
   if (!existing) {
-    throw new Error(`Agent not found: ${agentId}`);
+    throw new Error(`Avatar not found: ${avatarId}`);
   }
 
-  return updateAgent(agentId, {
+  return updateAvatar(avatarId, {
     platforms: {
       ...existing.platforms,
       twitter: {
@@ -385,19 +385,19 @@ export async function configureTwitter(
 }
 
 /**
- * Configure Discord for an agent
+ * Configure Discord for an avatar
  */
 export async function configureDiscord(
-  agentId: string,
+  avatarId: string,
   guildId: string | undefined,
   session: UserSession
-): Promise<AgentRecord> {
-  const existing = await getAgent(agentId);
+): Promise<AvatarRecord> {
+  const existing = await getAvatar(avatarId);
   if (!existing) {
-    throw new Error(`Agent not found: ${agentId}`);
+    throw new Error(`Avatar not found: ${avatarId}`);
   }
 
-  return updateAgent(agentId, {
+  return updateAvatar(avatarId, {
     platforms: {
       ...existing.platforms,
       discord: {

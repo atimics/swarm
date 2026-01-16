@@ -116,7 +116,7 @@ export async function handler(
 
       const mediaBuffer = Buffer.from(await response.arrayBuffer());
       const mediaId = uuid();
-      const s3Key = `agents/${job.agentId}/${folder}/${mediaId}.${extension}`;
+      const s3Key = `avatars/${job.avatarId}/${folder}/${mediaId}.${extension}`;
 
       logger.info('Uploading media to S3', { type: job.type, s3Key, bytes: mediaBuffer.length });
 
@@ -136,7 +136,7 @@ export async function handler(
       });
 
       // Add to gallery
-      await gallery.addToGallery(job.agentId, {
+      await gallery.addToGallery(job.avatarId, {
         id: mediaId,
         type: job.type,
         url: publicUrl,
@@ -154,10 +154,10 @@ export async function handler(
       // Send callback message to response queue if configured
       // Allow sending when we have conversationId (will post to chat) or replyToMessageId (will reply to specific message)
       if (RESPONSE_QUEUE_URL && (job.conversationId || job.replyToMessageId)) {
-        // Send as a continuation message that can trigger the agent
+        // Send as a continuation message that can trigger the avatar
         const continuationMessage = {
           type: 'media_generated',
-          agentId: job.agentId,
+          avatarId: job.avatarId,
           platform: job.platform,
           conversationId: job.conversationId,
           replyToMessageId: job.replyToMessageId,
@@ -192,7 +192,7 @@ export async function handler(
       if (RESPONSE_QUEUE_URL && (job.conversationId || job.replyToMessageId)) {
         const continuationMessage = {
           type: 'media_failed',
-          agentId: job.agentId,
+          avatarId: job.avatarId,
           platform: job.platform,
           conversationId: job.conversationId,
           replyToMessageId: job.replyToMessageId,

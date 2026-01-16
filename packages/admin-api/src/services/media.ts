@@ -179,18 +179,18 @@ async function getSystemReplicateKey(): Promise<string | null> {
 }
 
 /**
- * Get the current credits for an agent's free image generation.
+ * Get the current credits for an avatar's free image generation.
  * Credits recharge at 1 per day, up to a maximum of 3.
  */
-async function getImageTrialCredits(agentId: string): Promise<{ credits: number; lastRecharge: number }> {
+async function getImageTrialCredits(avatarId: string): Promise<{ credits: number; lastRecharge: number }> {
   try {
     const result = await dynamoClient.send(new GetCommand({
       TableName: ADMIN_TABLE,
-      Key: { pk: `AGENT#${agentId}`, sk: 'IMAGE_TRIAL' },
+      Key: { pk: `AVATAR#${avatarId}`, sk: 'IMAGE_TRIAL' },
     }));
     
     if (!result.Item) {
-      // New agent - start with max credits
+      // New avatar - start with max credits
       return { credits: IMAGE_TRIAL_MAX_CREDITS, lastRecharge: Date.now() };
     }
     
@@ -227,17 +227,17 @@ function calculateRechargedCredits(currentCredits: number, lastRecharge: number)
  * Consume one image generation trial credit.
  * Credits recharge at 1 per day, up to a maximum of 3.
  */
-async function consumeImageGenerationTrial(agentId: string): Promise<{ allowed: boolean; remaining: number }> {
+async function consumeImageGenerationTrial(avatarId: string): Promise<{ allowed: boolean; remaining: number }> {
   const now = Date.now();
   
   // Get current state
-  const { credits: storedCredits, lastRecharge } = await getImageTrialCredits(agentId);
+  const { credits: storedCredits, lastRecharge } = await getImageTrialCredits(avatarId);
   
   // Calculate recharged credits
   const currentCredits = calculateRechargedCredits(storedCredits, lastRecharge);
   
   if (currentCredits <= 0) {
-    console.log(`[Media] Image trial exhausted for agent=${agentId}, credits=${currentCredits}`);
+    console.log(`[Media] Image trial exhausted for avatar=${avatarId}, credits=${currentCredits}`);
     return { allowed: false, remaining: 0 };
   }
   
@@ -248,7 +248,7 @@ async function consumeImageGenerationTrial(agentId: string): Promise<{ allowed: 
     await dynamoClient.send(new PutCommand({
       TableName: ADMIN_TABLE,
       Item: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: 'IMAGE_TRIAL',
         credits: newCredits,
         lastRecharge: now, // Reset recharge timer when we update
@@ -256,7 +256,7 @@ async function consumeImageGenerationTrial(agentId: string): Promise<{ allowed: 
       },
     }));
     
-    console.log(`[Media] Consumed image trial credit: agent=${agentId}, remaining=${newCredits}`);
+    console.log(`[Media] Consumed image trial credit: avatar=${avatarId}, remaining=${newCredits}`);
     return { allowed: true, remaining: newCredits };
   } catch (err) {
     console.error('[Media] Failed to consume image trial credit:', err);
@@ -265,26 +265,26 @@ async function consumeImageGenerationTrial(agentId: string): Promise<{ allowed: 
   }
 }
 
-async function getImageGenerationApiKey(agentId: string): Promise<string> {
-  // Check for agent-specific key first
-  const agentKey = await _getSecretValueInternal(agentId, 'replicate_api_key', 'default');
-  if (agentKey) {
-    return agentKey;
+async function getImageGenerationApiKey(avatarId: string): Promise<string> {
+  // Check for avatar-specific key first
+  const avatarey = await _getSecretValueInternal(avatarId, 'replicate_api_key', 'default');
+  if (avatarey) {
+    return avatarey;
   }
 
   // Check for system key (env var, Secrets Manager, or GLOBAL secret)
   const systemKey = await getSystemReplicateKey();
   if (!systemKey) {
-    throw new Error('No system Replicate API key configured. Please set up a global or agent Replicate API key.');
+    throw new Error('No system Replicate API key configured. Please set up a global or avatar Replicate API key.');
   }
 
   // System key exists - check trial credits
-  const trial = await consumeImageGenerationTrial(agentId);
+  const trial = await consumeImageGenerationTrial(avatarId);
   if (!trial.allowed) {
     throw new Error('Free image credits exhausted. Credits recharge at 1 per day (max 3). Set your own Replicate API key for unlimited use.');
   }
 
-  console.log(`[Media] Using system Replicate key for image generation: agent=${agentId}, remaining=${trial.remaining}`);
+  console.log(`[Media] Using system Replicate key for image generation: avatar=${avatarId}, remaining=${trial.remaining}`);
   return systemKey;
 }
 
@@ -301,7 +301,7 @@ const REPLICATE_MODEL_VERSIONS: Record<string, string> = {
 
 interface GenerateImageOptions {
   prompt: string;
-  agentId: string;
+  avatarId: string;
   platform?: string;
   model?: string;
   referenceImageUrls?: string[]; // Array of reference images (profile, gallery, etc.)
@@ -312,7 +312,7 @@ interface GenerateImageOptions {
 
 interface GenerateVideoOptions {
   prompt: string;
-  agentId: string;
+  avatarId: string;
   platform?: string;
   conversationId: string;
   replyToMessageId?: string;
@@ -322,7 +322,7 @@ interface GenerateVideoOptions {
 
 interface GenerateStickerOptions {
   prompt: string;
-  agentId: string;
+  avatarId: string;
   platform?: string;
   sourceImageId?: string; // Convert existing image to sticker
 }
@@ -331,7 +331,7 @@ interface GenerateStickerOptions {
  * Reference image categories
  */
 export type ReferenceImageCategory = 
-  | 'profile'      // Agent's profile/avatar
+  | 'profile'      // Avatar's profile/avatar
   | 'character'    // Character reference for consistency
   | 'style'        // Style reference images
   | 'background'   // Background/scene references
@@ -347,12 +347,12 @@ interface ReferenceImageUploadResult {
 /**
  * Generate a signed URL for uploading a profile image
  */
-export async function getProfileImageUploadUrl(agentId: string): Promise<{
+export async function getProfileImageUploadUrl(avatarId: string): Promise<{
   uploadUrl: string;
   s3Key: string;
   publicUrl: string;
 }> {
-  const s3Key = `agents/${agentId}/profile/${uuid()}.png`;
+  const s3Key = `avatars/${avatarId}/profile/${uuid()}.png`;
 
   const command = new PutObjectCommand({
     Bucket: MEDIA_BUCKET,
@@ -370,7 +370,7 @@ export async function getProfileImageUploadUrl(agentId: string): Promise<{
  * Generate a signed URL for uploading a reference image
  */
 export async function getReferenceImageUploadUrl(
-  agentId: string,
+  avatarId: string,
   category: ReferenceImageCategory,
   filename?: string,
   contentType: string = 'image/png'
@@ -379,7 +379,7 @@ export async function getReferenceImageUploadUrl(
   const safeName = filename 
     ? filename.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 50) 
     : uuid().slice(0, 8);
-  const s3Key = `agents/${agentId}/references/${category}/${safeName}-${uuid().slice(0, 8)}.${extension}`;
+  const s3Key = `avatars/${avatarId}/references/${category}/${safeName}-${uuid().slice(0, 8)}.${extension}`;
 
   const command = new PutObjectCommand({
     Bucket: MEDIA_BUCKET,
@@ -397,7 +397,7 @@ export async function getReferenceImageUploadUrl(
  * Get API key for a provider
  */
 export async function getProviderApiKey(
-  agentId: string,
+  avatarId: string,
   provider: 'openrouter' | 'replicate' | 'openai'
 ): Promise<string | null> {
   const secretTypes: Record<'openrouter' | 'replicate' | 'openai', SecretType> = {
@@ -406,8 +406,8 @@ export async function getProviderApiKey(
     openai: 'openai_api_key',
   };
 
-  // Try agent-specific key first, then global
-  let key = await _getSecretValueInternal(agentId, secretTypes[provider], 'default');
+  // Try avatar-specific key first, then global
+  let key = await _getSecretValueInternal(avatarId, secretTypes[provider], 'default');
   if (!key) {
     key = await _getSecretValueInternal('GLOBAL', secretTypes[provider], 'default');
   }
@@ -422,7 +422,7 @@ export async function getProviderApiKey(
 export async function generateImage(options: GenerateImageOptions): Promise<GalleryItem> {
   const {
     prompt,
-    agentId,
+    avatarId,
     platform,
     model,
     referenceImageUrls = [],
@@ -432,20 +432,20 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
   } = options;
 
   // Check credits
-  const canUse = await credits.canUseTool(agentId, 'generate_image');
+  const canUse = await credits.canUseTool(avatarId, 'generate_image');
   if (!canUse.allowed) {
     throw new Error(`Rate limited: ${canUse.reason}`);
   }
 
   if (chargeEnergy) {
-    const energyCheck = await credits.canUseEnergy(agentId, credits.ENERGY_COSTS.image);
+    const energyCheck = await credits.canUseEnergy(avatarId, credits.ENERGY_COSTS.image);
     if (!energyCheck.allowed) {
       throw new Error(`Energy limit reached: ${energyCheck.reason}`);
     }
   }
 
-  // Get Replicate API key (agent key or system trial)
-  const apiKey = await getImageGenerationApiKey(agentId);
+  // Get Replicate API key (avatar key or system trial)
+  const apiKey = await getImageGenerationApiKey(avatarId);
 
   // Build the prompt with reference context if images provided
   let finalPrompt = prompt;
@@ -599,7 +599,7 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
 
   // Upload to S3
   const imageId = uuid();
-  const s3Key = `agents/${agentId}/images/${imageId}.png`;
+  const s3Key = `avatars/${avatarId}/images/${imageId}.png`;
 
   console.log(`Uploading to S3: bucket=${MEDIA_BUCKET}, key=${s3Key}`);
   await s3Client.send(new PutObjectCommand({
@@ -611,11 +611,11 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
   console.log(`S3 upload successful`);
 
   // Consume credit
-  await credits.consumeCredit(agentId, 'generate_image');
+  await credits.consumeCredit(avatarId, 'generate_image');
   if (chargeEnergy) {
-    const energyConsumed = await credits.consumeEnergy(agentId, credits.ENERGY_COSTS.image);
+    const energyConsumed = await credits.consumeEnergy(avatarId, credits.ENERGY_COSTS.image);
     if (!energyConsumed) {
-      console.warn(`[Credits] Failed to consume energy for generate_image: agent=${agentId}`);
+      console.warn(`[Credits] Failed to consume energy for generate_image: avatar=${avatarId}`);
     }
   }
 
@@ -625,7 +625,7 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
   const publicUrl = CDN_URL ? `${CDN_URL}/${s3Key}` : `https://${MEDIA_BUCKET}.s3.amazonaws.com/${s3Key}`;
   console.log(`Public URL: ${publicUrl} (CDN_URL=${CDN_URL || 'NOT SET'})`);
 
-  const galleryItem = await gallery.addToGallery(agentId, {
+  const galleryItem = await gallery.addToGallery(avatarId, {
     id: imageId,
     type: 'image',
     url: publicUrl,
@@ -656,7 +656,7 @@ interface GenerateImageAsyncOptions extends GenerateImageOptions {
 export async function generateImageAsync(options: GenerateImageAsyncOptions): Promise<MediaJob> {
   const {
     prompt,
-    agentId,
+    avatarId,
     platform,
     model,
     referenceImageUrls = [],
@@ -669,20 +669,20 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
   } = options;
 
   // Check credits
-  const canUse = await credits.canUseTool(agentId, 'generate_image');
+  const canUse = await credits.canUseTool(avatarId, 'generate_image');
   if (!canUse.allowed) {
     throw new Error(`Rate limited: ${canUse.reason}`);
   }
 
   if (chargeEnergy) {
-    const energyCheck = await credits.canUseEnergy(agentId, credits.ENERGY_COSTS.image);
+    const energyCheck = await credits.canUseEnergy(avatarId, credits.ENERGY_COSTS.image);
     if (!energyCheck.allowed) {
       throw new Error(`Energy limit reached: ${energyCheck.reason}`);
     }
   }
 
   // Get Replicate API key
-  const apiKey = apiKeyOverride || await getImageGenerationApiKey(agentId);
+  const apiKey = apiKeyOverride || await getImageGenerationApiKey(avatarId);
 
   // Build the prompt with reference context if images provided
   let finalPrompt = prompt;
@@ -742,7 +742,7 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
   const jobId = uuid();
   const job = await mediaJobs.createJob({
     jobId,
-    agentId,
+    avatarId,
     type: 'image',
     prompt,
     conversationId,
@@ -789,11 +789,11 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
   await mediaJobs.updateJobStatus(jobId, 'processing', { externalId: prediction.id });
 
   // Consume credit
-  await credits.consumeCredit(agentId, 'generate_image');
+  await credits.consumeCredit(avatarId, 'generate_image');
   if (chargeEnergy) {
-    const energyConsumed = await credits.consumeEnergy(agentId, credits.ENERGY_COSTS.image);
+    const energyConsumed = await credits.consumeEnergy(avatarId, credits.ENERGY_COSTS.image);
     if (!energyConsumed) {
-      console.warn(`[Credits] Failed to consume energy for generate_image: agent=${agentId}`);
+      console.warn(`[Credits] Failed to consume energy for generate_image: avatar=${avatarId}`);
     }
   }
 
@@ -808,23 +808,23 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
  */
 export async function generateVideo(options: GenerateVideoOptions): Promise<MediaJob> {
   const {
-    prompt, agentId, platform, conversationId, replyToMessageId,
+    prompt, avatarId, platform, conversationId, replyToMessageId,
     model, referenceImageUrl
   } = options;
 
   // Check credits
-  const canUse = await credits.canUseTool(agentId, 'generate_video');
+  const canUse = await credits.canUseTool(avatarId, 'generate_video');
   if (!canUse.allowed) {
     throw new Error(`Rate limited: ${canUse.reason}`);
   }
 
-  const energyCheck = await credits.canUseEnergy(agentId, credits.ENERGY_COSTS.video);
+  const energyCheck = await credits.canUseEnergy(avatarId, credits.ENERGY_COSTS.video);
   if (!energyCheck.allowed) {
     throw new Error(`Energy limit reached: ${energyCheck.reason}`);
   }
 
   // Get Replicate API key
-  const apiKey = await getProviderApiKey(agentId, 'replicate');
+  const apiKey = await getProviderApiKey(avatarId, 'replicate');
   if (!apiKey) {
     throw new Error('No Replicate API key configured. Please set up an API key first.');
   }
@@ -833,7 +833,7 @@ export async function generateVideo(options: GenerateVideoOptions): Promise<Medi
   const jobId = uuid();
   const job = await mediaJobs.createJob({
     jobId,
-    agentId,
+    avatarId,
     type: 'video',
     prompt,
     conversationId,
@@ -888,10 +888,10 @@ export async function generateVideo(options: GenerateVideoOptions): Promise<Medi
   await mediaJobs.updateJobStatus(jobId, 'processing', { externalId: prediction.id });
 
   // Consume credit
-  await credits.consumeCredit(agentId, 'generate_video');
-  const energyConsumed = await credits.consumeEnergy(agentId, credits.ENERGY_COSTS.video);
+  await credits.consumeCredit(avatarId, 'generate_video');
+  const energyConsumed = await credits.consumeEnergy(avatarId, credits.ENERGY_COSTS.video);
   if (!energyConsumed) {
-    console.warn(`[Credits] Failed to consume energy for generate_video: agent=${agentId}`);
+    console.warn(`[Credits] Failed to consume energy for generate_video: avatar=${avatarId}`);
   }
 
   return job;
@@ -901,15 +901,15 @@ export async function generateVideo(options: GenerateVideoOptions): Promise<Medi
  * Generate a sticker (image with background removal)
  */
 export async function generateSticker(options: GenerateStickerOptions): Promise<GalleryItem> {
-  const { prompt, agentId, platform, sourceImageId } = options;
+  const { prompt, avatarId, platform, sourceImageId } = options;
 
   // Check credits
-  const canUse = await credits.canUseTool(agentId, 'generate_sticker');
+  const canUse = await credits.canUseTool(avatarId, 'generate_sticker');
   if (!canUse.allowed) {
     throw new Error(`Rate limited: ${canUse.reason}`);
   }
 
-  const energyCheck = await credits.canUseEnergy(agentId, credits.ENERGY_COSTS.image);
+  const energyCheck = await credits.canUseEnergy(avatarId, credits.ENERGY_COSTS.image);
   if (!energyCheck.allowed) {
     throw new Error(`Energy limit reached: ${energyCheck.reason}`);
   }
@@ -919,7 +919,7 @@ export async function generateSticker(options: GenerateStickerOptions): Promise<
 
   if (sourceImageId) {
     // Convert existing image to sticker
-    const sourceItem = await gallery.getGalleryItem(agentId, sourceImageId);
+    const sourceItem = await gallery.getGalleryItem(avatarId, sourceImageId);
     if (!sourceItem) {
       throw new Error(`Source image not found: ${sourceImageId}`);
     }
@@ -929,7 +929,7 @@ export async function generateSticker(options: GenerateStickerOptions): Promise<
     // Generate new image first
     const image = await generateImage({
       prompt: `${prompt}, simple clean design suitable for sticker, transparent background style`,
-      agentId,
+      avatarId,
       platform,
       resolution: '1K',
       aspectRatio: '1:1',
@@ -940,7 +940,7 @@ export async function generateSticker(options: GenerateStickerOptions): Promise<
   }
 
   // Get Replicate API key for background removal
-  const apiKey = await getProviderApiKey(agentId, 'replicate');
+  const apiKey = await getProviderApiKey(avatarId, 'replicate');
   if (!apiKey) {
     throw new Error('No Replicate API key configured for background removal.');
   }
@@ -988,7 +988,7 @@ export async function generateSticker(options: GenerateStickerOptions): Promise<
 
   // Store as sticker
   const stickerId = uuid();
-  const s3Key = `agents/${agentId}/stickers/${stickerId}.webp`;
+  const s3Key = `avatars/${avatarId}/stickers/${stickerId}.webp`;
 
   await s3Client.send(new PutObjectCommand({
     Bucket: MEDIA_BUCKET,
@@ -998,24 +998,24 @@ export async function generateSticker(options: GenerateStickerOptions): Promise<
   }));
 
   // Consume credit
-  await credits.consumeCredit(agentId, 'generate_sticker');
-  const energyConsumed = await credits.consumeEnergy(agentId, credits.ENERGY_COSTS.image);
+  await credits.consumeCredit(avatarId, 'generate_sticker');
+  const energyConsumed = await credits.consumeEnergy(avatarId, credits.ENERGY_COSTS.image);
   if (!energyConsumed) {
-    console.warn(`[Credits] Failed to consume energy for generate_sticker: agent=${agentId}`);
+    console.warn(`[Credits] Failed to consume energy for generate_sticker: avatar=${avatarId}`);
   }
 
   // Mark original as converted if it was from gallery
   if (sourceImageId && originalS3Key) {
-    const sourceItem = await gallery.getGalleryItem(agentId, sourceImageId);
+    const sourceItem = await gallery.getGalleryItem(avatarId, sourceImageId);
     if (sourceItem) {
-      await gallery.markConvertedToSticker(agentId, sourceImageId, sourceItem.sk);
+      await gallery.markConvertedToSticker(avatarId, sourceImageId, sourceItem.sk);
     }
   }
 
   // Add to gallery
   const publicUrl = CDN_URL ? `${CDN_URL}/${s3Key}` : `https://${MEDIA_BUCKET}.s3.amazonaws.com/${s3Key}`;
 
-  const galleryItem = await gallery.addToGallery(agentId, {
+  const galleryItem = await gallery.addToGallery(avatarId, {
     id: stickerId,
     type: 'sticker',
     url: publicUrl,
@@ -1030,10 +1030,10 @@ export async function generateSticker(options: GenerateStickerOptions): Promise<
 }
 
 export async function generateProfileImageAsync(
-  agentId: string,
+  avatarId: string,
   prompt: string
 ): Promise<MediaJob> {
-  const canUse = await credits.canUseTool(agentId, 'set_profile_image');
+  const canUse = await credits.canUseTool(avatarId, 'set_profile_image');
   if (!canUse.allowed) {
     throw new Error(`Rate limited: ${canUse.reason}`);
   }
@@ -1041,30 +1041,30 @@ export async function generateProfileImageAsync(
   const profilePrompt = `${prompt}, professional profile picture, centered subject, clean background`;
   const job = await generateImageAsync({
     prompt: profilePrompt,
-    agentId,
+    avatarId,
     platform: 'profile',
     resolution: '1K',
     aspectRatio: '1:1',
     conversationId: '',
   });
 
-  const consumed = await credits.consumeCredit(agentId, 'set_profile_image');
+  const consumed = await credits.consumeCredit(avatarId, 'set_profile_image');
   if (!consumed) {
-    console.warn(`[Credits] Failed to consume credit for set_profile_image: agent=${agentId}`);
+    console.warn(`[Credits] Failed to consume credit for set_profile_image: avatar=${avatarId}`);
   }
 
   return job;
 }
 
 /**
- * Set agent profile image from URL or generated image
+ * Set avatar profile image from URL or generated image
  */
 export async function setProfileImage(
-  agentId: string,
+  avatarId: string,
   source: { type: 'url'; url: string } | { type: 'generate'; prompt: string } | { type: 'gallery'; imageId: string }
 ): Promise<{ url: string; s3Key: string }> {
   // Check credits for set_profile_image
-  const canUse = await credits.canUseTool(agentId, 'set_profile_image');
+  const canUse = await credits.canUseTool(avatarId, 'set_profile_image');
   if (!canUse.allowed) {
     throw new Error(`Rate limited: ${canUse.reason}`);
   }
@@ -1082,7 +1082,7 @@ export async function setProfileImage(
     // Generate a new profile image
     const image = await generateImage({
       prompt: `${source.prompt}, professional profile picture, centered subject, clean background`,
-      agentId,
+      avatarId,
       platform: 'profile',
       resolution: '1K',
       aspectRatio: '1:1',
@@ -1093,7 +1093,7 @@ export async function setProfileImage(
     imageBuffer = Buffer.from(await response.arrayBuffer());
   } else if (source.type === 'gallery') {
     // Use existing gallery image
-    const item = await gallery.getGalleryItem(agentId, source.imageId);
+    const item = await gallery.getGalleryItem(avatarId, source.imageId);
     if (!item) {
       throw new Error(`Image not found in gallery: ${source.imageId}`);
     }
@@ -1105,7 +1105,7 @@ export async function setProfileImage(
   }
 
   // Store as profile image
-  const s3Key = `agents/${agentId}/profile/${uuid()}.png`;
+  const s3Key = `avatars/${avatarId}/profile/${uuid()}.png`;
 
   await s3Client.send(new PutObjectCommand({
     Bucket: MEDIA_BUCKET,
@@ -1115,7 +1115,7 @@ export async function setProfileImage(
   }));
 
   // Consume credit
-  await credits.consumeCredit(agentId, 'set_profile_image');
+  await credits.consumeCredit(avatarId, 'set_profile_image');
 
   const publicUrl = CDN_URL ? `${CDN_URL}/${s3Key}` : `https://${MEDIA_BUCKET}.s3.amazonaws.com/${s3Key}`;
 
@@ -1125,12 +1125,12 @@ export async function setProfileImage(
 /**
  * Generate a signed URL for uploading a character reference image
  */
-export async function getCharacterReferenceUploadUrl(agentId: string): Promise<{
+export async function getCharacterReferenceUploadUrl(avatarId: string): Promise<{
   uploadUrl: string;
   s3Key: string;
   publicUrl: string;
 }> {
-  const s3Key = `agents/${agentId}/character-reference/${uuid()}.png`;
+  const s3Key = `avatars/${avatarId}/character-reference/${uuid()}.png`;
 
   const command = new PutObjectCommand({
     Bucket: MEDIA_BUCKET,
@@ -1145,16 +1145,16 @@ export async function getCharacterReferenceUploadUrl(agentId: string): Promise<{
 }
 
 /**
- * Set agent character reference from URL, upload, or gallery
+ * Set avatar character reference from URL, upload, or gallery
  * Character reference is used for full-body consistency in image/video generation
  */
 export async function setCharacterReference(
-  agentId: string,
+  avatarId: string,
   source: { type: 'url'; url: string } | { type: 'generate'; prompt: string } | { type: 'gallery'; imageId: string },
   description?: string
 ): Promise<{ url: string; s3Key: string }> {
   // Check credits - use dedicated character reference bucket
-  const canUse = await credits.canUseTool(agentId, 'set_character_reference');
+  const canUse = await credits.canUseTool(avatarId, 'set_character_reference');
   if (!canUse.allowed) {
     throw new Error(`Rate limited: ${canUse.reason}`);
   }
@@ -1174,7 +1174,7 @@ export async function setCharacterReference(
     // Generate a character sheet image
     const image = await generateImage({
       prompt: `${source.prompt}, character reference sheet, turnaround view, full body, multiple angles, white background, concept art`,
-      agentId,
+      avatarId,
       platform: 'character-reference',
       resolution: '2K',
       aspectRatio: '16:9', // Wide for turnaround
@@ -1185,7 +1185,7 @@ export async function setCharacterReference(
     imageBuffer = Buffer.from(await response.arrayBuffer());
   } else if (source.type === 'gallery') {
     // Use existing gallery image
-    const item = await gallery.getGalleryItem(agentId, source.imageId);
+    const item = await gallery.getGalleryItem(avatarId, source.imageId);
     if (!item) {
       throw new Error(`Image not found in gallery: ${source.imageId}`);
     }
@@ -1198,7 +1198,7 @@ export async function setCharacterReference(
   }
 
   // Store as character reference
-  const s3Key = `agents/${agentId}/character-reference/${uuid()}.png`;
+  const s3Key = `avatars/${avatarId}/character-reference/${uuid()}.png`;
 
   // Upload to S3
   await s3Client.send(new PutObjectCommand({
@@ -1210,13 +1210,13 @@ export async function setCharacterReference(
 
   const publicUrl = CDN_URL ? `${CDN_URL}/${s3Key}` : `https://${MEDIA_BUCKET}.s3.amazonaws.com/${s3Key}`;
 
-  // Update agent record with character reference
+  // Update avatar record with character reference
   // If this fails, rollback by deleting the S3 file to prevent orphaned files
   try {
     await dynamoClient.send(new UpdateCommand({
       TableName: ADMIN_TABLE,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: 'CONFIG',
       },
       UpdateExpression: 'SET characterReference = :ref, updatedAt = :now',
@@ -1247,7 +1247,7 @@ export async function setCharacterReference(
   }
 
   // Consume credit only after successful save
-  await credits.consumeCredit(agentId, 'set_character_reference');
+  await credits.consumeCredit(avatarId, 'set_character_reference');
 
   return { url: publicUrl, s3Key };
 }
@@ -1256,28 +1256,28 @@ export async function setCharacterReference(
  * Get the best reference image for generation
  * Prefers character reference (full body) over profile image (headshot)
  */
-export async function getBestReferenceImageUrl(agentId: string): Promise<string | undefined> {
-  // First check for character reference in agent config
-  const agentResult = await dynamoClient.send(new GetCommand({
+export async function getBestReferenceImageUrl(avatarId: string): Promise<string | undefined> {
+  // First check for character reference in avatar config
+  const avatarResult = await dynamoClient.send(new GetCommand({
     TableName: ADMIN_TABLE,
-    Key: { pk: `AGENT#${agentId}`, sk: 'CONFIG' },
+    Key: { pk: `AVATAR#${avatarId}`, sk: 'CONFIG' },
   }));
 
-  const agent = agentResult.Item;
-  if (!agent) return undefined;
+  const avatar = avatarResult.Item;
+  if (!avatar) return undefined;
 
   // Prefer character reference for full-body consistency
-  if (agent.characterReference?.url) {
-    return agent.characterReference.url;
+  if (avatar.characterReference?.url) {
+    return avatar.characterReference.url;
   }
 
   // Fall back to profile image
-  if (agent.profileImage?.url) {
-    return agent.profileImage.url;
+  if (avatar.profileImage?.url) {
+    return avatar.profileImage.url;
   }
 
   // Fall back to any 'character' category reference image
-  const characterRefs = await listReferenceImages(agentId, 'character');
+  const characterRefs = await listReferenceImages(avatarId, 'character');
   if (characterRefs.length > 0) {
     return characterRefs[0].url;
   }
@@ -1286,10 +1286,10 @@ export async function getBestReferenceImageUrl(agentId: string): Promise<string 
 }
 
 /**
- * Get tool status for the agent (for AI prompt injection)
+ * Get tool status for the avatar (for AI prompt injection)
  */
-export async function getMediaToolStatus(agentId: string): Promise<string> {
-  return credits.getToolStatus(agentId);
+export async function getMediaToolStatus(avatarId: string): Promise<string> {
+  return credits.getToolStatus(avatarId);
 }
 
 /**
@@ -1298,7 +1298,7 @@ export async function getMediaToolStatus(agentId: string): Promise<string> {
 export async function queueMediaJob(job: {
   type: 'image' | 'video' | 'sticker';
   prompt: string;
-  agentId: string;
+  avatarId: string;
   platform: string;
   conversationId: string;
   replyToMessageId?: string;
@@ -1309,7 +1309,7 @@ export async function queueMediaJob(job: {
 
   const jobId = uuid();
 
-  const messageGroupId = job.conversationId || job.agentId;
+  const messageGroupId = job.conversationId || job.avatarId;
   await sqsClient.send(new SendMessageCommand({
     QueueUrl: MEDIA_QUEUE_URL,
     MessageBody: JSON.stringify({
@@ -1329,7 +1329,7 @@ export async function queueMediaJob(job: {
 
 export interface ReferenceImage {
   id: string;
-  agentId: string;
+  avatarId: string;
   category: ReferenceImageCategory;
   name: string;
   description?: string;
@@ -1342,7 +1342,7 @@ export interface ReferenceImage {
  * Save reference image metadata after upload
  */
 export async function saveReferenceImage(
-  agentId: string,
+  avatarId: string,
   category: ReferenceImageCategory,
   s3Key: string,
   publicUrl: string,
@@ -1354,7 +1354,7 @@ export async function saveReferenceImage(
 
   const image: ReferenceImage = {
     id,
-    agentId,
+    avatarId,
     category,
     name,
     description,
@@ -1366,7 +1366,7 @@ export async function saveReferenceImage(
   await dynamoClient.send(new PutCommand({
     TableName: ADMIN_TABLE,
     Item: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: `REFERENCE#${category}#${id}`,
       ...image,
     },
@@ -1376,10 +1376,10 @@ export async function saveReferenceImage(
 }
 
 /**
- * List reference images for an agent
+ * List reference images for an avatar
  */
 export async function listReferenceImages(
-  agentId: string,
+  avatarId: string,
   category?: ReferenceImageCategory
 ): Promise<ReferenceImage[]> {
   const skPrefix = category ? `REFERENCE#${category}#` : 'REFERENCE#';
@@ -1388,14 +1388,14 @@ export async function listReferenceImages(
     TableName: ADMIN_TABLE,
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
     ExpressionAttributeValues: {
-      ':pk': `AGENT#${agentId}`,
+      ':pk': `AVATAR#${avatarId}`,
       ':sk': skPrefix,
     },
   }));
 
   return (result.Items || []).map(item => ({
     id: item.id,
-    agentId: item.agentId,
+    avatarId: item.avatarId,
     category: item.category,
     name: item.name,
     description: item.description,
@@ -1409,11 +1409,11 @@ export async function listReferenceImages(
  * Delete a reference image
  */
 export async function deleteReferenceImage(
-  agentId: string,
+  avatarId: string,
   imageId: string
 ): Promise<void> {
   // First find the image to get its category and s3Key
-  const images = await listReferenceImages(agentId);
+  const images = await listReferenceImages(avatarId);
   const image = images.find(img => img.id === imageId);
 
   if (!image) {
@@ -1434,7 +1434,7 @@ export async function deleteReferenceImage(
   await dynamoClient.send(new DeleteCommand({
     TableName: ADMIN_TABLE,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: `REFERENCE#${image.category}#${imageId}`,
     },
   }));

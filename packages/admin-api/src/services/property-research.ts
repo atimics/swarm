@@ -66,7 +66,7 @@ const AUTH_TTL_HOURS = 24;
  * Check if a user has authorization to use property research
  */
 export async function checkAuth(
-  agentId: string,
+  avatarId: string,
   walletAddress: string,
   deps: PropertyResearchDeps = defaultDeps
 ): Promise<boolean> {
@@ -76,7 +76,7 @@ export async function checkAuth(
     new GetCommand({
       TableName: deps.tableName,
       Key: {
-        pk: `PROPERTY_AUTH#${agentId}`,
+        pk: `PROPERTY_AUTH#${avatarId}`,
         sk: `USER#${walletAddress}`,
       },
     })
@@ -91,7 +91,7 @@ export async function checkAuth(
  * Grant property research authorization to a user
  */
 export async function grantAuth(
-  agentId: string,
+  avatarId: string,
   walletAddress: string,
   deps: PropertyResearchDeps = defaultDeps
 ): Promise<PropertyResearchAuth> {
@@ -100,9 +100,9 @@ export async function grantAuth(
   const ttl = Math.floor(expiresAt / 1000);
 
   const auth: PropertyResearchAuth = {
-    pk: `PROPERTY_AUTH#${agentId}`,
+    pk: `PROPERTY_AUTH#${avatarId}`,
     sk: `USER#${walletAddress}`,
-    agentId,
+    avatarId,
     walletAddress,
     grantedAt: now,
     expiresAt,
@@ -116,7 +116,7 @@ export async function grantAuth(
     })
   );
 
-  console.log(`[PropertyResearch] Granted auth for ${walletAddress.slice(0, 8)}... on agent ${agentId}`);
+  console.log(`[PropertyResearch] Granted auth for ${walletAddress.slice(0, 8)}... on avatar ${avatarId}`);
   return auth;
 }
 
@@ -124,7 +124,7 @@ export async function grantAuth(
  * Revoke property research authorization
  */
 export async function revokeAuth(
-  agentId: string,
+  avatarId: string,
   walletAddress: string,
   deps: PropertyResearchDeps = defaultDeps
 ): Promise<void> {
@@ -132,13 +132,13 @@ export async function revokeAuth(
     new DeleteCommand({
       TableName: deps.tableName,
       Key: {
-        pk: `PROPERTY_AUTH#${agentId}`,
+        pk: `PROPERTY_AUTH#${avatarId}`,
         sk: `USER#${walletAddress}`,
       },
     })
   );
 
-  console.log(`[PropertyResearch] Revoked auth for ${walletAddress.slice(0, 8)}... on agent ${agentId}`);
+  console.log(`[PropertyResearch] Revoked auth for ${walletAddress.slice(0, 8)}... on avatar ${avatarId}`);
 }
 
 // =============================================================================
@@ -163,7 +163,7 @@ function createInitialProgress(): ResearchProgress {
  * Create a new property research job
  */
 export async function createJob(
-  agentId: string,
+  avatarId: string,
   property: PropertyAddress,
   requestedBy?: string,
   deps: PropertyResearchDeps = defaultDeps
@@ -176,7 +176,7 @@ export async function createJob(
     pk: `PROPERTY_RESEARCH#${jobId}`,
     sk: 'JOB',
     jobId,
-    agentId,
+    avatarId,
     requestedBy,
     property,
     status: 'queued',
@@ -184,7 +184,7 @@ export async function createJob(
     createdAt: now,
     updatedAt: now,
     ttl,
-    gsi2pk: `AGENT#${agentId}`,
+    gsi2pk: `AVATAR#${avatarId}`,
     gsi2sk: `queued#${now}`,
   };
 
@@ -286,19 +286,19 @@ export async function updateJobStatus(
 }
 
 /**
- * Get all jobs for an agent
+ * Get all jobs for an avatar
  * Uses scan with filter since jobs have TTL (bounded scan)
  */
-export async function getJobsForAgent(
-  agentId: string,
+export async function getJobsForAvatar(
+  avatarId: string,
   statusFilter?: PropertyResearchStatus,
   deps: PropertyResearchDeps = defaultDeps
 ): Promise<PropertyResearchJob[]> {
   // Build filter expression
-  let filterExpression = 'begins_with(pk, :jobPrefix) AND agentId = :agentId';
+  let filterExpression = 'begins_with(pk, :jobPrefix) AND avatarId = :avatarId';
   const expressionValues: Record<string, unknown> = {
     ':jobPrefix': 'PROPERTY_RESEARCH#',
-    ':agentId': agentId,
+    ':avatarId': avatarId,
   };
 
   if (statusFilter) {
@@ -889,3 +889,10 @@ export function generateReport(
 
   return lines.join('\n');
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use getJobsForAvatar instead */
+export const getJobsForAgent = getJobsForAvatar;

@@ -12,7 +12,7 @@ import * as mediaJobs from '../services/media-jobs.js';
 /**
  * Lambda handler for job status API
  * GET /jobs/{jobId} - Get job status
- * GET /jobs?agentId=xxx - List pending jobs for an agent
+ * GET /jobs?avatarId=xxx - List pending jobs for an avatar
  */
 export async function handler(
   event: APIGatewayProxyEventV2
@@ -92,18 +92,18 @@ export async function handler(
       };
     }
 
-    // GET /jobs?agentId=xxx - List pending jobs for an agent
-    const agentId = event.queryStringParameters?.agentId;
+    // GET /jobs?avatarId=xxx - List pending jobs for an avatar
+    const avatarId = event.queryStringParameters?.avatarId;
 
-    if (!agentId) {
+    if (!avatarId) {
       return {
         statusCode: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'agentId query parameter required' }),
+        body: JSON.stringify({ error: 'avatarId query parameter required' }),
       };
     }
 
-    const jobs = await mediaJobs.getPendingJobs(agentId);
+    const jobs = await mediaJobs.getPendingJobs(avatarId);
 
     return {
       statusCode: 200,

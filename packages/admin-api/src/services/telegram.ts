@@ -56,10 +56,10 @@ export function isValidTelegramIP(ip: string): boolean {
  */
 export async function registerTelegramWebhook(
   botToken: string,
-  agentId: string,
+  avatarId: string,
   secretToken?: string
 ): Promise<{ success: boolean; message: string; webhookUrl?: string; secretToken?: string }> {
-  const webhookUrl = `https://${API_DOMAIN}/webhook/telegram/${agentId}`;
+  const webhookUrl = `https://${API_DOMAIN}/webhook/telegram/${avatarId}`;
 
   // Generate secret token if not provided
   const webhookSecret = secretToken || generateWebhookSecret();
@@ -88,7 +88,7 @@ export async function registerTelegramWebhook(
     };
   }
 
-  console.log(`Registered Telegram webhook for agent ${agentId}: ${webhookUrl}`);
+  console.log(`Registered Telegram webhook for avatar ${avatarId}: ${webhookUrl}`);
 
   return {
     success: true,

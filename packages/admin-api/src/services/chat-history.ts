@@ -1,6 +1,6 @@
 /**
  * Chat History Service
- * Persists chat history per user/agent for cross-device sync
+ * Persists chat history per user/avatar for cross-device sync
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
@@ -24,7 +24,7 @@ const CHAT_HISTORY_TTL_SECONDS = Math.max(0, CHAT_HISTORY_TTL_HOURS) * 60 * 60;
 
 export interface ChatHistoryRecord {
   pk: string; // CHAT#<userEmail>
-  sk: string; // AGENT#<agentId> or GLOBAL
+  sk: string; // AVATAR#<avatarId> or GLOBAL
   messages: AdminChatMessage[];
   updatedAt: number;
   ttl?: number;
@@ -38,25 +38,25 @@ function buildChatKey(email: string): string {
 }
 
 /**
- * Build the sort key for a specific agent or global chat
+ * Build the sort key for a specific avatar or global chat
  */
-function buildAgentKey(agentId?: string): string {
-  return agentId ? `AGENT#${agentId}` : 'GLOBAL';
+function buildAvatarKey(avatarId?: string): string {
+  return avatarId ? `AVATAR#${avatarId}` : 'GLOBAL';
 }
 
 /**
- * Get chat history for a user/agent combination
+ * Get chat history for a user/avatar combination
  */
 export async function getChatHistory(
   session: UserSession,
-  agentId?: string
+  avatarId?: string
 ): Promise<AdminChatMessage[]> {
   const result = await dynamoClient.send(
     new GetCommand({
       TableName: ADMIN_TABLE,
       Key: {
         pk: buildChatKey(session.email),
-        sk: buildAgentKey(agentId),
+        sk: buildAvatarKey(avatarId),
       },
     })
   );
@@ -73,19 +73,19 @@ export async function getChatHistory(
 }
 
 /**
- * Save chat history for a user/agent combination
+ * Save chat history for a user/avatar combination
  */
 export async function saveChatHistory(
   session: UserSession,
   messages: AdminChatMessage[],
-  agentId?: string
+  avatarId?: string
 ): Promise<void> {
   // Trim to max messages (keep most recent)
   const trimmedMessages = messages.slice(-MAX_MESSAGES);
 
   const record: ChatHistoryRecord = {
     pk: buildChatKey(session.email),
-    sk: buildAgentKey(agentId),
+    sk: buildAvatarKey(avatarId),
     messages: trimmedMessages,
     updatedAt: Date.now(),
     ...(CHAT_HISTORY_TTL_SECONDS > 0
@@ -102,18 +102,18 @@ export async function saveChatHistory(
 }
 
 /**
- * Clear chat history for a user/agent combination
+ * Clear chat history for a user/avatar combination
  */
 export async function clearChatHistory(
   session: UserSession,
-  agentId?: string
+  avatarId?: string
 ): Promise<void> {
   await dynamoClient.send(
     new DeleteCommand({
       TableName: ADMIN_TABLE,
       Key: {
         pk: buildChatKey(session.email),
-        sk: buildAgentKey(agentId),
+        sk: buildAvatarKey(avatarId),
       },
     })
   );

@@ -6,11 +6,11 @@
  * 2. DynamoDB (for instant retrieval in the UI)
  * 
  * Usage:
- *   const log = createAgentLogger('agent-id', 'telegram');
+ *   const log = createAgentLogger('avatar-id', 'telegram');
  *   log.info('chat', 'message_received', { userId: '123' });
  *   log.error('llm', 'api_error', { error: 'timeout' });
  */
-import { recordLog, type LogLevel } from './agent-logs.js';
+import { recordLog, type LogLevel } from './avatar-logs.js';
 
 export interface StructuredLogger {
   debug(subsystem: string, event: string, data?: Record<string, unknown>): void;
@@ -22,19 +22,19 @@ export interface StructuredLogger {
 }
 
 interface LogContext {
-  agentId: string;
+  avatarId: string;
   platform?: string;
   requestId?: string;
 }
 
 /**
- * Create a logger instance for an agent
+ * Create a logger instance for an avatar
  */
-export function createAgentLogger(
-  agentId: string,
+export function createAvatarLogger(
+  avatarId: string,
   platform?: string
 ): StructuredLogger {
-  const context: LogContext = { agentId, platform };
+  const context: LogContext = { avatarId, platform };
 
   const log = (
     level: LogLevel,
@@ -46,7 +46,7 @@ export function createAgentLogger(
       level,
       subsystem,
       event,
-      agentId: context.agentId,
+      avatarId: context.avatarId,
       platform: context.platform,
       requestId: context.requestId,
       ...data,
@@ -59,7 +59,7 @@ export function createAgentLogger(
     // Only store INFO and above to avoid flooding DynamoDB with debug logs
     if (level !== 'DEBUG') {
       recordLog({
-        agentId: context.agentId,
+        avatarId: context.avatarId,
         level,
         subsystem,
         event,
@@ -86,8 +86,15 @@ export function createAgentLogger(
 }
 
 /**
- * Global logger for non-agent-specific logs
+ * Global logger for non-avatar-specific logs
  */
 export function createSystemLogger(component: string): StructuredLogger {
-  return createAgentLogger('system', component);
+  return createAvatarLogger('system', component);
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use createAvatarLogger instead */
+export const createAgentLogger = createAvatarLogger;

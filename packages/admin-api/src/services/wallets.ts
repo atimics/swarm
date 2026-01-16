@@ -69,7 +69,7 @@ const defaultDynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), 
 });
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
-// Default Solana RPC - agent can configure their own Helius key
+// Default Solana RPC - avatar can configure their own Helius key
 const DEFAULT_SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
 // Default Ethereum RPC
@@ -119,12 +119,12 @@ export interface WalletBalance {
 }
 
 /**
- * Get Solana RPC URL for an agent
- * Uses agent's Helius API key if configured, otherwise default
+ * Get Solana RPC URL for an avatar
+ * Uses avatar's Helius API key if configured, otherwise default
  */
-async function getSolanaRpcUrl(agentId?: string, deps: WalletServiceDeps = defaultDeps): Promise<string> {
-  if (agentId) {
-    const heliusKey = await deps.secrets._getSecretValueInternal(agentId, 'helius_api_key', 'default');
+async function getSolanaRpcUrl(avatarId?: string, deps: WalletServiceDeps = defaultDeps): Promise<string> {
+  if (avatarId) {
+    const heliusKey = await deps.secrets._getSecretValueInternal(avatarId, 'helius_api_key', 'default');
     if (heliusKey) {
       return `https://mainnet.helius-rpc.com/?api-key=${heliusKey}`;
     }
@@ -139,7 +139,7 @@ async function getSolanaRpcUrl(agentId?: string, deps: WalletServiceDeps = defau
  * - Stores public info in DynamoDB
  */
 export async function generateSolanaWallet(
-  agentId: string,
+  avatarId: string,
   name: string,
   session: UserSession,
   deps: WalletServiceDeps = defaultDeps
@@ -153,23 +153,23 @@ export async function generateSolanaWallet(
 
   // Store the secret key securely
   await deps.secrets.storeSecret(
-    agentId,
+    avatarId,
     'solana_wallet_key',
     name,
     secretKeyBase58,
     session,
-    `Solana wallet "${name}" for agent ${agentId}`
+    `Solana wallet "${name}" for avatar ${avatarId}`
   );
 
   // Create wallet info record
-  const walletId = `${agentId}-solana-${name}`;
+  const walletId = `${avatarId}-solana-${name}`;
   const now = Date.now();
 
   const walletInfo: WalletInfo & { pk: string; sk: string } = {
-    pk: `AGENT#${agentId}`,
+    pk: `AVATAR#${avatarId}`,
     sk: `WALLET#solana#${name}`,
     id: walletId,
-    agentId,
+    avatarId,
     walletType: 'solana',
     publicKey,
     address: publicKey, // Solana uses public key as address
@@ -186,7 +186,7 @@ export async function generateSolanaWallet(
 
   return {
     id: walletInfo.id,
-    agentId: walletInfo.agentId,
+    avatarId: walletInfo.avatarId,
     walletType: walletInfo.walletType,
     publicKey: walletInfo.publicKey,
     address: walletInfo.address,
@@ -200,7 +200,7 @@ export async function generateSolanaWallet(
  * Generate a new Ethereum wallet
  */
 export async function generateEthereumWallet(
-  agentId: string,
+  avatarId: string,
   name: string,
   session: UserSession,
   deps: WalletServiceDeps = defaultDeps
@@ -212,23 +212,23 @@ export async function generateEthereumWallet(
 
   // Store the private key securely
   await deps.secrets.storeSecret(
-    agentId,
+    avatarId,
     'ethereum_wallet_key',
     name,
     privateKey,
     session,
-    `Ethereum wallet "${name}" for agent ${agentId}`
+    `Ethereum wallet "${name}" for avatar ${avatarId}`
   );
 
   // Create wallet info record
-  const walletId = `${agentId}-ethereum-${name}`;
+  const walletId = `${avatarId}-ethereum-${name}`;
   const now = Date.now();
 
   const walletInfo: WalletInfo & { pk: string; sk: string } = {
-    pk: `AGENT#${agentId}`,
+    pk: `AVATAR#${avatarId}`,
     sk: `WALLET#ethereum#${name}`,
     id: walletId,
-    agentId,
+    avatarId,
     walletType: 'ethereum',
     publicKey: address,
     address,
@@ -245,7 +245,7 @@ export async function generateEthereumWallet(
 
   return {
     id: walletInfo.id,
-    agentId: walletInfo.agentId,
+    avatarId: walletInfo.avatarId,
     walletType: walletInfo.walletType,
     publicKey: walletInfo.publicKey,
     address: walletInfo.address,
@@ -256,22 +256,22 @@ export async function generateEthereumWallet(
 }
 
 /**
- * List wallets for an agent
+ * List wallets for an avatar
  */
-export async function listWallets(agentId?: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletInfo[]> {
-  if (agentId) {
+export async function listWallets(avatarId?: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletInfo[]> {
+  if (avatarId) {
     const result = await deps.dynamoClient.send(new QueryCommand({
       TableName: deps.tableName,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
       ExpressionAttributeValues: {
-        ':pk': `AGENT#${agentId}`,
+        ':pk': `AVATAR#${avatarId}`,
         ':sk': 'WALLET#',
       },
     })) as { Items?: Record<string, unknown>[] };
 
     return (result.Items || []).map((item: Record<string, unknown>) => ({
       id: item.id as string,
-      agentId: item.agentId as string,
+      avatarId: item.avatarId as string,
       walletType: item.walletType as 'solana' | 'ethereum',
       publicKey: item.publicKey as string,
       address: item.address as string,
@@ -282,7 +282,7 @@ export async function listWallets(agentId?: string, deps: WalletServiceDeps = de
   }
 
   // For all wallets, we'd need a GSI or scan
-  // For now, return empty when no agentId
+  // For now, return empty when no avatarId
   return [];
 }
 
@@ -290,17 +290,17 @@ export async function listWallets(agentId?: string, deps: WalletServiceDeps = de
  * Get a specific wallet
  */
 export async function getWallet(walletId: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletInfo | null> {
-  // Parse wallet ID to get agentId and wallet info
+  // Parse wallet ID to get avatarId and wallet info
   const parts = walletId.split('-');
   if (parts.length < 3) return null;
 
-  const [agentId, walletType, ...nameParts] = parts;
+  const [avatarId, walletType, ...nameParts] = parts;
   const name = nameParts.join('-');
 
   const result = await deps.dynamoClient.send(new GetCommand({
     TableName: deps.tableName,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: `WALLET#${walletType}#${name}`,
     },
   })) as { Item?: Record<string, unknown> };
@@ -309,7 +309,7 @@ export async function getWallet(walletId: string, deps: WalletServiceDeps = defa
 
   return {
     id: result.Item.id as string,
-    agentId: result.Item.agentId as string,
+    avatarId: result.Item.avatarId as string,
     walletType: result.Item.walletType as 'solana' | 'ethereum',
     publicKey: result.Item.publicKey as string,
     address: result.Item.address as string,
@@ -322,8 +322,8 @@ export async function getWallet(walletId: string, deps: WalletServiceDeps = defa
 /**
  * Get Solana wallet balance (SOL and tokens)
  */
-export async function getSolanaBalance(publicKeyStr: string, agentId?: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletBalance> {
-  const rpcUrl = await getSolanaRpcUrl(agentId, deps);
+export async function getSolanaBalance(publicKeyStr: string, avatarId?: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletBalance> {
+  const rpcUrl = await getSolanaRpcUrl(avatarId, deps);
   const connection = new deps.solana.Connection(rpcUrl, 'confirmed');
   const publicKey = new deps.solana.PublicKey(publicKeyStr);
 
@@ -452,7 +452,7 @@ export async function generateVanityWallet(
  * Generate and save a vanity Solana wallet
  */
 export async function generateAndSaveVanityWallet(
-  agentId: string,
+  avatarId: string,
   name: string,
   pattern: string,
   matchStart: boolean,
@@ -469,23 +469,23 @@ export async function generateAndSaveVanityWallet(
   
   // Store the secret key securely
   await deps.secrets.storeSecret(
-    agentId,
+    avatarId,
     'solana_wallet_key',
     name,
     result.secretKey,
     session,
-    `Vanity Solana wallet "${name}" (pattern: ${pattern}) for agent ${agentId}`
+    `Vanity Solana wallet "${name}" (pattern: ${pattern}) for avatar ${avatarId}`
   );
 
   // Create wallet info record
-  const walletId = `${agentId}-solana-${name}`;
+  const walletId = `${avatarId}-solana-${name}`;
   const now = Date.now();
 
   const walletInfo: WalletInfo & { pk: string; sk: string } = {
-    pk: `AGENT#${agentId}`,
+    pk: `AVATAR#${avatarId}`,
     sk: `WALLET#solana#${name}`,
     id: walletId,
-    agentId,
+    avatarId,
     walletType: 'solana',
     publicKey: result.publicKey,
     address: result.publicKey,
@@ -502,7 +502,7 @@ export async function generateAndSaveVanityWallet(
 
   return {
     id: walletInfo.id,
-    agentId: walletInfo.agentId,
+    avatarId: walletInfo.avatarId,
     walletType: walletInfo.walletType,
     publicKey: walletInfo.publicKey,
     address: walletInfo.address,

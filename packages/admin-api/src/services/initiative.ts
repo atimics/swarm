@@ -1,8 +1,8 @@
 /**
  * Initiative Service
  *
- * Implements D&D-style initiative coordination for multi-agent channels.
- * Agents first check interest (CHA/WIS), then roll initiative (1d20 + DEX).
+ * Implements D&D-style initiative coordination for multi-avatar channels.
+ * Avatars first check interest (CHA/WIS), then roll initiative (1d20 + DEX).
  * Winner responds, others can react.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -14,7 +14,7 @@ import {
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type {
-  AgentStats,
+  AvatarStats,
   BufferedMessage,
   InitiativeRoundRecord,
   InitiativePhase,
@@ -24,7 +24,7 @@ import type {
 
 // Re-export types for consumers using namespace import
 export type { InitiativeResult, InterestCheckResult } from '../types.js';
-import { rollD20 } from './agent-stats.js';
+import { rollD20 } from './avatar-stats.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -32,12 +32,12 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
-// Configuration - tuned for cosy, less spammy multi-agent chats
+// Configuration - tuned for cosy, less spammy multi-avatar chats
 export const INITIATIVE_CONFIG = {
-  // Round timeout - how long to wait for all agents to roll
+  // Round timeout - how long to wait for all avatars to roll
   ROUND_TIMEOUT_MS: 8000,        // Increased from 5s for more staggered responses
   // Base difficulty class for interest check
-  BASE_INTEREST_DC: 14,          // Raised from 10 - agents are pickier about responding
+  BASE_INTEREST_DC: 14,          // Raised from 10 - avatars are pickier about responding
   // DC modifiers
   TOPIC_MATCH_BONUS: -2,         // Reduced from -3, less eager to jump in
   HIGH_ACTIVITY_PENALTY: 4,      // Increased from 2 - back off when busy
@@ -48,25 +48,25 @@ export const INITIATIVE_CONFIG = {
   // TTL for initiative records
   ROUND_TTL_SECONDS: 300,        // 5 minutes
   // Stagger settings for cosy vibes
-  MIN_RESPONSE_STAGGER_MS: 3000, // Minimum stagger between agents
+  MIN_RESPONSE_STAGGER_MS: 3000, // Minimum stagger between avatars
   MAX_RESPONSE_STAGGER_MS: 10000, // Maximum stagger
 };
 
 /**
- * Check if an agent is interested in responding to a message.
+ * Check if an avatar is interested in responding to a message.
  * Uses CHA for social contexts, WIS for reflective/thoughtful contexts.
  *
- * Direct mentions always pass (the mentioned agent handles it outside initiative).
+ * Direct mentions always pass (the mentioned avatar handles it outside initiative).
  * Bot-to-bot interactions are allowed but with higher DC to prevent spam.
  *
- * @param stats - Agent's D&D stats
+ * @param stats - Avatar's D&D stats
  * @param message - The triggering message
- * @param recentResponseAge - Time since this agent last responded (ms)
+ * @param recentResponseAge - Time since this avatar last responded (ms)
  * @param channelActivity - Number of recent messages in channel
- * @param lastBotResponseAge - Time since this agent last responded to a bot message (ms)
+ * @param lastBotResponseAge - Time since this avatar last responded to a bot message (ms)
  */
 export function checkInterest(
-  stats: AgentStats,
+  stats: AvatarStats,
   message: BufferedMessage,
   recentResponseAge: number | null,
   channelActivity: number,
@@ -214,7 +214,7 @@ export async function getOrCreateInitiativeRound(
     return newRound;
   } catch (err: unknown) {
     if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
-      // Another agent created it first, fetch the existing one
+      // Another avatar created it first, fetch the existing one
       const result = await dynamoClient.send(
         new GetCommand({
           TableName: ADMIN_TABLE,
@@ -228,35 +228,35 @@ export async function getOrCreateInitiativeRound(
 }
 
 /**
- * Record an agent's interest check and initiative roll.
+ * Record an avatar's interest check and initiative roll.
  *
  * @param chatId - Telegram chat ID
  * @param messageId - Triggering message ID
- * @param agentId - Agent ID
+ * @param avatarId - Avatar ID
  * @param interest - Interest check result
- * @param stats - Agent's D&D stats (for initiative roll)
+ * @param stats - Avatar's D&D stats (for initiative roll)
  */
-export async function recordAgentRoll(
+export async function recordAvatarRoll(
   chatId: number,
   messageId: number,
-  agentId: string,
+  avatarId: string,
   interest: InterestCheckResult,
-  stats: AgentStats
+  stats: AvatarStats
 ): Promise<{ roll: number; total: number } | null> {
   const pk = `INITIATIVE#${chatId}#${messageId}`;
   const now = Date.now();
 
   if (!interest.interested) {
-    // Record that agent is not interested
+    // Record that avatar is not interested
     await dynamoClient.send(
       new PutCommand({
         TableName: ADMIN_TABLE,
         Item: {
           pk,
-          sk: `ROLL#${agentId}`,
+          sk: `ROLL#${avatarId}`,
           chatId,
           messageId,
-          agentId,
+          avatarId,
           interested: false,
           interestRoll: interest.roll,
           rolledAt: now,
@@ -277,10 +277,10 @@ export async function recordAgentRoll(
       TableName: ADMIN_TABLE,
       Item: {
         pk,
-        sk: `ROLL#${agentId}`,
+        sk: `ROLL#${avatarId}`,
         chatId,
         messageId,
-        agentId,
+        avatarId,
         interested: true,
         interestRoll: interest.roll,
         initiativeRoll: roll,
@@ -301,13 +301,13 @@ export async function recordAgentRoll(
  *
  * @param chatId - Telegram chat ID
  * @param messageId - Triggering message ID
- * @param agentId - Agent ID
- * @param totalInitiative - Agent's total initiative roll
+ * @param avatarId - Avatar ID
+ * @param totalInitiative - Avatar's total initiative roll
  */
 export async function attemptWinnerClaim(
   chatId: number,
   messageId: number,
-  agentId: string,
+  avatarId: string,
   totalInitiative: number
 ): Promise<{ isWinner: boolean; winnerId?: string; winnerRoll?: number }> {
   const pk = `INITIATIVE#${chatId}#${messageId}`;
@@ -321,11 +321,11 @@ export async function attemptWinnerClaim(
         TableName: ADMIN_TABLE,
         Key: { pk, sk: 'META' },
         UpdateExpression:
-          'SET winnerId = :agentId, winnerRoll = :roll, phase = :phase',
+          'SET winnerId = :avatarId, winnerRoll = :roll, phase = :phase',
         ConditionExpression:
           'attribute_not_exists(winnerId) OR winnerRoll < :roll',
         ExpressionAttributeValues: {
-          ':agentId': agentId,
+          ':avatarId': avatarId,
           ':roll': totalInitiative,
           ':phase': 'responding' as InitiativePhase,
         },
@@ -419,8 +419,8 @@ export async function getRoundRolls(
 }
 
 /**
- * Full initiative coordination flow for an agent.
- * Returns what action the agent should take.
+ * Full initiative coordination flow for an avatar.
+ * Returns what action the avatar should take.
  * 
  * Includes structured logging for observability (P2):
  * - Round ID for correlation
@@ -429,18 +429,18 @@ export async function getRoundRolls(
  *
  * @param chatId - Telegram chat ID
  * @param messageId - Triggering message ID
- * @param agentId - Agent ID
- * @param stats - Agent's D&D stats
+ * @param avatarId - Avatar ID
+ * @param stats - Avatar's D&D stats
  * @param message - The triggering message
- * @param recentResponseAge - Time since this agent last responded (ms)
+ * @param recentResponseAge - Time since this avatar last responded (ms)
  * @param channelActivity - Number of recent messages
- * @param lastBotResponseAge - Time since this agent last responded to a bot (ms)
+ * @param lastBotResponseAge - Time since this avatar last responded to a bot (ms)
  */
 export async function coordinateInitiative(
   chatId: number,
   messageId: number,
-  agentId: string,
-  stats: AgentStats,
+  avatarId: string,
+  stats: AvatarStats,
   message: BufferedMessage,
   recentResponseAge: number | null,
   channelActivity: number,
@@ -458,7 +458,7 @@ export async function coordinateInitiative(
     subsystem: 'initiative',
     event: 'round_joined',
     roundId,
-    agentId,
+    avatarId,
     chatId,
     messageId,
     roundPhase: round.phase,
@@ -481,7 +481,7 @@ export async function coordinateInitiative(
     subsystem: 'initiative',
     event: 'interest_check',
     roundId,
-    agentId,
+    avatarId,
     interested: interest.interested,
     roll: interest.roll,
     dc: interest.dc,
@@ -494,10 +494,10 @@ export async function coordinateInitiative(
   }));
 
   // Step 3: Record our roll
-  const rollResult = await recordAgentRoll(
+  const rollResult = await recordAvatarRoll(
     chatId,
     messageId,
-    agentId,
+    avatarId,
     interest,
     stats
   );
@@ -507,9 +507,9 @@ export async function coordinateInitiative(
     console.log(JSON.stringify({
       level: 'INFO',
       subsystem: 'initiative',
-      event: 'agent_skipped',
+      event: 'avatar_skipped',
       roundId,
-      agentId,
+      avatarId,
       reason: 'not_interested',
       interestRoll: interest.roll,
       interestDC: interest.dc,
@@ -527,7 +527,7 @@ export async function coordinateInitiative(
     subsystem: 'initiative',
     event: 'initiative_rolled',
     roundId,
-    agentId,
+    avatarId,
     roll: rollResult.roll,
     total: rollResult.total,
     dexModifier: stats.modifiers.DEX,
@@ -537,7 +537,7 @@ export async function coordinateInitiative(
   const claimResult = await attemptWinnerClaim(
     chatId,
     messageId,
-    agentId,
+    avatarId,
     rollResult.total
   );
 
@@ -548,7 +548,7 @@ export async function coordinateInitiative(
       subsystem: 'initiative',
       event: 'initiative_won',
       roundId,
-      agentId,
+      avatarId,
       myRoll: rollResult.total,
       action: 'respond',
     }));
@@ -567,7 +567,7 @@ export async function coordinateInitiative(
     subsystem: 'initiative',
     event: 'initiative_lost',
     roundId,
-    agentId,
+    avatarId,
     myRoll: rollResult.total,
     winnerId: claimResult.winnerId,
     winnerRoll: claimResult.winnerRoll,
@@ -584,3 +584,10 @@ export async function coordinateInitiative(
     myRoll: rollResult.total,
   };
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use recordAvatarRoll instead */
+export const recordAgentRoll = recordAvatarRoll;

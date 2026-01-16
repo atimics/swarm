@@ -14,7 +14,7 @@ describe('Telegram Webhook Handler', () => {
         reply_to_message?: { from?: { id: number } };
       },
       botId: number,
-      agentName: string
+      avatarName: string
     ): { respond: boolean; reason: string } => {
       const chatType = message.chat.type;
       const text = message.text || '';
@@ -30,7 +30,7 @@ describe('Telegram Webhook Handler', () => {
       }
 
       // Check for mentions
-      const mentionPattern = new RegExp(`@${agentName}`, 'i');
+      const mentionPattern = new RegExp(`@${avatarName}`, 'i');
       if (mentionPattern.test(text)) {
         return { respond: true, reason: 'mentioned' };
       }
@@ -321,26 +321,26 @@ describe('Channel Post Parsing', () => {
   });
 });
 
-describe('Multi-Agent Channel Eligibility', () => {
-  // Simulate the isMultiAgentEligible logic
-  const isMultiAgentEligible = (chatType: string): boolean => {
+describe('Multi-Avatar Channel Eligibility', () => {
+  // Simulate the isMultiAvatarEligible logic
+  const isMultiAvatarEligible = (chatType: string): boolean => {
     return chatType === 'group' || chatType === 'supergroup' || chatType === 'channel';
   };
 
-  it('should enable multi-agent for group chats', () => {
-    expect(isMultiAgentEligible('group')).toBe(true);
+  it('should enable multi-avatar for group chats', () => {
+    expect(isMultiAvatarEligible('group')).toBe(true);
   });
 
-  it('should enable multi-agent for supergroup chats', () => {
-    expect(isMultiAgentEligible('supergroup')).toBe(true);
+  it('should enable multi-avatar for supergroup chats', () => {
+    expect(isMultiAvatarEligible('supergroup')).toBe(true);
   });
 
-  it('should enable multi-agent for channel chats', () => {
-    expect(isMultiAgentEligible('channel')).toBe(true);
+  it('should enable multi-avatar for channel chats', () => {
+    expect(isMultiAvatarEligible('channel')).toBe(true);
   });
 
-  it('should not enable multi-agent for private chats', () => {
-    expect(isMultiAgentEligible('private')).toBe(false);
+  it('should not enable multi-avatar for private chats', () => {
+    expect(isMultiAvatarEligible('private')).toBe(false);
   });
 });
 

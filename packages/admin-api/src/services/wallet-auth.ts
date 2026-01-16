@@ -39,7 +39,7 @@ export interface UserRecord {
   walletAddress: string;
   displayName?: string;
   avatarUrl?: string;
-  inhabitedAgentId?: string;
+  inhabitedAvatarId?: string;
   inhabitedAt?: number;
   createdAt: number;
   lastSeenAt: number;

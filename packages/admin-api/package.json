@@ -1,7 +1,7 @@
 {
   "name": "@swarm/admin-api",
   "version": "1.0.0",
-  "description": "Admin API for swarm agent management",
+  "description": "Admin API for swarm avatar management",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {

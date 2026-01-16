@@ -8,9 +8,9 @@ describe('Channel State Service', () => {
   describe('State Machine', () => {
     it('should transition IDLE to ACTIVE on direct engagement', () => {
       const state: ChannelStateRecord = {
-        pk: 'CHANNEL#agent#123',
+        pk: 'CHANNEL#avatar#123',
         sk: 'STATE',
-        agentId: 'agent',
+        avatarId: 'avatar',
         chatId: 123,
         chatType: 'supergroup',
         state: 'IDLE',
@@ -39,9 +39,9 @@ describe('Channel State Service', () => {
 
     it('should stay IDLE for regular messages in groups', () => {
       const state: ChannelStateRecord = {
-        pk: 'CHANNEL#agent#123',
+        pk: 'CHANNEL#avatar#123',
         sk: 'STATE',
-        agentId: 'agent',
+        avatarId: 'avatar',
         chatId: 123,
         chatType: 'supergroup',
         state: 'IDLE',
@@ -69,9 +69,9 @@ describe('Channel State Service', () => {
   describe('Response Triggers', () => {
     it('should trigger response for private chats', () => {
       const state: ChannelStateRecord = {
-        pk: 'CHANNEL#agent#123',
+        pk: 'CHANNEL#avatar#123',
         sk: 'STATE',
-        agentId: 'agent',
+        avatarId: 'avatar',
         chatId: 123,
         chatType: 'private',
         state: 'IDLE',
@@ -91,9 +91,9 @@ describe('Channel State Service', () => {
 
     it('should trigger response on direct engagement', () => {
       const state: ChannelStateRecord = {
-        pk: 'CHANNEL#agent#123',
+        pk: 'CHANNEL#avatar#123',
         sk: 'STATE',
-        agentId: 'agent',
+        avatarId: 'avatar',
         chatId: 123,
         chatType: 'supergroup',
         state: 'IDLE',
@@ -114,9 +114,9 @@ describe('Channel State Service', () => {
     it('should trigger response when message threshold reached', () => {
       const MESSAGE_THRESHOLD = 5;
       const state: ChannelStateRecord = {
-        pk: 'CHANNEL#agent#123',
+        pk: 'CHANNEL#avatar#123',
         sk: 'STATE',
-        agentId: 'agent',
+        avatarId: 'avatar',
         chatId: 123,
         chatType: 'supergroup',
         state: 'IDLE',
@@ -141,9 +141,9 @@ describe('Channel State Service', () => {
     it('should not trigger during COOLDOWN', () => {
       const COOLDOWN_DURATION_MS = 10000;
       const state: ChannelStateRecord = {
-        pk: 'CHANNEL#agent#123',
+        pk: 'CHANNEL#avatar#123',
         sk: 'STATE',
-        agentId: 'agent',
+        avatarId: 'avatar',
         chatId: 123,
         chatType: 'supergroup',
         state: 'COOLDOWN',
@@ -220,12 +220,12 @@ describe('Channel State Service', () => {
     });
   });
 
-  describe('Shared History (Multi-Agent)', () => {
+  describe('Shared History (Multi-Avatar)', () => {
     it('should build combined context interleaving human and bot messages by timestamp', () => {
       const state: ChannelStateRecord = {
-        pk: 'CHANNEL#agent-1#123',
+        pk: 'CHANNEL#avatar-1#123',
         sk: 'STATE',
-        agentId: 'agent-1',
+        avatarId: 'avatar-1',
         chatId: 123,
         chatType: 'supergroup',
         state: 'IDLE',
@@ -245,7 +245,7 @@ describe('Channel State Service', () => {
       
       interface MockSharedMessage {
         messageId: number;
-        agentId: string;
+        avatarId: string;
         botUsername: string;
         text: string;
         timestamp: number;
@@ -258,15 +258,15 @@ describe('Channel State Service', () => {
       // Simulating buildCombinedConversationContext logic
       const sharedHistory: MockSharedHistory = {
         messages: [
-          { messageId: 2, agentId: 'agent-2', botUsername: 'OtherBot', text: 'Hi there!', timestamp: 2000 },
-          { messageId: 4, agentId: 'agent-1', botUsername: 'TestBot', text: 'My own message', timestamp: 4000 },
+          { messageId: 2, avatarId: 'avatar-2', botUsername: 'OtherBot', text: 'Hi there!', timestamp: 2000 },
+          { messageId: 4, avatarId: 'avatar-1', botUsername: 'TestBot', text: 'My own message', timestamp: 4000 },
         ],
       };
 
-      const currentAgentId = 'agent-1';
+      const currentAgentId = 'avatar-1';
 
       // Combine messages
-      const allMessages: Array<{ timestamp: number; isBot: boolean; userName: string; text: string; agentId?: string }> = [];
+      const allMessages: Array<{ timestamp: number; isBot: boolean; userName: string; text: string; avatarId?: string }> = [];
 
       // Add human messages
       for (const msg of state.messageBuffer) {
@@ -280,13 +280,13 @@ describe('Channel State Service', () => {
 
       // Add bot messages (excluding self)
       for (const msg of sharedHistory.messages) {
-        if (msg.agentId === currentAgentId) continue;
+        if (msg.avatarId === currentAgentId) continue;
         allMessages.push({
           timestamp: msg.timestamp,
           isBot: true,
           userName: msg.botUsername,
           text: msg.text,
-          agentId: msg.agentId,
+          avatarId: msg.avatarId,
         });
       }
 
@@ -305,23 +305,23 @@ describe('Channel State Service', () => {
     it('should exclude own messages from shared history context', () => {
       interface MockSharedMessage {
         messageId: number;
-        agentId: string;
+        avatarId: string;
         botUsername: string;
         text: string;
         timestamp: number;
       }
 
       const sharedMessages: MockSharedMessage[] = [
-        { messageId: 1, agentId: 'agent-1', botUsername: 'BotA', text: 'I said this', timestamp: 1000 },
-        { messageId: 2, agentId: 'agent-2', botUsername: 'BotB', text: 'Other bot said this', timestamp: 2000 },
-        { messageId: 3, agentId: 'agent-1', botUsername: 'BotA', text: 'I said this too', timestamp: 3000 },
+        { messageId: 1, avatarId: 'avatar-1', botUsername: 'BotA', text: 'I said this', timestamp: 1000 },
+        { messageId: 2, avatarId: 'avatar-2', botUsername: 'BotB', text: 'Other bot said this', timestamp: 2000 },
+        { messageId: 3, avatarId: 'avatar-1', botUsername: 'BotA', text: 'I said this too', timestamp: 3000 },
       ];
 
-      const currentAgentId = 'agent-1';
-      const visibleMessages = sharedMessages.filter(m => m.agentId !== currentAgentId);
+      const currentAgentId = 'avatar-1';
+      const visibleMessages = sharedMessages.filter(m => m.avatarId !== currentAgentId);
 
       expect(visibleMessages).toHaveLength(1);
-      expect(visibleMessages[0].agentId).toBe('agent-2');
+      expect(visibleMessages[0].avatarId).toBe('avatar-2');
       expect(visibleMessages[0].text).toBe('Other bot said this');
     });
   });

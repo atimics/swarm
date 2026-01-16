@@ -17,7 +17,7 @@ import {
   getEmbeddingService,
   EMBEDDING_VERSION,
 } from './embedding.js';
-import type { AgentMemory, MemoryTier } from '../types.js';
+import type { AvatarMemory, MemoryTier } from '../types.js';
 
 // ============================================================================
 // Configuration
@@ -76,10 +76,10 @@ export interface BackfillOptions {
 // ============================================================================
 
 /**
- * Get all memories for an agent
+ * Get all memories for an avatar
  */
-async function getAllMemories(agentId: string): Promise<AgentMemory[]> {
-  const memories: AgentMemory[] = [];
+async function getAllMemories(avatarId: string): Promise<AvatarMemory[]> {
+  const memories: AvatarMemory[] = [];
   let lastEvaluatedKey: Record<string, unknown> | undefined;
 
   do {
@@ -87,14 +87,14 @@ async function getAllMemories(agentId: string): Promise<AgentMemory[]> {
       TableName: ADMIN_TABLE,
       KeyConditionExpression: 'pk = :pk',
       ExpressionAttributeValues: {
-        ':pk': `MEMORY#${agentId}`,
+        ':pk': `MEMORY#${avatarId}`,
       },
       ExclusiveStartKey: lastEvaluatedKey,
       Limit: 500,
     }));
 
     if (result.Items) {
-      memories.push(...(result.Items as AgentMemory[]));
+      memories.push(...(result.Items as AvatarMemory[]));
     }
 
     lastEvaluatedKey = result.LastEvaluatedKey;
@@ -108,13 +108,13 @@ async function getAllMemories(agentId: string): Promise<AgentMemory[]> {
 // ============================================================================
 
 /**
- * Get embedding statistics for an agent's memories
+ * Get embedding statistics for an avatar's memories
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @returns Statistics about embedding coverage
  */
-export async function getEmbeddingStats(agentId: string): Promise<EmbeddingStats> {
-  const memories = await getAllMemories(agentId);
+export async function getEmbeddingStats(avatarId: string): Promise<EmbeddingStats> {
+  const memories = await getAllMemories(avatarId);
 
   const stats: EmbeddingStats = {
     total: memories.length,
@@ -152,14 +152,14 @@ export async function getEmbeddingStats(agentId: string): Promise<EmbeddingStats
 }
 
 /**
- * Backfill embeddings for an agent's memories
+ * Backfill embeddings for an avatar's memories
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param options - Backfill options
  * @returns Migration result with statistics
  */
 export async function backfillEmbeddings(
-  agentId: string,
+  avatarId: string,
   options: BackfillOptions = {}
 ): Promise<MigrationResult> {
   const {
@@ -177,8 +177,8 @@ export async function backfillEmbeddings(
     errors: [],
   };
 
-  // Get all memories for the agent
-  const memories = await getAllMemories(agentId);
+  // Get all memories for the avatar
+  const memories = await getAllMemories(avatarId);
 
   // Filter to memories needing embeddings
   const needsEmbedding = memories.filter(m => {
@@ -190,7 +190,7 @@ export async function backfillEmbeddings(
 
   logger.info('Starting embedding backfill', {
     event: 'embedding_backfill_start',
-    agentId,
+    avatarId,
     totalMemories: memories.length,
     needsEmbedding: needsEmbedding.length,
     dryRun,
@@ -200,7 +200,7 @@ export async function backfillEmbeddings(
   if (needsEmbedding.length === 0) {
     logger.info('No memories need embedding backfill', {
       event: 'embedding_backfill_complete',
-      agentId,
+      avatarId,
       reason: 'all_current',
     });
     return result;
@@ -215,7 +215,7 @@ export async function backfillEmbeddings(
     result.errors.push(errorMsg);
     logger.error('Embedding backfill failed', {
       event: 'embedding_backfill_error',
-      agentId,
+      avatarId,
       error: errorMsg,
     });
     return result;
@@ -254,7 +254,7 @@ export async function backfillEmbeddings(
 
         logger.debug('Memory embedding updated', {
           event: 'embedding_backfill_memory',
-          agentId,
+          avatarId,
           memoryId: memory.id,
           tier: memory.tier,
         });
@@ -265,7 +265,7 @@ export async function backfillEmbeddings(
 
         logger.warn('Failed to backfill embedding for memory', {
           event: 'embedding_backfill_memory_error',
-          agentId,
+          avatarId,
           memoryId: memory.id,
           error: error instanceof Error ? error.message : 'Unknown',
         });
@@ -281,7 +281,7 @@ export async function backfillEmbeddings(
     if (result.processed % 50 === 0) {
       logger.info('Embedding backfill progress', {
         event: 'embedding_backfill_progress',
-        agentId,
+        avatarId,
         processed: result.processed,
         total: needsEmbedding.length,
         succeeded: result.succeeded,
@@ -292,7 +292,7 @@ export async function backfillEmbeddings(
 
   logger.info('Embedding backfill complete', {
     event: 'embedding_backfill_complete',
-    agentId,
+    avatarId,
     ...result,
     errorCount: result.errors.length,
   });
@@ -301,19 +301,19 @@ export async function backfillEmbeddings(
 }
 
 /**
- * Backfill embeddings for all agents
+ * Backfill embeddings for all avatars
  *
  * @param options - Backfill options
- * @returns Map of agent ID to migration result
+ * @returns Map of avatar ID to migration result
  */
-export async function backfillAllAgents(
+export async function backfillAllAvatars(
   _options: BackfillOptions = {}
 ): Promise<Map<string, MigrationResult>> {
   const results = new Map<string, MigrationResult>();
 
-  // This would need to scan for all unique agent IDs
-  // For now, this is a placeholder - in production you'd query a list of agents
-  logger.warn('backfillAllAgents not fully implemented - use backfillEmbeddings per agent', {
+  // This would need to scan for all unique avatar IDs
+  // For now, this is a placeholder - in production you'd query a list of avatars
+  logger.warn('backfillAllAvatars not fully implemented - use backfillEmbeddings per avatar', {
     event: 'backfill_all_not_implemented',
   });
 
@@ -323,15 +323,15 @@ export async function backfillAllAgents(
 /**
  * Estimate cost of backfilling embeddings
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @returns Estimated cost in USD
  */
-export async function estimateBackfillCost(agentId: string): Promise<{
+export async function estimateBackfillCost(avatarId: string): Promise<{
   memoriesNeedingEmbedding: number;
   estimatedTokens: number;
   estimatedCostUSD: number;
 }> {
-  const stats = await getEmbeddingStats(agentId);
+  const stats = await getEmbeddingStats(avatarId);
   const needsEmbedding = stats.withoutEmbedding + stats.outdatedEmbedding;
 
   // Estimate ~100 tokens per memory (average)
@@ -346,3 +346,10 @@ export async function estimateBackfillCost(agentId: string): Promise<{
     estimatedCostUSD: Math.round(estimatedCostUSD * 10000) / 10000, // Round to 4 decimal places
   };
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use backfillAllAvatars instead */
+export const backfillAllAgents = backfillAllAvatars;

@@ -1,5 +1,5 @@
 /**
- * Agent Templates Service - Import/Export agent configurations
+ * Avatar Templates Service - Import/Export avatar configurations
  */
 import {
   DynamoDBClient,
@@ -10,8 +10,8 @@ import {
   GetCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
-import type { AgentRecord, UserSession } from '../types.js';
-import * as agentsDefault from './agents.js';
+import type { AvatarRecord, UserSession } from '../types.js';
+import * as avatarsDefault from './avatars.js';
 
 /**
  * Dependencies interface for template service (for testing)
@@ -21,8 +21,8 @@ export interface TemplateServiceDeps {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     send: (command: any) => Promise<any>;
   };
-  agentService: {
-    createAgent: (name: string, session: UserSession, description?: string) => Promise<AgentRecord>;
+  avatarService: {
+    createAvatar: (name: string, session: UserSession, description?: string) => Promise<AvatarRecord>;
   };
   tableName: string;
 }
@@ -35,29 +35,29 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 const defaultDeps: TemplateServiceDeps = {
   dynamoClient: defaultDynamoClient,
-  agentService: agentsDefault,
+  avatarService: avatarsDefault,
   tableName: ADMIN_TABLE,
 };
 
-export interface AgentTemplate {
+export interface AvatarTemplate {
   templateId: string;
   name: string;
   description: string;
-  config: Partial<AgentRecord>;
+  config: Partial<AvatarRecord>;
   createdAt: number;
 }
 
 /**
- * List all available agent templates
+ * List all available avatar templates
  */
-export async function listTemplates(deps: TemplateServiceDeps = defaultDeps): Promise<AgentTemplate[]> {
+export async function listTemplates(deps: TemplateServiceDeps = defaultDeps): Promise<AvatarTemplate[]> {
   const result = await deps.dynamoClient.send(new ScanCommand({
     TableName: deps.tableName,
     FilterExpression: 'sk = :sk',
     ExpressionAttributeValues: {
       ':sk': 'TEMPLATE',
     },
-  })) as { Items?: AgentTemplate[] };
+  })) as { Items?: AvatarTemplate[] };
 
   return result.Items || [];
 }
@@ -65,41 +65,41 @@ export async function listTemplates(deps: TemplateServiceDeps = defaultDeps): Pr
 /**
  * Get a template by ID
  */
-export async function getTemplate(templateId: string, deps: TemplateServiceDeps = defaultDeps): Promise<AgentTemplate | null> {
+export async function getTemplate(templateId: string, deps: TemplateServiceDeps = defaultDeps): Promise<AvatarTemplate | null> {
   const result = await deps.dynamoClient.send(new GetCommand({
     TableName: deps.tableName,
     Key: {
       pk: `TEMPLATE#${templateId}`,
       sk: 'TEMPLATE',
     },
-  })) as { Item?: AgentTemplate };
+  })) as { Item?: AvatarTemplate };
 
   return result.Item || null;
 }
 
 /**
- * Export an existing agent as a template
+ * Export an existing avatar as a template
  */
-export async function exportAgentAsTemplate(
-  agent: AgentRecord,
+export async function exportAvatarAsTemplate(
+  avatar: AvatarRecord,
   templateName: string,
   description: string,
   deps: TemplateServiceDeps = defaultDeps
-): Promise<AgentTemplate> {
-  const templateId = `tpl-${agent.agentId}-${Date.now().toString(36)}`;
+): Promise<AvatarTemplate> {
+  const templateId = `tpl-${avatar.avatarId}-${Date.now().toString(36)}`;
 
-  const template: AgentTemplate = {
+  const template: AvatarTemplate = {
     templateId,
     name: templateName,
     description,
     config: {
-      name: agent.name,
-      description: agent.description,
-      persona: agent.persona,
-      platforms: agent.platforms,
-      llmConfig: agent.llmConfig,
-      voiceConfig: agent.voiceConfig,
-      mediaConfig: agent.mediaConfig,
+      name: avatar.name,
+      description: avatar.description,
+      persona: avatar.persona,
+      platforms: avatar.platforms,
+      llmConfig: avatar.llmConfig,
+      voiceConfig: avatar.voiceConfig,
+      mediaConfig: avatar.mediaConfig,
     },
     createdAt: Date.now(),
   };
@@ -117,32 +117,32 @@ export async function exportAgentAsTemplate(
 }
 
 /**
- * Create a new agent from a template
+ * Create a new avatar from a template
  */
-export async function createAgentFromTemplate(
+export async function createAvatarFromTemplate(
   templateId: string,
   session: UserSession,
-  agentName?: string,
+  avatarName?: string,
   deps: TemplateServiceDeps = defaultDeps
-): Promise<AgentRecord> {
+): Promise<AvatarRecord> {
   const template = await getTemplate(templateId, deps);
   if (!template) {
     throw new Error(`Template not found: ${templateId}`);
   }
 
-  const name = agentName || template.name;
-  const agent = await deps.agentService.createAgent(name, session, template.description);
+  const name = avatarName || template.name;
+  const avatar = await deps.avatarService.createAvatar(name, session, template.description);
 
   // Update with template config
   // Note: we don't overwrite ID, status, timestamps etc.
   const { name: _, description: __, ...configToApply } = template.config;
 
-  // We can't use updateAgent directly because it requires a session
-  // But we have createAgent which already saved it.
-  // To keep it simple, we'll just merge the template config into the new agent.
+  // We can't use updateAvatar directly because it requires a session
+  // But we have createAvatar which already saved it.
+  // To keep it simple, we'll just merge the template config into the new avatar.
 
-  const mergedAgent: AgentRecord = {
-    ...agent,
+  const mergedAvatar: AvatarRecord = {
+    ...avatar,
     ...configToApply,
     name, // Restore name if overwritten by configToApply accidentally
     updatedAt: Date.now(),
@@ -150,8 +150,17 @@ export async function createAgentFromTemplate(
 
   await deps.dynamoClient.send(new PutCommand({
     TableName: deps.tableName,
-    Item: mergedAgent,
+    Item: mergedAvatar,
   }));
 
-  return mergedAgent;
+  return mergedAvatar;
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use exportAvatarAsTemplate instead */
+export const exportAgentAsTemplate = exportAvatarAsTemplate;
+/** @deprecated Use createAvatarFromTemplate instead */
+export const createAgentFromTemplate = createAvatarFromTemplate;

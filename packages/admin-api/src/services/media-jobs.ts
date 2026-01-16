@@ -28,7 +28,7 @@ const REPLICATE_ENDPOINT = 'https://api.replicate.com/v1/predictions';
 
 // TTL: 24 hours for job records
 const JOB_TTL_SECONDS = 24 * 60 * 60;
-const buildAgentStatusKey = (status: MediaJob['status'], timestamp: number) => `${status}#${timestamp}`;
+const buildAvatarStatusKey = (status: MediaJob['status'], timestamp: number) => `${status}#${timestamp}`;
 
 /**
  * Create a new media job
@@ -48,8 +48,8 @@ export async function createJob(
     createdAt: now,
     updatedAt: now,
     ttl: Math.floor(now / 1000) + JOB_TTL_SECONDS,
-    gsi2pk: `AGENT#${job.agentId}`,
-    gsi2sk: buildAgentStatusKey('pending', now),
+    gsi2pk: `AVATAR#${job.avatarId}`,
+    gsi2sk: buildAvatarStatusKey('pending', now),
   };
 
   await dynamoClient.send(new PutCommand({
@@ -89,7 +89,7 @@ export async function updateJobStatus(
   const expressionValues: Record<string, unknown> = {
     ':status': status,
     ':now': now,
-    ':gsi2sk': buildAgentStatusKey(status, now),
+    ':gsi2sk': buildAvatarStatusKey(status, now),
   };
   const expressionNames: Record<string, string> = {
     '#status': 'status',
@@ -169,22 +169,22 @@ export async function updateJobStatus(
 }
 
 /**
- * Get pending jobs for an agent (for status checking)
+ * Get pending jobs for an avatar (for status checking)
  * Uses Scan with filter since jobs have 24h TTL (bounded scan)
  */
-export async function getPendingJobs(agentId: string): Promise<MediaJob[]> {
+export async function getPendingJobs(avatarId: string): Promise<MediaJob[]> {
   const scanPendingJobs = async (): Promise<MediaJob[]> => {
-    // Scan for jobs belonging to this agent that are pending or processing
+    // Scan for jobs belonging to this avatar that are pending or processing
     // This is efficient because jobs have TTL (24h) so the table stays small
     const result = await dynamoClient.send(new ScanCommand({
       TableName: ADMIN_TABLE,
-      FilterExpression: 'begins_with(pk, :jobPrefix) AND agentId = :agentId AND (#status = :pending OR #status = :processing)',
+      FilterExpression: 'begins_with(pk, :jobPrefix) AND avatarId = :avatarId AND (#status = :pending OR #status = :processing)',
       ExpressionAttributeNames: {
         '#status': 'status',
       },
       ExpressionAttributeValues: {
         ':jobPrefix': 'MEDIAJOB#',
-        ':agentId': agentId,
+        ':avatarId': avatarId,
         ':pending': 'pending',
         ':processing': 'processing',
       },
@@ -197,10 +197,10 @@ export async function getPendingJobs(agentId: string): Promise<MediaJob[]> {
     const result = await dynamoClient.send(new QueryCommand({
       TableName: ADMIN_TABLE,
       IndexName: 'GSI2',
-      KeyConditionExpression: 'gsi2pk = :agentKey',
+      KeyConditionExpression: 'gsi2pk = :avatarey',
       FilterExpression: 'begins_with(gsi2sk, :pendingPrefix) OR begins_with(gsi2sk, :processingPrefix)',
       ExpressionAttributeValues: {
-        ':agentKey': `AGENT#${agentId}`,
+        ':avatarey': `AVATAR#${avatarId}`,
         ':pendingPrefix': 'pending#',
         ':processingPrefix': 'processing#',
       },
@@ -321,7 +321,7 @@ export async function pollAndCompleteJob(
 
       const mediaBuffer = Buffer.from(await mediaResponse.arrayBuffer());
       const mediaId = uuid();
-      const s3Key = `agents/${job.agentId}/${folder}/${mediaId}.${extension}`;
+      const s3Key = `avatars/${job.avatarId}/${folder}/${mediaId}.${extension}`;
 
       console.log(`[MediaJobs] Uploading to S3: ${s3Key} (${mediaBuffer.length} bytes)`);
 
@@ -336,7 +336,7 @@ export async function pollAndCompleteJob(
 
       await updateJobStatus(jobId, 'completed', { resultUrl: publicUrl, resultS3Key: s3Key });
 
-      await gallery.addToGallery(job.agentId, {
+      await gallery.addToGallery(job.avatarId, {
         id: mediaId,
         type: job.type,
         url: publicUrl,

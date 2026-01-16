@@ -1,13 +1,13 @@
 /**
- * Agent Events Service
+ * Avatar Events Service
  * 
- * Stores and retrieves agent-reported issues and feedback in DynamoDB
+ * Stores and retrieves avatar-reported issues and feedback in DynamoDB
  * for fast access. CloudWatch logs remain the source of truth for audit.
  * 
  * Schema:
- *   pk: AGENT#<agentId>
+ *   pk: AVATAR#<avatarId>
  *   sk: EVENT#<timestamp>#<type>
- *   gsi1pk: EVENTS#<type>  (for cross-agent queries)
+ *   gsi1pk: EVENTS#<type>  (for cross-avatar queries)
  *   gsi1sk: <timestamp>
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -42,11 +42,11 @@ export type IssueCategory =
 export type IssueStatus = 'open' | 'acknowledged' | 'resolved' | 'wont_fix';
 export type FeedbackSentiment = 'positive' | 'negative' | 'neutral';
 
-export interface AgentIssueEvent {
+export interface AvatarIssueEvent {
   id: string;
   type: 'issue';
   timestamp: number;
-  agentId: string;
+  avatarId: string;
   platform: string;
   severity: IssueSeverity;
   category: IssueCategory;
@@ -64,44 +64,44 @@ export interface AgentIssueEvent {
   resolvedBy?: string;
 }
 
-export interface AgentFeedbackEvent {
+export interface AvatarFeedbackEvent {
   id: string;
   type: 'feedback';
   timestamp: number;
-  agentId: string;
+  avatarId: string;
   platform: string;
   sentiment: FeedbackSentiment;
   feature: string;
   feedback: string;
 }
 
-export type AgentEvent = AgentIssueEvent | AgentFeedbackEvent;
+export type AvatarEvent = AvatarIssueEvent | AvatarFeedbackEvent;
 
 // ============================================================================
 // Write Operations
 // ============================================================================
 
 /**
- * Record an agent-reported issue
+ * Record an avatar-reported issue
  */
 export async function recordIssue(params: {
-  agentId: string;
+  avatarId: string;
   platform: string;
   severity: IssueSeverity;
   category: IssueCategory;
   title: string;
   description: string;
   userMessage?: string;
-  context?: AgentIssueEvent['context'];
-}): Promise<AgentIssueEvent> {
+  context?: AvatarIssueEvent['context'];
+}): Promise<AvatarIssueEvent> {
   const now = Date.now();
   const id = `issue-${now}-${Math.random().toString(36).slice(2, 8)}`;
   
-  const event: AgentIssueEvent = {
+  const event: AvatarIssueEvent = {
     id,
     type: 'issue',
     timestamp: now,
-    agentId: params.agentId,
+    avatarId: params.avatarId,
     platform: params.platform,
     severity: params.severity,
     category: params.category,
@@ -115,7 +115,7 @@ export async function recordIssue(params: {
   await dynamoClient.send(new PutCommand({
     TableName: ADMIN_TABLE,
     Item: {
-      pk: `AGENT#${params.agentId}`,
+      pk: `AVATAR#${params.avatarId}`,
       sk: `EVENT#${now}#issue`,
       gsi1pk: 'EVENTS#issue',
       gsi1sk: now,
@@ -128,23 +128,23 @@ export async function recordIssue(params: {
 }
 
 /**
- * Record agent-reported feedback
+ * Record avatar-reported feedback
  */
 export async function recordFeedback(params: {
-  agentId: string;
+  avatarId: string;
   platform: string;
   sentiment: FeedbackSentiment;
   feature: string;
   feedback: string;
-}): Promise<AgentFeedbackEvent> {
+}): Promise<AvatarFeedbackEvent> {
   const now = Date.now();
   const id = `feedback-${now}-${Math.random().toString(36).slice(2, 8)}`;
   
-  const event: AgentFeedbackEvent = {
+  const event: AvatarFeedbackEvent = {
     id,
     type: 'feedback',
     timestamp: now,
-    agentId: params.agentId,
+    avatarId: params.avatarId,
     platform: params.platform,
     sentiment: params.sentiment,
     feature: params.feature,
@@ -154,7 +154,7 @@ export async function recordFeedback(params: {
   await dynamoClient.send(new PutCommand({
     TableName: ADMIN_TABLE,
     Item: {
-      pk: `AGENT#${params.agentId}`,
+      pk: `AVATAR#${params.avatarId}`,
       sk: `EVENT#${now}#feedback`,
       gsi1pk: 'EVENTS#feedback',
       gsi1sk: now,
@@ -180,12 +180,12 @@ export interface ListEventsOptions {
 }
 
 /**
- * List events for a specific agent
+ * List events for a specific avatar
  */
-export async function listAgentEvents(
-  agentId: string,
+export async function listAvatarEvents(
+  avatarId: string,
   options: ListEventsOptions = {}
-): Promise<AgentEvent[]> {
+): Promise<AvatarEvent[]> {
   const limit = Math.min(options.limit || 100, 500);
   const since = options.since || (Date.now() - 7 * 24 * 60 * 60 * 1000); // Default: 7 days
 
@@ -193,7 +193,7 @@ export async function listAgentEvents(
   const filterParts: string[] = [];
   const exprNames: Record<string, string> = {};
   const exprValues: Record<string, unknown> = {
-    ':pk': `AGENT#${agentId}`,
+    ':pk': `AVATAR#${avatarId}`,
     ':skPrefix': `EVENT#${since}`,
   };
 
@@ -229,16 +229,16 @@ export async function listAgentEvents(
     ScanIndexForward: false, // newest first
   }));
 
-  return (result.Items || []) as AgentEvent[];
+  return (result.Items || []) as AvatarEvent[];
 }
 
 /**
- * List all events across agents (admin view)
+ * List all events across avatars (admin view)
  */
 export async function listAllEvents(
   type: EventType,
   options: Omit<ListEventsOptions, 'type'> = {}
-): Promise<AgentEvent[]> {
+): Promise<AvatarEvent[]> {
   const limit = Math.min(options.limit || 100, 500);
   const since = options.since || (Date.now() - 7 * 24 * 60 * 60 * 1000);
 
@@ -276,18 +276,18 @@ export async function listAllEvents(
     ScanIndexForward: false,
   }));
 
-  return (result.Items || []) as AgentEvent[];
+  return (result.Items || []) as AvatarEvent[];
 }
 
 /**
- * Get event counts for an agent (for dashboard)
+ * Get event counts for an avatar (for dashboard)
  */
-export async function getAgentEventCounts(agentId: string): Promise<{
+export async function getAvatarEventCounts(avatarId: string): Promise<{
   openIssues: number;
   recentFeedback: { positive: number; negative: number; neutral: number };
 }> {
   const since = Date.now() - 24 * 60 * 60 * 1000; // 24 hours
-  const events = await listAgentEvents(agentId, { since, limit: 500 });
+  const events = await listAvatarEvents(avatarId, { since, limit: 500 });
 
   let openIssues = 0;
   const feedback = { positive: 0, negative: 0, neutral: 0 };
@@ -311,14 +311,14 @@ export async function getAgentEventCounts(agentId: string): Promise<{
  * Update issue status
  */
 export async function updateIssueStatus(
-  agentId: string,
+  avatarId: string,
   issueId: string,
   status: IssueStatus,
   resolvedBy?: string
 ): Promise<void> {
   // Find the issue by ID
-  const events = await listAgentEvents(agentId, { type: 'issue', limit: 500 });
-  const issue = events.find(e => e.id === issueId) as AgentIssueEvent | undefined;
+  const events = await listAvatarEvents(avatarId, { type: 'issue', limit: 500 });
+  const issue = events.find(e => e.id === issueId) as AvatarIssueEvent | undefined;
   
   if (!issue) {
     throw new Error(`Issue not found: ${issueId}`);
@@ -342,7 +342,7 @@ export async function updateIssueStatus(
   await dynamoClient.send(new UpdateCommand({
     TableName: ADMIN_TABLE,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: `EVENT#${issue.timestamp}#issue`,
     },
     UpdateExpression: `SET ${exprParts.join(', ')}`,

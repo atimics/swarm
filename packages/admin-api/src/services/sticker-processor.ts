@@ -281,7 +281,7 @@ export interface StickerMetadata {
 
 export interface StickerSetManifest {
   name: string;          // e.g., "agent_stickers_by_bot"
-  title: string;         // e.g., "Agent's Stickers"
+  title: string;         // e.g., "Avatar's Stickers"
   createdAt: string;
   lastUpdated: string;
   stickers: StickerMetadata[];
@@ -460,7 +460,7 @@ export async function processImageSourceForSticker(
 export async function uploadStickerToS3(
   buffer: Buffer,
   bucketName: string,
-  agentId: string,
+  avatarId: string,
   metadata: {
     emoji: string;
     prompt?: string;
@@ -469,7 +469,7 @@ export async function uploadStickerToS3(
 ): Promise<{ s3Key: string; id: string; url: string }> {
   const datePrefix = new Date().toISOString().split('T')[0];
   const id = randomUUID();
-  const s3Key = `stickers/${agentId}/${datePrefix}/${id}.png`;
+  const s3Key = `stickers/${avatarId}/${datePrefix}/${id}.png`;
 
   await s3Client.send(new PutObjectCommand({
     Bucket: bucketName,
@@ -497,10 +497,10 @@ export async function uploadStickerToS3(
  */
 export async function getStickerSetManifest(
   bucketName: string,
-  agentId: string,
+  avatarId: string,
   setName: string
 ): Promise<StickerSetManifest | null> {
-  const manifestKey = `stickers/${agentId}/manifests/${setName}.json`;
+  const manifestKey = `stickers/${avatarId}/manifests/${setName}.json`;
 
   try {
     const response = await s3Client.send(new GetObjectCommand({
@@ -528,10 +528,10 @@ export async function getStickerSetManifest(
  */
 export async function saveStickerSetManifest(
   bucketName: string,
-  agentId: string,
+  avatarId: string,
   manifest: StickerSetManifest
 ): Promise<void> {
-  const manifestKey = `stickers/${agentId}/manifests/${manifest.name}.json`;
+  const manifestKey = `stickers/${avatarId}/manifests/${manifest.name}.json`;
 
   manifest.lastUpdated = new Date().toISOString();
 

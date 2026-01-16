@@ -10,36 +10,36 @@ import { describe, it, expect } from 'bun:test';
 
 describe('Character Reference - S3 Key Generation', () => {
   it('should generate correct S3 key pattern for character reference', () => {
-    const agentId = 'agent-123';
+    const avatarId = 'avatar-123';
     const uuid = 'abc-def-123';
-    const s3Key = `agents/${agentId}/character-reference/${uuid}.png`;
+    const s3Key = `avatars/${avatarId}/character-reference/${uuid}.png`;
 
-    expect(s3Key).toBe('agents/agent-123/character-reference/abc-def-123.png');
-    expect(s3Key).toMatch(/^agents\/[^/]+\/character-reference\/[^/]+\.png$/);
+    expect(s3Key).toBe('avatars/avatar-123/character-reference/abc-def-123.png');
+    expect(s3Key).toMatch(/^avatars\/[^/]+\/character-reference\/[^/]+\.png$/);
   });
 
   it('should generate correct public URL with CDN', () => {
     const CDN_URL = 'https://cdn.example.com';
-    const s3Key = 'agents/agent-123/character-reference/abc.png';
+    const s3Key = 'avatars/avatar-123/character-reference/abc.png';
     const publicUrl = `${CDN_URL}/${s3Key}`;
 
-    expect(publicUrl).toBe('https://cdn.example.com/agents/agent-123/character-reference/abc.png');
+    expect(publicUrl).toBe('https://cdn.example.com/avatars/avatar-123/character-reference/abc.png');
   });
 
   it('should generate correct public URL without CDN', () => {
     const MEDIA_BUCKET = 'swarm-media-bucket';
-    const s3Key = 'agents/agent-123/character-reference/abc.png';
+    const s3Key = 'avatars/avatar-123/character-reference/abc.png';
     const publicUrl = `https://${MEDIA_BUCKET}.s3.amazonaws.com/${s3Key}`;
 
-    expect(publicUrl).toBe('https://swarm-media-bucket.s3.amazonaws.com/agents/agent-123/character-reference/abc.png');
+    expect(publicUrl).toBe('https://swarm-media-bucket.s3.amazonaws.com/avatars/avatar-123/character-reference/abc.png');
   });
 });
 
 describe('Character Reference - Data Structure', () => {
   it('should have correct structure for character reference object', () => {
     const characterReference = {
-      url: 'https://cdn.example.com/agents/123/character-reference/abc.png',
-      s3Key: 'agents/123/character-reference/abc.png',
+      url: 'https://cdn.example.com/avatars/123/character-reference/abc.png',
+      s3Key: 'avatars/123/character-reference/abc.png',
       description: 'Blue whale character turnaround',
       generatedPrompt: 'A blue whale, character sheet',
       updatedAt: Date.now(),
@@ -54,7 +54,7 @@ describe('Character Reference - Data Structure', () => {
   it('should allow optional fields to be undefined', () => {
     const minimalCharacterReference = {
       url: 'https://cdn.example.com/ref.png',
-      s3Key: 'agents/123/ref.png',
+      s3Key: 'avatars/123/ref.png',
       updatedAt: Date.now(),
     };
 
@@ -106,7 +106,7 @@ describe('Character Reference - URL Validation', () => {
 
   it('should accept valid HTTPS URLs', () => {
     expect(isValidImageUrl('https://example.com/image.png')).toBe(true);
-    expect(isValidImageUrl('https://cdn.example.com/agents/123/ref.png')).toBe(true);
+    expect(isValidImageUrl('https://cdn.example.com/avatars/123/ref.png')).toBe(true);
   });
 
   it('should accept valid HTTP URLs', () => {
@@ -163,13 +163,13 @@ describe('Character Reference - Integration Test Scenarios', () => {
     // 4. DynamoDB record is created/updated
     // 5. CDN URL is returned to client
 
-    const agentId = 'agent-123';
+    const avatarId = 'avatar-123';
     const uploadId = 'upload-abc-def';
     const timestamp = Date.now();
 
     // Step 1: Generate S3 key
-    const s3Key = `agents/${agentId}/character-reference/${uploadId}.png`;
-    expect(s3Key).toBe('agents/agent-123/character-reference/upload-abc-def.png');
+    const s3Key = `avatars/${avatarId}/character-reference/${uploadId}.png`;
+    expect(s3Key).toBe('avatars/avatar-123/character-reference/upload-abc-def.png');
 
     // Step 2: S3 upload response
     const s3Response = {
@@ -182,11 +182,11 @@ describe('Character Reference - Integration Test Scenarios', () => {
     // Step 3: CDN URL generation
     const CDN_URL = 'https://cdn.swarm.example.com';
     const publicUrl = `${CDN_URL}/${s3Key}`;
-    expect(publicUrl).toBe('https://cdn.swarm.example.com/agents/agent-123/character-reference/upload-abc-def.png');
+    expect(publicUrl).toBe('https://cdn.swarm.example.com/avatars/avatar-123/character-reference/upload-abc-def.png');
 
     // Step 4: DynamoDB record structure
     const dbRecord = {
-      PK: `AGENT#${agentId}`,
+      PK: `AVATAR#${avatarId}`,
       SK: 'CHARACTER_REFERENCE',
       url: publicUrl,
       s3Key: s3Key,
@@ -194,10 +194,10 @@ describe('Character Reference - Integration Test Scenarios', () => {
       generatedPrompt: 'A blue whale, character turnaround sheet, multiple angles',
       updatedAt: timestamp,
       GSI1PK: 'CHARACTER_REFERENCES',
-      GSI1SK: `${timestamp}#${agentId}`,
+      GSI1SK: `${timestamp}#${avatarId}`,
     };
 
-    expect(dbRecord.PK).toBe('AGENT#agent-123');
+    expect(dbRecord.PK).toBe('AVATAR#avatar-123');
     expect(dbRecord.url).toContain('cdn.swarm.example.com');
     expect(dbRecord.updatedAt).toBe(timestamp);
 
@@ -218,17 +218,17 @@ describe('Character Reference - Integration Test Scenarios', () => {
 
   it('E2E: Character reference used in image generation', () => {
     // Simulate character reference being used for image generation:
-    // 1. Agent requests image generation
+    // 1. Avatar requests image generation
     // 2. Service fetches character reference from DB
     // 3. Reference image is included in generation prompt
     // 4. Generated image maintains character consistency
 
-    const _agentId = 'agent-456';
+    const _agentId = 'avatar-456';
     
     // Character reference from database
     const characterReference = {
-      url: 'https://cdn.example.com/agents/agent-456/character-reference/ref.png',
-      s3Key: 'agents/agent-456/character-reference/ref.png',
+      url: 'https://cdn.example.com/avatars/avatar-456/character-reference/ref.png',
+      s3Key: 'avatars/avatar-456/character-reference/ref.png',
       description: 'Cartoon robot with blue eyes and silver body',
       generatedPrompt: 'friendly robot character, blue LED eyes, metallic silver body, cartoon style',
     };
@@ -250,7 +250,7 @@ describe('Character Reference - Integration Test Scenarios', () => {
 
     // Generated image result
     const generatedImage = {
-      url: 'https://cdn.example.com/agents/agent-456/generated/gen-123.png',
+      url: 'https://cdn.example.com/avatars/avatar-456/generated/gen-123.png',
       prompt: fullPrompt,
       characterReferenceUsed: true,
       model: 'flux',
@@ -267,8 +267,8 @@ describe('Character Reference - Integration Test Scenarios', () => {
     // 3. S3 object is deleted (rollback)
     // 4. Error returned to client
 
-    const agentId = 'agent-789';
-    const s3Key = `agents/${agentId}/character-reference/failed-upload.png`;
+    const avatarId = 'avatar-789';
+    const s3Key = `avatars/${avatarId}/character-reference/failed-upload.png`;
 
     // Step 1: S3 upload succeeds
     const s3UploadSuccess = {
@@ -328,7 +328,7 @@ describe('Character Reference - Integration Test Scenarios', () => {
       dailyLimit: 10,
     };
 
-    const _agentId = 'agent-rate-test';
+    const _agentId = 'avatar-rate-test';
 
     // Initial state: full credits
     const creditState = {
@@ -379,8 +379,8 @@ describe('Character Reference - Integration Test Scenarios', () => {
     // 3. Expired URL returns error
     // 4. New URL must be requested
 
-    const agentId = 'agent-signed-url';
-    const s3Key = `agents/${agentId}/character-reference/pending-upload.png`;
+    const avatarId = 'avatar-signed-url';
+    const s3Key = `avatars/${avatarId}/character-reference/pending-upload.png`;
     const expiresIn = 300; // 5 minutes
 
     // Generate presigned URL

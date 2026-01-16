@@ -6,6 +6,7 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda
 import { z } from 'zod';
 import { verifyCrossmintAuth } from '../services/crossmint-auth.js';
 import { getGateStatus } from '../services/nft-gate.js';
+import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 
 // ============================================================================
 // Request Schemas
@@ -112,7 +113,7 @@ export async function handleCrossmintVerify(
     }
 
     // Get client info
-    const userAgent = event.headers['user-agent'];
+    const userAgent = event.headers['user-avatar'];
     const ipAddress = event.requestContext.http.sourceIp;
 
     // Verify and create session
@@ -131,6 +132,9 @@ export async function handleCrossmintVerify(
     // Get gate status for the wallet
     const gateStatus = await getGateStatus(result.user.walletAddress);
 
+    // Inhabitation is stored in the avatar ownership mapping; don't rely on user profile fields.
+    const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
+
     // Set session cookie
     const cookie = setSessionCookie(result.session.sessionToken);
 
@@ -145,7 +149,7 @@ export async function handleCrossmintVerify(
         displayName: result.user.displayName,
         email: result.user.email,
         avatarUrl: result.user.avatarUrl,
-        inhabitedAgentId: result.user.inhabitedAgentId,
+        inhabitedAvatarId: inhabitedAvatar?.avatarId,
       },
       nftGate: result.nftGate,
       gateStatus,

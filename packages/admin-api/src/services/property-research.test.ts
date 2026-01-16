@@ -28,7 +28,7 @@ function createMockDeps(): PropertyResearchDeps & { mockSend: ReturnType<typeof 
 
 describe('PropertyResearchService', () => {
   let mockDeps: PropertyResearchDeps & { mockSend: ReturnType<typeof mock> };
-  const agentId = 'test-agent';
+  const avatarId = 'test-avatar';
   const walletAddress = '0x123';
 
   beforeEach(() => {
@@ -45,7 +45,7 @@ describe('PropertyResearchService', () => {
         })
       );
 
-      const result = await checkAuth(agentId, walletAddress, mockDeps);
+      const result = await checkAuth(avatarId, walletAddress, mockDeps);
       expect(result).toBe(true);
     });
 
@@ -58,7 +58,7 @@ describe('PropertyResearchService', () => {
         })
       );
 
-      const result = await checkAuth(agentId, walletAddress, mockDeps);
+      const result = await checkAuth(avatarId, walletAddress, mockDeps);
       expect(result).toBe(false);
     });
 
@@ -67,19 +67,19 @@ describe('PropertyResearchService', () => {
         Promise.resolve({ Item: undefined })
       );
 
-      const result = await checkAuth(agentId, walletAddress, mockDeps);
+      const result = await checkAuth(avatarId, walletAddress, mockDeps);
       expect(result).toBe(false);
     });
 
     it('returns false for empty wallet address', async () => {
-      const result = await checkAuth(agentId, '', mockDeps);
+      const result = await checkAuth(avatarId, '', mockDeps);
       expect(result).toBe(false);
     });
 
     it('grants authorization with correct TTL', async () => {
-      const auth = await grantAuth(agentId, walletAddress, mockDeps);
+      const auth = await grantAuth(avatarId, walletAddress, mockDeps);
 
-      expect(auth.agentId).toBe(agentId);
+      expect(auth.avatarId).toBe(avatarId);
       expect(auth.walletAddress).toBe(walletAddress);
       expect(auth.expiresAt).toBeGreaterThan(Date.now());
       expect(mockDeps.mockSend).toHaveBeenCalled();
@@ -95,7 +95,7 @@ describe('PropertyResearchService', () => {
         zip: 'V8Z 1Y8',
       };
 
-      const job = await createJob(agentId, property, undefined, mockDeps);
+      const job = await createJob(avatarId, property, undefined, mockDeps);
 
       expect(job.status).toBe('queued');
       expect(job.property.address).toBe(property.address);
@@ -104,17 +104,17 @@ describe('PropertyResearchService', () => {
       expect(mockDeps.mockSend).toHaveBeenCalled();
     });
 
-    it('lists job summaries for an agent', async () => {
+    it('lists job summaries for an avatar', async () => {
       mockDeps.mockSend.mockImplementation(() =>
         Promise.resolve({
           Items: [
-            { jobId: 'job-1', status: 'completed', createdAt: 1000, agentId, property: { address: 'A' } },
-            { jobId: 'job-2', status: 'queued', createdAt: 2000, agentId, property: { address: 'B' } },
+            { jobId: 'job-1', status: 'completed', createdAt: 1000, avatarId, property: { address: 'A' } },
+            { jobId: 'job-2', status: 'queued', createdAt: 2000, avatarId, property: { address: 'B' } },
           ],
         })
       );
 
-      const jobs = await getJobsForAgent(agentId, undefined, mockDeps);
+      const jobs = await getJobsForAgent(avatarId, undefined, mockDeps);
 
       expect(jobs).toHaveLength(2);
       expect(jobs[0].jobId).toBe('job-2'); // Sorted by createdAt desc

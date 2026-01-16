@@ -1,8 +1,8 @@
 /**
  * Prompt Preview Handler
  *
- * Returns a preview of what would be sent to the LLM for a given agent context.
- * Useful for debugging and understanding agent behavior.
+ * Returns a preview of what would be sent to the LLM for a given avatar context.
+ * Useful for debugging and understanding avatar behavior.
  */
 import type {
   APIGatewayProxyEventV2,
@@ -19,11 +19,11 @@ import {
   type ToolsetId,
 } from '@swarm/mcp-server';
 import { createMCPServices } from '../services/mcp-adapter.js';
-import * as agents from '../services/agents.js';
+import * as avatars from '../services/avatars.js';
 import { getEnabledToolsets } from '../services/mcp-config.js';
 
 const PreviewRequestSchema = z.object({
-  agentId: z.string(),
+  avatarId: z.string(),
   message: z.string().optional(),
   history: z.array(z.object({
     role: z.enum(['user', 'assistant', 'system', 'tool']),
@@ -131,21 +131,21 @@ export async function handler(
       };
     }
 
-    const { agentId, message, history = [] } = parsed.data;
+    const { avatarId, message, history = [] } = parsed.data;
 
-    // Get agent config
-    const agentRecord = await agents.getAgent(agentId);
-    if (!agentRecord) {
+    // Get avatar config
+    const avatarRecord = await avatars.getAvatar(avatarId);
+    if (!avatarRecord) {
       return {
         statusCode: 404,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Agent not found' }),
+        body: JSON.stringify({ error: 'Avatar not found' }),
       };
     }
 
-    // Determine enabled categories based on agent configuration
+    // Determine enabled categories based on avatar configuration
     const voiceEnabled = process.env.ENABLE_VOICE_TOOLS !== 'false';
-    const mcpConfig = agentRecord.mcpConfig;
+    const mcpConfig = avatarRecord.mcpConfig;
     const enabledToolsets = mcpConfig?.enabledToolsets || [];
 
     const enabledCategories: ToolCategory[] = [
@@ -154,9 +154,9 @@ export async function handler(
     // Voice enabled by default (unless env var disables it)
     if (voiceEnabled) enabledCategories.push('voice');
     // Platform categories based on platform config
-    if (agentRecord.platforms?.telegram?.enabled) enabledCategories.push('telegram');
-    if (agentRecord.platforms?.twitter?.enabled) enabledCategories.push('twitter');
-    if (agentRecord.platforms?.discord?.enabled) enabledCategories.push('discord');
+    if (avatarRecord.platforms?.telegram?.enabled) enabledCategories.push('telegram');
+    if (avatarRecord.platforms?.twitter?.enabled) enabledCategories.push('twitter');
+    if (avatarRecord.platforms?.discord?.enabled) enabledCategories.push('discord');
     // NFT always enabled for inhabitation
     enabledCategories.push('nft');
     // Memory and property require explicit opt-in via mcpConfig
@@ -165,16 +165,16 @@ export async function handler(
 
     // Build system prompt
     const systemPrompt = buildDynamicSystemPrompt({
-      id: agentId,
-      name: agentRecord.name,
-      description: agentRecord.description,
-      persona: agentRecord.persona,
+      id: avatarId,
+      name: avatarRecord.name,
+      description: avatarRecord.description,
+      persona: avatarRecord.persona,
       enabledCategories,
       platform: 'admin-ui',
     });
 
     // Get enabled toolsets from MCP config (or defaults if not configured)
-    const mcpEnabledToolsets = await getEnabledToolsets(agentId);
+    const mcpEnabledToolsets = await getEnabledToolsets(avatarId);
     const categoryToolsets = resolveAllowedToolsets(enabledCategories);
 
     // Merge: use MCP enabled toolsets if configured, otherwise use category-based defaults
@@ -183,12 +183,12 @@ export async function handler(
       : categoryToolsets;
 
     // Build tool registry
-    const mcpServices = createMCPServices(agentId, session);
+    const mcpServices = createMCPServices(avatarId, session);
     const toolRegistry = new ToolRegistry();
     registerAllTools(toolRegistry, mcpServices);
 
     const toolContext: ToolContext = {
-      agentId,
+      avatarId,
       platform: 'admin-ui',
       session: {
         email: session.email,

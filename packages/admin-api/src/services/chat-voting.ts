@@ -108,7 +108,7 @@ async function recordModification(
   chatId: number,
   type: ChatModificationType,
   proposalId: string,
-  agentId: string
+  avatarId: string
 ): Promise<void> {
   const now = Date.now();
   const ttl = Math.floor((now + 30 * 24 * 60 * 60 * 1000) / 1000); // 30 days
@@ -119,7 +119,7 @@ async function recordModification(
     chatId,
     type,
     lastModifiedAt: now,
-    lastModifiedBy: agentId,
+    lastModifiedBy: avatarId,
     proposalId,
     ttl,
   };
@@ -139,7 +139,7 @@ async function recordModification(
  */
 export async function getChatBots(
   chatId: number
-): Promise<Array<{ agentId: string; botUsername: string }>> {
+): Promise<Array<{ avatarId: string; botUsername: string }>> {
   const result = await dynamoClient.send(new QueryCommand({
     TableName: ADMIN_TABLE,
     KeyConditionExpression: 'pk = :pk',
@@ -153,7 +153,7 @@ export async function getChatBots(
   }
 
   return result.Items.map(item => ({
-    agentId: item.agentId,
+    avatarId: item.avatarId,
     botUsername: item.botUsername,
   }));
 }
@@ -162,7 +162,7 @@ export async function getChatBots(
  * Create a new modification proposal
  */
 export async function createProposal(
-  agentId: string,
+  avatarId: string,
   chatId: number,
   type: ChatModificationType,
   newValue: string,
@@ -197,15 +197,15 @@ export async function createProposal(
     proposalId,
     chatId,
     type,
-    proposedBy: agentId,
+    proposedBy: avatarId,
     proposedAt: now,
     newValue,
     reason,
     status: 'pending',
     votes: {
       // Proposer automatically votes approve
-      [agentId]: {
-        agentId,
+      [avatarId]: {
+        avatarId,
         vote: 'approve',
         votedAt: now,
       },
@@ -234,7 +234,7 @@ export async function createProposal(
  * Vote on a proposal
  */
 export async function voteOnProposal(
-  agentId: string,
+  avatarId: string,
   proposalId: string,
   vote: 'approve' | 'reject',
   comment?: string
@@ -249,9 +249,9 @@ export async function voteOnProposal(
     throw new Error(`Proposal is already ${proposal.status}`);
   }
 
-  // Check if this agent is in the chat
+  // Check if this avatar is in the chat
   const bots = await getChatBots(proposal.chatId);
-  const isInChat = bots.some(b => b.agentId === agentId);
+  const isInChat = bots.some(b => b.avatarId === avatarId);
   if (!isInChat) {
     throw new Error('You are not a member of this chat');
   }
@@ -260,8 +260,8 @@ export async function voteOnProposal(
   const now = Date.now();
   const updatedVotes = {
     ...proposal.votes,
-    [agentId]: {
-      agentId,
+    [avatarId]: {
+      avatarId,
       vote,
       votedAt: now,
       comment,
@@ -392,7 +392,7 @@ export async function getActiveProposals(
  * Execute an approved modification
  */
 export async function executeModification(
-  agentId: string,
+  avatarId: string,
   proposalId: string,
   botToken: string
 ): Promise<{ success: boolean; error?: string }> {
@@ -427,7 +427,7 @@ export async function executeModification(
     }
 
     // Record the modification for rate limiting
-    await recordModification(proposal.chatId, proposal.type, proposalId, agentId);
+    await recordModification(proposal.chatId, proposal.type, proposalId, avatarId);
 
     // Update proposal status
     await dynamoClient.send(new UpdateCommand({
@@ -438,7 +438,7 @@ export async function executeModification(
       ExpressionAttributeValues: {
         ':status': 'executed',
         ':executedAt': Date.now(),
-        ':executedBy': agentId,
+        ':executedBy': avatarId,
       },
     }));
 

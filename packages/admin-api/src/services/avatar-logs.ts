@@ -1,17 +1,17 @@
 /**
- * Agent Logs Service
+ * Avatar Logs Service
  * 
  * Fast log storage in DynamoDB for real-time log viewing.
  * Complements CloudWatch Logs with instant access to recent logs.
  * 
  * Schema:
- *   pk: AGENT#<agentId>
+ *   pk: AVATAR#<avatarId>
  *   sk: LOG#<timestamp>#<random>
- *   gsi1pk: LOGS#<level>  (for cross-agent error queries)
+ *   gsi1pk: LOGS#<level>  (for cross-avatar error queries)
  *   gsi1sk: <timestamp>
  * 
  * Design:
- *   - Stores last 24h of structured logs per agent
+ *   - Stores last 24h of structured logs per avatar
  *   - TTL auto-deletes old entries
  *   - CloudWatch remains source of truth for long-term audit
  */
@@ -40,10 +40,10 @@ const MAX_BATCH_SIZE = 25;
 
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 
-export interface AgentLogEntry {
+export interface AvatarLogEntry {
   id: string;
   timestamp: number;
-  agentId: string;
+  avatarId: string;
   level: LogLevel;
   subsystem: string;
   event: string;
@@ -69,7 +69,7 @@ export interface LogQueryOptions {
  * Record a structured log entry
  */
 export async function recordLog(params: {
-  agentId: string;
+  avatarId: string;
   level: LogLevel;
   subsystem: string;
   event: string;
@@ -77,14 +77,14 @@ export async function recordLog(params: {
   data?: Record<string, unknown>;
   requestId?: string;
   platform?: string;
-}): Promise<AgentLogEntry> {
+}): Promise<AvatarLogEntry> {
   const now = Date.now();
   const id = `log-${now}-${Math.random().toString(36).slice(2, 8)}`;
   
-  const entry: AgentLogEntry = {
+  const entry: AvatarLogEntry = {
     id,
     timestamp: now,
-    agentId: params.agentId,
+    avatarId: params.avatarId,
     level: params.level,
     subsystem: params.subsystem,
     event: params.event,
@@ -97,7 +97,7 @@ export async function recordLog(params: {
   await dynamoClient.send(new PutCommand({
     TableName: ADMIN_TABLE,
     Item: {
-      pk: `AGENT#${params.agentId}`,
+      pk: `AVATAR#${params.avatarId}`,
       sk: `LOG#${now}#${id.slice(-6)}`,
       gsi1pk: `LOGS#${params.level}`,
       gsi1sk: now,
@@ -123,14 +123,14 @@ export async function recordLogBatch(
     return {
       PutRequest: {
         Item: {
-          pk: `AGENT#${params.agentId}`,
+          pk: `AVATAR#${params.avatarId}`,
           sk: `LOG#${now + idx}#${id.slice(-6)}`,
           gsi1pk: `LOGS#${params.level}`,
           gsi1sk: now + idx,
           ttl: Math.floor(now / 1000) + LOG_TTL_SECONDS,
           id,
           timestamp: now + idx,
-          agentId: params.agentId,
+          avatarId: params.avatarId,
           level: params.level,
           subsystem: params.subsystem,
           event: params.event,
@@ -155,12 +155,12 @@ export async function recordLogBatch(
 // ============================================================================
 
 /**
- * List logs for a specific agent (fast)
+ * List logs for a specific avatar (fast)
  */
-export async function listAgentLogs(
-  agentId: string,
+export async function listAvatarLogs(
+  avatarId: string,
   options: LogQueryOptions = {}
-): Promise<{ logs: AgentLogEntry[]; hasMore: boolean }> {
+): Promise<{ logs: AvatarLogEntry[]; hasMore: boolean }> {
   const limit = Math.min(options.limit || 200, 500);
   const since = options.since || (Date.now() - 24 * 60 * 60 * 1000); // Default: 24h
 
@@ -168,7 +168,7 @@ export async function listAgentLogs(
   const filterParts: string[] = [];
   const exprNames: Record<string, string> = {};
   const exprValues: Record<string, unknown> = {
-    ':pk': `AGENT#${agentId}`,
+    ':pk': `AVATAR#${avatarId}`,
     ':skPrefix': `LOG#${since}`,
   };
 
@@ -199,7 +199,7 @@ export async function listAgentLogs(
     ScanIndexForward: false, // Newest first
   }));
 
-  const items = (result.Items || []) as AgentLogEntry[];
+  const items = (result.Items || []) as AvatarLogEntry[];
   const hasMore = items.length > limit;
   
   return {
@@ -209,12 +209,12 @@ export async function listAgentLogs(
 }
 
 /**
- * List logs by level across all agents (for error dashboard)
+ * List logs by level across all avatars (for error dashboard)
  */
 export async function listLogsByLevel(
   level: LogLevel,
   options: Omit<LogQueryOptions, 'level'> = {}
-): Promise<{ logs: AgentLogEntry[]; hasMore: boolean }> {
+): Promise<{ logs: AvatarLogEntry[]; hasMore: boolean }> {
   const limit = Math.min(options.limit || 100, 500);
   const since = options.since || (Date.now() - 24 * 60 * 60 * 1000);
 
@@ -244,7 +244,7 @@ export async function listLogsByLevel(
     ScanIndexForward: false,
   }));
 
-  const items = (result.Items || []) as AgentLogEntry[];
+  const items = (result.Items || []) as AvatarLogEntry[];
   const hasMore = items.length > limit;
   
   return {
@@ -254,14 +254,14 @@ export async function listLogsByLevel(
 }
 
 /**
- * Get log counts by level for an agent (for dashboard badges)
+ * Get log counts by level for an avatar (for dashboard badges)
  */
-export async function getAgentLogCounts(
-  agentId: string,
+export async function getAvatarLogCounts(
+  avatarId: string,
   since?: number
 ): Promise<{ ERROR: number; WARN: number; INFO: number; DEBUG: number }> {
   const sincetime = since || (Date.now() - 60 * 60 * 1000); // Default: 1 hour
-  const { logs } = await listAgentLogs(agentId, { since: sincetime, limit: 500 });
+  const { logs } = await listAvatarLogs(avatarId, { since: sincetime, limit: 500 });
 
   const counts = { ERROR: 0, WARN: 0, INFO: 0, DEBUG: 0 };
   for (const log of logs) {
@@ -280,10 +280,10 @@ export async function getAgentLogCounts(
  * Call this from handlers that want fast log access
  */
 export async function parseAndStorelog(
-  agentId: string,
+  avatarId: string,
   jsonString: string,
   platform?: string
-): Promise<AgentLogEntry | null> {
+): Promise<AvatarLogEntry | null> {
   try {
     const parsed = JSON.parse(jsonString);
     if (!parsed.level || !parsed.subsystem || !parsed.event) {
@@ -291,7 +291,7 @@ export async function parseAndStorelog(
     }
 
     return await recordLog({
-      agentId,
+      avatarId,
       level: (parsed.level?.toUpperCase() || 'INFO') as LogLevel,
       subsystem: parsed.subsystem,
       event: parsed.event,

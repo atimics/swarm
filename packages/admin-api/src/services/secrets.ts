@@ -34,10 +34,10 @@ const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
 /**
  * Generate a unique secret ARN/name
  */
-function generateSecretName(agentId: string | null, secretType: SecretType, name: string): string {
+function generateSecretName(avatarId: string | null, secretType: SecretType, name: string): string {
   const sanitizedName = name.replace(/[^a-zA-Z0-9-_]/g, '-');
-  if (agentId) {
-    return `${SECRET_PREFIX}/${agentId}/${secretType}/${sanitizedName}`;
+  if (avatarId) {
+    return `${SECRET_PREFIX}/${avatarId}/${secretType}/${sanitizedName}`;
   }
   return `${SECRET_PREFIX}/global/${secretType}/${sanitizedName}`;
 }
@@ -49,14 +49,14 @@ function generateSecretName(agentId: string | null, secretType: SecretType, name
  * - Returns only the metadata
  */
 export async function storeSecret(
-  agentId: string | null,
+  avatarId: string | null,
   secretType: SecretType,
   name: string,
   value: string,
   session: UserSession,
   description?: string
 ): Promise<SecretMetadata> {
-  const secretName = generateSecretName(agentId, secretType, name);
+  const secretName = generateSecretName(avatarId, secretType, name);
   const now = Date.now();
 
   // Check if secret already exists
@@ -84,7 +84,7 @@ export async function storeSecret(
         KmsKeyId: KMS_KEY_ID,
         Description: description,
         Tags: [
-          { Key: 'swarm:agent', Value: agentId || 'global' },
+          { Key: 'swarm:avatar', Value: avatarId || 'global' },
           { Key: 'swarm:type', Value: secretType },
           { Key: 'swarm:managed', Value: 'true' },
         ],
@@ -97,7 +97,7 @@ export async function storeSecret(
 
   // Store metadata in DynamoDB
   const metadata: SecretMetadata = {
-    pk: agentId ? `AGENT#${agentId}` : 'GLOBAL',
+    pk: avatarId ? `AVATAR#${avatarId}` : 'GLOBAL',
     sk: `SECRET#${secretType}#${name}`,
     secretType,
     name,
@@ -107,7 +107,7 @@ export async function storeSecret(
     createdBy: isNew ? session.email : '',
     updatedAt: now,
     updatedBy: session.email,
-    isGlobal: !agentId,
+    isGlobal: !avatarId,
   };
 
   // Get existing metadata to preserve createdAt/createdBy
@@ -134,22 +134,22 @@ export async function storeSecret(
  * Store platform secrets (convenience wrapper)
  */
 export async function storeTelegramSecrets(
-  agentId: string,
+  avatarId: string,
   botToken: string,
   session: UserSession
 ): Promise<SecretMetadata> {
   return storeSecret(
-    agentId,
+    avatarId,
     'telegram_bot_token',
     'bot-token',
     botToken,
     session,
-    `Telegram bot token for ${agentId}`
+    `Telegram bot token for ${avatarId}`
   );
 }
 
 export async function storeTwitterSecrets(
-  agentId: string,
+  avatarId: string,
   secrets: {
     apiKey: string;
     apiSecret: string;
@@ -161,20 +161,20 @@ export async function storeTwitterSecrets(
 ): Promise<SecretMetadata[]> {
   const results: SecretMetadata[] = [];
 
-  results.push(await storeSecret(agentId, 'twitter_api_key', 'api-key', secrets.apiKey, session));
-  results.push(await storeSecret(agentId, 'twitter_api_secret', 'api-secret', secrets.apiSecret, session));
-  results.push(await storeSecret(agentId, 'twitter_access_token', 'access-token', secrets.accessToken, session));
-  results.push(await storeSecret(agentId, 'twitter_access_secret', 'access-secret', secrets.accessSecret, session));
+  results.push(await storeSecret(avatarId, 'twitter_api_key', 'api-key', secrets.apiKey, session));
+  results.push(await storeSecret(avatarId, 'twitter_api_secret', 'api-secret', secrets.apiSecret, session));
+  results.push(await storeSecret(avatarId, 'twitter_access_token', 'access-token', secrets.accessToken, session));
+  results.push(await storeSecret(avatarId, 'twitter_access_secret', 'access-secret', secrets.accessSecret, session));
   
   if (secrets.bearerToken) {
-    results.push(await storeSecret(agentId, 'twitter_bearer_token', 'bearer-token', secrets.bearerToken, session));
+    results.push(await storeSecret(avatarId, 'twitter_bearer_token', 'bearer-token', secrets.bearerToken, session));
   }
 
   return results;
 }
 
 export async function storeDiscordSecrets(
-  agentId: string,
+  avatarId: string,
   secrets: {
     botToken: string;
     clientId?: string;
@@ -184,35 +184,35 @@ export async function storeDiscordSecrets(
 ): Promise<SecretMetadata[]> {
   const results: SecretMetadata[] = [];
 
-  results.push(await storeSecret(agentId, 'discord_bot_token', 'bot-token', secrets.botToken, session));
+  results.push(await storeSecret(avatarId, 'discord_bot_token', 'bot-token', secrets.botToken, session));
   
   if (secrets.clientId) {
-    results.push(await storeSecret(agentId, 'discord_client_id', 'client-id', secrets.clientId, session));
+    results.push(await storeSecret(avatarId, 'discord_client_id', 'client-id', secrets.clientId, session));
   }
   if (secrets.clientSecret) {
-    results.push(await storeSecret(agentId, 'discord_client_secret', 'client-secret', secrets.clientSecret, session));
+    results.push(await storeSecret(avatarId, 'discord_client_secret', 'client-secret', secrets.clientSecret, session));
   }
 
   return results;
 }
 
 /**
- * Store AI provider API key (global or per-agent)
+ * Store AI provider API key (global or per-avatar)
  */
 export async function storeAIProviderKey(
   provider: 'openrouter' | 'anthropic' | 'openai' | 'replicate',
   apiKey: string,
   session: UserSession,
-  agentId?: string
+  avatarId?: string
 ): Promise<SecretMetadata> {
   const secretType = `${provider}_api_key` as SecretType;
   return storeSecret(
-    agentId || null,
+    avatarId || null,
     secretType,
     'api-key',
     apiKey,
     session,
-    `${provider} API key${agentId ? ` for ${agentId}` : ' (global)'}`
+    `${provider} API key${avatarId ? ` for ${avatarId}` : ' (global)'}`
   );
 }
 
@@ -220,23 +220,23 @@ export async function storeAIProviderKey(
  * List secrets (metadata only, NOT values)
  */
 export async function listSecrets(
-  agentId?: string
+  avatarId?: string
 ): Promise<SecretMetadata[]> {
   const results: SecretMetadata[] = [];
 
-  if (agentId) {
-    // List secrets for specific agent
-    const agentSecrets = await dynamoClient.send(new QueryCommand({
+  if (avatarId) {
+    // List secrets for specific avatar
+    const avatarecrets = await dynamoClient.send(new QueryCommand({
       TableName: SECRETS_TABLE,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
       ExpressionAttributeValues: {
-        ':pk': `AGENT#${agentId}`,
+        ':pk': `AVATAR#${avatarId}`,
         ':sk': 'SECRET#',
       },
     }));
-    results.push(...(agentSecrets.Items as SecretMetadata[] || []));
+    results.push(...(avatarecrets.Items as SecretMetadata[] || []));
   } else {
-    // List all secrets (global + all agents)
+    // List all secrets (global + all avatars)
     const globalSecrets = await dynamoClient.send(new QueryCommand({
       TableName: SECRETS_TABLE,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
@@ -247,8 +247,8 @@ export async function listSecrets(
     }));
     results.push(...(globalSecrets.Items as SecretMetadata[] || []));
 
-    // Query for all agent secrets would require a scan or GSI
-    // For now, return global only when no agentId specified
+    // Query for all avatar secrets would require a scan or GSI
+    // For now, return global only when no avatarId specified
   }
 
   return results;
@@ -258,12 +258,12 @@ export async function listSecrets(
  * Delete a secret
  */
 export async function deleteSecret(
-  agentId: string | null,
+  avatarId: string | null,
   secretType: SecretType,
   name: string,
   _session: UserSession
 ): Promise<void> {
-  const pk = agentId ? `AGENT#${agentId}` : 'GLOBAL';
+  const pk = avatarId ? `AVATAR#${avatarId}` : 'GLOBAL';
   const sk = `SECRET#${secretType}#${name}`;
 
   // Get the metadata to find the ARN
@@ -295,11 +295,11 @@ export async function deleteSecret(
  * Check if a secret exists
  */
 export async function secretExists(
-  agentId: string | null,
+  avatarId: string | null,
   secretType: SecretType,
   name: string
 ): Promise<boolean> {
-  const pk = agentId ? `AGENT#${agentId}` : 'GLOBAL';
+  const pk = avatarId ? `AVATAR#${avatarId}` : 'GLOBAL';
   const sk = `SECRET#${secretType}#${name}`;
 
   const result = await dynamoClient.send(new GetCommand({
@@ -315,11 +315,11 @@ export async function secretExists(
  * Does NOT return the secret value
  */
 export async function getSecretArn(
-  agentId: string | null,
+  avatarId: string | null,
   secretType: SecretType,
   name: string
 ): Promise<string | null> {
-  const pk = agentId ? `AGENT#${agentId}` : 'GLOBAL';
+  const pk = avatarId ? `AVATAR#${avatarId}` : 'GLOBAL';
   const sk = `SECRET#${secretType}#${name}`;
 
   const result = await dynamoClient.send(new GetCommand({
@@ -331,10 +331,10 @@ export async function getSecretArn(
 }
 
 async function getLatestSecretArnForType(
-  agentId: string,
+  avatarId: string,
   secretType: SecretType
 ): Promise<string | null> {
-  const pk = agentId ? `AGENT#${agentId}` : 'GLOBAL';
+  const pk = avatarId ? `AVATAR#${avatarId}` : 'GLOBAL';
   const result = await dynamoClient.send(new QueryCommand({
     TableName: SECRETS_TABLE,
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :skPrefix)',
@@ -356,8 +356,8 @@ async function getLatestSecretArnForType(
  *
  * WARNING: This function breaks the "write-only" security model.
  * Only use for legitimate internal operations like:
- * - Agent retrieving its own Helius API key for RPC calls
- * - Agent retrieving its own wallet private key for signing
+ * - Avatar retrieving its own Helius API key for RPC calls
+ * - Avatar retrieving its own wallet private key for signing
  *
  * NEVER expose this through the admin API or chat tools.
  * NEVER use to retrieve secrets for display or export.
@@ -365,16 +365,16 @@ async function getLatestSecretArnForType(
  * @internal
  */
 export async function _getSecretValueInternal(
-  agentId: string,
+  avatarId: string,
   secretType: SecretType,
   name: string
 ): Promise<string | null> {
   // Log access for audit purposes
-  console.warn(`[AUDIT] Secret value accessed: agent=${agentId}, type=${secretType}, name=${name}`);
+  console.warn(`[AUDIT] Secret value accessed: avatar=${avatarId}, type=${secretType}, name=${name}`);
 
-  let secretArn = await getSecretArn(agentId, secretType, name);
+  let secretArn = await getSecretArn(avatarId, secretType, name);
   if (!secretArn && name === 'default') {
-    secretArn = await getLatestSecretArnForType(agentId, secretType);
+    secretArn = await getLatestSecretArnForType(avatarId, secretType);
   }
   if (!secretArn) return null;
 

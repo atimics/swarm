@@ -3,8 +3,8 @@
  * Verifies wallet holds required NFTs for access and creation gating
  *
  * Gate NFT serves two purposes:
- * 1. HOLDING = Permission to create agents (1 NFT held = 1 creation slot)
- * 2. BURNING = Permission to abandon an inhabited agent
+ * 1. HOLDING = Permission to create avatars (1 NFT held = 1 creation slot)
+ * 2. BURNING = Permission to abandon an inhabited avatar
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
@@ -88,7 +88,7 @@ async function recalculateCreatorCount(walletAddress: string): Promise<number> {
     TableName: ADMIN_TABLE,
     Item: {
       ...creatorStatsKey(walletAddress),
-      agentsCreated: count,
+      avatarsCreated: count,
       updatedAt: Date.now(),
     },
   }));
@@ -101,7 +101,7 @@ export async function incrementCreatorCount(walletAddress: string): Promise<void
     await dynamoClient.send(new UpdateCommand({
       TableName: ADMIN_TABLE,
       Key: creatorStatsKey(walletAddress),
-      UpdateExpression: 'SET agentsCreated = if_not_exists(agentsCreated, :zero) + :one, updatedAt = :now',
+      UpdateExpression: 'SET avatarsCreated = if_not_exists(avatarsCreated, :zero) + :one, updatedAt = :now',
       ExpressionAttributeValues: {
         ':zero': 0,
         ':one': 1,
@@ -123,8 +123,8 @@ export async function decrementCreatorCount(walletAddress: string): Promise<void
       Key: creatorStatsKey(walletAddress),
     }));
 
-    const current = typeof stats.Item?.agentsCreated === 'number'
-      ? stats.Item.agentsCreated as number
+    const current = typeof stats.Item?.avatarsCreated === 'number'
+      ? stats.Item.avatarsCreated as number
       : null;
 
     if (current === null) {
@@ -136,7 +136,7 @@ export async function decrementCreatorCount(walletAddress: string): Promise<void
     await dynamoClient.send(new UpdateCommand({
       TableName: ADMIN_TABLE,
       Key: creatorStatsKey(walletAddress),
-      UpdateExpression: 'SET agentsCreated = :next, updatedAt = :now',
+      UpdateExpression: 'SET avatarsCreated = :next, updatedAt = :now',
       ExpressionAttributeValues: {
         ':next': nextCount,
         ':now': Date.now(),
@@ -186,7 +186,7 @@ export interface NFTGateResult {
  */
 export interface GateStatus {
   nftsHeld: number;
-  agentsCreated: number;
+  avatarsCreated: number;
   availableSlots: number;
   canCreate: boolean;
   canAbandon: boolean;
@@ -277,17 +277,17 @@ export async function checkNFTGate(walletAddress: string): Promise<NFTGateResult
 }
 
 /**
- * Count agents created by a wallet
+ * Count avatars created by a wallet
  */
-export async function countAgentsCreatedBy(walletAddress: string): Promise<number> {
+export async function countAvatarsCreatedBy(walletAddress: string): Promise<number> {
   try {
     const stats = await dynamoClient.send(new GetCommand({
       TableName: ADMIN_TABLE,
       Key: creatorStatsKey(walletAddress),
     }));
 
-    if (typeof stats.Item?.agentsCreated === 'number') {
-      return stats.Item.agentsCreated as number;
+    if (typeof stats.Item?.avatarsCreated === 'number') {
+      return stats.Item.avatarsCreated as number;
     }
   } catch (error) {
     console.warn('[NFTGate] Failed to read creator stats, recalculating', error);
@@ -296,7 +296,7 @@ export async function countAgentsCreatedBy(walletAddress: string): Promise<numbe
   try {
     return await recalculateCreatorCount(walletAddress);
   } catch (scanError) {
-    console.error('[NFTGate] Error counting agents:', scanError);
+    console.error('[NFTGate] Error counting avatars:', scanError);
     return 0;
   }
 }
@@ -305,25 +305,25 @@ export async function countAgentsCreatedBy(walletAddress: string): Promise<numbe
  * Get full gate status for a wallet
  * Used for creation gating and abandonment checks
  * 
- * Every wallet gets 1 free agent slot. Additional slots require holding Orb NFTs.
- * Formula: availableSlots = (1 + nftsHeld) - agentsCreated
+ * Every wallet gets 1 free avatar slot. Additional slots require holding Orb NFTs.
+ * Formula: availableSlots = (1 + nftsHeld) - avatarsCreated
  */
 export async function getGateStatus(walletAddress: string): Promise<GateStatus> {
   // Get NFT count from on-chain
   const nftResult = await checkNFTGate(walletAddress);
   const nftsHeld = nftResult.ownedCount;
 
-  // Get agents created by this wallet from DynamoDB
-  const agentsCreated = await countAgentsCreatedBy(walletAddress);
+  // Get avatars created by this wallet from DynamoDB
+  const avatarsCreated = await countAgentsCreatedBy(walletAddress);
 
   // Every wallet gets 1 free slot + 1 slot per NFT held
   const FREE_SLOTS = 1;
   const totalSlots = FREE_SLOTS + nftsHeld;
-  const availableSlots = Math.max(0, totalSlots - agentsCreated);
+  const availableSlots = Math.max(0, totalSlots - avatarsCreated);
 
   return {
     nftsHeld,
-    agentsCreated,
+    avatarsCreated,
     availableSlots,
     canCreate: availableSlots > 0,
     // Can abandon if holding at least 1 NFT (to receive lineage NFT)
@@ -345,3 +345,6 @@ export function getGateCollection(): string {
 export function getRequiredCollection(): string {
   return GATE_COLLECTION;
 }
+
+/** @deprecated Use countAvatarsCreatedBy instead */
+export const countAgentsCreatedBy = countAvatarsCreatedBy;

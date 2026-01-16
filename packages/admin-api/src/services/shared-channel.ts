@@ -1,8 +1,8 @@
 /**
  * Shared Channel Service
  *
- * Manages the registry of agents present in each Telegram channel.
- * Enables multi-agent coordination by tracking which agents are active
+ * Manages the registry of avatars present in each Telegram channel.
+ * Enables multi-avatar coordination by tracking which avatars are active
  * in a given chat.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -14,7 +14,7 @@ import {
   DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { SharedChannelRecord } from '../types.js';
-import { generateAgentStats } from './agent-stats.js';
+import { generateAvatarStats } from './avatar-stats.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -23,36 +23,36 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 // TTL: 7 days of inactivity before cleanup
-const CHANNEL_AGENT_TTL_SECONDS = 7 * 24 * 60 * 60;
+const CHANNEL_AVATAR_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
- * Register an agent in a channel.
- * Called when an agent first receives a message in a channel.
+ * Register an avatar in a channel.
+ * Called when an avatar first receives a message in a channel.
  *
  * @param chatId - Telegram chat ID
- * @param agentId - Agent ID
+ * @param avatarId - Avatar ID
  * @param botUsername - Bot's Telegram username (for mention detection)
- * @param createdAt - Agent's creation timestamp (for stat generation)
+ * @param createdAt - Avatar's creation timestamp (for stat generation)
  */
-export async function registerAgentInChannel(
+export async function registerAvatarInChannel(
   chatId: number,
-  agentId: string,
+  avatarId: string,
   botUsername: string,
   createdAt: number
 ): Promise<SharedChannelRecord> {
   const now = Date.now();
-  const stats = generateAgentStats(createdAt, agentId);
+  const stats = generateAvatarStats(createdAt, avatarId);
 
   const record: SharedChannelRecord = {
     pk: `SHARED_CHANNEL#${chatId}`,
-    sk: `AGENT#${agentId}`,
+    sk: `AVATAR#${avatarId}`,
     chatId,
-    agentId,
+    avatarId,
     botUsername,
     joinedAt: now,
     lastSeenAt: now,
     stats,
-    ttl: Math.floor(now / 1000) + CHANNEL_AGENT_TTL_SECONDS,
+    ttl: Math.floor(now / 1000) + CHANNEL_AVATAR_TTL_SECONDS,
   };
 
   await dynamoClient.send(
@@ -66,12 +66,12 @@ export async function registerAgentInChannel(
 }
 
 /**
- * Get all agents registered in a channel.
+ * Get all avatars registered in a channel.
  *
  * @param chatId - Telegram chat ID
- * @returns Array of agent records in this channel
+ * @returns Array of avatar records in this channel
  */
-export async function getChannelAgents(
+export async function getChannelAvatars(
   chatId: number
 ): Promise<SharedChannelRecord[]> {
   const result = await dynamoClient.send(
@@ -88,15 +88,15 @@ export async function getChannelAgents(
 }
 
 /**
- * Get a specific agent's record in a channel.
+ * Get a specific avatar's record in a channel.
  *
  * @param chatId - Telegram chat ID
- * @param agentId - Agent ID
- * @returns Agent's channel record or null if not found
+ * @param avatarId - Avatar ID
+ * @returns Avatar's channel record or null if not found
  */
-export async function getAgentInChannel(
+export async function getAvatarInChannel(
   chatId: number,
-  agentId: string
+  avatarId: string
 ): Promise<SharedChannelRecord | null> {
   const result = await dynamoClient.send(
     new QueryCommand({
@@ -104,7 +104,7 @@ export async function getAgentInChannel(
       KeyConditionExpression: 'pk = :pk AND sk = :sk',
       ExpressionAttributeValues: {
         ':pk': `SHARED_CHANNEL#${chatId}`,
-        ':sk': `AGENT#${agentId}`,
+        ':sk': `AVATAR#${avatarId}`,
       },
     })
   );
@@ -113,15 +113,15 @@ export async function getAgentInChannel(
 }
 
 /**
- * Update an agent's presence in a channel.
+ * Update an avatar's presence in a channel.
  * Called on each message to refresh TTL and lastSeenAt.
  *
  * @param chatId - Telegram chat ID
- * @param agentId - Agent ID
+ * @param avatarId - Avatar ID
  */
-export async function updateAgentPresence(
+export async function updateAvatarPresence(
   chatId: number,
-  agentId: string
+  avatarId: string
 ): Promise<void> {
   const now = Date.now();
 
@@ -130,7 +130,7 @@ export async function updateAgentPresence(
       TableName: ADMIN_TABLE,
       Key: {
         pk: `SHARED_CHANNEL#${chatId}`,
-        sk: `AGENT#${agentId}`,
+        sk: `AVATAR#${avatarId}`,
       },
       UpdateExpression: 'SET lastSeenAt = :now, #ttl = :ttl',
       ExpressionAttributeNames: {
@@ -138,94 +138,115 @@ export async function updateAgentPresence(
       },
       ExpressionAttributeValues: {
         ':now': now,
-        ':ttl': Math.floor(now / 1000) + CHANNEL_AGENT_TTL_SECONDS,
+        ':ttl': Math.floor(now / 1000) + CHANNEL_AVATAR_TTL_SECONDS,
       },
     })
   );
 }
 
 /**
- * Ensure an agent is registered in a channel, creating if needed.
+ * Ensure an avatar is registered in a channel, creating if needed.
  *
  * @param chatId - Telegram chat ID
- * @param agentId - Agent ID
+ * @param avatarId - Avatar ID
  * @param botUsername - Bot's Telegram username
- * @param createdAt - Agent's creation timestamp
- * @returns The agent's channel record (existing or newly created)
+ * @param createdAt - Avatar's creation timestamp
+ * @returns The avatar's channel record (existing or newly created)
  */
-export async function ensureAgentInChannel(
+export async function ensureAvatarInChannel(
   chatId: number,
-  agentId: string,
+  avatarId: string,
   botUsername: string,
   createdAt: number
 ): Promise<SharedChannelRecord> {
-  const existing = await getAgentInChannel(chatId, agentId);
+  const existing = await getAvatarInChannel(chatId, avatarId);
 
   if (existing) {
     // Update presence and return existing
-    await updateAgentPresence(chatId, agentId);
+    await updateAvatarPresence(chatId, avatarId);
     return {
       ...existing,
       lastSeenAt: Date.now(),
     };
   }
 
-  // Register new agent in channel
-  return registerAgentInChannel(chatId, agentId, botUsername, createdAt);
+  // Register new avatar in channel
+  return registerAvatarInChannel(chatId, avatarId, botUsername, createdAt);
 }
 
 /**
- * Remove an agent from a channel.
- * Called when an agent is deleted or disabled.
+ * Remove an avatar from a channel.
+ * Called when an avatar is deleted or disabled.
  *
  * @param chatId - Telegram chat ID
- * @param agentId - Agent ID
+ * @param avatarId - Avatar ID
  */
-export async function removeAgentFromChannel(
+export async function removeAvatarFromChannel(
   chatId: number,
-  agentId: string
+  avatarId: string
 ): Promise<void> {
   await dynamoClient.send(
     new DeleteCommand({
       TableName: ADMIN_TABLE,
       Key: {
         pk: `SHARED_CHANNEL#${chatId}`,
-        sk: `AGENT#${agentId}`,
+        sk: `AVATAR#${avatarId}`,
       },
     })
   );
 }
 
 /**
- * Check if a channel has multiple agents.
- * Quick check for multi-agent mode.
+ * Check if a channel has multiple avatars.
+ * Quick check for multi-avatar mode.
  *
  * @param chatId - Telegram chat ID
- * @returns True if channel has more than one agent
+ * @returns True if channel has more than one avatar
  */
-export async function isMultiAgentChannel(chatId: number): Promise<boolean> {
-  const agents = await getChannelAgents(chatId);
-  return agents.length > 1;
+export async function isMultiAvatarChannel(chatId: number): Promise<boolean> {
+  const avatars = await getChannelAvatars(chatId);
+  return avatars.length > 1;
 }
 
 /**
- * Find which agent (if any) is mentioned in a message.
+ * Find which avatar (if any) is mentioned in a message.
  *
  * @param text - Message text
- * @param agents - Agents in the channel
- * @returns The mentioned agent's record, or null if no mention
+ * @param avatars - Avatars in the channel
+ * @returns The mentioned avatar's record, or null if no mention
  */
-export function findMentionedAgent(
+export function findMentionedAvatar(
   text: string | undefined,
-  agents: SharedChannelRecord[]
+  avatars: SharedChannelRecord[]
 ): SharedChannelRecord | null {
   if (!text) return null;
 
-  for (const agent of agents) {
-    if (text.includes(`@${agent.botUsername}`)) {
-      return agent;
+  for (const avatar of avatars) {
+    if (text.includes(`@${avatar.botUsername}`)) {
+      return avatar;
     }
   }
 
   return null;
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use registerAvatarInChannel instead */
+export const registerAgentInChannel = registerAvatarInChannel;
+/** @deprecated Use getChannelAvatars instead */
+export const getChannelAgents = getChannelAvatars;
+/** @deprecated Use getAvatarInChannel instead */
+export const getAgentInChannel = getAvatarInChannel;
+/** @deprecated Use updateAvatarPresence instead */
+export const updateAgentPresence = updateAvatarPresence;
+/** @deprecated Use ensureAvatarInChannel instead */
+export const ensureAgentInChannel = ensureAvatarInChannel;
+/** @deprecated Use removeAvatarFromChannel instead */
+export const removeAgentFromChannel = removeAvatarFromChannel;
+/** @deprecated Use isMultiAvatarChannel instead */
+export const isMultiAgentChannel = isMultiAvatarChannel;
+/** @deprecated Use findMentionedAvatar instead */
+export const findMentionedAgent = findMentionedAvatar;

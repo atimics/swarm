@@ -1,7 +1,7 @@
 /**
  * Reactions Service
  *
- * Handles emoji reactions for agents who lose initiative.
+ * Handles emoji reactions for avatars who lose initiative.
  * Uses Telegram's setMessageReaction API.
  * 
  * Uses SQS with DelaySeconds for reliable reaction delivery after Lambda completes.
@@ -52,12 +52,12 @@ export const REACTION_CONFIG = {
   // Min/max delay before reacting - increased for natural feel
   MIN_REACTION_DELAY_MS: 3000,
   MAX_REACTION_DELAY_MS: 12000,
-  // Cooldown between reactions from same agent - increased
+  // Cooldown between reactions from same avatar - increased
   REACTION_COOLDOWN_MS: 60000,
 };
 
 /**
- * Decide whether an agent should react and with what emoji.
+ * Decide whether an avatar should react and with what emoji.
  * Uses simple probability-based decision making.
  *
  * @param messageText - The message being reacted to
@@ -167,7 +167,7 @@ export async function sendTelegramReaction(
 }
 
 /**
- * Handle reaction flow for an agent who lost initiative.
+ * Handle reaction flow for an avatar who lost initiative.
  * Decides whether to react and queues the reaction via SQS with delay.
  *
  * Uses SQS DelaySeconds for reliable delivery after Lambda response.
@@ -177,7 +177,7 @@ export async function sendTelegramReaction(
  * @param chatId - Chat ID
  * @param messageId - Message ID to react to
  * @param messageText - Original message text
- * @param agentId - Agent ID (for queue message)
+ * @param avatarId - Avatar ID (for queue message)
  * @param winnerResponse - Winner's response (if available)
  */
 export async function handleReaction(
@@ -185,7 +185,7 @@ export async function handleReaction(
   chatId: number,
   messageId: number,
   messageText: string,
-  agentId?: string,
+  avatarId?: string,
   winnerResponse?: string
 ): Promise<void> {
   const decision = decideReaction(messageText, winnerResponse);
@@ -198,11 +198,11 @@ export async function handleReaction(
   const delaySeconds = Math.min(Math.ceil(decision.delay / 1000), 900);
 
   // Try SQS-based delivery for reliability
-  if (REACTION_QUEUE_URL && agentId) {
+  if (REACTION_QUEUE_URL && avatarId) {
     try {
       const reactionMessage = {
         type: 'telegram_reaction',
-        agentId,
+        avatarId,
         chatId,
         messageId,
         emoji: decision.emoji,

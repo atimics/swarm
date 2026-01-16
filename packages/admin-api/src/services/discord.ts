@@ -1,7 +1,7 @@
 /**
  * Discord Service
  *
- * Handles Discord integration for agents including:
+ * Handles Discord integration for avatars including:
  * - Bot token management
  * - Webhook configuration
  * - Message sending
@@ -63,22 +63,22 @@ export interface DiscordMessageInfo {
 }
 
 /**
- * Get bot token for an agent
+ * Get bot token for an avatar
  */
-async function getBotToken(agentId: string): Promise<string | null> {
+async function getBotToken(avatarId: string): Promise<string | null> {
   try {
-    return await secrets._getSecretValueInternal(agentId, 'discord_bot_token', 'default');
+    return await secrets._getSecretValueInternal(avatarId, 'discord_bot_token', 'default');
   } catch {
     return null;
   }
 }
 
 /**
- * Get webhook URL for an agent
+ * Get webhook URL for an avatar
  */
-async function getWebhookUrl(agentId: string): Promise<string | null> {
+async function getWebhookUrl(avatarId: string): Promise<string | null> {
   try {
-    return await secrets._getSecretValueInternal(agentId, 'discord_webhook_url', 'default');
+    return await secrets._getSecretValueInternal(avatarId, 'discord_webhook_url', 'default');
   } catch {
     return null;
   }
@@ -105,12 +105,12 @@ function mapChannelType(type: number): DiscordChannel['type'] {
 }
 
 /**
- * Get Discord connection status for an agent
+ * Get Discord connection status for an avatar
  */
-export async function getConnectionStatus(agentId: string): Promise<DiscordConnectionStatus> {
+export async function getConnectionStatus(avatarId: string): Promise<DiscordConnectionStatus> {
   const [botToken, webhookUrl] = await Promise.all([
-    getBotToken(agentId),
-    getWebhookUrl(agentId),
+    getBotToken(avatarId),
+    getWebhookUrl(avatarId),
   ]);
 
   const hasBotToken = !!botToken;
@@ -182,7 +182,7 @@ export async function getConnectionStatus(agentId: string): Promise<DiscordConne
  * Send a message to a Discord channel via bot
  */
 export async function sendMessage(
-  agentId: string,
+  avatarId: string,
   channelId: string,
   content: string,
   options?: {
@@ -196,7 +196,7 @@ export async function sendMessage(
     replyTo?: string;
   }
 ): Promise<{ messageId: string } | null> {
-  const botToken = await getBotToken(agentId);
+  const botToken = await getBotToken(avatarId);
   if (!botToken) {
     return null;
   }
@@ -239,7 +239,7 @@ export async function sendMessage(
  * Send a message via Discord webhook
  */
 export async function sendWebhookMessage(
-  agentId: string,
+  avatarId: string,
   content: string,
   options?: {
     username?: string;
@@ -247,7 +247,7 @@ export async function sendWebhookMessage(
     embeds?: Array<Record<string, unknown>>;
   }
 ): Promise<{ messageId?: string } | null> {
-  const webhookUrl = await getWebhookUrl(agentId);
+  const webhookUrl = await getWebhookUrl(avatarId);
   if (!webhookUrl) {
     return null;
   }
@@ -289,8 +289,8 @@ export async function sendWebhookMessage(
 /**
  * Get a specific channel
  */
-export async function getChannel(agentId: string, channelId: string): Promise<DiscordChannel | null> {
-  const botToken = await getBotToken(agentId);
+export async function getChannel(avatarId: string, channelId: string): Promise<DiscordChannel | null> {
+  const botToken = await getBotToken(avatarId);
   if (!botToken) {
     return null;
   }
@@ -328,8 +328,8 @@ export async function getChannel(agentId: string, channelId: string): Promise<Di
 /**
  * List channels in a guild
  */
-export async function listChannels(agentId: string, guildId: string): Promise<DiscordChannel[]> {
-  const botToken = await getBotToken(agentId);
+export async function listChannels(avatarId: string, guildId: string): Promise<DiscordChannel[]> {
+  const botToken = await getBotToken(avatarId);
   if (!botToken) {
     return [];
   }
@@ -366,8 +366,8 @@ export async function listChannels(agentId: string, guildId: string): Promise<Di
 /**
  * List guilds the bot is in
  */
-export async function listGuilds(agentId: string): Promise<DiscordGuild[]> {
-  const botToken = await getBotToken(agentId);
+export async function listGuilds(avatarId: string): Promise<DiscordGuild[]> {
+  const botToken = await getBotToken(avatarId);
   if (!botToken) {
     return [];
   }
@@ -404,11 +404,11 @@ export async function listGuilds(agentId: string): Promise<DiscordGuild[]> {
  * Get recent messages from a channel
  */
 export async function getMessages(
-  agentId: string,
+  avatarId: string,
   channelId: string,
   limit = 20
 ): Promise<DiscordMessageInfo[]> {
-  const botToken = await getBotToken(agentId);
+  const botToken = await getBotToken(avatarId);
   if (!botToken) {
     return [];
   }
@@ -456,12 +456,12 @@ export async function getMessages(
  * Add a reaction to a message
  */
 export async function addReaction(
-  agentId: string,
+  avatarId: string,
   channelId: string,
   messageId: string,
   emoji: string
 ): Promise<boolean> {
-  const botToken = await getBotToken(agentId);
+  const botToken = await getBotToken(avatarId);
   if (!botToken) {
     return false;
   }
@@ -487,12 +487,12 @@ export async function addReaction(
  * Remove a reaction from a message
  */
 export async function removeReaction(
-  agentId: string,
+  avatarId: string,
   channelId: string,
   messageId: string,
   emoji: string
 ): Promise<boolean> {
-  const botToken = await getBotToken(agentId);
+  const botToken = await getBotToken(avatarId);
   if (!botToken) {
     return false;
   }

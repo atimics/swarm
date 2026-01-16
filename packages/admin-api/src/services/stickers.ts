@@ -8,7 +8,7 @@
  * - Telegram API (sticker pack management)
  */
 import * as gallery from './gallery.js';
-import * as agents from './agents.js';
+import * as avatars from './avatars.js';
 import * as media from './media.js';
 import { _getSecretValueInternal } from './secrets.js';
 import {
@@ -40,8 +40,8 @@ interface TelegramResponse<T = unknown> {
   description?: string;
 }
 
-async function getBotToken(agentId: string): Promise<string | null> {
-  return _getSecretValueInternal(agentId, 'telegram_bot_token', 'default');
+async function getBotToken(avatarId: string): Promise<string | null> {
+  return _getSecretValueInternal(avatarId, 'telegram_bot_token', 'default');
 }
 
 async function getBotInfo(botToken: string): Promise<{ id: number; username: string } | null> {
@@ -147,7 +147,7 @@ async function telegramAddStickerToSet(
  * Generate a new sticker from a text prompt
  */
 export async function generateSticker(
-  agentId: string,
+  avatarId: string,
   prompt: string,
   emoji?: string,
   _conversationId?: string
@@ -161,7 +161,7 @@ export async function generateSticker(
   error?: string;
 }> {
   try {
-    const botToken = await getBotToken(agentId);
+    const botToken = await getBotToken(avatarId);
     if (!botToken) {
       return { success: false, error: 'No Telegram bot token configured' };
     }
@@ -171,9 +171,9 @@ export async function generateSticker(
       return { success: false, error: 'Failed to get bot info' };
     }
 
-    const agent = await agents.getAgent(agentId);
-    if (!agent) {
-      return { success: false, error: 'Agent not found' };
+    const avatar = await avatars.getAvatar(avatarId);
+    if (!avatar) {
+      return { success: false, error: 'Avatar not found' };
     }
 
     // Generate image with sticker-friendly styling
@@ -183,7 +183,7 @@ export async function generateSticker(
     try {
       imageResult = await media.generateImage({
         prompt: stickerPrompt,
-        agentId,
+        avatarId,
         platform: 'telegram',
         resolution: '1K',
         aspectRatio: '1:1',
@@ -210,12 +210,12 @@ export async function generateSticker(
     const { s3Key, id: stickerId, url: stickerUrl } = await uploadStickerToS3(
       processed.buffer,
       MEDIA_BUCKET,
-      agentId,
+      avatarId,
       { emoji: finalEmoji, prompt }
     );
 
     // Get or create sticker pack name
-    const baseName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_pack';
+    const baseName = avatar.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_pack';
     const packName = generateStickerSetName(baseName, botInfo.username);
 
     // Upload to Telegram
@@ -242,7 +242,7 @@ export async function generateSticker(
       }
     } else {
       // Create new pack
-      const packTitle = `${agent.name}'s Stickers`;
+      const packTitle = `${avatar.name}'s Stickers`;
       const created = await telegramCreateNewStickerSet(
         botToken,
         botInfo.id,
@@ -256,14 +256,14 @@ export async function generateSticker(
       }
     }
 
-    // Update agent's sticker pack info
+    // Update avatar's sticker pack info
     const currentPack = existingPack || await telegramGetStickerSet(botToken, packName);
-    await agents.updateAgent(agentId, {
+    await avatars.updateAvatar(avatarId, {
       stickerPack: {
         name: packName,
-        title: `${agent.name}'s Stickers`,
+        title: `${avatar.name}'s Stickers`,
         stickerCount: currentPack?.stickers?.length || 1,
-        createdAt: agent.stickerPack?.createdAt || Date.now(),
+        createdAt: avatar.stickerPack?.createdAt || Date.now(),
       },
     }, { email: 'system', userId: 'system', isAdmin: true, accessToken: '' });
 
@@ -285,14 +285,14 @@ export async function generateSticker(
       },
     } satisfies Parameters<typeof gallery.addToGallery>[1];
 
-    await gallery.addToGallery(agentId, galleryItem);
+    await gallery.addToGallery(avatarId, galleryItem);
 
     // Update S3 manifest
-    let manifest = await getStickerSetManifest(MEDIA_BUCKET, agentId, packName);
+    let manifest = await getStickerSetManifest(MEDIA_BUCKET, avatarId, packName);
     if (!manifest) {
       manifest = {
         name: packName,
-        title: `${agent.name}'s Stickers`,
+        title: `${avatar.name}'s Stickers`,
         createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
         stickers: [],
@@ -307,7 +307,7 @@ export async function generateSticker(
       fileId,
       url: stickerUrl,
     });
-    await saveStickerSetManifest(MEDIA_BUCKET, agentId, manifest);
+    await saveStickerSetManifest(MEDIA_BUCKET, avatarId, manifest);
 
     return {
       success: true,
@@ -327,7 +327,7 @@ export async function generateSticker(
  * Create a sticker from an existing gallery image
  */
 export async function createStickerFromGallery(
-  agentId: string,
+  avatarId: string,
   galleryItemId: string,
   emoji?: string,
   _conversationId?: string
@@ -341,7 +341,7 @@ export async function createStickerFromGallery(
   error?: string;
 }> {
   try {
-    const botToken = await getBotToken(agentId);
+    const botToken = await getBotToken(avatarId);
     if (!botToken) {
       return { success: false, error: 'No Telegram bot token configured' };
     }
@@ -351,13 +351,13 @@ export async function createStickerFromGallery(
       return { success: false, error: 'Failed to get bot info' };
     }
 
-    const agent = await agents.getAgent(agentId);
-    if (!agent) {
-      return { success: false, error: 'Agent not found' };
+    const avatar = await avatars.getAvatar(avatarId);
+    if (!avatar) {
+      return { success: false, error: 'Avatar not found' };
     }
 
     // Get the gallery item
-    const item = await gallery.getGalleryItem(agentId, galleryItemId);
+    const item = await gallery.getGalleryItem(avatarId, galleryItemId);
     if (!item) {
       return { success: false, error: 'Gallery item not found' };
     }
@@ -391,12 +391,12 @@ export async function createStickerFromGallery(
     const { id: stickerId, url: stickerUrl } = await uploadStickerToS3(
       processed.buffer,
       MEDIA_BUCKET,
-      agentId,
+      avatarId,
       { emoji: finalEmoji, prompt: item.prompt }
     );
 
     // Get or create sticker pack name
-    const baseName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_pack';
+    const baseName = avatar.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_pack';
     const packName = generateStickerSetName(baseName, botInfo.username);
 
     // Upload to Telegram
@@ -421,7 +421,7 @@ export async function createStickerFromGallery(
         return { success: false, error: 'Failed to add sticker to pack' };
       }
     } else {
-      const packTitle = `${agent.name}'s Stickers`;
+      const packTitle = `${avatar.name}'s Stickers`;
       const created = await telegramCreateNewStickerSet(
         botToken,
         botInfo.id,
@@ -435,19 +435,19 @@ export async function createStickerFromGallery(
       }
     }
 
-    // Update agent's sticker pack info
+    // Update avatar's sticker pack info
     const currentPack = existingPack || await telegramGetStickerSet(botToken, packName);
-    await agents.updateAgent(agentId, {
+    await avatars.updateAvatar(avatarId, {
       stickerPack: {
         name: packName,
-        title: `${agent.name}'s Stickers`,
+        title: `${avatar.name}'s Stickers`,
         stickerCount: currentPack?.stickers?.length || 1,
-        createdAt: agent.stickerPack?.createdAt || Date.now(),
+        createdAt: avatar.stickerPack?.createdAt || Date.now(),
       },
     }, { email: 'system', userId: 'system', isAdmin: true, accessToken: '' });
 
     // Mark original gallery item as converted
-    await gallery.markConvertedToSticker(agentId, galleryItemId, item.sk, {
+    await gallery.markConvertedToSticker(avatarId, galleryItemId, item.sk, {
       emoji: finalEmoji,
       setName: packName,
       fileId,
@@ -455,11 +455,11 @@ export async function createStickerFromGallery(
     });
 
     // Update S3 manifest
-    let manifest = await getStickerSetManifest(MEDIA_BUCKET, agentId, packName);
+    let manifest = await getStickerSetManifest(MEDIA_BUCKET, avatarId, packName);
     if (!manifest) {
       manifest = {
         name: packName,
-        title: `${agent.name}'s Stickers`,
+        title: `${avatar.name}'s Stickers`,
         createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
         stickers: [],
@@ -474,7 +474,7 @@ export async function createStickerFromGallery(
       fileId,
       url: stickerUrl,
     });
-    await saveStickerSetManifest(MEDIA_BUCKET, agentId, manifest);
+    await saveStickerSetManifest(MEDIA_BUCKET, avatarId, manifest);
 
     return {
       success: true,
@@ -491,25 +491,25 @@ export async function createStickerFromGallery(
 }
 
 /**
- * Get the agent's sticker pack info
+ * Get the avatar's sticker pack info
  */
-export async function getStickerPack(agentId: string): Promise<StickerPackInfo | null> {
-  const agent = await agents.getAgent(agentId);
-  if (!agent?.stickerPack) {
+export async function getStickerPack(avatarId: string): Promise<StickerPackInfo | null> {
+  const avatar = await avatars.getAvatar(avatarId);
+  if (!avatar?.stickerPack) {
     return null;
   }
 
-  const botToken = await getBotToken(agentId);
+  const botToken = await getBotToken(avatarId);
   if (!botToken) {
     return null;
   }
 
-  const telegramPack = await telegramGetStickerSet(botToken, agent.stickerPack.name);
+  const telegramPack = await telegramGetStickerSet(botToken, avatar.stickerPack.name);
 
   // Get manifest from S3 for prompt info
   let manifest: StickerSetManifest | null = null;
   if (MEDIA_BUCKET) {
-    manifest = await getStickerSetManifest(MEDIA_BUCKET, agentId, agent.stickerPack.name);
+    manifest = await getStickerSetManifest(MEDIA_BUCKET, avatarId, avatar.stickerPack.name);
   }
 
   const stickers: StickerInfo[] = telegramPack?.stickers?.map((s, i) => {
@@ -525,11 +525,11 @@ export async function getStickerPack(agentId: string): Promise<StickerPackInfo |
   }) || [];
 
   return {
-    name: agent.stickerPack.name,
-    title: agent.stickerPack.title,
-    stickerCount: telegramPack?.stickers?.length || agent.stickerPack.stickerCount,
+    name: avatar.stickerPack.name,
+    title: avatar.stickerPack.title,
+    stickerCount: telegramPack?.stickers?.length || avatar.stickerPack.stickerCount,
     stickers,
-    telegramUrl: `https://t.me/addstickers/${agent.stickerPack.name}`,
+    telegramUrl: `https://t.me/addstickers/${avatar.stickerPack.name}`,
   };
 }
 
@@ -537,10 +537,10 @@ export async function getStickerPack(agentId: string): Promise<StickerPackInfo |
  * Get gallery items that can be converted to stickers
  */
 export async function getGalleryForStickers(
-  agentId: string,
+  avatarId: string,
   options?: { limit?: number; unconvertedOnly?: boolean }
 ): Promise<GalleryItemForSticker[]> {
-  const items = await gallery.getGallery(agentId, {
+  const items = await gallery.getGallery(avatarId, {
     type: 'image',
     limit: options?.limit || 20,
     notConvertedToSticker: options?.unconvertedOnly ?? true,
@@ -559,10 +559,10 @@ export async function getGalleryForStickers(
  * Find a sticker by description/emoji
  */
 export async function findSticker(
-  agentId: string,
+  avatarId: string,
   description: string
 ): Promise<StickerInfo | null> {
-  const pack = await getStickerPack(agentId);
+  const pack = await getStickerPack(avatarId);
   if (!pack || pack.stickers.length === 0) {
     return null;
   }

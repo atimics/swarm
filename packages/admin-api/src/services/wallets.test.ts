@@ -93,20 +93,20 @@ describe('WalletService', () => {
 
   describe('generateSolanaWallet', () => {
     it('generates a keypair and stores it', async () => {
-      const wallet = await generateSolanaWallet('agent-1', 'main', session, mockDeps);
+      const wallet = await generateSolanaWallet('avatar-1', 'main', session, mockDeps);
 
       expect(wallet.publicKey).toBeDefined();
       expect(wallet.walletType).toBe('solana');
-      expect(wallet.agentId).toBe('agent-1');
+      expect(wallet.avatarId).toBe('avatar-1');
       expect(wallet.name).toBe('main');
       expect(mockDeps.secrets.storeSecret).toHaveBeenCalled();
       expect(mockDeps.dynamoClient.send).toHaveBeenCalled();
     });
 
     it('returns correct wallet info structure', async () => {
-      const wallet = await generateSolanaWallet('agent-1', 'trading', session, mockDeps);
+      const wallet = await generateSolanaWallet('avatar-1', 'trading', session, mockDeps);
 
-      expect(wallet.id).toBe('agent-1-solana-trading');
+      expect(wallet.id).toBe('avatar-1-solana-trading');
       expect(wallet.address).toBe(wallet.publicKey);
       expect(wallet.createdBy).toBe('test@example.com');
       expect(typeof wallet.createdAt).toBe('number');
@@ -134,7 +134,7 @@ describe('WalletService', () => {
 
   describe('generateEthereumWallet', () => {
     it('generates a wallet and stores it', async () => {
-      const wallet = await generateEthereumWallet('agent-1', 'main', session, mockDeps);
+      const wallet = await generateEthereumWallet('avatar-1', 'main', session, mockDeps);
 
       expect(wallet.address).toBe('0x1234567890123456789012345678901234567890');
       expect(wallet.walletType).toBe('ethereum');
@@ -143,9 +143,9 @@ describe('WalletService', () => {
     });
 
     it('returns correct wallet info structure', async () => {
-      const wallet = await generateEthereumWallet('agent-1', 'trading', session, mockDeps);
+      const wallet = await generateEthereumWallet('avatar-1', 'trading', session, mockDeps);
 
-      expect(wallet.id).toBe('agent-1-ethereum-trading');
+      expect(wallet.id).toBe('avatar-1-ethereum-trading');
       expect(wallet.publicKey).toBe(wallet.address);
       expect(wallet.createdBy).toBe('test@example.com');
     });
@@ -170,11 +170,11 @@ describe('WalletService', () => {
   });
 
   describe('listWallets', () => {
-    it('queries DynamoDB for agent wallets', async () => {
+    it('queries DynamoDB for avatar wallets', async () => {
       (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() =>
         Promise.resolve({
           Items: [
-            { id: 'a1-solana-main', agentId: 'a1', publicKey: 'p1', walletType: 'solana', address: 'p1', name: 'main', createdAt: 1000, createdBy: 'test@example.com' },
+            { id: 'a1-solana-main', avatarId: 'a1', publicKey: 'p1', walletType: 'solana', address: 'p1', name: 'main', createdAt: 1000, createdBy: 'test@example.com' },
           ],
         })
       );
@@ -186,7 +186,7 @@ describe('WalletService', () => {
       expect(wallets[0].walletType).toBe('solana');
     });
 
-    it('returns empty array when no agentId provided', async () => {
+    it('returns empty array when no avatarId provided', async () => {
       const wallets = await listWallets(undefined, mockDeps);
       expect(wallets).toHaveLength(0);
     });

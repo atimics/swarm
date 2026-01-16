@@ -51,24 +51,24 @@ export const CHANNEL_CONFIG = {
   // Private chat rate limiting
   PRIVATE_COOLDOWN_MS: 5000,      // 5 second minimum between responses in private chats
   
-  // Multi-agent stagger - delay added per agent in channel
-  STAGGER_DELAY_PER_AGENT_MS: 3000,   // Add 3s delay per additional agent
+  // Multi-avatar stagger - delay added per avatar in channel
+  STAGGER_DELAY_PER_AGENT_MS: 3000,   // Add 3s delay per additional avatar
   MAX_STAGGER_DELAY_MS: 15000,         // Cap stagger at 15 seconds
 };
 
 // === MULTI-AGENT DYNAMIC COOLDOWN CONFIGURATION ===
 export const MULTI_AGENT_CONFIG = {
   // Initiative system
-  INITIATIVE_ROUND_TIMEOUT_MS: 8000,    // 8s for all agents to roll (increased from 5s)
+  INITIATIVE_ROUND_TIMEOUT_MS: 8000,    // 8s for all avatars to roll (increased from 5s)
   REACTION_WINDOW_MS: 15000,             // 15s window for reactions after winner responds
 
   // Interest check - raised thresholds for less spam
   BASE_INTEREST_DC: 14,                  // Default difficulty class (increased from 10)
   MENTION_INTEREST_BONUS: 3,             // DC reduction for topic mentions (reduced from 5)
-  RECENT_RESPONSE_PENALTY: 8,            // DC increase if agent responded recently (increased from 5)
+  RECENT_RESPONSE_PENALTY: 8,            // DC increase if avatar responded recently (increased from 5)
 
   // Reaction limits
-  MAX_REACTIONS_PER_MESSAGE: 2,          // Max emoji reactions per agent per message (reduced from 3)
+  MAX_REACTIONS_PER_MESSAGE: 2,          // Max emoji reactions per avatar per message (reduced from 3)
   REACTION_COOLDOWN_MS: 10000,           // Min time between reactions (increased from 5000)
 
   // Dynamic cooldown settings - increased for cosy vibes
@@ -137,7 +137,7 @@ export function calculateDynamicCooldown(state: ChannelStateRecord): number {
 }
 
 /**
- * Check if dynamic cooldown has expired (for multi-agent channels)
+ * Check if dynamic cooldown has expired (for multi-avatar channels)
  */
 export function isDynamicCooldownExpired(state: ChannelStateRecord): boolean {
   if (state.state !== 'COOLDOWN') return true;
@@ -149,21 +149,21 @@ export function isDynamicCooldownExpired(state: ChannelStateRecord): boolean {
 }
 
 /**
- * Calculate stagger delay based on number of agents in channel.
+ * Calculate stagger delay based on number of avatars in channel.
  * This helps space out responses when multiple bots are present.
  * 
- * @param agentCount - Number of agents in the channel
+ * @param avatarCount - Number of avatars in the channel
  * @returns Delay in milliseconds (randomized within range)
  */
-export function calculateStaggerDelay(agentCount: number): number {
-  if (agentCount <= 1) {
-    // Single agent: use base response delay
+export function calculateStaggerDelay(avatarCount: number): number {
+  if (avatarCount <= 1) {
+    // Single avatar: use base response delay
     return CHANNEL_CONFIG.MIN_RESPONSE_DELAY_MS + 
       Math.random() * (CHANNEL_CONFIG.MAX_RESPONSE_DELAY_MS - CHANNEL_CONFIG.MIN_RESPONSE_DELAY_MS);
   }
   
-  // Multi-agent: add per-agent stagger
-  const baseStagger = (agentCount - 1) * CHANNEL_CONFIG.STAGGER_DELAY_PER_AGENT_MS;
+  // Multi-avatar: add per-avatar stagger
+  const baseStagger = (avatarCount - 1) * CHANNEL_CONFIG.STAGGER_DELAY_PER_AGENT_MS;
   const cappedStagger = Math.min(baseStagger, CHANNEL_CONFIG.MAX_STAGGER_DELAY_MS);
   
   // Add randomization to prevent deterministic ordering
@@ -179,13 +179,13 @@ export function calculateStaggerDelay(agentCount: number): number {
  * 
  * @param messageLength - Length of the incoming message
  * @param isFromBot - Whether the triggering message is from a bot
- * @param agentCount - Number of agents in channel
+ * @param avatarCount - Number of avatars in channel
  * @returns Delay in milliseconds
  */
 export function calculateThinkingDelay(
   messageLength: number,
   isFromBot: boolean,
-  agentCount: number
+  avatarCount: number
 ): number {
   // Base delay
   let delay = CHANNEL_CONFIG.MIN_RESPONSE_DELAY_MS;
@@ -198,8 +198,8 @@ export function calculateThinkingDelay(
     delay += 5000 + Math.random() * 5000; // 5-10s extra for bot messages
   }
   
-  // Add stagger for multi-agent
-  delay += calculateStaggerDelay(agentCount);
+  // Add stagger for multi-avatar
+  delay += calculateStaggerDelay(avatarCount);
   
   // Cap at reasonable maximum
   return Math.min(delay, 20000);
@@ -211,14 +211,14 @@ export function calculateThinkingDelay(
  * Get channel state from DynamoDB
  */
 export async function getChannelState(
-  agentId: string,
+  avatarId: string,
   chatId: number
 ): Promise<ChannelStateRecord | null> {
   try {
     const result = await dynamoClient.send(new GetCommand({
       TableName: ADMIN_TABLE,
       Key: {
-        pk: `CHANNEL#${agentId}#${chatId}`,
+        pk: `CHANNEL#${avatarId}#${chatId}`,
         sk: 'STATE',
       },
     }));
@@ -242,21 +242,21 @@ export async function getChannelState(
  * Create or get channel state
  */
 export async function getOrCreateChannelState(
-  agentId: string,
+  avatarId: string,
   chatId: number,
   chatType: 'private' | 'group' | 'supergroup' | 'channel',
   chatTitle?: string
 ): Promise<ChannelStateRecord> {
-  const existing = await getChannelState(agentId, chatId);
+  const existing = await getChannelState(avatarId, chatId);
   if (existing) return existing;
 
   const now = Date.now();
   const ttl = Math.floor(now / 1000) + CHANNEL_CONFIG.BUFFER_TTL_SECONDS;
 
   const newState: ChannelStateRecord = {
-    pk: `CHANNEL#${agentId}#${chatId}`,
+    pk: `CHANNEL#${avatarId}#${chatId}`,
     sk: 'STATE',
-    agentId,
+    avatarId,
     chatId,
     chatType,
     chatTitle,
@@ -278,7 +278,7 @@ export async function getOrCreateChannelState(
   } catch (err: unknown) {
     // If already exists (race condition), fetch it
     if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
-      const fetched = await getChannelState(agentId, chatId);
+      const fetched = await getChannelState(avatarId, chatId);
       if (fetched) return fetched;
     }
     throw err;
@@ -291,7 +291,7 @@ export async function getOrCreateChannelState(
  * Add message to channel buffer
  */
 export async function addMessageToBuffer(
-  agentId: string,
+  avatarId: string,
   chatId: number,
   chatType: 'private' | 'group' | 'supergroup' | 'channel',
   chatTitle: string | undefined,
@@ -307,7 +307,7 @@ export async function addMessageToBuffer(
     'lastActivityAt = :now',
     'updatedAt = :now',
     '#ttl = :ttl',
-    'agentId = if_not_exists(agentId, :agentId)',
+    'avatarId = if_not_exists(avatarId, :avatarId)',
     'chatId = if_not_exists(chatId, :chatId)',
     'chatType = :chatType',
   ];
@@ -325,7 +325,7 @@ export async function addMessageToBuffer(
   const response = await dynamoClient.send(new UpdateCommand({
     TableName: ADMIN_TABLE,
     Key: {
-      pk: `CHANNEL#${agentId}#${chatId}`,
+      pk: `CHANNEL#${avatarId}#${chatId}`,
       sk: 'STATE',
     },
     UpdateExpression: `SET ${updateParts.join(', ')}`,
@@ -340,7 +340,7 @@ export async function addMessageToBuffer(
       ':one': 1,
       ':now': now,
       ':ttl': ttl,
-      ':agentId': agentId,
+      ':avatarId': avatarId,
       ':chatId': chatId,
       ':chatType': chatType,
       ...(chatTitle ? { ':chatTitle': chatTitle } : {}),
@@ -359,7 +359,7 @@ export async function addMessageToBuffer(
       await dynamoClient.send(new UpdateCommand({
         TableName: ADMIN_TABLE,
         Key: {
-          pk: `CHANNEL#${agentId}#${chatId}`,
+          pk: `CHANNEL#${avatarId}#${chatId}`,
           sk: 'STATE',
         },
         UpdateExpression: 'SET messageBuffer = :buffer, bufferSize = :size, updatedAt = :updatedAt, #ttl = :ttl',
@@ -414,11 +414,11 @@ export async function saveChannelState(
  * Transition channel state
  */
 export async function transitionState(
-  agentId: string,
+  avatarId: string,
   chatId: number,
   newState: ChannelState
 ): Promise<ChannelStateRecord | null> {
-  const current = await getChannelState(agentId, chatId);
+  const current = await getChannelState(avatarId, chatId);
   if (!current) return null;
 
   const now = Date.now();
@@ -439,12 +439,12 @@ export async function transitionState(
  * @param respondedToBotUsername - If set, tracks that we responded to a bot message
  */
 export async function markResponseSent(
-  agentId: string,
+  avatarId: string,
   chatId: number,
   responseMessageId: number,
   respondedToBotUsername?: string
 ): Promise<ChannelStateRecord | null> {
-  const current = await getChannelState(agentId, chatId);
+  const current = await getChannelState(avatarId, chatId);
   if (!current) return null;
 
   const now = Date.now();
@@ -726,7 +726,7 @@ export function getActiveParticipants(
 }
 
 // ========================================
-// SHARED CHANNEL HISTORY (Multi-Agent)
+// SHARED CHANNEL HISTORY (Multi-Avatar)
 // ========================================
 
 /**
@@ -800,7 +800,7 @@ export async function recordBotMessage(
 
     console.log('[SharedHistory] Recorded bot message:', {
       chatId,
-      agentId: message.agentId,
+      avatarId: message.avatarId,
       messageId: message.messageId,
       totalMessages: messages.length,
     });
@@ -827,7 +827,7 @@ export function buildCombinedConversationContext(
     userName: string;
     username?: string;
     text: string;
-    agentId?: string;
+    avatarId?: string;
   }> = [];
 
   // Add human messages from buffer
@@ -844,8 +844,8 @@ export function buildCombinedConversationContext(
   // Add bot messages from shared history (excluding self)
   if (sharedHistory) {
     for (const msg of sharedHistory.messages) {
-      // Skip messages from self - agent already knows what it said
-      if (msg.agentId === currentAgentId) continue;
+      // Skip messages from self - avatar already knows what it said
+      if (msg.avatarId === currentAgentId) continue;
       
       allMessages.push({
         timestamp: msg.timestamp,
@@ -853,7 +853,7 @@ export function buildCombinedConversationContext(
         userName: msg.botUsername,
         username: msg.botUsername,
         text: msg.text,
-        agentId: msg.agentId,
+        avatarId: msg.avatarId,
       });
     }
   }

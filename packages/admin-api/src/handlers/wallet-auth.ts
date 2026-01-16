@@ -11,14 +11,14 @@ import {
   deleteSession,
 } from '../services/wallet-auth.js';
 import {
-  inhabitAgent,
-  abandonAgent,
+  inhabitAvatar,
+  abandonAvatar,
   canAbandon,
   getInhabitationInfo,
-  getInhabitedAgent,
-} from '../services/agent-ownership.js';
+  getInhabitedAvatar,
+} from '../services/avatar-ownership.js';
 import { getGateStatus } from '../services/nft-gate.js';
-import { listUnclaimedAgents } from '../services/agents.js';
+import { listUnclaimedAvatars } from '../services/avatars.js';
 import { prepareLineageMint } from '../services/lineage-nft.js';
 import { handleCrossmintAuth } from './crossmint-auth.js';
 
@@ -32,6 +32,32 @@ function hasInternalTestKey(event: APIGatewayProxyEventV2): boolean {
   if (!INTERNAL_TEST_KEY) return false;
   const providedKey = event.headers['x-internal-test-key'];
   return providedKey === INTERNAL_TEST_KEY;
+}
+
+export interface WalletAuthHandlerDeps {
+  walletAuth: {
+    getSessionWithUser: typeof getSessionWithUser;
+  };
+  avatarOwnership: {
+    getInhabitedAvatar: typeof getInhabitedAvatar;
+  };
+  nftGate: {
+    getGateStatus: typeof getGateStatus;
+  };
+}
+
+function getDefaultDeps(): WalletAuthHandlerDeps {
+  return {
+    walletAuth: {
+      getSessionWithUser,
+    },
+    avatarOwnership: {
+      getInhabitedAvatar,
+    },
+    nftGate: {
+      getGateStatus,
+    },
+  };
 }
 
 // ============================================================================
@@ -231,7 +257,7 @@ export async function handleVerify(
     const { signature, publicKey, nonce } = parsed.data;
 
     // Get client info
-    const userAgent = event.headers['user-agent'];
+    const userAgent = event.headers['user-avatar'];
     const ipAddress = event.requestContext.http.sourceIp;
 
     // Verify and create session
@@ -264,6 +290,9 @@ export async function handleVerify(
     // Set session cookie
     const cookie = setSessionCookie(result.session.sessionToken);
 
+    // Inhabitation is stored in the avatar ownership mapping; don't rely on UserRecord.inhabitedAvatarId.
+    const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
+
     return jsonResponse(200, {
       success: true,
       session: {
@@ -273,7 +302,7 @@ export async function handleVerify(
       user: {
         walletAddress: result.user.walletAddress,
         displayName: result.user.displayName,
-        inhabitedAgentId: result.user.inhabitedAgentId,
+        inhabitedAvatarId: inhabitedAvatar?.avatarId,
       },
       // Include NFT info for display
       nftGate: result.nftGate,
@@ -281,7 +310,7 @@ export async function handleVerify(
       // Test bypass grants full access
       gateStatus: {
         nftsHeld: isTestBypass ? 999 : gateStatus.nftsHeld,
-        agentsCreated: gateStatus.agentsCreated,
+        avatarsCreated: gateStatus.avatarsCreated,
         availableSlots: isTestBypass ? 999 : gateStatus.availableSlots,
         canCreate: isTestBypass ? true : gateStatus.canCreate,
         canAbandon: isTestBypass ? true : gateStatus.canAbandon,
@@ -301,7 +330,8 @@ export async function handleVerify(
  * Get current authenticated user with gate status
  */
 export async function handleMe(
-  event: APIGatewayProxyEventV2
+  event: APIGatewayProxyEventV2,
+  deps?: WalletAuthHandlerDeps
 ): Promise<APIGatewayProxyResultV2> {
   const cors = corsHeaders(event);
 
@@ -311,6 +341,8 @@ export async function handleMe(
   }
 
   try {
+    const resolvedDeps = deps || getDefaultDeps();
+
     // Get session from cookie
     const sessionToken = getSessionFromCookie(event);
     if (!sessionToken) {
@@ -318,7 +350,7 @@ export async function handleMe(
     }
 
     // Get session and user
-    const session = await getSessionWithUser(sessionToken);
+    const session = await resolvedDeps.walletAuth.getSessionWithUser(sessionToken);
     if (!session) {
       return jsonResponse(200, { authenticated: false }, {
         ...cors,
@@ -327,8 +359,12 @@ export async function handleMe(
     }
 
     // Get gate status for the wallet
-    const { getGateStatus } = await import('../services/nft-gate.js');
-    const gateStatus = await getGateStatus(session.user.walletAddress);
+    const gateStatus = await resolvedDeps.nftGate.getGateStatus(session.user.walletAddress);
+
+    // Inhabitation is stored in the avatar ownership mapping; don't rely on UserRecord.inhabitedAvatarId.
+    const inhabitedAvatar = await resolvedDeps.avatarOwnership.getInhabitedAvatar(
+      session.user.walletAddress
+    );
 
     // Bypass NFT gate for internal test key (E2E testing)
     const isTestBypass = hasInternalTestKey(event);
@@ -339,14 +375,14 @@ export async function handleMe(
         walletAddress: session.user.walletAddress,
         displayName: session.user.displayName,
         avatarUrl: session.user.avatarUrl,
-        inhabitedAgentId: session.user.inhabitedAgentId,
+        inhabitedAvatarId: inhabitedAvatar?.avatarId,
         createdAt: session.user.createdAt,
         sessionCount: session.user.sessionCount,
       },
       // Test bypass grants full access
       gateStatus: {
         nftsHeld: isTestBypass ? 999 : gateStatus.nftsHeld,
-        agentsCreated: gateStatus.agentsCreated,
+        avatarsCreated: gateStatus.avatarsCreated,
         availableSlots: isTestBypass ? 999 : gateStatus.availableSlots,
         canCreate: isTestBypass ? true : gateStatus.canCreate,
         canAbandon: isTestBypass ? true : gateStatus.canAbandon,
@@ -394,10 +430,10 @@ export async function handleLogout(
 // ============================================================================
 
 /**
- * GET /auth/unclaimed-agents
- * List agents available for inhabitation
+ * GET /auth/unclaimed-avatars
+ * List avatars available for inhabitation
  */
-export async function handleUnclaimedAgents(
+export async function handleUnclaimedAvatars(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
   const cors = corsHeaders(event);
@@ -407,11 +443,11 @@ export async function handleUnclaimedAgents(
   }
 
   try {
-    const agents = await listUnclaimedAgents();
+    const avatars = await listUnclaimedAvatars();
 
     return jsonResponse(200, {
-      agents: agents.map(a => ({
-        agentId: a.agentId,
+      avatars: avatars.map(a => ({
+        avatarId: a.avatarId,
         name: a.name,
         description: a.description,
         avatarUrl: a.profileImage?.url,
@@ -419,7 +455,7 @@ export async function handleUnclaimedAgents(
       })),
     }, cors);
   } catch (error) {
-    console.error('[WalletAuth] Unclaimed agents error:', error);
+    console.error('[WalletAuth] Unclaimed avatars error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }
 }
@@ -500,9 +536,9 @@ export async function handleInhabitationStatus(
 
 /**
  * POST /auth/inhabit
- * Inhabit an unclaimed agent (FREE - no NFT required)
+ * Inhabit an unclaimed avatar (FREE - no NFT required)
  */
-export async function handleInhabitAgent(
+export async function handleInhabitAvatar(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
   const cors = corsHeaders(event);
@@ -528,14 +564,14 @@ export async function handleInhabitAgent(
 
     // Parse request
     const body = JSON.parse(event.body || '{}');
-    const agentId = body.agentId;
+    const avatarId = body.avatarId;
 
-    if (!agentId || typeof agentId !== 'string') {
-      return jsonResponse(400, { error: 'agentId is required' }, cors);
+    if (!avatarId || typeof avatarId !== 'string') {
+      return jsonResponse(400, { error: 'avatarId is required' }, cors);
     }
 
-    // Inhabit the agent
-    const result = await inhabitAgent(session.user.walletAddress, agentId);
+    // Inhabit the avatar
+    const result = await inhabitAvatar(session.user.walletAddress, avatarId);
 
     if (!result.success) {
       return jsonResponse(400, { error: result.error }, cors);
@@ -543,8 +579,8 @@ export async function handleInhabitAgent(
 
     return jsonResponse(200, {
       success: true,
-      agentId: result.agentId,
-      agentName: result.agentName,
+      avatarId: result.avatarId,
+      avatarName: result.avatarName,
       avatarUrl: result.avatarUrl,
       era: result.era,
     }, cors);
@@ -556,7 +592,7 @@ export async function handleInhabitAgent(
 
 /**
  * POST /auth/can-abandon
- * Check if user can abandon their current agent
+ * Check if user can abandon their current avatar
  */
 export async function handleCanAbandon(
   event: APIGatewayProxyEventV2
@@ -587,11 +623,11 @@ export async function handleCanAbandon(
     return jsonResponse(200, {
       canAbandon: result.canAbandon,
       gateStatus: result.gateStatus,
-      inhabitedAgent: result.inhabitedAgent ? {
-        agentId: result.inhabitedAgent.agentId,
-        name: result.inhabitedAgent.name,
-        avatarUrl: result.inhabitedAgent.profileImage?.url,
-        currentEra: result.inhabitedAgent.currentEra || 0,
+      inhabitedAvatar: result.inhabitedAvatar ? {
+        avatarId: result.inhabitedAvatar.avatarId,
+        name: result.inhabitedAvatar.name,
+        avatarUrl: result.inhabitedAvatar.profileImage?.url,
+        currentEra: result.inhabitedAvatar.currentEra || 0,
       } : null,
     }, cors);
   } catch (error) {
@@ -602,7 +638,7 @@ export async function handleCanAbandon(
 
 /**
  * POST /auth/abandon
- * Abandon the currently inhabited agent (REQUIRES Gate NFT burn)
+ * Abandon the currently inhabited avatar (REQUIRES Gate NFT burn)
  *
  * Request body:
  * - burnTxSignature: REQUIRED - The signature of the Gate NFT burn transaction
@@ -611,12 +647,12 @@ export async function handleCanAbandon(
  * 1. Client burns Gate NFT using wallet
  * 2. Client sends burn transaction signature to this endpoint
  * 3. Backend verifies burn on-chain
- * 4. Backend releases the agent and increments era
+ * 4. Backend releases the avatar and increments era
  * 5. Client can then mint lineage NFT with returned metadata
  *
  * Returns info needed for lineage NFT minting
  */
-export async function handleAbandonAgent(
+export async function handleAbandonAvatar(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
   const cors = corsHeaders(event);
@@ -650,15 +686,15 @@ export async function handleAbandonAgent(
       }, cors);
     }
 
-    const inhabitedAgent = await getInhabitedAgent(session.user.walletAddress);
-    if (!inhabitedAgent) {
+    const inhabitedAvatar = await getInhabitedAvatar(session.user.walletAddress);
+    if (!inhabitedAvatar) {
       return jsonResponse(400, {
-        error: 'You do not currently inhabit any agent',
+        error: 'You do not currently inhabit any avatar',
       }, cors);
     }
 
     const lineageMint = await prepareLineageMint(
-      inhabitedAgent.agentId,
+      inhabitedAvatar.avatarId,
       session.user.walletAddress
     );
 
@@ -668,8 +704,8 @@ export async function handleAbandonAgent(
       }, cors);
     }
 
-    // Abandon the agent (includes burn verification)
-    const result = await abandonAgent(
+    // Abandon the avatar (includes burn verification)
+    const result = await abandonAvatar(
       session.user.walletAddress,
       burnTxSignature
     );
@@ -683,8 +719,8 @@ export async function handleAbandonAgent(
 
     return jsonResponse(200, {
       success: true,
-      agentId: result.agentId,
-      agentName: result.agentName,
+      avatarId: result.avatarId,
+      avatarName: result.avatarName,
       era: result.era,
       lineageNftMint: result.lineageNftMint,
       burnedMint: result.burnedMint,
@@ -701,8 +737,14 @@ export async function handleAbandonAgent(
  * Main router for /auth/* endpoints
  */
 export async function handleWalletAuth(
-  event: APIGatewayProxyEventV2
+  event: APIGatewayProxyEventV2,
+  depsOrContext?: WalletAuthHandlerDeps | unknown
 ): Promise<APIGatewayProxyResultV2> {
+  const deps = depsOrContext && 'walletAuth' in (depsOrContext as object)
+    ? (depsOrContext as WalletAuthHandlerDeps)
+    : undefined;
+  const resolvedDeps = deps || getDefaultDeps();
+
   const path = event.rawPath;
   const method = event.requestContext.http.method;
   const cors = corsHeaders(event);
@@ -727,7 +769,7 @@ export async function handleWalletAuth(
   }
 
   if (path === '/auth/me' && method === 'GET') {
-    return handleMe(event);
+    return handleMe(event, resolvedDeps);
   }
 
   if (path === '/auth/logout' && method === 'POST') {
@@ -735,8 +777,8 @@ export async function handleWalletAuth(
   }
 
   // Inhabitation endpoints
-  if (path === '/auth/unclaimed-agents' && method === 'GET') {
-    return handleUnclaimedAgents(event);
+  if (path === '/auth/unclaimed-avatars' && method === 'GET') {
+    return handleUnclaimedAvatars(event);
   }
 
   if (path === '/auth/gate-status' && method === 'GET') {
@@ -748,7 +790,7 @@ export async function handleWalletAuth(
   }
 
   if (path === '/auth/inhabit' && method === 'POST') {
-    return handleInhabitAgent(event);
+    return handleInhabitAvatar(event);
   }
 
   if (path === '/auth/can-abandon' && method === 'GET') {
@@ -756,8 +798,19 @@ export async function handleWalletAuth(
   }
 
   if (path === '/auth/abandon' && method === 'POST') {
-    return handleAbandonAgent(event);
+    return handleAbandonAvatar(event);
   }
 
   return jsonResponse(404, { error: 'Not found' }, cors);
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use handleUnclaimedAvatars instead */
+export const handleUnclaimedAgents = handleUnclaimedAvatars;
+/** @deprecated Use handleInhabitAvatar instead */
+export const handleInhabitAgent = handleInhabitAvatar;
+/** @deprecated Use handleAbandonAvatar instead */
+export const handleAbandonAgent = handleAbandonAvatar;

@@ -20,14 +20,14 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE!;
  * Add a new item to the gallery
  */
 export async function addToGallery(
-  agentId: string,
-  item: Omit<GalleryItem, 'pk' | 'sk' | 'agentId' | 'createdAt' | 'postedToTwitter' | 'convertedToSticker'>
+  avatarId: string,
+  item: Omit<GalleryItem, 'pk' | 'sk' | 'avatarId' | 'createdAt' | 'postedToTwitter' | 'convertedToSticker'>
 ): Promise<GalleryItem> {
   const now = Date.now();
   const galleryItem: GalleryItem = {
-    pk: `AGENT#${agentId}`,
+    pk: `AVATAR#${avatarId}`,
     sk: `GALLERY#${now}#${item.id}`,
-    agentId,
+    avatarId,
     ...item,
     postedToTwitter: false,
     convertedToSticker: false,
@@ -43,10 +43,10 @@ export async function addToGallery(
 }
 
 /**
- * Get gallery items for an agent
+ * Get gallery items for an avatar
  */
 export async function getGallery(
-  agentId: string,
+  avatarId: string,
   options: {
     limit?: number;
     type?: 'image' | 'video' | 'sticker';
@@ -60,7 +60,7 @@ export async function getGallery(
     TableName: ADMIN_TABLE,
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
     ExpressionAttributeValues: {
-      ':pk': `AGENT#${agentId}`,
+      ':pk': `AVATAR#${avatarId}`,
       ':sk': 'GALLERY#',
     },
     ScanIndexForward: false, // Most recent first
@@ -87,7 +87,7 @@ export async function getGallery(
  * Get a specific gallery item
  */
 export async function getGalleryItem(
-  agentId: string,
+  avatarId: string,
   itemId: string
 ): Promise<GalleryItem | null> {
   // Need to query since we don't know the timestamp part of SK
@@ -96,7 +96,7 @@ export async function getGalleryItem(
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
     FilterExpression: 'id = :id',
     ExpressionAttributeValues: {
-      ':pk': `AGENT#${agentId}`,
+      ':pk': `AVATAR#${avatarId}`,
       ':sk': 'GALLERY#',
       ':id': itemId,
     },
@@ -110,13 +110,13 @@ export async function getGalleryItem(
  * Mark item as posted to Twitter
  */
 export async function markPostedToTwitter(
-  agentId: string,
+  avatarId: string,
   _itemId: string,
   sk: string
 ): Promise<void> {
   await dynamoClient.send(new UpdateCommand({
     TableName: ADMIN_TABLE,
-    Key: { pk: `AGENT#${agentId}`, sk },
+    Key: { pk: `AVATAR#${avatarId}`, sk },
     UpdateExpression: 'SET postedToTwitter = :val',
     ExpressionAttributeValues: { ':val': true },
   }));
@@ -126,7 +126,7 @@ export async function markPostedToTwitter(
  * Mark item as converted to sticker with metadata
  */
 export async function markConvertedToSticker(
-  agentId: string,
+  avatarId: string,
   _itemId: string,
   sk: string,
   stickerInfo?: {
@@ -139,7 +139,7 @@ export async function markConvertedToSticker(
   if (stickerInfo) {
     await dynamoClient.send(new UpdateCommand({
       TableName: ADMIN_TABLE,
-      Key: { pk: `AGENT#${agentId}`, sk },
+      Key: { pk: `AVATAR#${avatarId}`, sk },
       UpdateExpression: 'SET convertedToSticker = :val, stickerInfo = :info',
       ExpressionAttributeValues: {
         ':val': true,
@@ -152,7 +152,7 @@ export async function markConvertedToSticker(
   } else {
     await dynamoClient.send(new UpdateCommand({
       TableName: ADMIN_TABLE,
-      Key: { pk: `AGENT#${agentId}`, sk },
+      Key: { pk: `AVATAR#${avatarId}`, sk },
       UpdateExpression: 'SET convertedToSticker = :val',
       ExpressionAttributeValues: { ':val': true },
     }));
@@ -164,11 +164,11 @@ export async function markConvertedToSticker(
  * In production, could use vector embeddings for better search
  */
 export async function findByDescription(
-  agentId: string,
+  avatarId: string,
   description: string,
   type?: 'image' | 'video' | 'sticker'
 ): Promise<GalleryItem[]> {
-  const items = await getGallery(agentId, { limit: 100, type });
+  const items = await getGallery(avatarId, { limit: 100, type });
 
   const searchTerms = description.toLowerCase().split(/\s+/);
 
@@ -191,13 +191,13 @@ export async function findByDescription(
 /**
  * Get gallery statistics
  */
-export async function getGalleryStats(agentId: string): Promise<{
+export async function getGalleryStats(avatarId: string): Promise<{
   totalImages: number;
   totalVideos: number;
   totalStickers: number;
   postedToTwitter: number;
 }> {
-  const items = await getGallery(agentId, { limit: 1000 });
+  const items = await getGallery(avatarId, { limit: 1000 });
 
   return {
     totalImages: items.filter(i => i.type === 'image').length,

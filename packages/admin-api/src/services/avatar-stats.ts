@@ -1,7 +1,7 @@
 /**
- * D&D-Style Agent Stats Generation
+ * D&D-Style Avatar Stats Generation
  *
- * Generates deterministic ability scores from agent creation timestamp.
+ * Generates deterministic ability scores from avatar creation timestamp.
  * Uses SHA256 hashing to simulate 4d6 drop lowest for each stat.
  */
 import { createHash } from 'crypto';
@@ -9,7 +9,7 @@ import { createHash } from 'crypto';
 /**
  * D&D ability scores with computed modifiers
  */
-export interface AgentStats {
+export interface AvatarStats {
   STR: number; // Strength - reserved for future use
   DEX: number; // Dexterity - Initiative modifier
   CON: number; // Constitution - reserved for future use
@@ -30,22 +30,22 @@ const ABILITIES = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'] as const;
 type AbilityName = (typeof ABILITIES)[number];
 
 /**
- * Generate D&D ability scores from agent createdAt timestamp.
+ * Generate D&D ability scores from avatar createdAt timestamp.
  *
  * Method: 4d6 drop lowest simulation using deterministic hash bytes.
  * Score range: 3-18 (standard D&D range)
  * Modifier: (score - 10) / 2, rounded down (range: -4 to +4)
  *
- * @param createdAt - Agent creation timestamp (milliseconds)
- * @param agentId - Agent ID for additional entropy
- * @returns AgentStats with all 6 ability scores and modifiers
+ * @param createdAt - Avatar creation timestamp (milliseconds)
+ * @param avatarId - Avatar ID for additional entropy
+ * @returns AvatarStats with all 6 ability scores and modifiers
  */
-export function generateAgentStats(
+export function generateAvatarStats(
   createdAt: number,
-  agentId: string
-): AgentStats {
-  // Create deterministic seed from createdAt + agentId
-  const seed = `${createdAt}:${agentId}:dnd-stats-v1`;
+  avatarId: string
+): AvatarStats {
+  // Create deterministic seed from createdAt + avatarId
+  const seed = `${createdAt}:${avatarId}:dnd-stats-v1`;
   const hash = createHash('sha256').update(seed).digest();
 
   const stats: Record<AbilityName, number> = {} as Record<AbilityName, number>;
@@ -97,10 +97,10 @@ export function rollD20(): number {
 
 /**
  * Roll initiative: 1d20 + DEX modifier
- * @param stats - Agent's ability scores
+ * @param stats - Avatar's ability scores
  * @returns Total initiative roll
  */
-export function rollInitiative(stats: AgentStats): {
+export function rollInitiative(stats: AvatarStats): {
   roll: number;
   modifier: number;
   total: number;
@@ -117,9 +117,16 @@ export function rollInitiative(stats: AgentStats): {
 /**
  * Format stats for display/logging
  */
-export function formatStats(stats: AgentStats): string {
+export function formatStats(stats: AvatarStats): string {
   return ABILITIES.map(
     (a) =>
       `${a}: ${stats[a]} (${stats.modifiers[a] >= 0 ? '+' : ''}${stats.modifiers[a]})`
   ).join(', ');
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use generateAvatarStats instead */
+export const generateAgentStats = generateAvatarStats;

@@ -13,8 +13,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import type { AudioAsset, VoiceProfile } from '../types.js';
 import { _getSecretValueInternal } from './secrets.js';
-import { syncAgentConfig } from './config-sync.js';
-import { getAgent } from './agents.js';
+import { syncAvatarConfig } from './config-sync.js';
+import { getAvatar } from './avatars.js';
 import * as credits from './credits.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -119,8 +119,8 @@ async function makeUrlAccessible(url: string): Promise<string> {
   return getSignedUrl(s3Client, command, { expiresIn: 3600 });
 }
 
-async function getSecret(agentId: string, type: 'openai_api_key' | 'replicate_api_key'): Promise<string | null> {
-  const key = await _getSecretValueInternal(agentId, type, 'default');
+async function getSecret(avatarId: string, type: 'openai_api_key' | 'replicate_api_key'): Promise<string | null> {
+  const key = await _getSecretValueInternal(avatarId, type, 'default');
   if (key) return key;
   return _getSecretValueInternal('GLOBAL', type, 'default');
 }
@@ -180,7 +180,7 @@ async function runReplicatePrediction(
 }
 
 async function uploadAudioAsset(params: {
-  agentId: string;
+  avatarId: string;
   buffer: Buffer;
   source: AudioAsset['source'];
   format: AudioFormat;
@@ -189,7 +189,7 @@ async function uploadAudioAsset(params: {
   const now = Date.now();
   const assetId = uuid();
   const extension = params.format;
-  const s3Key = `agents/${params.agentId}/audio/${assetId}.${extension}`;
+  const s3Key = `avatars/${params.avatarId}/audio/${assetId}.${extension}`;
 
   await s3Client.send(new PutObjectCommand({
     Bucket: MEDIA_BUCKET,
@@ -207,7 +207,7 @@ async function uploadAudioAsset(params: {
     pk: `AUDIO#${assetId}`,
     sk: 'ASSET',
     assetId,
-    agentId: params.agentId,
+    avatarId: params.avatarId,
     source: params.source,
     format: params.format,
     durationMs: params.durationMs,
@@ -247,14 +247,14 @@ async function saveVoiceProfile(profile: VoiceProfile): Promise<void> {
 }
 
 export async function transcribeAudio(params: {
-  agentId: string;
+  avatarId: string;
   assetId?: string;
   url?: string;
   language?: string;
   model?: string;
   diarize?: boolean;
 }): Promise<{ text: string; language?: string; confidence?: number }> {
-  const apiKey = await getSecret(params.agentId, 'openai_api_key');
+  const apiKey = await getSecret(params.avatarId, 'openai_api_key');
   if (!apiKey) {
     throw new Error('OpenAI API key not configured');
   }
@@ -307,13 +307,13 @@ export async function transcribeAudio(params: {
 }
 
 export async function createVoiceSeed(params: {
-  agentId: string;
+  avatarId: string;
   prompt: string;
   durationMs: number;
   styleTags?: string[];
   negativeTags?: string[];
 }): Promise<{ assetId: string; url: string; durationMs?: number }> {
-  const apiKey = await getSecret(params.agentId, 'replicate_api_key');
+  const apiKey = await getSecret(params.avatarId, 'replicate_api_key');
   if (!apiKey) {
     throw new Error('Replicate API key not configured');
   }
@@ -340,7 +340,7 @@ export async function createVoiceSeed(params: {
   const format = detectAudioFormat(contentType, outputUrl);
 
   const asset = await uploadAudioAsset({
-    agentId: params.agentId,
+    avatarId: params.avatarId,
     buffer,
     source: 'stable-audio',
     format,
@@ -351,7 +351,7 @@ export async function createVoiceSeed(params: {
 }
 
 export async function cloneVoiceFromSeed(params: {
-  agentId: string;
+  avatarId: string;
   seedAssetId: string;
   name?: string;
 }): Promise<{ voiceId: string; status: 'creating' | 'ready' | 'failed'; previewAssetId?: string }> {
@@ -362,7 +362,7 @@ export async function cloneVoiceFromSeed(params: {
     pk: `VOICE#${voiceId}`,
     sk: 'PROFILE',
     voiceId,
-    agentId: params.agentId,
+    avatarId: params.avatarId,
     status: 'ready',
     provider: 'voice-clone',
     seedAssetId: params.seedAssetId,
@@ -376,7 +376,7 @@ export async function cloneVoiceFromSeed(params: {
 }
 
 export async function createVoiceProfile(params: {
-  agentId: string;
+  avatarId: string;
   seedPrompt?: string;
   seedAssetId?: string;
   voiceName?: string;
@@ -387,7 +387,7 @@ export async function createVoiceProfile(params: {
       throw new Error('seedPrompt or seedAssetId is required');
     }
     const seed = await createVoiceSeed({
-      agentId: params.agentId,
+      avatarId: params.avatarId,
       prompt: params.seedPrompt,
       durationMs: 8000,
     });
@@ -395,7 +395,7 @@ export async function createVoiceProfile(params: {
   }
 
   const clone = await cloneVoiceFromSeed({
-    agentId: params.agentId,
+    avatarId: params.avatarId,
     seedAssetId,
     name: params.voiceName,
   });
@@ -404,20 +404,20 @@ export async function createVoiceProfile(params: {
 }
 
 /**
- * Check if an agent has a voice configured
+ * Check if an avatar has a voice configured
  */
-export async function hasVoice(agentId: string): Promise<{
+export async function hasVoice(avatarId: string): Promise<{
   hasVoice: boolean;
   voiceId?: string;
   voiceStyle?: string;
   referenceUrl?: string;
 }> {
-  const agent = await getAgent(agentId);
-  if (!agent) {
+  const avatar = await getAvatar(avatarId);
+  if (!avatar) {
     return { hasVoice: false };
   }
 
-  const voiceConfig = agent.voiceConfig;
+  const voiceConfig = avatar.voiceConfig;
   if (!voiceConfig?.enabled) {
     return { hasVoice: false };
   }
@@ -433,26 +433,26 @@ export async function hasVoice(agentId: string): Promise<{
 }
 
 /**
- * Create a voice for the agent based on a description.
+ * Create a voice for the avatar based on a description.
  * 
  * Consolidated Pipeline:
  * 1. Generate a voice seed audio using Stable Audio based on description
  * 2. Clone that audio into a voice profile
- * 3. Set as the agent's active voice for TTS
+ * 3. Set as the avatar's active voice for TTS
  * 4. Generate a voice introduction message
  */
 export async function createMyVoice(params: {
-  agentId: string;
+  avatarId: string;
   description: string;
   updatedBy?: string;
 }): Promise<{ voiceId: string; message: string; previewUrl?: string; introAssetId?: string; introUrl?: string }> {
-  const agent = await getAgent(params.agentId);
-  if (!agent) {
-    throw new Error(`Agent not found: ${params.agentId}`);
+  const avatar = await getAvatar(params.avatarId);
+  if (!avatar) {
+    throw new Error(`Avatar not found: ${params.avatarId}`);
   }
 
   // Check if already has a voice
-  const existing = await hasVoice(params.agentId);
+  const existing = await hasVoice(params.avatarId);
   if (existing.hasVoice) {
     return {
       voiceId: existing.voiceId || 'existing',
@@ -462,17 +462,17 @@ export async function createMyVoice(params: {
   }
 
   // Check energy cost (voice generation costs 1 energy)
-  const energyCheck = await credits.canUseEnergy(params.agentId, credits.ENERGY_COSTS.voice);
+  const energyCheck = await credits.canUseEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
   if (!energyCheck.allowed) {
     throw new Error(`Not enough energy to create voice. ${energyCheck.reason}`);
   }
 
   // Build a voice prompt based on the description
-  const agentName = agent.name || 'Agent';
-  const agentDescription = params.description || agent.description || agent.persona || '';
+  const avatarName = avatar.name || 'Avatar';
+  const avatarescription = params.description || avatar.description || avatar.persona || '';
   
   // Create a prompt for Stable Audio to generate a voice
-  const voicePrompt = buildVoicePrompt(agentName, agentDescription);
+  const voicePrompt = buildVoicePrompt(avatarName, avatarescription);
   
   // Step 1: Generate seed audio using Stable Audio
   let seedAssetId: string;
@@ -480,7 +480,7 @@ export async function createMyVoice(params: {
   
   try {
     const seed = await createVoiceSeed({
-      agentId: params.agentId,
+      avatarId: params.avatarId,
       prompt: voicePrompt,
       durationMs: 8000, // 8 seconds of audio for voice cloning
       styleTags: ['voice', 'speaking', 'clear'],
@@ -495,25 +495,25 @@ export async function createMyVoice(params: {
 
   // Step 2: Clone the voice from the seed audio
   const clone = await cloneVoiceFromSeed({
-    agentId: params.agentId,
+    avatarId: params.avatarId,
     seedAssetId,
-    name: `${agentName}'s Voice`,
+    name: `${avatarName}'s Voice`,
   });
 
   // Step 3: Set as active voice profile
-  await setActiveVoiceProfile(params.agentId, clone.voiceId, params.updatedBy || 'system');
+  await setActiveVoiceProfile(params.avatarId, clone.voiceId, params.updatedBy || 'system');
 
   // Consume energy after successful creation
-  await credits.consumeEnergy(params.agentId, credits.ENERGY_COSTS.voice);
+  await credits.consumeEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
 
   // Step 4: Generate a voice introduction message
   let introAssetId: string | undefined;
   let introUrl: string | undefined;
-  const introText = `Hello! This is ${agentName}. I just got my voice set up and I'm excited to speak with you!`;
+  const introText = `Hello! This is ${avatarName}. I just got my voice set up and I'm excited to speak with you!`;
   
   try {
     const introMessage = await generateVoiceMessage({
-      agentId: params.agentId,
+      avatarId: params.avatarId,
       text: introText,
       format: 'ogg',
     });
@@ -534,7 +534,7 @@ export async function createMyVoice(params: {
 }
 
 /**
- * Build a voice prompt for Stable Audio based on agent characteristics
+ * Build a voice prompt for Stable Audio based on avatar characteristics
  */
 function buildVoicePrompt(name: string, description: string): string {
   // Extract personality traits from description
@@ -571,13 +571,13 @@ function buildVoicePrompt(name: string, description: string): string {
 }
 
 export async function setActiveVoiceProfile(
-  agentId: string,
+  avatarId: string,
   voiceId: string,
   updatedBy: string = 'system'
 ): Promise<void> {
-  const agent = await getAgent(agentId);
-  if (!agent) {
-    throw new Error(`Agent not found: ${agentId}`);
+  const avatar = await getAvatar(avatarId);
+  if (!avatar) {
+    throw new Error(`Avatar not found: ${avatarId}`);
   }
 
   const profile = await getVoiceProfile(voiceId);
@@ -591,15 +591,15 @@ export async function setActiveVoiceProfile(
   }
 
   const updated = {
-    ...agent,
+    ...avatar,
     voiceConfig: {
       enabled: true,
       defaultVoiceId: voiceId,
-      ttsProvider: agent.voiceConfig?.ttsProvider || 'voice-clone',
-      speed: agent.voiceConfig?.speed,
-      pitch: agent.voiceConfig?.pitch,
-      format: agent.voiceConfig?.format || 'ogg',
-      referenceUrl: referenceUrl || agent.voiceConfig?.referenceUrl,
+      ttsProvider: avatar.voiceConfig?.ttsProvider || 'voice-clone',
+      speed: avatar.voiceConfig?.speed,
+      pitch: avatar.voiceConfig?.pitch,
+      format: avatar.voiceConfig?.format || 'ogg',
+      referenceUrl: referenceUrl || avatar.voiceConfig?.referenceUrl,
     },
     updatedAt: Date.now(),
     updatedBy,
@@ -610,11 +610,11 @@ export async function setActiveVoiceProfile(
     Item: updated,
   }));
 
-  await syncAgentConfig(updated);
+  await syncAvatarConfig(updated);
 }
 
 export async function generateVoiceMessage(params: {
-  agentId: string;
+  avatarId: string;
   text: string;
   voiceId?: string;
   format?: AudioFormat;
@@ -623,24 +623,24 @@ export async function generateVoiceMessage(params: {
   emotion?: string;
   maxDurationMs?: number;
 }): Promise<{ assetId: string; url: string; durationMs?: number; format?: AudioFormat }> {
-  const agent = await getAgent(params.agentId);
-  if (!agent) {
-    throw new Error(`Agent not found: ${params.agentId}`);
+  const avatar = await getAvatar(params.avatarId);
+  if (!avatar) {
+    throw new Error(`Avatar not found: ${params.avatarId}`);
   }
 
   // Check energy cost (voice message costs 1 energy)
-  const energyCheck = await credits.canUseEnergy(params.agentId, credits.ENERGY_COSTS.voice);
+  const energyCheck = await credits.canUseEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
   if (!energyCheck.allowed) {
     throw new Error(`Not enough energy to generate voice message. ${energyCheck.reason}`);
   }
 
-  const voiceConfig = agent.voiceConfig;
+  const voiceConfig = avatar.voiceConfig;
   const format = params.format || voiceConfig?.format || 'ogg';
   const voiceId = params.voiceId || voiceConfig?.defaultVoiceId;
   const referenceUrl = voiceConfig?.referenceUrl;
 
   if (voiceConfig?.ttsProvider === 'voice-clone' && VOICE_TTS_MODEL && (voiceId || referenceUrl)) {
-    const apiKey = await getSecret(params.agentId, 'replicate_api_key');
+    const apiKey = await getSecret(params.avatarId, 'replicate_api_key');
     if (!apiKey) {
       throw new Error('Replicate API key not configured');
     }
@@ -679,19 +679,19 @@ export async function generateVoiceMessage(params: {
     const detectedFormat = detectAudioFormat(contentType, outputUrl);
 
     const asset = await uploadAudioAsset({
-      agentId: params.agentId,
+      avatarId: params.avatarId,
       buffer,
       source: 'tts',
       format: detectedFormat,
     });
 
     // Consume energy after successful generation
-    await credits.consumeEnergy(params.agentId, credits.ENERGY_COSTS.voice);
+    await credits.consumeEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
 
     return { assetId: asset.assetId, url: asset.url, format: detectedFormat };
   }
 
-  const apiKey = await getSecret(params.agentId, 'openai_api_key');
+  const apiKey = await getSecret(params.avatarId, 'openai_api_key');
   if (!apiKey) {
     throw new Error('OpenAI API key not configured');
   }
@@ -722,14 +722,14 @@ export async function generateVoiceMessage(params: {
   const buffer = Buffer.from(await response.arrayBuffer());
 
   const asset = await uploadAudioAsset({
-    agentId: params.agentId,
+    avatarId: params.avatarId,
     buffer,
     source: 'tts',
     format,
   });
 
   // Consume energy after successful generation
-  await credits.consumeEnergy(params.agentId, credits.ENERGY_COSTS.voice);
+  await credits.consumeEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
 
   return { assetId: asset.assetId, url: asset.url, format };
 }
@@ -741,7 +741,7 @@ export async function generateVoiceMessage(params: {
  * On Web/other: generates voice and returns URL for playback
  */
 export async function sendVoiceMessage(params: {
-  agentId: string;
+  avatarId: string;
   platform: string;
   text: string;
   conversationId?: string;
@@ -752,7 +752,7 @@ export async function sendVoiceMessage(params: {
 }): Promise<{ success: boolean; assetId?: string; url?: string; sent?: boolean }> {
   // Generate the voice message first
   const generated = await generateVoiceMessage({
-    agentId: params.agentId,
+    avatarId: params.avatarId,
     text: params.text,
     voiceId: params.voiceId,
     format: params.format || 'ogg',
@@ -767,7 +767,7 @@ export async function sendVoiceMessage(params: {
       throw new Error('conversationId is required for Telegram voice messages');
     }
 
-    const botToken = await _getSecretValueInternal(params.agentId, 'telegram_bot_token', 'default');
+    const botToken = await _getSecretValueInternal(params.avatarId, 'telegram_bot_token', 'default');
     if (!botToken) {
       throw new Error('Telegram bot token not configured');
     }

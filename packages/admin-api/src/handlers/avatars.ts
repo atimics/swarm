@@ -1,6 +1,6 @@
 /**
- * Agent Management API Handler
- * REST endpoints for creating and managing agents
+ * Avatar Management API Handler
+ * REST endpoints for creating and managing avatars
  */
 import type {
   APIGatewayProxyEventV2,
@@ -8,13 +8,13 @@ import type {
 } from 'aws-lambda';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import { logger } from '@swarm/core';
-import * as agentService from '../services/agents.js';
+import * as avatarService from '../services/avatars.js';
 import * as secretsService from '../services/secrets.js';
 import * as logsService from '../services/logs.js';
-import * as agentLogsService from '../services/agent-logs.js';
+import * as avatarogsService from '../services/avatar-logs.js';
 import * as telegramService from '../services/telegram.js';
-import * as agentEventsService from '../services/agent-events.js';
-import { recordError, listAgentIssues } from '../services/auto-issues.js';
+import * as avatarventsService from '../services/avatar-events.js';
+import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { SecretType } from '../types.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 
@@ -30,7 +30,7 @@ const corsHeaders = {
 // Cookie name for wallet session
 const WALLET_SESSION_COOKIE = 'swarm_session';
 
-// Admin wallets that can see all agents (comma-separated list)
+// Admin wallets that can see all avatars (comma-separated list)
 const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || '').split(',').filter(Boolean);
 
 /**
@@ -71,7 +71,7 @@ function getWalletSessionFromCookie(event: APIGatewayProxyEventV2): string | nul
 }
 
 /**
- * Lambda handler for agent management API
+ * Lambda handler for avatar management API
  */
 export async function handler(
   event: APIGatewayProxyEventV2
@@ -95,8 +95,8 @@ export async function handler(
     const method = event.requestContext.http.method;
     const path = event.rawPath;
 
-    // POST /agents - Create a new agent
-    if (method === 'POST' && path === '/agents') {
+    // POST /avatars - Create a new avatar
+    if (method === 'POST' && path === '/avatars') {
       const body = JSON.parse(event.body || '{}');
       const { name, description } = body;
 
@@ -114,114 +114,114 @@ export async function handler(
         const walletSession = await getSessionWithUser(sessionToken);
         if (walletSession?.walletAddress) {
           // Wallet user: use gated creation
-          const result = await agentService.createAgentWithWallet(name, walletSession.walletAddress, description);
+          const result = await avatarService.createAvatarWithWallet(name, walletSession.walletAddress, description);
           if (!result.success) {
             const errorMessage = result.error === 'no_gate_slot'
-              ? 'No available agent slots. Hold an Orb NFT to create more agents.'
+              ? 'No available avatar slots. Hold an Orb NFT to create more avatars.'
               : result.error === 'name_taken'
-              ? 'An agent with this name already exists.'
-              : 'Failed to create agent.';
+              ? 'An avatar with this name already exists.'
+              : 'Failed to create avatar.';
             return {
               statusCode: result.error === 'no_gate_slot' ? 403 : 400,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
               body: JSON.stringify({ error: errorMessage, gateStatus: result.gateStatus }),
             };
           }
-          logger.info(`[Agents] Created agent=${result.agent!.agentId} by wallet=${walletSession.walletAddress.slice(0, 8)}...`);
+          logger.info(`[Avatars] Created avatar=${result.avatar!.avatarId} by wallet=${walletSession.walletAddress.slice(0, 8)}...`);
           return {
             statusCode: 201,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            body: JSON.stringify(result.agent),
+            body: JSON.stringify(result.avatar),
           };
         }
       }
 
       // Fallback: legacy email-based creation (CF Access admin)
-      const agent = await agentService.createAgent(name, session, description);
+      const avatar = await avatarService.createAvatar(name, session, description);
 
       return {
         statusCode: 201,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify(agent),
+        body: JSON.stringify(avatar),
       };
     }
 
-    // GET /agents - List agents (filtered by wallet unless admin)
-    if (method === 'GET' && path === '/agents') {
-      // Check for wallet session to filter agents by creator
+    // GET /avatars - List avatars (filtered by wallet unless admin)
+    if (method === 'GET' && path === '/avatars') {
+      // Check for wallet session to filter avatars by creator
       const sessionToken = getWalletSessionFromCookie(event);
-      let agents: Awaited<ReturnType<typeof agentService.listAgents>>;
+      let avatars: Awaited<ReturnType<typeof avatarService.listAvatars>>;
 
       if (sessionToken) {
         const walletSession = await getSessionWithUser(sessionToken);
         if (walletSession?.walletAddress) {
           // Check if this wallet is an admin
           if (isAdminWallet(walletSession.walletAddress)) {
-            // Admin wallet: show all agents
-            agents = await agentService.listAgents();
-            logger.info(`[Agents] Admin wallet=${walletSession.walletAddress.slice(0, 8)}... listed all ${agents.length} agents`);
+            // Admin wallet: show all avatars
+            avatars = await avatarService.listAvatars();
+            logger.info(`[Avatars] Admin wallet=${walletSession.walletAddress.slice(0, 8)}... listed all ${avatars.length} avatars`);
           } else {
-            // Regular wallet user: show only agents they created OR inhabit
-            agents = await agentService.listAgentsByWallet(walletSession.walletAddress);
-            logger.info(`[Agents] Listed ${agents.length} agents for wallet=${walletSession.walletAddress.slice(0, 8)}...`);
+            // Regular wallet user: show only avatars they created OR inhabit
+            avatars = await avatarService.listAvatarsByWallet(walletSession.walletAddress);
+            logger.info(`[Avatars] Listed ${avatars.length} avatars for wallet=${walletSession.walletAddress.slice(0, 8)}...`);
           }
         } else {
           // Invalid/expired session - return empty list (they need to re-auth)
-          agents = [];
-          logger.warn(`[Agents] Invalid wallet session (token present but session not found), returning empty list`);
+          avatars = [];
+          logger.warn(`[Avatars] Invalid wallet session (token present but session not found), returning empty list`);
         }
       } else {
-        // No wallet session (CF Access / internal test only) - return all agents
-        agents = await agentService.listAgents();
-        logger.info(`[Agents] Listed all ${agents.length} agents (no wallet session)`);
+        // No wallet session (CF Access / internal test only) - return all avatars
+        avatars = await avatarService.listAvatars();
+        logger.info(`[Avatars] Listed all ${avatars.length} avatars (no wallet session)`);
       }
 
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify(agents),
+        body: JSON.stringify(avatars),
       };
     }
 
-    // GET /agents/{id} - Get single agent
-    const agentIdMatch = path.match(/^\/agents\/([^/]+)$/);
-    if (method === 'GET' && agentIdMatch) {
-      const agentId = agentIdMatch[1];
-      const agent = await agentService.getAgent(agentId);
+    // GET /avatars/{id} - Get single avatar
+    const avatardMatch = path.match(/^\/avatars\/([^/]+)$/);
+    if (method === 'GET' && avatardMatch) {
+      const avatarId = avatardMatch[1];
+      const avatar = await avatarService.getAvatar(avatarId);
 
-      if (!agent) {
+      if (!avatar) {
         return {
           statusCode: 404,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Agent not found' }),
+          body: JSON.stringify({ error: 'Avatar not found' }),
         };
       }
 
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify(agent),
+        body: JSON.stringify(avatar),
       };
     }
 
-    // PUT /agents/{id} - Update agent
-    if (method === 'PUT' && agentIdMatch) {
-      const agentId = agentIdMatch[1];
+    // PUT /avatars/{id} - Update avatar
+    if (method === 'PUT' && avatardMatch) {
+      const avatarId = avatardMatch[1];
       const body = JSON.parse(event.body || '{}');
 
-      const agent = await agentService.updateAgent(agentId, body, session);
+      const avatar = await avatarService.updateAvatar(avatarId, body, session);
 
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify(agent),
+        body: JSON.stringify(avatar),
       };
     }
 
-    // DELETE /agents/{id} - Delete agent
-    if (method === 'DELETE' && agentIdMatch) {
-      const agentId = agentIdMatch[1];
-      await agentService.deleteAgent(agentId, session);
+    // DELETE /avatars/{id} - Delete avatar
+    if (method === 'DELETE' && avatardMatch) {
+      const avatarId = avatardMatch[1];
+      await avatarService.deleteAvatar(avatarId, session);
 
       return {
         statusCode: 204,
@@ -229,10 +229,10 @@ export async function handler(
       };
     }
 
-    // POST /agents/{id}/secrets - Save a secret for an agent
-    const secretsMatch = path.match(/^\/agents\/([^/]+)\/secrets$/);
+    // POST /avatars/{id}/secrets - Save a secret for an avatar
+    const secretsMatch = path.match(/^\/avatars\/([^/]+)\/secrets$/);
     if (method === 'POST' && secretsMatch) {
-      const agentId = secretsMatch[1];
+      const avatarId = secretsMatch[1];
       const body = JSON.parse(event.body || '{}');
       const { key, value } = body;
 
@@ -257,23 +257,23 @@ export async function handler(
       }
 
       await secretsService.storeSecret(
-        agentId,
+        avatarId,
         secretType.data,
         'default',
         value,
         session,
-        `${key} for agent ${agentId}`
+        `${key} for avatar ${avatarId}`
       );
 
       // Special handling for Telegram bot tokens - register webhook automatically
       if (key === 'telegram_bot_token') {
-        logger.setContext({ subsystem: 'telegram', agentId });
+        logger.setContext({ subsystem: 'telegram', avatarId });
         logger.info('Telegram token stored via API', { event: 'telegram_token_stored_via_api' });
 
         const validation = await telegramService.validateTelegramToken(value);
         if (validation.valid) {
-          // Update agent config to enable Telegram
-          await agentService.updateAgent(agentId, {
+          // Update avatar config to enable Telegram
+          await avatarService.updateAvatar(avatarId, {
             platforms: {
               telegram: {
                 enabled: true,
@@ -283,15 +283,15 @@ export async function handler(
           }, session);
 
           // Register webhook with Telegram
-          const webhookResult = await telegramService.registerTelegramWebhook(value, agentId);
+          const webhookResult = await telegramService.registerTelegramWebhook(value, avatarId);
           if (webhookResult.success && webhookResult.secretToken) {
             await secretsService.storeSecret(
-              agentId,
+              avatarId,
               'telegram_webhook_secret',
               'default',
               webhookResult.secretToken,
               session,
-              `Telegram webhook secret for ${agentId}`
+              `Telegram webhook secret for ${avatarId}`
             );
             logger.info('Telegram webhook registered', {
               event: 'telegram_webhook_registered',
@@ -314,7 +314,7 @@ export async function handler(
 
       // Special handling for Replicate API key - validate it
       if (key === 'replicate_api_key') {
-        logger.setContext({ subsystem: 'media', agentId });
+        logger.setContext({ subsystem: 'media', avatarId });
         logger.info('Replicate key stored via API', { event: 'replicate_key_stored_via_api' });
 
         try {
@@ -349,10 +349,10 @@ export async function handler(
       };
     }
 
-    // GET /agents/{id}/secrets - List secrets (not values)
+    // GET /avatars/{id}/secrets - List secrets (not values)
     if (method === 'GET' && secretsMatch) {
-      const agentId = secretsMatch[1];
-      const secrets = await secretsService.listSecrets(agentId);
+      const avatarId = secretsMatch[1];
+      const secrets = await secretsService.listSecrets(avatarId);
 
       return {
         statusCode: 200,
@@ -361,18 +361,18 @@ export async function handler(
       };
     }
 
-    // GET /agents/{id}/logs - Query consolidated logs for an agent (CloudWatch - slow)
-    const logsMatch = path.match(/^\/agents\/([^/]+)\/logs$/);
+    // GET /avatars/{id}/logs - Query consolidated logs for an avatar (CloudWatch - slow)
+    const logsMatch = path.match(/^\/avatars\/([^/]+)\/logs$/);
     if (method === 'GET' && logsMatch) {
-      const agentId = logsMatch[1];
+      const avatarId = logsMatch[1];
       const params = event.queryStringParameters || {};
 
       // Check if fast=true param is set, use DynamoDB instead of CloudWatch
       if (params.fast === 'true') {
         const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
         const since = params.since ? parseSinceParam(params.since) : undefined;
-        const result = await agentLogsService.listAgentLogs(agentId, {
-          level: params.level?.toUpperCase() as agentLogsService.LogLevel | undefined,
+        const result = await avatarogsService.listAvatarLogs(avatarId, {
+          level: params.level?.toUpperCase() as avatarogsService.LogLevel | undefined,
           subsystem: params.subsystem || params.component,
           since,
           limit,
@@ -383,7 +383,7 @@ export async function handler(
           statusCode: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            agentId,
+            avatarId,
             logs: result.logs,
             hasMore: result.hasMore,
             source: 'dynamodb',
@@ -397,7 +397,7 @@ export async function handler(
       const startTime = Number.isFinite(startTimeRaw) ? startTimeRaw : undefined;
       const endTime = Number.isFinite(endTimeRaw) ? endTimeRaw : undefined;
 
-      const result = await logsService.queryAgentLogs(agentId, {
+      const result = await logsService.queryAvatarLogs(avatarId, {
         level: params.level,
         subsystem: params.subsystem || params.component,
         since: params.since,
@@ -414,37 +414,37 @@ export async function handler(
       };
     }
 
-    // GET /agents/{id}/issues - List issues for an agent (from CloudWatch - legacy)
-    const issuesMatch = path.match(/^\/agents\/([^/]+)\/issues$/);
+    // GET /avatars/{id}/issues - List issues for an avatar (from CloudWatch - legacy)
+    const issuesMatch = path.match(/^\/avatars\/([^/]+)\/issues$/);
     if (method === 'GET' && issuesMatch) {
-      const agentId = issuesMatch[1];
+      const avatarId = issuesMatch[1];
       const params = event.queryStringParameters || {};
       const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
       const status = params.status as 'open' | 'resolved' | 'all' | undefined;
       const severity = params.severity as 'low' | 'medium' | 'high' | 'critical' | undefined;
 
-      const issues = await listAgentIssues(agentId, { limit, status, severity });
+      const issues = await listAvatarIssues(avatarId, { limit, status, severity });
 
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, issues }),
+        body: JSON.stringify({ avatarId, issues }),
       };
     }
 
-    // GET /agents/{id}/events - List events (issues + feedback) from DynamoDB
-    const eventsMatch = path.match(/^\/agents\/([^/]+)\/events$/);
+    // GET /avatars/{id}/events - List events (issues + feedback) from DynamoDB
+    const eventsMatch = path.match(/^\/avatars\/([^/]+)\/events$/);
     if (method === 'GET' && eventsMatch) {
-      const agentId = eventsMatch[1];
+      const avatarId = eventsMatch[1];
       const params = event.queryStringParameters || {};
       const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
       const type = params.type as 'issue' | 'feedback' | undefined;
-      const severity = params.severity as agentEventsService.IssueSeverity | undefined;
-      const sentiment = params.sentiment as agentEventsService.FeedbackSentiment | undefined;
-      const status = params.status as agentEventsService.IssueStatus | undefined;
+      const severity = params.severity as avatarventsService.IssueSeverity | undefined;
+      const sentiment = params.sentiment as avatarventsService.FeedbackSentiment | undefined;
+      const status = params.status as avatarventsService.IssueStatus | undefined;
       const since = params.since ? Number.parseInt(params.since, 10) : undefined;
 
-      const events = await agentEventsService.listAgentEvents(agentId, {
+      const events = await avatarventsService.listAvatarEvents(avatarId, {
         type,
         limit,
         since,
@@ -456,27 +456,27 @@ export async function handler(
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, events, count: events.length }),
+        body: JSON.stringify({ avatarId, events, count: events.length }),
       };
     }
 
-    // GET /agents/{id}/events/counts - Get event summary for dashboard
-    const eventCountsMatch = path.match(/^\/agents\/([^/]+)\/events\/counts$/);
+    // GET /avatars/{id}/events/counts - Get event summary for dashboard
+    const eventCountsMatch = path.match(/^\/avatars\/([^/]+)\/events\/counts$/);
     if (method === 'GET' && eventCountsMatch) {
-      const agentId = eventCountsMatch[1];
-      const counts = await agentEventsService.getAgentEventCounts(agentId);
+      const avatarId = eventCountsMatch[1];
+      const counts = await avatarventsService.getAvatarEventCounts(avatarId);
 
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, ...counts }),
+        body: JSON.stringify({ avatarId, ...counts }),
       };
     }
 
-    // PATCH /agents/{id}/events/{eventId} - Update issue status
-    const eventUpdateMatch = path.match(/^\/agents\/([^/]+)\/events\/([^/]+)$/);
+    // PATCH /avatars/{id}/events/{eventId} - Update issue status
+    const eventUpdateMatch = path.match(/^\/avatars\/([^/]+)\/events\/([^/]+)$/);
     if (method === 'PATCH' && eventUpdateMatch) {
-      const agentId = eventUpdateMatch[1];
+      const avatarId = eventUpdateMatch[1];
       const eventId = eventUpdateMatch[2];
       const body = JSON.parse(event.body || '{}');
       const { status } = body;
@@ -489,7 +489,7 @@ export async function handler(
         };
       }
 
-      await agentEventsService.updateIssueStatus(agentId, eventId, status, session?.email);
+      await avatarventsService.updateIssueStatus(avatarId, eventId, status, session?.email);
 
       return {
         statusCode: 200,
@@ -509,14 +509,14 @@ export async function handler(
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
 
-    logger.setContext({ subsystem: 'agents' });
-    logger.error('Agent handler error', error);
+    logger.setContext({ subsystem: 'avatars' });
+    logger.error('Avatar handler error', error);
 
     // Record error in auto-issues system
     recordError({
       error: errorMessage,
       stack: errorStack,
-      subsystem: 'agents',
+      subsystem: 'avatars',
       category: 'handler_error',
       requestId: event.requestContext.requestId,
     }).catch(() => {

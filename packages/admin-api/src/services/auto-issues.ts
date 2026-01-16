@@ -42,7 +42,7 @@ export interface AutoIssue {
   status: IssueStatus;
   category: string;
   subsystem: string;
-  agentId?: string;
+  avatarId?: string;
   firstSeenAt: number;
   lastSeenAt: number;
   occurrenceCount: number;
@@ -54,7 +54,7 @@ export interface AutoIssue {
 export interface ErrorOccurrence {
   issueId: string;
   timestamp: number;
-  agentId?: string;
+  avatarId?: string;
   requestId?: string;
   error: string;
   stack?: string;
@@ -80,8 +80,8 @@ function generateFingerprint(
     .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/g, '<TIMESTAMP>')
     // Remove specific file paths
     .replace(/\/var\/task\/[^\s]+/g, '<PATH>')
-    // Remove agent IDs
-    .replace(/agent-[\w-]+/g, '<AGENT>');
+    // Remove avatar IDs
+    .replace(/avatar-[\w-]+/g, '<AGENT>');
 
   // Extract first meaningful stack frame if available
   let stackLocation = '';
@@ -168,7 +168,7 @@ export async function recordError(params: {
   stack?: string;
   subsystem: string;
   category?: string;
-  agentId?: string;
+  avatarId?: string;
   requestId?: string;
   context?: Record<string, unknown>;
 }): Promise<{ issueId: string; isNew: boolean; occurrenceCount: number }> {
@@ -177,7 +177,7 @@ export async function recordError(params: {
     stack,
     subsystem,
     category = 'error',
-    agentId,
+    avatarId,
     requestId,
     context,
   } = params;
@@ -211,7 +211,7 @@ export async function recordError(params: {
       status: 'open',
       category,
       subsystem,
-      agentId,
+      avatarId,
       firstSeenAt: now,
       lastSeenAt: now,
       occurrenceCount: 1,
@@ -259,7 +259,7 @@ export async function recordError(params: {
     sk: `OCCURRENCE#${now}`,
     issueId,
     timestamp: now,
-    agentId,
+    avatarId,
     requestId,
     error: error.slice(0, 1000),
     stack: stack?.slice(0, 2000),
@@ -363,7 +363,7 @@ export async function updateIssueStatus(
  */
 export function createErrorRecorder(defaultContext: {
   subsystem: string;
-  agentId?: string;
+  avatarId?: string;
 }) {
   return async function recordErrorWithContext(
     error: Error | string,
@@ -379,7 +379,7 @@ export function createErrorRecorder(defaultContext: {
         stack,
         subsystem: defaultContext.subsystem,
         category,
-        agentId: defaultContext.agentId,
+        avatarId: defaultContext.avatarId,
         context: extraContext,
       });
     } catch (recordingError) {
@@ -390,12 +390,12 @@ export function createErrorRecorder(defaultContext: {
 }
 
 /**
- * Agent-reported issue interface (from logs)
+ * Avatar-reported issue interface (from logs)
  */
-export interface AgentIssue {
+export interface AvatarIssue {
   id: string;
   timestamp: number;
-  agentId: string;
+  avatarId: string;
   platform: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
   category: string;
@@ -407,29 +407,29 @@ export interface AgentIssue {
 }
 
 /**
- * List issues for a specific agent by querying CloudWatch logs
- * This finds agent_reported_issue events
+ * List issues for a specific avatar by querying CloudWatch logs
+ * This finds avatar_reported_issue events
  */
-export async function listAgentIssues(
-  agentId: string,
+export async function listAvatarIssues(
+  avatarId: string,
   options: {
     limit?: number;
     status?: 'open' | 'resolved' | 'all';
     severity?: 'low' | 'medium' | 'high' | 'critical';
   } = {}
-): Promise<AgentIssue[]> {
+): Promise<AvatarIssue[]> {
   // Import logs service dynamically to avoid circular deps
   const logsService = await import('./logs.js');
   
-  // Query for agent_reported_issue events
-  const result = await logsService.queryAgentLogs(agentId, {
+  // Query for avatar_reported_issue events
+  const result = await logsService.queryAvatarLogs(avatarId, {
     subsystem: 'diagnostics',
-    query: 'agent_reported_issue',
+    query: 'avatar_reported_issue',
     limit: options.limit || 50,
     since: '7d', // Look back 7 days
   });
 
-  const issues: AgentIssue[] = [];
+  const issues: AvatarIssue[] = [];
   
   for (const event of result.events) {
     try {
@@ -439,7 +439,7 @@ export async function listAgentIssues(
       if (!jsonMatch) continue;
       
       const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.event !== 'agent_reported_issue') continue;
+      if (parsed.event !== 'avatar_reported_issue') continue;
       
       const issue = parsed.issue;
       if (!issue) continue;
@@ -451,7 +451,7 @@ export async function listAgentIssues(
         id: `issue-${parsed.timestamp || event.timestamp}`,
         timestamp: parsed.timestamp ? new Date(parsed.timestamp).getTime() : 
                    event.timestamp ? new Date(event.timestamp).getTime() : Date.now(),
-        agentId: parsed.agentId || agentId,
+        avatarId: parsed.avatarId || avatarId,
         platform: parsed.platform || 'unknown',
         severity: issue.severity || 'medium',
         category: issue.category || 'unknown',

@@ -1,5 +1,5 @@
 /**
- * CloudWatch Logs query helper for consolidated agent logs.
+ * CloudWatch Logs query helper for consolidated avatar logs.
  */
 import {
   CloudWatchLogsClient,
@@ -56,15 +56,15 @@ export interface LogQueryOptions {
   query?: string;
 }
 
-export interface AgentLogEvent {
+export interface AvatarLogEvent {
   timestamp?: string;
   message?: string;
   logGroup?: string;
   logStream?: string;
 }
 
-export interface AgentLogResult {
-  agentId: string;
+export interface AvatarLogResult {
+  avatarId: string;
   startTime: number;
   endTime: number;
   logGroups: string[];
@@ -74,7 +74,7 @@ export interface AgentLogResult {
     query?: string;
     limit: number;
   };
-  events: AgentLogEvent[];
+  events: AvatarLogEvent[];
 }
 
 function clampLimit(limit?: number): number {
@@ -99,11 +99,11 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function buildInsightsQuery(agentId: string, options: LogQueryOptions, limit: number): string {
+function buildInsightsQuery(avatarId: string, options: LogQueryOptions, limit: number): string {
   const filters: string[] = [];
-  const escapedAgent = escapeRegex(agentId);
+  const escapedAgent = escapeRegex(avatarId);
   filters.push(
-    `(@message like /"agentId"\\s*:\\s*"${escapedAgent}"/ or @message like /agentId=${escapedAgent}/ or @message like /agentId:\\s*['"]?${escapedAgent}/)`
+    `(@message like /"avatarId"\\s*:\\s*"${escapedAgent}"/ or @message like /avatarId=${escapedAgent}/ or @message like /avatarId:\\s*['"]?${escapedAgent}/)`
   );
 
   if (options.level) {
@@ -162,12 +162,12 @@ async function describeLogGroups(prefix: string, deps: LogsServiceDeps): Promise
   return names;
 }
 
-async function resolveLogGroups(agentId: string, deps: LogsServiceDeps): Promise<string[]> {
+async function resolveLogGroups(avatarId: string, deps: LogsServiceDeps): Promise<string[]> {
   const logGroups = new Set<string>();
 
-  const agentPrefix = `${deps.logGroupPrefix}${agentId}-`;
-  const agentGroups = await describeLogGroups(agentPrefix, deps);
-  agentGroups.forEach((name) => logGroups.add(name));
+  const avatarrefix = `${deps.logGroupPrefix}${avatarId}-`;
+  const avatarroups = await describeLogGroups(avatarrefix, deps);
+  avatarroups.forEach((name) => logGroups.add(name));
 
   for (const group of deps.adminLogGroups) {
     logGroups.add(group);
@@ -181,7 +181,7 @@ async function resolveLogGroups(agentId: string, deps: LogsServiceDeps): Promise
   return Array.from(logGroups);
 }
 
-async function waitForQuery(queryId: string, deps: LogsServiceDeps): Promise<{ status: QueryStatus; results: AgentLogEvent[] }> {
+async function waitForQuery(queryId: string, deps: LogsServiceDeps): Promise<{ status: QueryStatus; results: AvatarLogEvent[] }> {
   const maxAttempts = 20;
   const delayMs = 500;
 
@@ -194,7 +194,7 @@ async function waitForQuery(queryId: string, deps: LogsServiceDeps): Promise<{ s
 
     if (status === 'Complete') {
       const events = (response.results || []).map((row: Array<{ field?: string; value?: string }>) => {
-        const event: AgentLogEvent = {};
+        const event: AvatarLogEvent = {};
         for (const field of row) {
           if (!field.field || field.value === undefined) continue;
           if (field.field === '@timestamp') event.timestamp = field.value;
@@ -217,22 +217,22 @@ async function waitForQuery(queryId: string, deps: LogsServiceDeps): Promise<{ s
   return { status: 'Timeout', results: [] };
 }
 
-export async function queryAgentLogs(
-  agentId: string,
+export async function queryAvatarLogs(
+  avatarId: string,
   options: LogQueryOptions = {},
   deps: LogsServiceDeps = defaultDeps
-): Promise<AgentLogResult> {
+): Promise<AvatarLogResult> {
   const now = Date.now();
   const limit = clampLimit(options.limit);
   const sinceMs = parseSince(options.since) ?? (DEFAULT_LOOKBACK_MINUTES * 60 * 1000);
   const startTime = options.startTime ?? (now - sinceMs);
   const endTime = options.endTime ?? now;
 
-  const logGroups = await resolveLogGroups(agentId, deps);
+  const logGroups = await resolveLogGroups(avatarId, deps);
 
   if (logGroups.length === 0) {
     return {
-      agentId,
+      avatarId,
       startTime,
       endTime,
       logGroups: [],
@@ -241,7 +241,7 @@ export async function queryAgentLogs(
     };
   }
 
-  const queryString = buildInsightsQuery(agentId, options, limit);
+  const queryString = buildInsightsQuery(avatarId, options, limit);
 
   const startResponse = await deps.logsClient.send(new StartQueryCommand({
     logGroupNames: logGroups,
@@ -253,7 +253,7 @@ export async function queryAgentLogs(
   const queryId = startResponse.queryId;
   if (!queryId) {
     return {
-      agentId,
+      avatarId,
       startTime,
       endTime,
       logGroups,
@@ -265,7 +265,7 @@ export async function queryAgentLogs(
   const { results } = await waitForQuery(queryId, deps);
 
   return {
-    agentId,
+    avatarId,
     startTime,
     endTime,
     logGroups,

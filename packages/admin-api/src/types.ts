@@ -52,7 +52,7 @@ export type SecretType = z.infer<typeof SecretType>;
 
 // Secret metadata (stored in DynamoDB, NOT the actual secret)
 export interface SecretMetadata {
-  pk: string; // AGENT#{agentId} or GLOBAL
+  pk: string; // AVATAR#{avatarId} or GLOBAL
   sk: string; // SECRET#{secretType}#{name}
   secretType: SecretType;
   name: string;
@@ -71,7 +71,7 @@ export interface SecretMetadata {
 // Wallet info (public data only)
 export interface WalletInfo {
   id: string;
-  agentId: string;
+  avatarId: string;
   walletType: 'solana' | 'ethereum';
   publicKey: string;
   address: string;
@@ -121,7 +121,7 @@ export interface VoiceProfile {
   pk: string; // VOICE#{voiceId}
   sk: string; // PROFILE
   voiceId: string;
-  agentId: string;
+  avatarId: string;
   status: 'creating' | 'ready' | 'failed';
   provider: 'stable-audio' | 'voice-clone';
   seedAssetId?: string;
@@ -134,7 +134,7 @@ export interface AudioAsset {
   pk: string; // AUDIO#{assetId}
   sk: string; // ASSET
   assetId: string;
-  agentId: string;
+  avatarId: string;
   source: 'telegram' | 'upload' | 'stable-audio' | 'tts';
   format: 'ogg' | 'mp3' | 'wav';
   durationMs?: number;
@@ -142,11 +142,11 @@ export interface AudioAsset {
   createdAt: number;
 }
 
-// Agent configuration stored in DynamoDB
-export interface AgentRecord {
-  pk: string; // AGENT#{agentId}
+// Avatar configuration stored in DynamoDB
+export interface AvatarRecord {
+  pk: string; // AVATAR#{avatarId}
   sk: string; // CONFIG
-  agentId: string;
+  avatarId: string;
   name: string;
   description?: string;
   persona?: string;
@@ -222,11 +222,11 @@ export interface AgentRecord {
   // MCP server configuration - all toolsets disabled by default
   mcpConfig?: McpConfig;
   
-  // Creation tracking - who created this agent (permanent, for slot counting)
+  // Creation tracking - who created this avatar (permanent, for slot counting)
   creatorWallet?: string;
 
   // Inhabitation - the Solana wallet that currently "inhabits" this avatar
-  // 1:1 relationship: one wallet can only inhabit one agent at a time
+  // 1:1 relationship: one wallet can only inhabit one avatar at a time
   // Inhabiting is FREE, but abandoning requires burning a Gate NFT
   inhabitantWallet?: string;
   inhabitedAt?: number;
@@ -236,7 +236,7 @@ export interface AgentRecord {
   ownerClaimedAt?: number;
 
   // Lineage tracking for NFT minting on abandonment
-  nftCollectionMint?: string;     // Metaplex Core collection for this agent's lineage
+  nftCollectionMint?: string;     // Metaplex Core collection for this avatar's lineage
   currentEra?: number;            // Increments on each abandonment (defaults to 0)
   lastBurnTx?: string;
   lastBurnMint?: string;
@@ -250,10 +250,10 @@ export interface AgentRecord {
 
 // Gallery item for tracking generated media
 export interface GalleryItem {
-  pk: string;              // AGENT#{agentId}
+  pk: string;              // AVATAR#{avatarId}
   sk: string;              // GALLERY#{timestamp}#{id}
   id: string;
-  agentId: string;
+  avatarId: string;
   type: 'image' | 'video' | 'sticker';
   url: string;
   s3Key: string;
@@ -280,7 +280,7 @@ export interface MediaJob {
   pk: string;              // MEDIAJOB#{jobId}
   sk: string;              // STATUS
   jobId: string;
-  agentId: string;
+  avatarId: string;
   type: 'image' | 'video' | 'sticker';
   status: 'pending' | 'processing' | 'completed' | 'failed';
   prompt: string;
@@ -290,8 +290,8 @@ export interface MediaJob {
   platform: string;
   replyToMessageId?: string;
 
-  // Purpose hint for agent continuation
-  // e.g., 'post_to_twitter' tells the agent to chain this to a tweet
+  // Purpose hint for avatar continuation
+  // e.g., 'post_to_twitter' tells the avatar to chain this to a tweet
   purpose?: 'profile' | 'post_to_twitter' | 'send_to_chat' | 'gallery';
 
   // Provider tracking
@@ -312,9 +312,9 @@ export interface MediaJob {
 
 // Credit bucket for rate limiting
 export interface CreditBucket {
-  pk: string;              // AGENT#{agentId}
+  pk: string;              // AVATAR#{avatarId}
   sk: string;              // CREDIT#{toolName}
-  agentId: string;
+  avatarId: string;
   toolName: string;
   credits: number;
   maxCredits: number;
@@ -339,9 +339,9 @@ export const MessageSenderSchema = z.object({
   walletAddress: z.string().optional(),
   displayName: z.string().optional(),
   avatarUrl: z.string().optional(),
-  inhabitedAgentId: z.string().optional(),
-  inhabitedAgentName: z.string().optional(),
-  isGhost: z.boolean().optional(),  // True if authenticated but no inhabited agent
+  inhabitedAvatarId: z.string().optional(),
+  inhabitedAvatarName: z.string().optional(),
+  isGhost: z.boolean().optional(),  // True if authenticated but no inhabited avatar
 });
 
 export type MessageSender = z.infer<typeof MessageSenderSchema>;
@@ -367,8 +367,8 @@ export const ToolResultSchema = z.object({
   content: z.string(),
 });
 
-// Agent context in chat request
-export const AgentContextSchema = z.object({
+// Avatar context in chat request
+export const AvatarContextSchema = z.object({
   id: z.string(),
   name: z.string().optional(),
   description: z.string().optional(),
@@ -379,7 +379,7 @@ export const AgentContextSchema = z.object({
 export const ChatRequestSchema = z.object({
   message: z.string().min(1),
   history: z.array(AdminChatMessageSchema).default([]),
-  agent: AgentContextSchema.optional(),
+  avatar: AvatarContextSchema.optional(),
   sender: MessageSenderSchema.optional(),
   systemPrompt: z.string().optional(), // Override default system prompt
   attachments: z.array(z.object({
@@ -398,39 +398,39 @@ export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 
 // Admin chatbot tool definitions
 export const AdminTools = {
-  // Agent Management
-  create_agent: z.object({
-    name: z.string().describe('Name for the new agent'),
-    description: z.string().optional().describe('Description of the agent'),
+  // Avatar Management
+  create_avatar: z.object({
+    name: z.string().describe('Name for the new avatar'),
+    description: z.string().optional().describe('Description of the avatar'),
   }),
-  
-  update_agent: z.object({
-    agentId: z.string().describe('ID of the agent to update'),
+
+  update_avatar: z.object({
+    avatarId: z.string().describe('ID of the avatar to update'),
     name: z.string().optional(),
     description: z.string().optional(),
     persona: z.string().optional(),
   }),
-  
-  list_agents: z.object({}),
-  
-  get_agent: z.object({
-    agentId: z.string().describe('ID of the agent'),
+
+  list_avatars: z.object({}),
+
+  get_avatar: z.object({
+    avatarId: z.string().describe('ID of the avatar'),
   }),
-  
-  delete_agent: z.object({
-    agentId: z.string().describe('ID of the agent to delete'),
+
+  delete_avatar: z.object({
+    avatarId: z.string().describe('ID of the avatar to delete'),
     confirm: z.boolean().describe('Must be true to confirm deletion'),
   }),
 
   // Platform Configuration
   configure_telegram: z.object({
-    agentId: z.string(),
+    avatarId: z.string(),
     botToken: z.string().describe('Telegram bot token from @BotFather'),
     botUsername: z.string().optional(),
   }),
   
   configure_twitter: z.object({
-    agentId: z.string(),
+    avatarId: z.string(),
     apiKey: z.string(),
     apiSecret: z.string(),
     accessToken: z.string(),
@@ -440,7 +440,7 @@ export const AdminTools = {
   }),
   
   configure_discord: z.object({
-    agentId: z.string(),
+    avatarId: z.string(),
     botToken: z.string(),
     clientId: z.string().optional(),
     clientSecret: z.string().optional(),
@@ -459,37 +459,37 @@ export const AdminTools = {
   // AI Provider Keys
   set_openrouter_key: z.object({
     apiKey: z.string().describe('OpenRouter API key'),
-    agentId: z.string().optional().describe('Agent ID for per-agent key, omit for global'),
+    avatarId: z.string().optional().describe('Avatar ID for per-avatar key, omit for global'),
   }),
   
   set_anthropic_key: z.object({
     apiKey: z.string().describe('Anthropic API key'),
-    agentId: z.string().optional(),
+    avatarId: z.string().optional(),
   }),
   
   set_openai_key: z.object({
     apiKey: z.string().describe('OpenAI API key'),
-    agentId: z.string().optional(),
+    avatarId: z.string().optional(),
   }),
   
   set_replicate_key: z.object({
     apiKey: z.string().describe('Replicate API key'),
-    agentId: z.string().optional(),
+    avatarId: z.string().optional(),
   }),
 
   // Wallet Management
   generate_solana_wallet: z.object({
-    agentId: z.string(),
+    avatarId: z.string(),
     name: z.string().describe('Name for the wallet'),
   }),
   
   generate_ethereum_wallet: z.object({
-    agentId: z.string(),
+    avatarId: z.string(),
     name: z.string().describe('Name for the wallet'),
   }),
   
   list_wallets: z.object({
-    agentId: z.string().optional().describe('Filter by agent, omit for all'),
+    avatarId: z.string().optional().describe('Filter by avatar, omit for all'),
   }),
   
   get_wallet_balance: z.object({
@@ -498,30 +498,30 @@ export const AdminTools = {
 
   // Secret Management (write-only)
   set_custom_secret: z.object({
-    agentId: z.string().optional().describe('Agent ID or omit for global'),
+    avatarId: z.string().optional().describe('Avatar ID or omit for global'),
     name: z.string().describe('Name of the secret'),
     value: z.string().describe('Secret value'),
     description: z.string().optional(),
   }),
   
   list_secrets: z.object({
-    agentId: z.string().optional().describe('Filter by agent, omit for all'),
+    avatarId: z.string().optional().describe('Filter by avatar, omit for all'),
   }),
   
   delete_secret: z.object({
-    agentId: z.string().optional(),
+    avatarId: z.string().optional(),
     secretName: z.string(),
     confirm: z.boolean(),
   }),
 
   // Deployment
-  deploy_agent: z.object({
-    agentId: z.string(),
+  deploy_avatar: z.object({
+    avatarId: z.string(),
     environment: z.enum(['dev', 'staging', 'prod']).optional(),
   }),
   
   get_deployment_status: z.object({
-    agentId: z.string(),
+    avatarId: z.string(),
   }),
 };
 
@@ -559,9 +559,9 @@ export interface BufferedMessage {
 
 // Channel state record stored in DynamoDB
 export interface ChannelStateRecord {
-  pk: string;              // CHANNEL#{agentId}#{chatId}
+  pk: string;              // CHANNEL#{avatarId}#{chatId}
   sk: string;              // STATE
-  agentId: string;
+  avatarId: string;
   chatId: number;
   chatType: 'private' | 'group' | 'supergroup' | 'channel';
   chatTitle?: string;
@@ -609,14 +609,14 @@ export interface ResponseDecision {
 }
 
 // ========================================
-// Multi-Agent D&D Coordination Types
+// Multi-Avatar D&D Coordination Types
 // ========================================
 
 /**
  * D&D ability scores with computed modifiers
- * Generated deterministically from agent createdAt timestamp
+ * Generated deterministically from avatar createdAt timestamp
  */
-export interface AgentStats {
+export interface AvatarStats {
   STR: number; // Strength - reserved for future use
   DEX: number; // Dexterity - Initiative modifier
   CON: number; // Constitution - reserved for future use
@@ -635,28 +635,28 @@ export interface AgentStats {
 
 /**
  * Shared channel registry record
- * Tracks all agents present in a Telegram channel/group
- * Key: pk=SHARED_CHANNEL#{chatId}, sk=AGENT#{agentId}
+ * Tracks all avatars present in a Telegram channel/group
+ * Key: pk=SHARED_CHANNEL#{chatId}, sk=AVATAR#{avatarId}
  */
 export interface SharedChannelRecord {
   pk: string;              // SHARED_CHANNEL#{chatId}
-  sk: string;              // AGENT#{agentId}
+  sk: string;              // AVATAR#{avatarId}
   chatId: number;
-  agentId: string;
+  avatarId: string;
   botUsername: string;     // For mention detection
   joinedAt: number;        // First seen in channel
   lastSeenAt: number;      // Last activity
-  stats: AgentStats;       // D&D ability scores
+  stats: AvatarStats;       // D&D ability scores
   ttl: number;             // Auto-cleanup after inactivity
 }
 
 /**
  * Shared channel message - a message in the shared history visible to all bots
- * This allows bots to see each other's responses in multi-agent channels
+ * This allows bots to see each other's responses in multi-avatar channels
  */
 export interface SharedChannelMessage {
   messageId: number;       // Telegram message ID
-  agentId: string;         // Which bot sent this
+  avatarId: string;         // Which bot sent this
   botUsername: string;     // Bot's @username for display
   text: string;            // Message content
   timestamp: number;       // When it was sent
@@ -684,12 +684,12 @@ export type InitiativePhase = 'interest' | 'rolling' | 'responding' | 'reacting'
 
 /**
  * Initiative round coordination record
- * Coordinates which agent responds to a message in multi-agent channels
- * Key: pk=INITIATIVE#{chatId}#{messageId}, sk=META or ROLL#{agentId}
+ * Coordinates which avatar responds to a message in multi-avatar channels
+ * Key: pk=INITIATIVE#{chatId}#{messageId}, sk=META or ROLL#{avatarId}
  */
 export interface InitiativeRoundRecord {
   pk: string;              // INITIATIVE#{chatId}#{messageId}
-  sk: string;              // META or ROLL#{agentId}
+  sk: string;              // META or ROLL#{avatarId}
   chatId: number;
   messageId: number;       // Triggering message ID
 
@@ -697,12 +697,12 @@ export interface InitiativeRoundRecord {
   phase?: InitiativePhase;
   startedAt?: number;
   expiresAt?: number;      // Round times out after this
-  winnerId?: string;       // Agent who won initiative
+  winnerId?: string;       // Avatar who won initiative
   winnerRoll?: number;     // Winning roll total
   winnerRespondedAt?: number;
 
-  // For ROLL records (sk: ROLL#{agentId})
-  agentId?: string;
+  // For ROLL records (sk: ROLL#{avatarId})
+  avatarId?: string;
   interested?: boolean;    // Interest check result
   interestRoll?: number;   // CHA/WIS check roll
   initiativeRoll?: number; // d20 roll
@@ -765,7 +765,7 @@ export interface ChatModificationProposal {
   type: ChatModificationType;
   
   // Proposal details
-  proposedBy: string;      // Agent ID who proposed
+  proposedBy: string;      // Avatar ID who proposed
   proposedAt: number;      // Timestamp
   
   // What to change
@@ -776,12 +776,12 @@ export interface ChatModificationProposal {
   // Voting
   status: ChatModificationStatus;
   votes: Record<string, {
-    agentId: string;
+    avatarId: string;
     vote: 'approve' | 'reject';
     votedAt: number;
     comment?: string;
   }>;
-  requiredVotes: number;   // Number of agents that need to approve
+  requiredVotes: number;   // Number of avatars that need to approve
   
   // Execution
   executedAt?: number;
@@ -801,7 +801,7 @@ export interface ChatModificationLimit {
   chatId: number;
   type: ChatModificationType;
   lastModifiedAt: number;  // Timestamp of last successful modification
-  lastModifiedBy: string;  // Agent ID
+  lastModifiedBy: string;  // Avatar ID
   proposalId: string;      // Reference to the approved proposal
   ttl: number;             // Auto-cleanup after 30 days
 }
@@ -955,7 +955,7 @@ export interface PropertyResearchJob {
   pk: string;
   sk: string;
   jobId: string;
-  agentId: string;
+  avatarId: string;
   requestedBy?: string;      // Wallet address or user ID
 
   // Property being researched
@@ -981,19 +981,19 @@ export interface PropertyResearchJob {
   // TTL for auto-cleanup (7 days)
   ttl: number;
 
-  // GSI for agent queries: gsi2pk=AGENT#{agentId}, gsi2sk={status}#{createdAt}
+  // GSI for avatar queries: gsi2pk=AVATAR#{avatarId}, gsi2sk={status}#{createdAt}
   gsi2pk: string;
   gsi2sk: string;
 }
 
 /**
  * Property research authorization grant
- * Key: pk=PROPERTY_AUTH#{agentId}, sk=USER#{walletAddress}
+ * Key: pk=PROPERTY_AUTH#{avatarId}, sk=USER#{walletAddress}
  */
 export interface PropertyResearchAuth {
   pk: string;
   sk: string;
-  agentId: string;
+  avatarId: string;
   walletAddress: string;
   grantedAt: number;
   expiresAt: number;         // 24-hour grants by default
@@ -1001,7 +1001,7 @@ export interface PropertyResearchAuth {
 }
 
 // ============================================================================
-// Memory System - Tiered Agent Memory for Personality Evolution
+// Memory System - Tiered Avatar Memory for Personality Evolution
 // ============================================================================
 
 /**
@@ -1018,21 +1018,21 @@ export type MemoryTier = 'immediate' | 'recent' | 'core';
 export type MemoryType =
   | 'event'        // Something that happened (conversation, action)
   | 'fact'         // A factual piece of information
-  | 'learning'     // Something the agent learned
-  | 'pattern'      // A behavioral pattern the agent noticed
-  | 'identity'     // Self-reflection about who the agent is becoming
+  | 'learning'     // Something the avatar learned
+  | 'pattern'      // A behavioral pattern the avatar noticed
+  | 'identity'     // Self-reflection about who the avatar is becoming
   | 'relationship' // Memory about a specific user or entity
-  | 'preference';  // User or agent preference
+  | 'preference';  // User or avatar preference
 
 /**
- * A memory stored in the agent's memory system
- * Key: pk=MEMORY#{agentId}, sk={tier}#{timestamp}#{id}
+ * A memory stored in the avatar's memory system
+ * Key: pk=MEMORY#{avatarId}, sk={tier}#{timestamp}#{id}
  */
-export interface AgentMemory {
+export interface AvatarMemory {
   pk: string;
   sk: string;
   id: string;
-  agentId: string;
+  avatarId: string;
   tier: MemoryTier;
   type: MemoryType;
   content: string;           // The memory content
@@ -1070,13 +1070,13 @@ export interface MemoryConsolidationConfig {
 }
 
 /**
- * Agent's consolidated identity snapshot
- * Key: pk=IDENTITY#{agentId}, sk=SNAPSHOT#{timestamp}
+ * Avatar's consolidated identity snapshot
+ * Key: pk=IDENTITY#{avatarId}, sk=SNAPSHOT#{timestamp}
  */
-export interface AgentIdentitySnapshot {
+export interface AvatarIdentitySnapshot {
   pk: string;
   sk: string;
-  agentId: string;
+  avatarId: string;
   statement: string;         // "I am becoming..." statement
   previousStatement?: string; // Previous identity for comparison
   triggeringMemories: string[]; // Memory IDs that led to this

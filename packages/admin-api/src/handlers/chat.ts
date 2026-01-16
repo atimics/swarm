@@ -1,6 +1,6 @@
 /**
  * Admin Chatbot Handler
- * Conversational interface for setting up agents with tool use
+ * Conversational interface for setting up avatars with tool use
  */
 import type {
   APIGatewayProxyEventV2,
@@ -32,7 +32,7 @@ import {
 } from '@swarm/mcp-server';
 import { createMCPServices } from '../services/mcp-adapter.js';
 import { isPauseForInputTool } from '../tools/index.js';
-import * as agents from '../services/agents.js';
+import * as avatars from '../services/avatars.js';
 import * as voice from '../services/voice.js';
 import * as memory from '../services/memory.js';
 
@@ -41,6 +41,45 @@ const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
 
 // Timeout settings
 const LLM_TIMEOUT_MS = 60_000; // 60 seconds for LLM calls (can be slow)
+const LLM_MAX_RETRIES = 2; // Retries for transient/empty responses (total attempts = 1 + retries)
+const LLM_RETRY_BASE_DELAY_MS = 250;
+const LLM_RETRY_MAX_DELAY_MS = 2_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getRetryDelayMs(attemptNumber: number): number {
+  // attemptNumber is 1-based (1 = first retry)
+  const exp = Math.min(LLM_RETRY_MAX_DELAY_MS, LLM_RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attemptNumber - 1)));
+  const jitter = Math.floor(Math.random() * 150);
+  return exp + jitter;
+}
+
+function isRetryableLlmError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const name = error instanceof Error ? error.name : '';
+
+  // Abort/timeouts
+  if (name === 'AbortError' || message.toLowerCase().includes('timeout')) return true;
+
+  // Network-ish
+  const lowered = message.toLowerCase();
+  if (
+    lowered.includes('fetch failed') ||
+    lowered.includes('econnreset') ||
+    lowered.includes('enotfound') ||
+    lowered.includes('eai_again') ||
+    lowered.includes('socket')
+  ) {
+    return true;
+  }
+
+  // Rate limiting / transient upstream
+  if (lowered.includes('http 429') || lowered.includes('rate limit')) return true;
+
+  return false;
+}
 
 // Cache the API key after first fetch
 let cachedApiKey: string | null = null;
@@ -144,21 +183,46 @@ async function callLlmDirectFallback(
     });
   }
   
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://swarm.admin',
-      'X-Title': 'Swarm Admin',
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
-  });
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenRouter API error: ${response.status} ${errorText}`);
+  let response: Response | null = null;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= LLM_MAX_RETRIES; attempt++) {
+    try {
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://swarm.admin',
+          'X-Title': 'Swarm Admin',
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+      });
+
+      if (response.ok) {
+        break;
+      }
+
+      const shouldRetry = response.status === 429 || response.status >= 500;
+      if (!shouldRetry || attempt >= LLM_MAX_RETRIES) {
+        const errorText = await response.text();
+        throw new Error(`OpenRouter API error: ${response.status} ${errorText}`);
+      }
+
+      lastError = new Error(`OpenRouter API retryable error: HTTP ${response.status}`);
+    } catch (err) {
+      lastError = err;
+      if (!isRetryableLlmError(err) || attempt >= LLM_MAX_RETRIES) {
+        throw err;
+      }
+    }
+
+    await sleep(getRetryDelayMs(attempt + 1));
+  }
+
+  if (!response || !response.ok) {
+    throw (lastError instanceof Error ? lastError : new Error('OpenRouter API request failed'));
   }
   
   const data = await response.json() as {
@@ -219,7 +283,7 @@ function sanitizeMessages(messages: AdminChatMessage[]): AdminChatMessage[] {
   return sanitized;
 }
 
-interface AgentContext {
+interface AvatarContext {
   id: string;
   name?: string;
   description?: string;
@@ -230,26 +294,26 @@ interface AgentContext {
 /**
  * Build system prompt dynamically based on enabled tool categories
  */
-function buildSystemPrompt(agent?: AgentContext): string {
-  if (agent) {
+function buildSystemPrompt(avatar?: AvatarContext): string {
+  if (avatar) {
     // Use dynamic prompt builder with enabled categories
-    const categories = agent.enabledCategories || [
+    const categories = avatar.enabledCategories || [
       // Default categories if not specified
       'secrets', 'profile', 'media', 'gallery', 'wallets', 'diagnostics'
     ];
     
     return buildDynamicSystemPrompt({
-      id: agent.id,
-      name: agent.name,
-      description: agent.description,
-      persona: agent.persona,
+      id: avatar.id,
+      name: avatar.name,
+      description: avatar.description,
+      persona: avatar.persona,
       enabledCategories: categories,
       platform: 'admin-ui',
     });
   }
 
-  // Fallback for no agent context
-  return `You are a Swarm agent assistant. Please select an agent to chat with.`;
+  // Fallback for no avatar context
+  return `You are a Swarm avatar assistant. Please select an avatar to chat with.`;
 }
 
 const CATEGORY_TOOLSETS: Record<ToolCategory, ToolsetId[]> = {
@@ -401,11 +465,11 @@ async function executeUiTool(
 
 async function buildModelSelectorPayload(
   services: AllServices['models'],
-  agentId: string,
+  avatarId: string,
   family?: string
 ): Promise<Record<string, unknown>> {
   const models = await services.listModels(family);
-  const config = await services.getConfig(agentId);
+  const config = await services.getConfig(avatarId);
   const currentModel = config?.model;
 
   return {
@@ -426,32 +490,32 @@ async function buildModelSelectorPayload(
 }
 
 async function buildFeatureTogglePayload(
-  agentId: string,
+  avatarId: string,
   args: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   const feature = args.feature as 'media' | 'voice' | 'twitter' | 'telegram' | 'discord';
   const label = args.label as string;
   const description = args.description as string | undefined;
-  const config = await agents.getAgent(agentId);
+  const config = await avatars.getAvatar(avatarId);
 
   let currentState = false;
-  const agentConfig = config as Record<string, unknown> | null | undefined;
-  if (agentConfig) {
+  const avatarConfig = config as Record<string, unknown> | null | undefined;
+  if (avatarConfig) {
     switch (feature) {
       case 'media':
-        currentState = Boolean((agentConfig.mediaConfig as Record<string, unknown> | undefined)?.enabled);
+        currentState = Boolean((avatarConfig.mediaConfig as Record<string, unknown> | undefined)?.enabled);
         break;
       case 'voice':
-        currentState = Boolean((agentConfig.voiceConfig as Record<string, unknown> | undefined)?.enabled);
+        currentState = Boolean((avatarConfig.voiceConfig as Record<string, unknown> | undefined)?.enabled);
         break;
       case 'twitter':
       case 'telegram': {
-        const platforms = agentConfig.platforms as Record<string, { enabled?: boolean }> | undefined;
+        const platforms = avatarConfig.platforms as Record<string, { enabled?: boolean }> | undefined;
         currentState = Boolean(platforms?.[feature]?.enabled);
         break;
       }
       case 'discord': {
-        const platforms = agentConfig.platforms as Record<string, { enabled?: boolean }> | undefined;
+        const platforms = avatarConfig.platforms as Record<string, { enabled?: boolean }> | undefined;
         currentState = Boolean(platforms?.[feature]?.enabled);
         break;
       }
@@ -621,42 +685,42 @@ async function processChat(
   userMessage: string,
   conversationHistory: AdminChatMessage[],
   session: UserSession,
-  agent?: AgentContext,
+  avatar?: AvatarContext,
   options?: ProcessChatOptions
 ): Promise<{
   response: string;
   history: AdminChatMessage[];
   media?: MediaItem[];
   pendingJobs?: Array<{ jobId: string; type: 'image' | 'video' | 'sticker'; prompt?: string; purpose?: string }>;
-  agentUpdates?: { profileImageUrl?: string; name?: string };
+  avatarUpdates?: { profileImageUrl?: string; name?: string };
   pendingToolCall?: {
     id: string;
     name: string;
     arguments: Record<string, unknown>;
   };
 }> {
-  const agentId = agent?.id;
-  const mcpServices = agentId ? createMCPServices(agentId, session) : null;
-  const toolRegistry = agentId && mcpServices ? new ToolRegistry() : null;
+  const avatarId = avatar?.id;
+  const mcpServices = avatarId ? createMCPServices(avatarId, session) : null;
+  const toolRegistry = avatarId && mcpServices ? new ToolRegistry() : null;
   if (toolRegistry && mcpServices) {
     registerAllTools(toolRegistry, mcpServices);
   }
-  const toolContext: ToolContext | null = agentId ? {
-    agentId,
+  const toolContext: ToolContext | null = avatarId ? {
+    avatarId,
     platform: 'admin-ui',
     userId: session.userId,
     session: { email: session.email, isAdmin: session.isAdmin },
   } : null;
   const tools = toolRegistry && toolContext
     ? await buildOpenRouterTools(toolRegistry, toolContext, {
-        enabledCategories: agent?.enabledCategories,
+        enabledCategories: avatar?.enabledCategories,
       })
     : [];
 
   // Log tools available for debugging
   logger.info('Tools created', {
     event: 'tools_created',
-    agentId,
+    avatarId,
     toolCount: tools.length,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     toolNames: tools.map((t: any) => t.function?.name ?? t.name),
@@ -671,27 +735,27 @@ async function processChat(
   let pendingToolCall: { id: string; name: string; arguments: Record<string, unknown> } | undefined;
   const allMedia: MediaItem[] = [];
   const pendingJobs: Array<{ jobId: string; type: 'image' | 'video' | 'sticker'; prompt?: string; purpose?: string }> = [];
-  const agentUpdates: { profileImageUrl?: string; name?: string } = {};
+  const avatarUpdates: { profileImageUrl?: string; name?: string } = {};
   
-  // Use custom system prompt if provided (for e.g. browser automation agents)
-  let systemPrompt = options?.customSystemPrompt || buildSystemPrompt(agent);
+  // Use custom system prompt if provided (for e.g. browser automation avatars)
+  let systemPrompt = options?.customSystemPrompt || buildSystemPrompt(avatar);
 
-  // Inject memory context if memory is enabled for this agent
-  if (agentId && agent?.enabledCategories?.includes('memory')) {
+  // Inject memory context if memory is enabled for this avatar
+  if (avatarId && avatar?.enabledCategories?.includes('memory')) {
     try {
-      const memoryContext = await memory.getMemoryContext(agentId);
+      const memoryContext = await memory.getMemoryContext(avatarId);
       if (memoryContext) {
         systemPrompt += `\n\n${memoryContext}`;
         logger.info('Memory context injected', {
           event: 'memory_context_injected',
-          agentId,
+          avatarId,
           contextLength: memoryContext.length,
         });
       }
     } catch (err) {
       logger.warn('Failed to get memory context', {
         event: 'memory_context_error',
-        agentId,
+        avatarId,
         error: err instanceof Error ? err.message : 'Unknown error',
       });
     }
@@ -699,33 +763,33 @@ async function processChat(
 
   // Auto-transcribe audio attachments
   let transcribedText = '';
-  if (agentId && options?.attachments) {
+  if (avatarId && options?.attachments) {
     const audioAttachments = options.attachments.filter(a => a.type === 'audio');
     if (audioAttachments.length > 0) {
       logger.info('Auto-transcribing audio attachments', {
         event: 'audio_transcription_start',
-        agentId,
+        avatarId,
         audioCount: audioAttachments.length,
       });
 
       for (const audio of audioAttachments) {
         try {
           const transcription = await voice.transcribeAudio({
-            agentId,
+            avatarId,
             url: audio.data, // Audio data is a URL
           });
           if (transcription.text) {
             transcribedText += `\n\n[Voice message transcription]: "${transcription.text}"`;
             logger.info('Audio transcription successful', {
               event: 'audio_transcription_success',
-              agentId,
+              avatarId,
               textLength: transcription.text.length,
             });
           }
         } catch (err) {
           logger.warn('Audio transcription failed', {
             event: 'audio_transcription_error',
-            agentId,
+            avatarId,
             error: err instanceof Error ? err.message : 'Unknown error',
           });
           // Don't block the message if transcription fails
@@ -774,54 +838,65 @@ async function processChat(
     toolsIncluded: tools.length > 0,
   });
 
-  // Try SDK first, fallback to direct API if SDK's Zod validation fails
+  // Try SDK first, fallback to direct API if SDK's Zod validation fails.
+  // Retries are done ONLY before any tool execution to avoid duplicating side effects.
   let toolCalls: SdkToolCall[] = [];
   let adminToolCalls: ToolCall[] = [];
   let modelResult: ReturnType<typeof getOpenRouterClient.prototype.callModel> | null = null;
   let usedFallback = false;
   let fallbackResponse = '';
 
-  try {
-    // Tools from the SDK are already in the correct format
-    modelResult = getOpenRouterClient().callModel({
-      model: effectiveModel,
-      input,
-      maxOutputTokens: 2048,
-      ...(tools.length > 0 ? { tools, stopWhen: stepCountIs(10) } : {}),
-    });
+  const runLlmAttempt = async (): Promise<void> => {
+    toolCalls = [];
+    adminToolCalls = [];
+    modelResult = null;
+    usedFallback = false;
+    fallbackResponse = '';
 
-    toolCalls = await modelResult.getToolCalls();
-    adminToolCalls = toolCalls.map(toAdminToolCall);
-  } catch (sdkError) {
-    // Check if this is a Zod validation/schema error (SDK uses zod/v4 internally)
-    const errorName = sdkError instanceof Error ? sdkError.name : '';
-    const errorMessage = sdkError instanceof Error ? sdkError.message : '';
-    const isZodError = errorName === 'ZodError' || 
-      errorMessage.includes('invalid_type') ||
-      errorMessage.includes('Invalid Zod schema');
-    
-    if (isZodError) {
+    try {
+      // Tools from the SDK are already in the correct format
+      modelResult = getOpenRouterClient().callModel({
+        model: effectiveModel,
+        input,
+        maxOutputTokens: 2048,
+        ...(tools.length > 0 ? { tools, stopWhen: stepCountIs(10) } : {}),
+      });
+
+      toolCalls = await modelResult.getToolCalls();
+      adminToolCalls = toolCalls.map(toAdminToolCall);
+    } catch (sdkError) {
+      // Check if this is a Zod validation/schema error (SDK uses zod/v4 internally)
+      const errorName = sdkError instanceof Error ? sdkError.name : '';
+      const errorMessage = sdkError instanceof Error ? sdkError.message : '';
+      const isZodError = errorName === 'ZodError' ||
+        errorMessage.includes('invalid_type') ||
+        errorMessage.includes('Invalid Zod schema');
+
+      if (!isZodError) {
+        throw sdkError;
+      }
+
       logger.warn('SDK Zod validation error, falling back to direct API', {
         event: 'sdk_fallback',
         errorName,
         errorMessage,
       });
-      
+
       // Build messages for direct API call
       const apiMessages = [
         { role: 'system', content: systemPrompt },
         ...toSdkMessages(sanitizeMessages(messages)),
       ];
-      
+
       const fallbackResult = await callLlmDirectFallback(
         effectiveModel,
         apiMessages as Array<{ role: string; content: string }>,
         tools.length > 0 ? tools : undefined
       );
-      
+
       usedFallback = true;
       fallbackResponse = fallbackResult.content;
-      
+
       // Convert fallback tool calls to admin format
       adminToolCalls = fallbackResult.toolCalls.map(tc => ({
         id: tc.id,
@@ -831,16 +906,86 @@ async function processChat(
           arguments: JSON.stringify(tc.arguments),
         },
       }));
-      
+
       // Create pseudo-SdkToolCalls for compatibility with existing code
       toolCalls = fallbackResult.toolCalls.map(tc => ({
         id: tc.id,
         name: tc.name,
         arguments: tc.arguments,
       })) as unknown as SdkToolCall[];
-    } else {
-      // Re-throw non-Zod errors
-      throw sdkError;
+    }
+  };
+
+  // Attempt loop: retry only when no tool calls were requested.
+  for (let attempt = 0; attempt <= LLM_MAX_RETRIES; attempt++) {
+    try {
+      await runLlmAttempt();
+
+      // If the model requested tools, we must proceed without retrying to avoid side effects.
+      if (toolCalls.length > 0) {
+        break;
+      }
+
+      // No tool calls: fetch response now, and retry if empty.
+      if (usedFallback) {
+        response = fallbackResponse;
+      } else if (modelResult) {
+        const finalResponse = await modelResult.getResponse();
+        const assistantMessage = toChatMessage(finalResponse);
+        response = typeof assistantMessage.content === 'string' ? assistantMessage.content : '';
+      }
+
+      if (response) {
+        break;
+      }
+
+      if (attempt < LLM_MAX_RETRIES) {
+        logger.warn('Empty LLM response, retrying', {
+          event: 'llm_retry',
+          attempt: attempt + 1,
+          maxRetries: LLM_MAX_RETRIES,
+          avatarId,
+          model: effectiveModel,
+        });
+        await sleep(getRetryDelayMs(attempt + 1));
+        continue;
+      }
+
+      // Exhausted retries; keep response empty and handle below.
+      break;
+    } catch (err) {
+      const retryable = isRetryableLlmError(err);
+      if (retryable && attempt < LLM_MAX_RETRIES) {
+        logger.warn('LLM call failed, retrying', {
+          event: 'llm_retry_error',
+          attempt: attempt + 1,
+          maxRetries: LLM_MAX_RETRIES,
+          avatarId,
+          model: effectiveModel,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        await sleep(getRetryDelayMs(attempt + 1));
+        continue;
+      }
+
+      // Record issue when we ran out of retries for a retryable failure.
+      if (retryable) {
+        recordError({
+          error: err instanceof Error ? err.message : 'LLM call failed after retries',
+          stack: err instanceof Error ? err.stack : undefined,
+          subsystem: 'llm',
+          category: 'llm_call_failed',
+          avatarId,
+          context: {
+            attempts: attempt + 1,
+            model: effectiveModel,
+          },
+        }).catch(() => {
+          // Ignore recording failures
+        });
+      }
+
+      throw err;
     }
   }
 
@@ -861,7 +1006,7 @@ async function processChat(
   };
 
   const pauseToolCall = toolCalls.find(tc => isPauseForInputTool(String(tc.name), getToolArgs(tc)));
-  if (pauseToolCall && mcpServices && agentId) {
+  if (pauseToolCall && mcpServices && avatarId) {
     let pendingArgs = getToolArgs(pauseToolCall);
     const toolName = String(pauseToolCall.name);
     try {
@@ -871,9 +1016,9 @@ async function processChat(
           : typeof pendingArgs.preferredFamily === 'string'
             ? pendingArgs.preferredFamily
             : undefined;
-        pendingArgs = await buildModelSelectorPayload(mcpServices.models, agentId, family);
+        pendingArgs = await buildModelSelectorPayload(mcpServices.models, avatarId, family);
       } else if (toolName === 'request_feature_toggle') {
-        pendingArgs = await buildFeatureTogglePayload(agentId, pendingArgs);
+        pendingArgs = await buildFeatureTogglePayload(avatarId, pendingArgs);
       } else if (toolName === 'request_twitter_connection' || toolName === 'twitter_request_integration') {
         pendingArgs = { type: 'twitter_connect', ...pendingArgs };
       } else if (
@@ -978,13 +1123,16 @@ async function processChat(
     logger.info('Tool execution stream complete', { streamItemCount, toolResultCount: toolResults.length });
   }
 
-  // Get final response - either from SDK or fallback
-  if (usedFallback) {
-    response = fallbackResponse;
-  } else if (modelResult) {
-    const finalResponse = await modelResult.getResponse();
-    const assistantMessage = toChatMessage(finalResponse);
-    response = typeof assistantMessage.content === 'string' ? assistantMessage.content : '';
+  // Get final response - either from SDK or fallback.
+  // Note: for the no-tool-call path, this may already be populated by the retry loop above.
+  if (!response) {
+    if (usedFallback) {
+      response = fallbackResponse;
+    } else if (modelResult) {
+      const finalResponse = await modelResult.getResponse();
+      const assistantMessage = toChatMessage(finalResponse);
+      response = typeof assistantMessage.content === 'string' ? assistantMessage.content : '';
+    }
   }
 
   if (toolCalls.length > 0) {
@@ -999,7 +1147,28 @@ async function processChat(
   }
 
   if (!response) {
-    response = 'I apologize, but I couldn\'t generate a response.';
+    logger.error('LLM response empty after all retries', {
+      event: 'llm_empty_after_retries',
+      attempts: LLM_MAX_RETRIES + 1,
+      avatarId,
+      model: effectiveModel,
+    });
+
+    recordError({
+      error: 'LLM returned empty response after all retries',
+      subsystem: 'llm',
+      category: 'llm_empty_response',
+      avatarId,
+      context: {
+        attempts: LLM_MAX_RETRIES + 1,
+        model: effectiveModel,
+        messageLength: userMessage.length,
+      },
+    }).catch(() => {
+      // Ignore recording failures
+    });
+
+    response = 'I apologize, but I couldn\'t generate a response. Please try again.';
   }
   messages.push({ role: 'assistant', content: response });
 
@@ -1049,20 +1218,20 @@ async function processChat(
         // Profile image updates
         if (toolName === 'set_profile_image' || toolName === 'save_uploaded_profile_image') {
           if (parsed.success && (parsed.data?.url || parsed.url || parsed.resultUrl)) {
-            agentUpdates.profileImageUrl = parsed.data?.url || parsed.url || parsed.resultUrl;
-            logger.info('Profile image updated', { profileImageUrl: agentUpdates.profileImageUrl });
+            avatarUpdates.profileImageUrl = parsed.data?.url || parsed.url || parsed.resultUrl;
+            logger.info('Profile image updated', { profileImageUrl: avatarUpdates.profileImageUrl });
           }
         }
         
         // Name updates from update_my_profile
         if (toolName === 'update_my_profile') {
           if (parsed.success && parsed.data?.updated?.includes('name')) {
-            // Fetch the updated agent to get the new name
-            if (agentId) {
-              const updatedAgent = await agents.getAgent(agentId);
+            // Fetch the updated avatar to get the new name
+            if (avatarId) {
+              const updatedAgent = await avatars.getAvatar(avatarId);
               if (updatedAgent?.name) {
-                agentUpdates.name = updatedAgent.name;
-                logger.info('Agent name updated', { name: agentUpdates.name });
+                avatarUpdates.name = updatedAgent.name;
+                logger.info('Avatar name updated', { name: avatarUpdates.name });
               }
             }
           }
@@ -1084,7 +1253,7 @@ async function processChat(
     history: messages, 
     media: allMedia.length > 0 ? allMedia : undefined, 
     pendingJobs: pendingJobs.length > 0 ? pendingJobs : undefined,
-    agentUpdates: (agentUpdates.profileImageUrl || agentUpdates.name) ? agentUpdates : undefined,
+    avatarUpdates: (avatarUpdates.profileImageUrl || avatarUpdates.name) ? avatarUpdates : undefined,
     pendingToolCall,
   };
 }
@@ -1142,10 +1311,10 @@ export async function handler(
 
     const method = event.requestContext.http.method;
 
-    // GET /chat?agentId=xxx - Retrieve chat history
+    // GET /chat?avatarId=xxx - Retrieve chat history
     if (method === 'GET') {
-      const agentId = event.queryStringParameters?.agentId;
-      const history = await chatHistory.getChatHistory(session, agentId);
+      const avatarId = event.queryStringParameters?.avatarId;
+      const history = await chatHistory.getChatHistory(session, avatarId);
       
       return {
         statusCode: 200,
@@ -1154,10 +1323,10 @@ export async function handler(
       };
     }
 
-    // DELETE /chat?agentId=xxx - Clear chat history
+    // DELETE /chat?avatarId=xxx - Clear chat history
     if (method === 'DELETE') {
-      const agentId = event.queryStringParameters?.agentId;
-      await chatHistory.clearChatHistory(session, agentId);
+      const avatarId = event.queryStringParameters?.avatarId;
+      await chatHistory.clearChatHistory(session, avatarId);
       
       return {
         statusCode: 200,
@@ -1172,7 +1341,7 @@ export async function handler(
     if (!parseResult.success) {
       logger.error('Validation error', undefined, {
         event: 'validation_error',
-        agentId: JSON.parse(event.body || '{}').agent?.id,
+        avatarId: JSON.parse(event.body || '{}').avatar?.id,
         requestId,
         errors: parseResult.error.errors,
         bodyPreview: event.body?.substring(0, 500),
@@ -1186,41 +1355,41 @@ export async function handler(
         }),
       };
     }
-    const { message, history, agent, systemPrompt: customSystemPrompt, attachments, model } = parseResult.data;
+    const { message, history, avatar, systemPrompt: customSystemPrompt, attachments, model } = parseResult.data;
 
-    const agentRecord = agent?.id ? await agents.getAgent(agent.id) : null;
+    const avatarRecord = avatar?.id ? await avatars.getAvatar(avatar.id) : null;
     const voiceEnabled = process.env.ENABLE_VOICE_TOOLS !== 'false';
     // Get enabled toolsets from mcpConfig, defaulting to voice enabled
-    const mcpConfig = agentRecord?.mcpConfig;
+    const mcpConfig = avatarRecord?.mcpConfig;
     const enabledToolsets = mcpConfig?.enabledToolsets || [];
-    const enabledCategories = agentRecord
+    const enabledCategories = avatarRecord
       ? detectEnabledCategories({
           // Voice enabled by default (unless env var disables it)
           voice: voiceEnabled,
           // Memory enabled if in mcpConfig.enabledToolsets
           memory: enabledToolsets.includes('memory'),
           // Platform toolsets enabled based on platform config
-          telegram: Boolean(agentRecord.platforms?.telegram?.enabled),
-          twitter: Boolean(agentRecord.platforms?.twitter?.enabled),
-          discord: Boolean(agentRecord.platforms?.discord?.enabled),
+          telegram: Boolean(avatarRecord.platforms?.telegram?.enabled),
+          twitter: Boolean(avatarRecord.platforms?.twitter?.enabled),
+          discord: Boolean(avatarRecord.platforms?.discord?.enabled),
           // NFT enabled by default for inhabitation
           nft: true,
           // Property requires explicit opt-in via mcpConfig
           property: enabledToolsets.includes('property'),
         })
       : undefined;
-    const agentContext = agent ? {
-      id: agent.id,
-      name: agentRecord?.name ?? agent.name,
-      description: agentRecord?.description ?? agent.description,
-      persona: agentRecord?.persona ?? agent.persona,
+    const avatarContext = avatar ? {
+      id: avatar.id,
+      name: avatarRecord?.name ?? avatar.name,
+      description: avatarRecord?.description ?? avatar.description,
+      persona: avatarRecord?.persona ?? avatar.persona,
       enabledCategories,
     } : undefined;
 
     // Log request entry
     logger.info('Request received', {
       event: 'request_received',
-      agentId: agent?.id,
+      avatarId: avatar?.id,
       requestId,
       messageLength: message.length,
       historyLength: history.length,
@@ -1228,15 +1397,15 @@ export async function handler(
       attachmentCount: attachments?.length || 0,
     });
 
-    // Process the chat with agent context
-    const result = await processChat(message, history, session, agentContext, {
+    // Process the chat with avatar context
+    const result = await processChat(message, history, session, avatarContext, {
       customSystemPrompt,
       attachments,
       model,
     });
 
     // Save the updated history to DynamoDB for cross-device sync
-    await chatHistory.saveChatHistory(session, result.history, agent?.id);
+    await chatHistory.saveChatHistory(session, result.history, avatar?.id);
 
     return {
       statusCode: 200,
@@ -1250,8 +1419,8 @@ export async function handler(
         pendingJobs: result.pendingJobs,
         // Include pending tool call if one needs user input
         pendingToolCall: result.pendingToolCall,
-        // Include agent updates (e.g., profile image changes)
-        agentUpdates: result.agentUpdates,
+        // Include avatar updates (e.g., profile image changes)
+        avatarUpdates: result.avatarUpdates,
       }),
     };
   } catch (error) {

@@ -1,14 +1,14 @@
 /**
  * Memory Service
  *
- * Tiered memory system for agent personality evolution.
+ * Tiered memory system for avatar personality evolution.
  * Implements immediate/recent/core memory tiers with:
  * - Strength-based retention (reinforcement + decay)
  * - Automatic consolidation (summarization + promotion)
  * - Semantic search via embeddings (future)
  *
  * DynamoDB Key Schema:
- * - pk: MEMORY#{agentId}
+ * - pk: MEMORY#{avatarId}
  * - sk: {tier}#{timestamp}#{id}
  *
  * @module memory
@@ -29,12 +29,12 @@ import {
 import { marshall } from '@aws-sdk/util-dynamodb';
 import { logger } from '@swarm/core';
 import type {
-  AgentMemory,
+  AvatarMemory,
   MemoryTier,
   MemoryType,
   MemoryQueryOptions,
   MemoryConsolidationConfig,
-  AgentIdentitySnapshot,
+  AvatarIdentitySnapshot,
 } from '../types.js';
 import {
   getEmbeddingService,
@@ -94,22 +94,22 @@ export function _setDynamoClient(client: DynamoDBDocumentClient | null): void {
 // ============================================================================
 
 /**
- * Validate and sanitize agent ID
+ * Validate and sanitize avatar ID
  */
-function validateAgentId(agentId: string): string {
-  if (!agentId || typeof agentId !== 'string') {
-    throw new Error('agentId is required');
+function validateAvatarId(avatarId: string): string {
+  if (!avatarId || typeof avatarId !== 'string') {
+    throw new Error('avatarId is required');
   }
-  const trimmed = agentId.trim();
+  const trimmed = avatarId.trim();
   if (trimmed.length === 0) {
-    throw new Error('agentId cannot be empty');
+    throw new Error('avatarId cannot be empty');
   }
   if (trimmed.length > 100) {
-    throw new Error('agentId too long (max 100 characters)');
+    throw new Error('avatarId too long (max 100 characters)');
   }
   // Sanitize: only allow alphanumeric, dash, underscore
   if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
-    throw new Error('agentId contains invalid characters');
+    throw new Error('avatarId contains invalid characters');
   }
   return trimmed;
 }
@@ -173,13 +173,13 @@ function validateStrength(strength?: number): number {
  * Automatically generates vector embeddings for semantic search unless
  * an embedding is provided or generation fails (graceful degradation).
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param params - Memory creation parameters
  * @returns The created memory record
  * @throws Error if validation fails
  */
 export async function createMemory(
-  agentId: string,
+  avatarId: string,
   params: {
     tier: MemoryTier;
     type: MemoryType;
@@ -193,9 +193,9 @@ export async function createMemory(
     metadata?: Record<string, unknown>;
     sourceMemoryIds?: string[];
   }
-): Promise<AgentMemory> {
+): Promise<AvatarMemory> {
   // Validate inputs
-  const validAgentId = validateAgentId(agentId);
+  const validAvatarId = validateAvatarId(avatarId);
   const validContent = validateContent(params.content);
   const validThemes = validateThemes(params.themes);
   const validStrength = validateStrength(params.strength);
@@ -219,18 +219,18 @@ export async function createMemory(
       // Graceful degradation - continue without embedding
       logger.warn('Failed to generate embedding for memory', {
         event: 'embedding_generation_error',
-        agentId: validAgentId,
+        avatarId: validAvatarId,
         memoryId: id,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   }
 
-  const memory: AgentMemory = {
-    pk: `MEMORY#${validAgentId}`,
+  const memory: AvatarMemory = {
+    pk: `MEMORY#${validAvatarId}`,
     sk: `${tier}#${now}#${id}`,
     id,
-    agentId: validAgentId,
+    avatarId: validAvatarId,
     tier,
     type: params.type,
     content: validContent,
@@ -255,7 +255,7 @@ export async function createMemory(
 
     logger.info('Memory created', {
       event: 'memory_created',
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       memoryId: id,
       tier,
       type: params.type,
@@ -267,7 +267,7 @@ export async function createMemory(
   } catch (error) {
     logger.error('Failed to create memory', {
       event: 'memory_create_error',
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       tier,
       error: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -278,17 +278,17 @@ export async function createMemory(
 /**
  * Get a single memory by ID
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param memoryId - The memory's unique identifier
  * @param tier - The memory tier (required for efficient lookup)
  * @returns The memory record or null if not found
  */
 export async function getMemory(
-  agentId: string,
+  avatarId: string,
   memoryId: string,
   tier?: MemoryTier
-): Promise<AgentMemory | null> {
-  const validAgentId = validateAgentId(agentId);
+): Promise<AvatarMemory | null> {
+  const validAvatarId = validateAvatarId(avatarId);
 
   // If tier is provided, we can do a more efficient query
   if (tier) {
@@ -297,13 +297,13 @@ export async function getMemory(
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
       FilterExpression: 'id = :id',
       ExpressionAttributeValues: {
-        ':pk': `MEMORY#${validAgentId}`,
+        ':pk': `MEMORY#${validAvatarId}`,
         ':prefix': `${tier}#`,
         ':id': memoryId,
       },
       Limit: 1,
     }));
-    return (result.Items?.[0] as AgentMemory) || null;
+    return (result.Items?.[0] as AvatarMemory) || null;
   }
 
   // Without tier, search all tiers
@@ -313,14 +313,14 @@ export async function getMemory(
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
       FilterExpression: 'id = :id',
       ExpressionAttributeValues: {
-        ':pk': `MEMORY#${validAgentId}`,
+        ':pk': `MEMORY#${validAvatarId}`,
         ':prefix': `${t}#`,
         ':id': memoryId,
       },
       Limit: 1,
     }));
     if (result.Items?.[0]) {
-      return result.Items[0] as AgentMemory;
+      return result.Items[0] as AvatarMemory;
     }
   }
 
@@ -328,17 +328,17 @@ export async function getMemory(
 }
 
 /**
- * Get memories for an agent with optional filters
+ * Get memories for an avatar with optional filters
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param options - Query options (tier, type, filters, limit)
  * @returns Array of matching memories, newest first
  */
 export async function getMemories(
-  agentId: string,
+  avatarId: string,
   options: MemoryQueryOptions = {}
-): Promise<AgentMemory[]> {
-  const validAgentId = validateAgentId(agentId);
+): Promise<AvatarMemory[]> {
+  const validAvatarId = validateAvatarId(avatarId);
   const { tier, limit = 100, minStrength = 0 } = options;
 
   // Cap limit to prevent excessive reads
@@ -347,7 +347,7 @@ export async function getMemories(
   // Build key condition
   let keyCondition = 'pk = :pk';
   const expressionValues: Record<string, unknown> = {
-    ':pk': `MEMORY#${validAgentId}`,
+    ':pk': `MEMORY#${validAvatarId}`,
   };
 
   if (tier) {
@@ -390,11 +390,11 @@ export async function getMemories(
       Limit: safeLimit,
     }));
 
-    return (result.Items || []) as AgentMemory[];
+    return (result.Items || []) as AvatarMemory[];
   } catch (error) {
     logger.error('Failed to get memories', {
       event: 'memory_query_error',
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       tier,
       error: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -405,11 +405,11 @@ export async function getMemories(
 /**
  * Get memory counts by tier (parallelized)
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @returns Object with counts per tier
  */
-export async function getMemoryCounts(agentId: string): Promise<Record<MemoryTier, number>> {
-  const validAgentId = validateAgentId(agentId);
+export async function getMemoryCounts(avatarId: string): Promise<Record<MemoryTier, number>> {
+  const validAvatarId = validateAvatarId(avatarId);
 
   // Run all three queries in parallel
   const [immediateResult, recentResult, coreResult] = await Promise.all([
@@ -417,7 +417,7 @@ export async function getMemoryCounts(agentId: string): Promise<Record<MemoryTie
       TableName: ADMIN_TABLE,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :tier)',
       ExpressionAttributeValues: {
-        ':pk': `MEMORY#${validAgentId}`,
+        ':pk': `MEMORY#${validAvatarId}`,
         ':tier': 'immediate#',
       },
       Select: 'COUNT',
@@ -426,7 +426,7 @@ export async function getMemoryCounts(agentId: string): Promise<Record<MemoryTie
       TableName: ADMIN_TABLE,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :tier)',
       ExpressionAttributeValues: {
-        ':pk': `MEMORY#${validAgentId}`,
+        ':pk': `MEMORY#${validAvatarId}`,
         ':tier': 'recent#',
       },
       Select: 'COUNT',
@@ -435,7 +435,7 @@ export async function getMemoryCounts(agentId: string): Promise<Record<MemoryTie
       TableName: ADMIN_TABLE,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :tier)',
       ExpressionAttributeValues: {
-        ':pk': `MEMORY#${validAgentId}`,
+        ':pk': `MEMORY#${validAvatarId}`,
         ':tier': 'core#',
       },
       Select: 'COUNT',
@@ -453,24 +453,24 @@ export async function getMemoryCounts(agentId: string): Promise<Record<MemoryTie
  * Update memory strength (for reinforcement)
  * Strength is capped at MAX_STRENGTH to prevent unbounded growth
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param memoryId - The memory's unique identifier (for logging)
  * @param sk - The sort key of the memory
  * @param boost - Amount to increase strength by
  */
 export async function reinforceMemory(
-  agentId: string,
+  avatarId: string,
   memoryId: string,
   sk: string,
   boost: number = DEFAULT_CONFIG.reinforcementBoost
 ): Promise<void> {
-  const validAgentId = validateAgentId(agentId);
+  const validAvatarId = validateAvatarId(avatarId);
 
   try {
     await getDynamoClient().send(new UpdateCommand({
       TableName: ADMIN_TABLE,
       Key: {
-        pk: `MEMORY#${validAgentId}`,
+        pk: `MEMORY#${validAvatarId}`,
         sk,
       },
       // Cap strength at MAX_STRENGTH
@@ -487,7 +487,7 @@ export async function reinforceMemory(
     await getDynamoClient().send(new UpdateCommand({
       TableName: ADMIN_TABLE,
       Key: {
-        pk: `MEMORY#${validAgentId}`,
+        pk: `MEMORY#${validAvatarId}`,
         sk,
       },
       UpdateExpression: 'SET strength = :max',
@@ -501,7 +501,7 @@ export async function reinforceMemory(
 
     logger.info('Memory reinforced', {
       event: 'memory_reinforced',
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       memoryId,
       boost,
     });
@@ -509,7 +509,7 @@ export async function reinforceMemory(
     // Log but don't throw - reinforcement failure shouldn't break the caller
     logger.warn('Failed to reinforce memory', {
       event: 'memory_reinforce_error',
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       memoryId,
       error: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -519,24 +519,24 @@ export async function reinforceMemory(
 /**
  * Delete a single memory
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param sk - The sort key of the memory to delete
  */
-export async function deleteMemory(agentId: string, sk: string): Promise<void> {
-  const validAgentId = validateAgentId(agentId);
+export async function deleteMemory(avatarId: string, sk: string): Promise<void> {
+  const validAvatarId = validateAvatarId(avatarId);
 
   try {
     await getDynamoClient().send(new DeleteCommand({
       TableName: ADMIN_TABLE,
       Key: {
-        pk: `MEMORY#${validAgentId}`,
+        pk: `MEMORY#${validAvatarId}`,
         sk,
       },
     }));
   } catch (error) {
     logger.error('Failed to delete memory', {
       event: 'memory_delete_error',
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       sk,
       error: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -548,13 +548,13 @@ export async function deleteMemory(agentId: string, sk: string): Promise<void> {
  * Delete multiple memories (batch operation)
  * Handles DynamoDB's 25-item batch limit automatically
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param sks - Array of sort keys to delete
  */
-export async function deleteMemories(agentId: string, sks: string[]): Promise<void> {
+export async function deleteMemories(avatarId: string, sks: string[]): Promise<void> {
   if (sks.length === 0) return;
 
-  const validAgentId = validateAgentId(agentId);
+  const validAvatarId = validateAvatarId(avatarId);
 
   // DynamoDB batch write limit is 25
   const batches: string[][] = [];
@@ -571,7 +571,7 @@ export async function deleteMemories(agentId: string, sks: string[]): Promise<vo
           [ADMIN_TABLE]: batch.map(sk => ({
             DeleteRequest: {
               Key: {
-                pk: `MEMORY#${validAgentId}`,
+                pk: `MEMORY#${validAvatarId}`,
                 sk,
               },
             },
@@ -586,7 +586,7 @@ export async function deleteMemories(agentId: string, sks: string[]): Promise<vo
   if (errors.length > 0) {
     logger.error('Some batch deletes failed', {
       event: 'memory_batch_delete_error',
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       totalBatches: batches.length,
       failedBatches: errors.length,
     });
@@ -600,17 +600,17 @@ export async function deleteMemories(agentId: string, sks: string[]): Promise<vo
 /**
  * Get memories about a specific topic/person
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param about - The topic or person to search for
  * @param limit - Maximum number of results
  * @returns Array of matching memories
  */
 export async function recallAbout(
-  agentId: string,
+  avatarId: string,
   about: string,
   limit: number = 10
-): Promise<AgentMemory[]> {
-  const validAgentId = validateAgentId(agentId);
+): Promise<AvatarMemory[]> {
+  const validAvatarId = validateAvatarId(avatarId);
   const safeLimit = Math.min(limit, 50);
 
   // Query with filter - over-fetch to account for filtering
@@ -619,14 +619,14 @@ export async function recallAbout(
     KeyConditionExpression: 'pk = :pk',
     FilterExpression: 'about = :about',
     ExpressionAttributeValues: {
-      ':pk': `MEMORY#${validAgentId}`,
+      ':pk': `MEMORY#${validAvatarId}`,
       ':about': about.trim(),
     },
     ScanIndexForward: false,
     Limit: safeLimit * 3,
   }));
 
-  return ((result.Items || []) as AgentMemory[]).slice(0, safeLimit);
+  return ((result.Items || []) as AvatarMemory[]).slice(0, safeLimit);
 }
 
 /**
@@ -640,22 +640,22 @@ export async function recallAbout(
  *
  * Falls back to keyword-only search if embeddings unavailable.
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param query - Search query string
  * @param limit - Maximum number of results
  * @param options - Search options (semanticSearch, minSimilarity)
  * @returns Array of matching memories, sorted by relevance
  */
 export async function searchMemories(
-  agentId: string,
+  avatarId: string,
   query: string,
   limit: number = 10,
   options: {
     semanticSearch?: boolean;
     minSimilarity?: number;
   } = {}
-): Promise<AgentMemory[]> {
-  const validAgentId = validateAgentId(agentId);
+): Promise<AvatarMemory[]> {
+  const validAvatarId = validateAvatarId(avatarId);
   const queryLower = query.toLowerCase().trim();
   const safeLimit = Math.min(limit, 50);
   const { semanticSearch = true, minSimilarity = 0.3 } = options;
@@ -673,7 +673,7 @@ export async function searchMemories(
     } catch (error) {
       logger.warn('Failed to generate query embedding, falling back to keyword search', {
         event: 'embedding_query_error',
-        agentId: validAgentId,
+        avatarId: validAvatarId,
         error: error instanceof Error ? error.message : 'Unknown',
       });
     }
@@ -684,13 +684,13 @@ export async function searchMemories(
     TableName: ADMIN_TABLE,
     KeyConditionExpression: 'pk = :pk',
     ExpressionAttributeValues: {
-      ':pk': `MEMORY#${validAgentId}`,
+      ':pk': `MEMORY#${validAvatarId}`,
     },
     ScanIndexForward: false,
     Limit: 200, // Cap initial fetch
   }));
 
-  const memories = (result.Items || []) as AgentMemory[];
+  const memories = (result.Items || []) as AvatarMemory[];
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
 
@@ -755,7 +755,7 @@ export async function searchMemories(
 
   logger.info('Memory search completed', {
     event: 'memory_search',
-    agentId: validAgentId,
+    avatarId: validAvatarId,
     query: query.slice(0, 50),
     usedSemanticSearch: !!queryEmbedding,
     candidateCount: memories.length,
@@ -768,11 +768,11 @@ export async function searchMemories(
 /**
  * Get core memories (identity, learnings, patterns)
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @returns Array of core memories
  */
-export async function getCoreMemories(agentId: string): Promise<AgentMemory[]> {
-  return getMemories(agentId, {
+export async function getCoreMemories(avatarId: string): Promise<AvatarMemory[]> {
+  return getMemories(avatarId, {
     tier: 'core',
     minStrength: DEFAULT_CONFIG.pruneThreshold,
     limit: DEFAULT_CONFIG.coreMaxCount,
@@ -782,11 +782,11 @@ export async function getCoreMemories(agentId: string): Promise<AgentMemory[]> {
 /**
  * Get identity statements
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @returns Array of identity memories
  */
-export async function getIdentity(agentId: string): Promise<AgentMemory[]> {
-  return getMemories(agentId, {
+export async function getIdentity(avatarId: string): Promise<AvatarMemory[]> {
+  return getMemories(avatarId, {
     tier: 'core',
     type: 'identity',
     limit: 5,
@@ -801,18 +801,18 @@ export async function getIdentity(agentId: string): Promise<AgentMemory[]> {
  * Apply decay to all memories in a tier
  * Uses batch updates for efficiency
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param tier - The memory tier to apply decay to
  * @param decayRate - Multiplier for strength (default: 0.95)
  * @returns Statistics about the decay operation
  */
 export async function applyDecay(
-  agentId: string,
+  avatarId: string,
   tier: MemoryTier,
   decayRate: number = DEFAULT_CONFIG.decayRate
 ): Promise<{ decayed: number; pruned: number }> {
-  const validAgentId = validateAgentId(agentId);
-  const memories = await getMemories(validAgentId, { tier, limit: 500 });
+  const validAvatarId = validateAvatarId(avatarId);
+  const memories = await getMemories(validAvatarId, { tier, limit: 500 });
 
   let decayed = 0;
   let pruned = 0;
@@ -844,7 +844,7 @@ export async function applyDecay(
       batch.map(({ sk, newStrength }) =>
         getDynamoClient().send(new UpdateCommand({
           TableName: ADMIN_TABLE,
-          Key: { pk: `MEMORY#${validAgentId}`, sk },
+          Key: { pk: `MEMORY#${validAvatarId}`, sk },
           UpdateExpression: 'SET strength = :strength, updatedAt = :now, consolidatedAt = :now',
           ExpressionAttributeValues: {
             ':strength': newStrength,
@@ -853,7 +853,7 @@ export async function applyDecay(
         })).catch(err => {
           logger.warn('Failed to update memory strength', {
             event: 'memory_decay_update_error',
-            agentId: validAgentId,
+            avatarId: validAvatarId,
             sk,
             error: err instanceof Error ? err.message : 'Unknown error',
           });
@@ -864,12 +864,12 @@ export async function applyDecay(
 
   // Delete pruned memories
   if (toPrune.length > 0) {
-    await deleteMemories(validAgentId, toPrune);
+    await deleteMemories(validAvatarId, toPrune);
   }
 
   logger.info('Memory decay applied', {
     event: 'memory_decay',
-    agentId: validAgentId,
+    avatarId: validAvatarId,
     tier,
     decayed,
     pruned,
@@ -882,16 +882,16 @@ export async function applyDecay(
  * Promote oldest immediate memories to recent tier
  * Uses DynamoDB transactions for atomicity
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param maxImmediate - Maximum memories to keep in immediate tier
  * @returns Statistics about the promotion operation
  */
 export async function promoteImmediateToRecent(
-  agentId: string,
+  avatarId: string,
   maxImmediate: number = DEFAULT_CONFIG.immediateMaxCount
 ): Promise<{ promoted: number }> {
-  const validAgentId = validateAgentId(agentId);
-  const immediateMemories = await getMemories(validAgentId, { tier: 'immediate', limit: 500 });
+  const validAvatarId = validateAvatarId(avatarId);
+  const immediateMemories = await getMemories(validAvatarId, { tier: 'immediate', limit: 500 });
 
   if (immediateMemories.length <= maxImmediate) {
     return { promoted: 0 };
@@ -908,11 +908,11 @@ export async function promoteImmediateToRecent(
   for (const memory of toPromote) {
     const now = Date.now();
     const newId = randomUUID();
-    const newMemory: AgentMemory = {
-      pk: `MEMORY#${validAgentId}`,
+    const newMemory: AvatarMemory = {
+      pk: `MEMORY#${validAvatarId}`,
       sk: `recent#${now}#${newId}`,
       id: newId,
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       tier: 'recent',
       type: memory.type,
       content: memory.content,
@@ -941,7 +941,7 @@ export async function promoteImmediateToRecent(
             Delete: {
               TableName: ADMIN_TABLE,
               Key: marshall({
-                pk: `MEMORY#${validAgentId}`,
+                pk: `MEMORY#${validAvatarId}`,
                 sk: memory.sk,
               }),
             },
@@ -952,7 +952,7 @@ export async function promoteImmediateToRecent(
     } catch (error) {
       logger.error('Failed to promote memory', {
         event: 'memory_promotion_error',
-        agentId: validAgentId,
+        avatarId: validAvatarId,
         memoryId: memory.id,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
@@ -962,7 +962,7 @@ export async function promoteImmediateToRecent(
 
   logger.info('Immediate memories promoted to recent', {
     event: 'memory_promotion',
-    agentId: validAgentId,
+    avatarId: validAvatarId,
     promoted,
     attempted: toPromote.length,
   });
@@ -973,26 +973,26 @@ export async function promoteImmediateToRecent(
 /**
  * Save an identity snapshot
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param statement - The identity statement (e.g., "I am becoming more curious")
  * @param triggeringMemories - IDs of memories that led to this identity
  * @param previousStatement - The previous identity statement for tracking evolution
  * @returns The created identity snapshot
  */
 export async function saveIdentitySnapshot(
-  agentId: string,
+  avatarId: string,
   statement: string,
   triggeringMemories: string[],
   previousStatement?: string
-): Promise<AgentIdentitySnapshot> {
-  const validAgentId = validateAgentId(agentId);
+): Promise<AvatarIdentitySnapshot> {
+  const validAvatarId = validateAvatarId(avatarId);
   const validStatement = validateContent(statement);
 
   const now = Date.now();
-  const snapshot: AgentIdentitySnapshot = {
-    pk: `IDENTITY#${validAgentId}`,
+  const snapshot: AvatarIdentitySnapshot = {
+    pk: `IDENTITY#${validAvatarId}`,
     sk: `SNAPSHOT#${now}`,
-    agentId: validAgentId,
+    avatarId: validAvatarId,
     statement: validStatement,
     previousStatement,
     triggeringMemories,
@@ -1006,7 +1006,7 @@ export async function saveIdentitySnapshot(
     }));
 
     // Also create a core memory for the identity
-    await createMemory(validAgentId, {
+    await createMemory(validAvatarId, {
       tier: 'core',
       type: 'identity',
       content: validStatement,
@@ -1016,7 +1016,7 @@ export async function saveIdentitySnapshot(
 
     logger.info('Identity snapshot saved', {
       event: 'identity_snapshot',
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       statement: validStatement.slice(0, 100),
     });
 
@@ -1024,7 +1024,7 @@ export async function saveIdentitySnapshot(
   } catch (error) {
     logger.error('Failed to save identity snapshot', {
       event: 'identity_snapshot_error',
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       error: error instanceof Error ? error.message : 'Unknown error',
     });
     throw error;
@@ -1034,29 +1034,29 @@ export async function saveIdentitySnapshot(
 /**
  * Get identity history (evolution over time)
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param limit - Maximum number of snapshots to return
  * @returns Array of identity snapshots, newest first
  */
 export async function getIdentityHistory(
-  agentId: string,
+  avatarId: string,
   limit: number = 10
-): Promise<AgentIdentitySnapshot[]> {
-  const validAgentId = validateAgentId(agentId);
+): Promise<AvatarIdentitySnapshot[]> {
+  const validAvatarId = validateAvatarId(avatarId);
   const safeLimit = Math.min(limit, 50);
 
   const result = await getDynamoClient().send(new QueryCommand({
     TableName: ADMIN_TABLE,
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
     ExpressionAttributeValues: {
-      ':pk': `IDENTITY#${validAgentId}`,
+      ':pk': `IDENTITY#${validAvatarId}`,
       ':prefix': 'SNAPSHOT#',
     },
     ScanIndexForward: false,
     Limit: safeLimit,
   }));
 
-  return (result.Items || []) as AgentIdentitySnapshot[];
+  return (result.Items || []) as AvatarIdentitySnapshot[];
 }
 
 // ============================================================================
@@ -1066,24 +1066,24 @@ export async function getIdentityHistory(
 /**
  * Remember a fact (creates immediate memory, reinforces if similar exists)
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param fact - The fact to remember
  * @param about - Who or what this fact is about
  * @param userId - Associated user ID
  * @returns Result with saved status and memory ID
  */
 export async function remember(
-  agentId: string,
+  avatarId: string,
   fact: string,
   about?: string,
   userId?: string
 ): Promise<{ saved: boolean; memoryId: string; reinforced?: boolean }> {
-  const validAgentId = validateAgentId(agentId);
+  const validAvatarId = validateAvatarId(avatarId);
   const validFact = validateContent(fact);
 
   // Check for similar existing memory to reinforce
   if (about) {
-    const existing = await recallAbout(validAgentId, about, 5);
+    const existing = await recallAbout(validAvatarId, about, 5);
     const factLower = validFact.toLowerCase();
 
     const similar = existing.find(m => {
@@ -1099,13 +1099,13 @@ export async function remember(
     });
 
     if (similar) {
-      await reinforceMemory(validAgentId, similar.id, similar.sk);
+      await reinforceMemory(validAvatarId, similar.id, similar.sk);
       return { saved: true, memoryId: similar.id, reinforced: true };
     }
   }
 
   // Create new immediate memory
-  const memory = await createMemory(validAgentId, {
+  const memory = await createMemory(validAvatarId, {
     tier: 'immediate',
     type: about ? 'fact' : 'event',
     content: validFact,
@@ -1114,10 +1114,10 @@ export async function remember(
   });
 
   // Check if we need to promote memories (async, don't block)
-  promoteImmediateToRecent(validAgentId).catch(err => {
+  promoteImmediateToRecent(validAvatarId).catch(err => {
     logger.warn('Background promotion failed', {
       event: 'memory_promotion_background_error',
-      agentId: validAgentId,
+      avatarId: validAvatarId,
       error: err instanceof Error ? err.message : 'Unknown error',
     });
   });
@@ -1128,18 +1128,18 @@ export async function remember(
 /**
  * Recall facts (searches across all tiers)
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @param query - Search query string
  * @param userId - Filter by user ID
  * @returns Array of matching facts with metadata
  */
 export async function recall(
-  agentId: string,
+  avatarId: string,
   query: string,
   userId?: string
 ): Promise<{ facts: Array<{ fact: string; about?: string; timestamp: number; strength: number }> }> {
-  const validAgentId = validateAgentId(agentId);
-  const memories = await searchMemories(validAgentId, query, 10);
+  const validAvatarId = validateAvatarId(avatarId);
+  const memories = await searchMemories(validAvatarId, query, 10);
 
   // Filter by userId if provided
   const filtered = userId
@@ -1160,16 +1160,16 @@ export async function recall(
  * Get memory context for prompt injection
  * Formats memories into a human-readable string for the LLM
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @returns Formatted memory context string
  */
-export async function getMemoryContext(agentId: string): Promise<string> {
-  const validAgentId = validateAgentId(agentId);
+export async function getMemoryContext(avatarId: string): Promise<string> {
+  const validAvatarId = validateAvatarId(avatarId);
 
   const [coreMemories, recentMemories, identity] = await Promise.all([
-    getCoreMemories(validAgentId),
-    getMemories(validAgentId, { tier: 'recent', limit: 10 }),
-    getIdentity(validAgentId),
+    getCoreMemories(validAvatarId),
+    getMemories(validAvatarId, { tier: 'recent', limit: 10 }),
+    getIdentity(validAvatarId),
   ]);
 
   const sections: string[] = [];
@@ -1218,30 +1218,30 @@ export async function getMemoryContext(agentId: string): Promise<string> {
 // ============================================================================
 
 /**
- * Get comprehensive memory statistics for an agent
+ * Get comprehensive memory statistics for an avatar
  *
- * @param agentId - The agent's unique identifier
+ * @param avatarId - The avatar's unique identifier
  * @returns Memory statistics
  */
-export async function getMemoryStats(agentId: string): Promise<{
+export async function getMemoryStats(avatarId: string): Promise<{
   counts: Record<MemoryTier, number>;
   totalMemories: number;
   averageStrength: Record<MemoryTier, number>;
   oldestMemory?: { tier: MemoryTier; createdAt: number };
   newestMemory?: { tier: MemoryTier; createdAt: number };
 }> {
-  const validAgentId = validateAgentId(agentId);
-  const counts = await getMemoryCounts(validAgentId);
+  const validAvatarId = validateAvatarId(avatarId);
+  const counts = await getMemoryCounts(validAvatarId);
   const totalMemories = counts.immediate + counts.recent + counts.core;
 
   // Get memories for average strength calculation
   const [immediate, recent, core] = await Promise.all([
-    getMemories(validAgentId, { tier: 'immediate', limit: 100 }),
-    getMemories(validAgentId, { tier: 'recent', limit: 100 }),
-    getMemories(validAgentId, { tier: 'core', limit: 100 }),
+    getMemories(validAvatarId, { tier: 'immediate', limit: 100 }),
+    getMemories(validAvatarId, { tier: 'recent', limit: 100 }),
+    getMemories(validAvatarId, { tier: 'core', limit: 100 }),
   ]);
 
-  const avgStrength = (memories: AgentMemory[]) =>
+  const avgStrength = (memories: AvatarMemory[]) =>
     memories.length > 0
       ? memories.reduce((sum, m) => sum + m.strength, 0) / memories.length
       : 0;

@@ -15,8 +15,8 @@ describe('Media URL Generation', () => {
   describe('URL accessibility conversion', () => {
     it('should return CDN URL when CDN_URL is configured', () => {
       const CDN_URL = 'https://media.example.com';
-      const s3Url = 'https://test-bucket.s3.amazonaws.com/agents/agent-1/images/test.png';
-      const expectedCdnUrl = 'https://media.example.com/agents/agent-1/images/test.png';
+      const s3Url = 'https://test-bucket.s3.amazonaws.com/avatars/avatar-1/images/test.png';
+      const expectedCdnUrl = 'https://media.example.com/avatars/avatar-1/images/test.png';
 
       // The conversion logic
       const s3UrlPattern = /https:\/\/[^/]+\.s3[^/]*\.amazonaws\.com\/(.+)/;
@@ -34,8 +34,8 @@ describe('Media URL Generation', () => {
           expectedKey: 'path/to/file.png',
         },
         {
-          input: 'https://bucket.s3.us-east-1.amazonaws.com/agents/agent-1/images/abc.png',
-          expectedKey: 'agents/agent-1/images/abc.png',
+          input: 'https://bucket.s3.us-east-1.amazonaws.com/avatars/avatar-1/images/abc.png',
+          expectedKey: 'avatars/avatar-1/images/abc.png',
         },
         {
           input: 'https://my-bucket.s3-website-us-east-1.amazonaws.com/test/image.jpg',
@@ -56,7 +56,7 @@ describe('Media URL Generation', () => {
       const externalUrls = [
         'https://example.com/image.png',
         'https://cdn.replicate.com/output/abc.png',
-        'https://media.rati.chat/agents/test.png',
+        'https://media.rati.chat/avatars/test.png',
       ];
 
       const s3UrlPattern = /https:\/\/[^/]+\.s3[^/]*\.amazonaws\.com\/(.+)/;
@@ -72,21 +72,21 @@ describe('Media URL Generation', () => {
     it('should use CDN URL when configured', () => {
       const CDN_URL = 'https://media-staging.rati.chat';
       const MEDIA_BUCKET = 'swarm-media-staging-022118847419';
-      const s3Key = 'agents/agent-1/images/test-uuid.png';
+      const s3Key = 'avatars/avatar-1/images/test-uuid.png';
 
       const publicUrl = CDN_URL ? `${CDN_URL}/${s3Key}` : `https://${MEDIA_BUCKET}.s3.amazonaws.com/${s3Key}`;
 
-      expect(publicUrl).toBe('https://media-staging.rati.chat/agents/agent-1/images/test-uuid.png');
+      expect(publicUrl).toBe('https://media-staging.rati.chat/avatars/avatar-1/images/test-uuid.png');
     });
 
     it('should fall back to S3 URL when CDN is not configured', () => {
       const CDN_URL = '';
       const MEDIA_BUCKET = 'swarm-media-staging-022118847419';
-      const s3Key = 'agents/agent-1/images/test-uuid.png';
+      const s3Key = 'avatars/avatar-1/images/test-uuid.png';
 
       const publicUrl = CDN_URL ? `${CDN_URL}/${s3Key}` : `https://${MEDIA_BUCKET}.s3.amazonaws.com/${s3Key}`;
 
-      expect(publicUrl).toBe('https://swarm-media-staging-022118847419.s3.amazonaws.com/agents/agent-1/images/test-uuid.png');
+      expect(publicUrl).toBe('https://swarm-media-staging-022118847419.s3.amazonaws.com/avatars/avatar-1/images/test-uuid.png');
     });
   });
 });

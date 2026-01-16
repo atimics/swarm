@@ -181,7 +181,7 @@ describe('Frontend - Upload URL Response Detection', () => {
     expect(isUploadUrlResponse({
       type: 'upload_url',
       uploadUrl: 'https://s3.amazonaws.com/...',
-      s3Key: 'agents/123/ref.png',
+      s3Key: 'avatars/123/ref.png',
       publicUrl: 'https://cdn.example.com/ref.png'
     })).toBe(true);
   });
@@ -189,7 +189,7 @@ describe('Frontend - Upload URL Response Detection', () => {
   it('should detect response with uploadUrl + s3Key + publicUrl', () => {
     expect(isUploadUrlResponse({
       uploadUrl: 'https://s3.amazonaws.com/...',
-      s3Key: 'agents/123/ref.png',
+      s3Key: 'avatars/123/ref.png',
       publicUrl: 'https://cdn.example.com/ref.png'
     })).toBe(true);
   });
@@ -197,7 +197,7 @@ describe('Frontend - Upload URL Response Detection', () => {
   it('should detect character reference upload response', () => {
     expect(isUploadUrlResponse({
       uploadUrl: 'https://s3.amazonaws.com/...',
-      s3Key: 'agents/123/character-reference/abc.png',
+      s3Key: 'avatars/123/character-reference/abc.png',
       publicUrl: 'https://cdn.example.com/character-reference/abc.png',
       purpose: 'character_reference',
       description: 'Blue whale turnaround'
@@ -206,7 +206,7 @@ describe('Frontend - Upload URL Response Detection', () => {
 
   it('should NOT detect response missing uploadUrl', () => {
     expect(isUploadUrlResponse({
-      s3Key: 'agents/123/ref.png',
+      s3Key: 'avatars/123/ref.png',
       publicUrl: 'https://cdn.example.com/ref.png'
     })).toBe(false);
   });
@@ -221,7 +221,7 @@ describe('Frontend - Upload URL Response Detection', () => {
   it('should NOT detect response missing publicUrl', () => {
     expect(isUploadUrlResponse({
       uploadUrl: 'https://s3.amazonaws.com/...',
-      s3Key: 'agents/123/ref.png'
+      s3Key: 'avatars/123/ref.png'
     })).toBe(false);
   });
 
@@ -305,8 +305,8 @@ describe('Integration - Full Tool Call Flow Simulation', () => {
     // Step 2: Tool executes and returns upload URL payload
     const toolResult = {
       uploadUrl: 'https://s3.amazonaws.com/bucket/signed-url',
-      s3Key: 'agents/agent-123/character-reference/uuid.png',
-      publicUrl: 'https://cdn.example.com/agents/agent-123/character-reference/uuid.png',
+      s3Key: 'avatars/avatar-123/character-reference/uuid.png',
+      publicUrl: 'https://cdn.example.com/avatars/avatar-123/character-reference/uuid.png',
       purpose: 'character_reference',
       description: 'Blue whale character sheet'
     };
@@ -332,8 +332,8 @@ describe('Integration - Full Tool Call Flow Simulation', () => {
 
     const toolResult = {
       uploadUrl: 'https://s3.amazonaws.com/bucket/signed-url',
-      s3Key: 'agents/agent-123/profile/uuid.png',
-      publicUrl: 'https://cdn.example.com/agents/agent-123/profile/uuid.png'
+      s3Key: 'avatars/avatar-123/profile/uuid.png',
+      publicUrl: 'https://cdn.example.com/avatars/avatar-123/profile/uuid.png'
     };
 
     expect(isUploadUrlResponse(toolResult)).toBe(true);

@@ -9,31 +9,31 @@ import {
   createAgentFromTemplate,
   type TemplateServiceDeps,
 } from './templates.js';
-import type { AgentRecord, UserSession } from '../types.js';
+import type { AvatarRecord, UserSession } from '../types.js';
 
 // Helper to create mock deps
 function createMockDeps(): TemplateServiceDeps {
   const mockSend = mock(() => Promise.resolve({}));
   const mockCreateAgent = mock((name: string, _session: UserSession, desc?: string) =>
     Promise.resolve({
-      pk: 'AGENT#new-agent',
+      pk: 'AVATAR#new-avatar',
       sk: 'CONFIG',
-      agentId: 'new-agent',
+      avatarId: 'new-avatar',
       name,
       description: desc,
       status: 'draft',
       createdAt: Date.now(),
       updatedAt: Date.now(),
       createdBy: 'test@example.com',
-    } as AgentRecord)
+    } as AvatarRecord)
   );
 
   return {
     dynamoClient: {
       send: mockSend as unknown as TemplateServiceDeps['dynamoClient']['send'],
     },
-    agentService: {
-      createAgent: mockCreateAgent as unknown as TemplateServiceDeps['agentService']['createAgent'],
+    avatarService: {
+      createAvatar: mockCreateAgent as unknown as TemplateServiceDeps['avatarService']['createAvatar'],
     },
     tableName: 'test-admin-table',
   };
@@ -59,13 +59,13 @@ describe('TemplateService', () => {
 
   describe('exportAgentAsTemplate', () => {
     it('returns template metadata + config', async () => {
-      const agent: AgentRecord = {
-        pk: 'AGENT#agent-1',
+      const avatar: AvatarRecord = {
+        pk: 'AVATAR#avatar-1',
         sk: 'CONFIG',
-        agentId: 'agent-1',
-        name: 'Agent One',
-        description: 'Test agent',
-        persona: 'You are a test agent',
+        avatarId: 'avatar-1',
+        name: 'Avatar One',
+        description: 'Test avatar',
+        persona: 'You are a test avatar',
         platforms: { telegram: { enabled: true } },
         llmConfig: { provider: 'openai', model: 'gpt-4', temperature: 0.7, maxTokens: 1000, useGlobalKey: true },
         status: 'active',
@@ -74,22 +74,22 @@ describe('TemplateService', () => {
         createdBy: 'test@example.com',
       };
 
-      const template = await exportAgentAsTemplate(agent, 'Test Template', 'Template Description', mockDeps);
+      const template = await exportAgentAsTemplate(avatar, 'Test Template', 'Template Description', mockDeps);
 
       expect(template.name).toBe('Test Template');
       expect(template.description).toBe('Template Description');
-      expect(template.config.persona).toBe(agent.persona);
+      expect(template.config.persona).toBe(avatar.persona);
       expect(template.config.llmConfig?.model).toBe('gpt-4');
-      expect(template.templateId).toContain('tpl-agent-1');
+      expect(template.templateId).toContain('tpl-avatar-1');
       expect(mockDeps.dynamoClient.send).toHaveBeenCalled();
     });
 
     it('stores template with correct pk/sk', async () => {
-      const agent: AgentRecord = {
-        pk: 'AGENT#agent-1',
+      const avatar: AvatarRecord = {
+        pk: 'AVATAR#avatar-1',
         sk: 'CONFIG',
-        agentId: 'agent-1',
-        name: 'Test Agent',
+        avatarId: 'avatar-1',
+        name: 'Test Avatar',
         status: 'active',
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -102,7 +102,7 @@ describe('TemplateService', () => {
         return Promise.resolve({});
       });
 
-      await exportAgentAsTemplate(agent, 'Template', 'Desc', mockDeps);
+      await exportAgentAsTemplate(avatar, 'Template', 'Desc', mockDeps);
 
       expect(capturedCommand).toBeDefined();
       const putCmd = capturedCommand as { input?: { Item?: { sk?: string } }; Item?: { sk?: string } };
@@ -141,7 +141,7 @@ describe('TemplateService', () => {
   });
 
   describe('createAgentFromTemplate', () => {
-    it('creates an agent from template', async () => {
+    it('creates an avatar from template', async () => {
       let callCount = 0;
       (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() => {
         callCount++;
@@ -157,19 +157,19 @@ describe('TemplateService', () => {
             },
           });
         }
-        // PutCommand for merged agent
+        // PutCommand for merged avatar
         return Promise.resolve({});
       });
 
-      const agent = await createAgentFromTemplate('t1', session, 'Custom Name', mockDeps);
+      const avatar = await createAgentFromTemplate('t1', session, 'Custom Name', mockDeps);
 
-      expect(agent.name).toBe('Custom Name');
-      expect(agent.persona).toBe('From template');
-      expect(agent.llmConfig?.model).toBe('gpt-X');
-      expect(mockDeps.agentService.createAgent).toHaveBeenCalled();
+      expect(avatar.name).toBe('Custom Name');
+      expect(avatar.persona).toBe('From template');
+      expect(avatar.llmConfig?.model).toBe('gpt-X');
+      expect(mockDeps.avatarService.createAvatar).toHaveBeenCalled();
     });
 
-    it('uses template name when agentName not provided', async () => {
+    it('uses template name when avatarName not provided', async () => {
       let callCount = 0;
       (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() => {
         callCount++;
@@ -187,9 +187,9 @@ describe('TemplateService', () => {
         return Promise.resolve({});
       });
 
-      const agent = await createAgentFromTemplate('t1', session, undefined, mockDeps);
+      const avatar = await createAgentFromTemplate('t1', session, undefined, mockDeps);
 
-      expect(agent.name).toBe('Default Template Name');
+      expect(avatar.name).toBe('Default Template Name');
     });
 
     it('throws error when template not found', async () => {

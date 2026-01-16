@@ -1,7 +1,7 @@
 /**
  * MCP Configuration Service
  *
- * Manages MCP server configuration (toolsets and external servers) for agents.
+ * Manages MCP server configuration (toolsets and external servers) for avatars.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
@@ -13,14 +13,14 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 /**
- * Get MCP configuration for an agent
+ * Get MCP configuration for an avatar
  */
-export async function getMcpConfig(agentId: string): Promise<McpConfig | null> {
+export async function getMcpConfig(avatarId: string): Promise<McpConfig | null> {
   const result = await dynamoClient.send(
     new GetCommand({
       TableName: ADMIN_TABLE,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: 'CONFIG',
       },
       ProjectionExpression: 'mcpConfig',
@@ -38,10 +38,10 @@ export async function getMcpConfig(agentId: string): Promise<McpConfig | null> {
 }
 
 /**
- * Update MCP configuration for an agent
+ * Update MCP configuration for an avatar
  */
 export async function updateMcpConfig(
-  agentId: string,
+  avatarId: string,
   config: McpConfig,
   updatedBy: string
 ): Promise<void> {
@@ -49,7 +49,7 @@ export async function updateMcpConfig(
     new UpdateCommand({
       TableName: ADMIN_TABLE,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: 'CONFIG',
       },
       UpdateExpression: 'SET mcpConfig = :config, updatedAt = :now, updatedBy = :by',
@@ -63,10 +63,10 @@ export async function updateMcpConfig(
 }
 
 /**
- * Check if a toolset is enabled for an agent
+ * Check if a toolset is enabled for an avatar
  */
 export async function isToolsetEnabled(
-  agentId: string,
+  avatarId: string,
   toolsetId: ToolsetId
 ): Promise<boolean> {
   // Core is always enabled
@@ -74,7 +74,7 @@ export async function isToolsetEnabled(
     return true;
   }
 
-  const config = await getMcpConfig(agentId);
+  const config = await getMcpConfig(avatarId);
   if (!config) {
     return false;
   }
@@ -83,10 +83,10 @@ export async function isToolsetEnabled(
 }
 
 /**
- * Get all enabled toolsets for an agent
+ * Get all enabled toolsets for an avatar
  */
-export async function getEnabledToolsets(agentId: string): Promise<ToolsetId[]> {
-  const config = await getMcpConfig(agentId);
+export async function getEnabledToolsets(avatarId: string): Promise<ToolsetId[]> {
+  const config = await getMcpConfig(avatarId);
   if (!config) {
     return ['core']; // Core is always enabled
   }
@@ -98,12 +98,12 @@ export async function getEnabledToolsets(agentId: string): Promise<ToolsetId[]> 
 }
 
 /**
- * Get all enabled external MCP servers for an agent
+ * Get all enabled external MCP servers for an avatar
  */
 export async function getEnabledExternalServers(
-  agentId: string
+  avatarId: string
 ): Promise<ExternalMcpServer[]> {
-  const config = await getMcpConfig(agentId);
+  const config = await getMcpConfig(avatarId);
   if (!config) {
     return [];
   }

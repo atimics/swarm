@@ -2,7 +2,7 @@
  * Memory Service Tests
  *
  * Tests for the memory service covering:
- * 1. Input validation (agentId, content, themes, strength)
+ * 1. Input validation (avatarId, content, themes, strength)
  * 2. Strength capping at MAX_STRENGTH
  * 3. Parallel query execution (getMemoryCounts)
  * 4. Batch operations (applyDecay)
@@ -13,7 +13,7 @@
 
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import type { AgentMemory, MemoryTier } from '../types.js';
+import type { AvatarMemory, MemoryTier } from '../types.js';
 import * as memory from './memory.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 
@@ -51,49 +51,49 @@ describe('Memory Service', () => {
   // Issue 1: Input Validation Tests
   // ==========================================================================
   describe('Input Validation', () => {
-    describe('agentId validation', () => {
-      it('should reject empty agentId', async () => {
+    describe('avatarId validation', () => {
+      it('should reject empty avatarId', async () => {
         await expect(memory.createMemory('', {
           tier: 'immediate',
           type: 'fact',
           content: 'test content',
-        })).rejects.toThrow('agentId is required');
+        })).rejects.toThrow('avatarId is required');
       });
 
-      it('should reject null agentId', async () => {
+      it('should reject null avatarId', async () => {
         await expect(memory.createMemory(null as unknown as string, {
           tier: 'immediate',
           type: 'fact',
           content: 'test content',
-        })).rejects.toThrow('agentId is required');
+        })).rejects.toThrow('avatarId is required');
       });
 
-      it('should reject whitespace-only agentId', async () => {
+      it('should reject whitespace-only avatarId', async () => {
         await expect(memory.createMemory('   ', {
           tier: 'immediate',
           type: 'fact',
           content: 'test content',
-        })).rejects.toThrow('agentId cannot be empty');
+        })).rejects.toThrow('avatarId cannot be empty');
       });
 
-      it('should reject agentId with invalid characters', async () => {
-        await expect(memory.createMemory('agent@123!', {
+      it('should reject avatarId with invalid characters', async () => {
+        await expect(memory.createMemory('avatar@123!', {
           tier: 'immediate',
           type: 'fact',
           content: 'test content',
-        })).rejects.toThrow('agentId contains invalid characters');
+        })).rejects.toThrow('avatarId contains invalid characters');
       });
 
-      it('should reject agentId that is too long', async () => {
+      it('should reject avatarId that is too long', async () => {
         const longId = 'a'.repeat(101);
         await expect(memory.createMemory(longId, {
           tier: 'immediate',
           type: 'fact',
           content: 'test content',
-        })).rejects.toThrow('agentId too long');
+        })).rejects.toThrow('avatarId too long');
       });
 
-      it('should accept valid agentId with alphanumeric, dash, underscore', async () => {
+      it('should accept valid avatarId with alphanumeric, dash, underscore', async () => {
         mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
         const result = await memory.createMemory('valid-agent_123', {
@@ -102,25 +102,25 @@ describe('Memory Service', () => {
           content: 'test content',
         });
 
-        expect(result.agentId).toBe('valid-agent_123');
+        expect(result.avatarId).toBe('valid-agent_123');
       });
 
-      it('should trim whitespace from agentId', async () => {
+      it('should trim whitespace from avatarId', async () => {
         mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
-        const result = await memory.createMemory('  my-agent  ', {
+        const result = await memory.createMemory('  my-avatar  ', {
           tier: 'immediate',
           type: 'fact',
           content: 'test content',
         });
 
-        expect(result.agentId).toBe('my-agent');
+        expect(result.avatarId).toBe('my-avatar');
       });
     });
 
     describe('content validation', () => {
       it('should reject empty content', async () => {
-        await expect(memory.createMemory('test-agent', {
+        await expect(memory.createMemory('test-avatar', {
           tier: 'immediate',
           type: 'fact',
           content: '',
@@ -128,7 +128,7 @@ describe('Memory Service', () => {
       });
 
       it('should reject whitespace-only content', async () => {
-        await expect(memory.createMemory('test-agent', {
+        await expect(memory.createMemory('test-avatar', {
           tier: 'immediate',
           type: 'fact',
           content: '   ',
@@ -139,7 +139,7 @@ describe('Memory Service', () => {
         mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
         const longContent = 'x'.repeat(2500); // Exceeds 2000 char limit
-        const result = await memory.createMemory('test-agent', {
+        const result = await memory.createMemory('test-avatar', {
           tier: 'immediate',
           type: 'fact',
           content: longContent,
@@ -151,7 +151,7 @@ describe('Memory Service', () => {
       it('should trim whitespace from content', async () => {
         mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
-        const result = await memory.createMemory('test-agent', {
+        const result = await memory.createMemory('test-avatar', {
           tier: 'immediate',
           type: 'fact',
           content: '  trimmed content  ',
@@ -165,7 +165,7 @@ describe('Memory Service', () => {
       it('should filter out non-string themes', async () => {
         mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
-        const result = await memory.createMemory('test-agent', {
+        const result = await memory.createMemory('test-avatar', {
           tier: 'immediate',
           type: 'fact',
           content: 'test',
@@ -178,7 +178,7 @@ describe('Memory Service', () => {
       it('should filter out empty string themes', async () => {
         mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
-        const result = await memory.createMemory('test-agent', {
+        const result = await memory.createMemory('test-avatar', {
           tier: 'immediate',
           type: 'fact',
           content: 'test',
@@ -191,7 +191,7 @@ describe('Memory Service', () => {
       it('should lowercase all themes', async () => {
         mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
-        const result = await memory.createMemory('test-agent', {
+        const result = await memory.createMemory('test-avatar', {
           tier: 'immediate',
           type: 'fact',
           content: 'test',
@@ -205,7 +205,7 @@ describe('Memory Service', () => {
         mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
         const manyThemes = Array.from({ length: 15 }, (_, i) => `theme${i}`);
-        const result = await memory.createMemory('test-agent', {
+        const result = await memory.createMemory('test-avatar', {
           tier: 'immediate',
           type: 'fact',
           content: 'test',
@@ -219,7 +219,7 @@ describe('Memory Service', () => {
         mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
         const longTheme = 'a'.repeat(60);
-        const result = await memory.createMemory('test-agent', {
+        const result = await memory.createMemory('test-avatar', {
           tier: 'immediate',
           type: 'fact',
           content: 'test',
@@ -238,7 +238,7 @@ describe('Memory Service', () => {
     it('should default strength to 1.0 when not provided', async () => {
       mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
-      const result = await memory.createMemory('test-agent', {
+      const result = await memory.createMemory('test-avatar', {
         tier: 'immediate',
         type: 'fact',
         content: 'test',
@@ -250,7 +250,7 @@ describe('Memory Service', () => {
     it('should cap strength at MAX_STRENGTH (2.0)', async () => {
       mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
-      const result = await memory.createMemory('test-agent', {
+      const result = await memory.createMemory('test-avatar', {
         tier: 'immediate',
         type: 'fact',
         content: 'test',
@@ -263,7 +263,7 @@ describe('Memory Service', () => {
     it('should floor strength at 0', async () => {
       mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
-      const result = await memory.createMemory('test-agent', {
+      const result = await memory.createMemory('test-avatar', {
         tier: 'immediate',
         type: 'fact',
         content: 'test',
@@ -276,7 +276,7 @@ describe('Memory Service', () => {
     it('should handle NaN strength by defaulting to 1.0', async () => {
       mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
-      const result = await memory.createMemory('test-agent', {
+      const result = await memory.createMemory('test-avatar', {
         tier: 'immediate',
         type: 'fact',
         content: 'test',
@@ -289,7 +289,7 @@ describe('Memory Service', () => {
     it('should handle undefined strength by defaulting to 1.0', async () => {
       mockSend.mockReturnValueOnce(Promise.resolve({})); // PutCommand
 
-      const result = await memory.createMemory('test-agent', {
+      const result = await memory.createMemory('test-avatar', {
         tier: 'immediate',
         type: 'fact',
         content: 'test',
@@ -306,7 +306,7 @@ describe('Memory Service', () => {
         // Second UpdateCommand (cap at max) - simulates condition check pass
         mockSend.mockReturnValueOnce(Promise.resolve({}));
 
-        await memory.reinforceMemory('test-agent', 'memory-1', 'immediate#123#uuid', 0.5);
+        await memory.reinforceMemory('test-avatar', 'memory-1', 'immediate#123#uuid', 0.5);
 
         expect(mockSend).toHaveBeenCalledTimes(2);
       });
@@ -329,7 +329,7 @@ describe('Memory Service', () => {
         return { Count: 5 };
       });
 
-      await memory.getMemoryCounts('test-agent');
+      await memory.getMemoryCounts('test-avatar');
 
       // All starts should happen before all ends (parallel execution)
       const startIndices = callOrder
@@ -355,7 +355,7 @@ describe('Memory Service', () => {
         return { Count: counts[tierValue] || 0 };
       });
 
-      const result = await memory.getMemoryCounts('test-agent');
+      const result = await memory.getMemoryCounts('test-avatar');
 
       expect(result).toEqual({
         immediate: 3,
@@ -370,11 +370,11 @@ describe('Memory Service', () => {
   // ==========================================================================
   describe('Batch Operations (applyDecay)', () => {
     it('should process updates in batches of 25 in parallel', async () => {
-      const memories: AgentMemory[] = Array.from({ length: 50 }, (_, i) => ({
-        pk: `MEMORY#test-agent`,
+      const memories: AvatarMemory[] = Array.from({ length: 50 }, (_, i) => ({
+        pk: `MEMORY#test-avatar`,
         sk: `immediate#${Date.now()}#${i}`,
         id: `memory-${i}`,
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         tier: 'immediate' as MemoryTier,
         type: 'fact' as const,
         content: `Memory ${i}`,
@@ -396,7 +396,7 @@ describe('Memory Service', () => {
         return {};
       });
 
-      const result = await memory.applyDecay('test-agent', 'immediate', 0.95);
+      const result = await memory.applyDecay('test-avatar', 'immediate', 0.95);
 
       // Should have called update for all 50 memories
       expect(updateCallCount).toBe(50);
@@ -404,12 +404,12 @@ describe('Memory Service', () => {
     });
 
     it('should prune memories below threshold', async () => {
-      const memories: AgentMemory[] = [
+      const memories: AvatarMemory[] = [
         {
-          pk: 'MEMORY#test-agent',
+          pk: 'MEMORY#test-avatar',
           sk: 'immediate#123#1',
           id: 'strong-memory',
-          agentId: 'test-agent',
+          avatarId: 'test-avatar',
           tier: 'immediate',
           type: 'fact',
           content: 'Strong',
@@ -418,10 +418,10 @@ describe('Memory Service', () => {
           updatedAt: Date.now(),
         },
         {
-          pk: 'MEMORY#test-agent',
+          pk: 'MEMORY#test-avatar',
           sk: 'immediate#123#2',
           id: 'weak-memory',
-          agentId: 'test-agent',
+          avatarId: 'test-avatar',
           tier: 'immediate',
           type: 'fact',
           content: 'Weak',
@@ -444,7 +444,7 @@ describe('Memory Service', () => {
         return {};
       });
 
-      const result = await memory.applyDecay('test-agent', 'immediate', 0.95);
+      const result = await memory.applyDecay('test-avatar', 'immediate', 0.95);
 
       expect(batchWriteCalled).toBe(true);
       expect(result.pruned).toBe(1);
@@ -457,11 +457,11 @@ describe('Memory Service', () => {
   // ==========================================================================
   describe('Transaction Atomicity', () => {
     it('should use DynamoDB transactions for memory promotion', async () => {
-      const oldMemories: AgentMemory[] = Array.from({ length: 15 }, (_, i) => ({
-        pk: 'MEMORY#test-agent',
+      const oldMemories: AvatarMemory[] = Array.from({ length: 15 }, (_, i) => ({
+        pk: 'MEMORY#test-avatar',
         sk: `immediate#${Date.now() - i * 1000}#memory-${i}`,
         id: `memory-${i}`,
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         tier: 'immediate' as MemoryTier,
         type: 'fact' as const,
         content: `Memory ${i}`,
@@ -473,7 +473,7 @@ describe('Memory Service', () => {
       // Document client for initial query
       mockSend.mockReturnValueOnce(Promise.resolve({ Items: oldMemories }));
 
-      const result = await memory.promoteImmediateToRecent('test-agent', 10);
+      const result = await memory.promoteImmediateToRecent('test-avatar', 10);
 
       // Should promote 5 memories (15 - 10 = 5)
       expect(transactionCalls.length).toBe(5);
@@ -487,11 +487,11 @@ describe('Memory Service', () => {
     });
 
     it('should continue promoting remaining memories if one transaction fails', async () => {
-      const oldMemories: AgentMemory[] = Array.from({ length: 12 }, (_, i) => ({
-        pk: 'MEMORY#test-agent',
+      const oldMemories: AvatarMemory[] = Array.from({ length: 12 }, (_, i) => ({
+        pk: 'MEMORY#test-avatar',
         sk: `immediate#${Date.now() - i * 1000}#memory-${i}`,
         id: `memory-${i}`,
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         tier: 'immediate' as MemoryTier,
         type: 'fact' as const,
         content: `Memory ${i}`,
@@ -514,7 +514,7 @@ describe('Memory Service', () => {
         return {};
       });
 
-      const result = await memory.promoteImmediateToRecent('test-agent', 10);
+      const result = await memory.promoteImmediateToRecent('test-avatar', 10);
 
       // Should attempt 2 promotions (12 - 10 = 2), one failed
       expect(transactionCalls.length).toBe(2);
@@ -522,11 +522,11 @@ describe('Memory Service', () => {
     });
 
     it('should not promote if count is within limit', async () => {
-      const memories: AgentMemory[] = Array.from({ length: 5 }, (_, i) => ({
-        pk: 'MEMORY#test-agent',
+      const memories: AvatarMemory[] = Array.from({ length: 5 }, (_, i) => ({
+        pk: 'MEMORY#test-avatar',
         sk: `immediate#${Date.now()}#memory-${i}`,
         id: `memory-${i}`,
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         tier: 'immediate' as MemoryTier,
         type: 'fact' as const,
         content: `Memory ${i}`,
@@ -537,7 +537,7 @@ describe('Memory Service', () => {
 
       mockSend.mockReturnValueOnce(Promise.resolve({ Items: memories }));
 
-      const result = await memory.promoteImmediateToRecent('test-agent', 10);
+      const result = await memory.promoteImmediateToRecent('test-avatar', 10);
 
       expect(result.promoted).toBe(0);
       expect(transactionCalls.length).toBe(0); // No transactions needed
@@ -552,12 +552,12 @@ describe('Memory Service', () => {
       const now = Date.now();
       const dayMs = 24 * 60 * 60 * 1000;
 
-      const memories: AgentMemory[] = [
+      const memories: AvatarMemory[] = [
         {
-          pk: 'MEMORY#test-agent',
+          pk: 'MEMORY#test-avatar',
           sk: 'immediate#old#1',
           id: 'old-memory',
-          agentId: 'test-agent',
+          avatarId: 'test-avatar',
           tier: 'immediate',
           type: 'fact',
           content: 'cheetah fact old',
@@ -566,10 +566,10 @@ describe('Memory Service', () => {
           updatedAt: now - 60 * dayMs,
         },
         {
-          pk: 'MEMORY#test-agent',
+          pk: 'MEMORY#test-avatar',
           sk: 'immediate#new#2',
           id: 'new-memory',
-          agentId: 'test-agent',
+          avatarId: 'test-avatar',
           tier: 'immediate',
           type: 'fact',
           content: 'cheetah fact new',
@@ -581,7 +581,7 @@ describe('Memory Service', () => {
 
       mockSend.mockReturnValueOnce(Promise.resolve({ Items: memories }));
 
-      const results = await memory.searchMemories('test-agent', 'cheetah');
+      const results = await memory.searchMemories('test-avatar', 'cheetah');
 
       // Newer memory should be first due to recency boost
       expect(results[0].id).toBe('new-memory');
@@ -591,12 +591,12 @@ describe('Memory Service', () => {
     it('should apply tier multipliers correctly', async () => {
       const now = Date.now();
 
-      const memories: AgentMemory[] = [
+      const memories: AvatarMemory[] = [
         {
-          pk: 'MEMORY#test-agent',
+          pk: 'MEMORY#test-avatar',
           sk: 'immediate#1',
           id: 'immediate-memory',
-          agentId: 'test-agent',
+          avatarId: 'test-avatar',
           tier: 'immediate',
           type: 'fact',
           content: 'cheetah speed',
@@ -605,10 +605,10 @@ describe('Memory Service', () => {
           updatedAt: now,
         },
         {
-          pk: 'MEMORY#test-agent',
+          pk: 'MEMORY#test-avatar',
           sk: 'core#2',
           id: 'core-memory',
-          agentId: 'test-agent',
+          avatarId: 'test-avatar',
           tier: 'core',
           type: 'fact',
           content: 'cheetah speed',
@@ -620,7 +620,7 @@ describe('Memory Service', () => {
 
       mockSend.mockReturnValueOnce(Promise.resolve({ Items: memories }));
 
-      const results = await memory.searchMemories('test-agent', 'cheetah');
+      const results = await memory.searchMemories('test-avatar', 'cheetah');
 
       // Core memory should be first due to 1.5x tier multiplier
       expect(results[0].id).toBe('core-memory');
@@ -629,12 +629,12 @@ describe('Memory Service', () => {
     it('should factor in strength for scoring', async () => {
       const now = Date.now();
 
-      const memories: AgentMemory[] = [
+      const memories: AvatarMemory[] = [
         {
-          pk: 'MEMORY#test-agent',
+          pk: 'MEMORY#test-avatar',
           sk: 'immediate#1',
           id: 'weak-memory',
-          agentId: 'test-agent',
+          avatarId: 'test-avatar',
           tier: 'immediate',
           type: 'fact',
           content: 'cheetah',
@@ -643,10 +643,10 @@ describe('Memory Service', () => {
           updatedAt: now,
         },
         {
-          pk: 'MEMORY#test-agent',
+          pk: 'MEMORY#test-avatar',
           sk: 'immediate#2',
           id: 'strong-memory',
-          agentId: 'test-agent',
+          avatarId: 'test-avatar',
           tier: 'immediate',
           type: 'fact',
           content: 'cheetah',
@@ -658,14 +658,14 @@ describe('Memory Service', () => {
 
       mockSend.mockReturnValueOnce(Promise.resolve({ Items: memories }));
 
-      const results = await memory.searchMemories('test-agent', 'cheetah');
+      const results = await memory.searchMemories('test-avatar', 'cheetah');
 
       // Strong memory should be first
       expect(results[0].id).toBe('strong-memory');
     });
 
     it('should return empty array for empty query', async () => {
-      const results = await memory.searchMemories('test-agent', '   ');
+      const results = await memory.searchMemories('test-avatar', '   ');
 
       expect(results).toEqual([]);
       expect(mockSend).not.toHaveBeenCalled();
@@ -674,7 +674,7 @@ describe('Memory Service', () => {
     it('should limit initial fetch to 200 memories', async () => {
       mockSend.mockReturnValueOnce(Promise.resolve({ Items: [] }));
 
-      await memory.searchMemories('test-agent', 'query');
+      await memory.searchMemories('test-avatar', 'query');
 
       expect(mockSend).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -693,7 +693,7 @@ describe('Memory Service', () => {
     it('should throw on createMemory failure', async () => {
       mockSend.mockReturnValueOnce(Promise.reject(new Error('DynamoDB error')));
 
-      await expect(memory.createMemory('test-agent', {
+      await expect(memory.createMemory('test-avatar', {
         tier: 'immediate',
         type: 'fact',
         content: 'test',
@@ -704,7 +704,7 @@ describe('Memory Service', () => {
     it('should return empty array on getMemories failure', async () => {
       mockSend.mockReturnValueOnce(Promise.reject(new Error('Query failed')));
 
-      const result = await memory.getMemories('test-agent');
+      const result = await memory.getMemories('test-avatar');
 
       expect(result).toEqual([]);
     });
@@ -714,7 +714,7 @@ describe('Memory Service', () => {
 
       // Should not throw
       await expect(
-        memory.reinforceMemory('test-agent', 'memory-1', 'sk', 0.1)
+        memory.reinforceMemory('test-avatar', 'memory-1', 'sk', 0.1)
       ).resolves.toBeUndefined();
     });
 
@@ -722,7 +722,7 @@ describe('Memory Service', () => {
       mockSend.mockReturnValueOnce(Promise.reject(new Error('Delete failed')));
 
       await expect(
-        memory.deleteMemory('test-agent', 'immediate#123#uuid')
+        memory.deleteMemory('test-avatar', 'immediate#123#uuid')
       ).rejects.toThrow('Delete failed');
     });
 
@@ -734,7 +734,7 @@ describe('Memory Service', () => {
 
       // Should not throw, just log
       await expect(
-        memory.deleteMemories('test-agent', [
+        memory.deleteMemories('test-avatar', [
           ...Array.from({ length: 25 }, (_, i) => `sk-${i}`),
           ...Array.from({ length: 25 }, (_, i) => `sk-${i + 25}`),
         ])
@@ -747,11 +747,11 @@ describe('Memory Service', () => {
   // ==========================================================================
   describe('getMemory', () => {
     it('should find memory by ID with tier hint', async () => {
-      const mockMemory: AgentMemory = {
-        pk: 'MEMORY#test-agent',
+      const mockMemory: AvatarMemory = {
+        pk: 'MEMORY#test-avatar',
         sk: 'immediate#123#uuid',
         id: 'uuid',
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         tier: 'immediate',
         type: 'fact',
         content: 'test',
@@ -762,18 +762,18 @@ describe('Memory Service', () => {
 
       mockSend.mockReturnValueOnce(Promise.resolve({ Items: [mockMemory] }));
 
-      const result = await memory.getMemory('test-agent', 'uuid', 'immediate');
+      const result = await memory.getMemory('test-avatar', 'uuid', 'immediate');
 
       expect(result).toEqual(mockMemory);
       expect(mockSend).toHaveBeenCalledTimes(1);
     });
 
     it('should search all tiers when no tier hint provided', async () => {
-      const mockMemory: AgentMemory = {
-        pk: 'MEMORY#test-agent',
+      const mockMemory: AvatarMemory = {
+        pk: 'MEMORY#test-avatar',
         sk: 'recent#123#uuid',
         id: 'uuid',
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         tier: 'recent',
         type: 'fact',
         content: 'test',
@@ -787,7 +787,7 @@ describe('Memory Service', () => {
       // recent search returns the memory
       mockSend.mockReturnValueOnce(Promise.resolve({ Items: [mockMemory] }));
 
-      const result = await memory.getMemory('test-agent', 'uuid');
+      const result = await memory.getMemory('test-avatar', 'uuid');
 
       expect(result).toEqual(mockMemory);
       expect(mockSend).toHaveBeenCalledTimes(2);
@@ -796,7 +796,7 @@ describe('Memory Service', () => {
     it('should return null when memory not found', async () => {
       mockSend.mockReturnValue(Promise.resolve({ Items: [] }));
 
-      const result = await memory.getMemory('test-agent', 'nonexistent');
+      const result = await memory.getMemory('test-avatar', 'nonexistent');
 
       expect(result).toBeNull();
     });
@@ -839,7 +839,7 @@ describe('Memory Service', () => {
         return { Items: tierMemories[tierValue] || [] };
       });
 
-      const stats = await memory.getMemoryStats('test-agent');
+      const stats = await memory.getMemoryStats('test-avatar');
 
       expect(stats.counts).toEqual({
         immediate: 2,
@@ -864,18 +864,18 @@ describe('Memory Service', () => {
       // promoteImmediateToRecent query (background)
       mockSend.mockReturnValueOnce(Promise.resolve({ Items: [] }));
 
-      const result = await memory.remember('test-agent', 'New fact', 'topic');
+      const result = await memory.remember('test-avatar', 'New fact', 'topic');
 
       expect(result.saved).toBe(true);
       expect(result.reinforced).toBeUndefined();
     });
 
     it('should reinforce existing similar memory', async () => {
-      const existingMemory: AgentMemory = {
-        pk: 'MEMORY#test-agent',
+      const existingMemory: AvatarMemory = {
+        pk: 'MEMORY#test-avatar',
         sk: 'immediate#123#uuid',
         id: 'existing-uuid',
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         tier: 'immediate',
         type: 'fact',
         content: 'Similar existing fact',
@@ -891,7 +891,7 @@ describe('Memory Service', () => {
       mockSend.mockReturnValueOnce(Promise.resolve({}));
       mockSend.mockReturnValueOnce(Promise.resolve({}));
 
-      const result = await memory.remember('test-agent', 'Similar existing', 'topic');
+      const result = await memory.remember('test-avatar', 'Similar existing', 'topic');
 
       expect(result.saved).toBe(true);
       expect(result.reinforced).toBe(true);
@@ -921,7 +921,7 @@ describe('Memory Service', () => {
         .mockReturnValueOnce(Promise.resolve({ Items: recentMemories }))
         .mockReturnValueOnce(Promise.resolve({ Items: identityMemories }));
 
-      const context = await memory.getMemoryContext('test-agent');
+      const context = await memory.getMemoryContext('test-avatar');
 
       expect(context).toContain('## Who I Am');
       expect(context).toContain('I am becoming more curious');
@@ -939,7 +939,7 @@ describe('Memory Service', () => {
         .mockReturnValueOnce(Promise.resolve({ Items: [] }))
         .mockReturnValueOnce(Promise.resolve({ Items: [] }));
 
-      const context = await memory.getMemoryContext('test-agent');
+      const context = await memory.getMemoryContext('test-avatar');
 
       expect(context).toBe('');
     });

@@ -78,7 +78,7 @@ export async function handler(
       }
 
       const body = JSON.parse(event.body || '{}');
-      const { error, stack, subsystem, category, agentId, requestId, context } = body;
+      const { error, stack, subsystem, category, avatarId, requestId, context } = body;
 
       if (!error || !subsystem) {
         return {
@@ -93,7 +93,7 @@ export async function handler(
         stack,
         subsystem,
         category,
-        agentId,
+        avatarId,
         requestId,
         context,
       });

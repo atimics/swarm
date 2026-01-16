@@ -11,7 +11,7 @@ import {
   completeOAuthFlow,
   getConnectionStatus,
   disconnectTwitter,
-  getAgentTwitterCredentials,
+  getAvatarTwitterCredentials,
   _resetCacheForTesting,
   type TwitterOAuthServiceDeps,
 } from './twitter-oauth.js';
@@ -226,14 +226,14 @@ describe('Twitter OAuth - Request Token Storage', () => {
     }));
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({}));
 
-    await startOAuthFlow('agent-123', mockDeps);
+    await startOAuthFlow('avatar-123', mockDeps);
 
     expect(mockDeps.mockDynamoSend).toHaveBeenCalled();
     const call = mockDeps.mockDynamoSend.mock.calls[0][0] as { input?: { Item?: Record<string, unknown> } };
     const item = call.input?.Item;
     expect(item?.pk).toBe('OAUTH#TWITTER#test-oauth-token');
     expect(item?.sk).toBe('OAUTH_REQUEST');
-    expect(item?.agentId).toBe('agent-123');
+    expect(item?.avatarId).toBe('avatar-123');
   });
 });
 
@@ -248,7 +248,7 @@ describe('Twitter OAuth - Start Flow', () => {
   it('startOAuthFlow throws when not configured', async () => {
     mockDeps.mockSecretsSend.mockImplementation(() => Promise.reject(new Error('Not found')));
 
-    await expect(startOAuthFlow('agent-123', mockDeps)).rejects.toThrow('Twitter OAuth not configured');
+    await expect(startOAuthFlow('avatar-123', mockDeps)).rejects.toThrow('Twitter OAuth not configured');
   });
 
   it('startOAuthFlow returns authorization URL and token', async () => {
@@ -260,7 +260,7 @@ describe('Twitter OAuth - Start Flow', () => {
     }));
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({}));
 
-    const result = await startOAuthFlow('agent-123', mockDeps);
+    const result = await startOAuthFlow('avatar-123', mockDeps);
 
     expect(result.authorizationUrl).toContain('twitter.com');
     expect(result.oauthToken).toBe('test-oauth-token');
@@ -304,7 +304,7 @@ describe('Twitter OAuth - Complete Flow', () => {
       if (callCount === 1) {
         return Promise.resolve({
           Item: {
-            agentId: 'agent-123',
+            avatarId: 'avatar-123',
             oauthToken: 'test-token',
             oauthTokenSecret: 'test-secret',
           },
@@ -332,7 +332,7 @@ describe('Twitter OAuth - Complete Flow', () => {
       if (callCount === 1) {
         return Promise.resolve({
           Item: {
-            agentId: 'agent-123',
+            avatarId: 'avatar-123',
             oauthToken: 'test-token',
             oauthTokenSecret: 'test-secret',
           },
@@ -344,7 +344,7 @@ describe('Twitter OAuth - Complete Flow', () => {
     await completeOAuthFlow('test-token', 'verifier', session, mockDeps);
 
     expect(mockDeps.mockStoreSecret).toHaveBeenCalledWith(
-      'agent-123',
+      'avatar-123',
       'twitter_access_token',
       'default',
       'new-access-token',
@@ -366,7 +366,7 @@ describe('Twitter OAuth - Complete Flow', () => {
       if (callCount === 1) {
         return Promise.resolve({
           Item: {
-            agentId: 'agent-123',
+            avatarId: 'avatar-123',
             oauthToken: 'test-token',
             oauthTokenSecret: 'test-secret',
           },
@@ -378,7 +378,7 @@ describe('Twitter OAuth - Complete Flow', () => {
     await completeOAuthFlow('test-token', 'verifier', session, mockDeps);
 
     expect(mockDeps.mockStoreSecret).toHaveBeenCalledWith(
-      'agent-123',
+      'avatar-123',
       'twitter_access_secret',
       'default',
       'new-access-secret',
@@ -400,7 +400,7 @@ describe('Twitter OAuth - Complete Flow', () => {
       if (callCount === 1) {
         return Promise.resolve({
           Item: {
-            agentId: 'agent-123',
+            avatarId: 'avatar-123',
             oauthToken: 'test-token',
             oauthTokenSecret: 'test-secret',
           },
@@ -414,7 +414,7 @@ describe('Twitter OAuth - Complete Flow', () => {
     // Third call should be PutCommand for connection record
     const calls = mockDeps.mockDynamoSend.mock.calls;
     const putCall = calls[2][0] as { input?: { Item?: Record<string, unknown> } };
-    expect(putCall.input?.Item?.pk).toBe('AGENT#agent-123');
+    expect(putCall.input?.Item?.pk).toBe('AVATAR#avatar-123');
     expect(putCall.input?.Item?.sk).toBe('TWITTER#CONNECTION');
     expect(putCall.input?.Item?.username).toBe('testuser');
     expect(putCall.input?.Item?.userId).toBe('12345');
@@ -433,7 +433,7 @@ describe('Twitter OAuth - Complete Flow', () => {
       if (callCount === 1) {
         return Promise.resolve({
           Item: {
-            agentId: 'agent-123',
+            avatarId: 'avatar-123',
             oauthToken: 'test-token',
             oauthTokenSecret: 'test-secret',
           },
@@ -446,7 +446,7 @@ describe('Twitter OAuth - Complete Flow', () => {
 
     expect(result).toEqual({
       success: true,
-      agentId: 'agent-123',
+      avatarId: 'avatar-123',
       username: 'testuser',
       userId: '12345',
     });
@@ -462,18 +462,18 @@ describe('Twitter OAuth - Connection Status', () => {
   });
 
   it('should generate correct connection record key', () => {
-    const agentId = 'agent-123';
-    const pk = `AGENT#${agentId}`;
+    const avatarId = 'avatar-123';
+    const pk = `AVATAR#${avatarId}`;
     const sk = 'TWITTER#CONNECTION';
 
-    expect(pk).toBe('AGENT#agent-123');
+    expect(pk).toBe('AVATAR#avatar-123');
     expect(sk).toBe('TWITTER#CONNECTION');
   });
 
   it('getConnectionStatus returns connected=false when no record', async () => {
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({ Item: undefined }));
 
-    const result = await getConnectionStatus('agent-123', mockDeps);
+    const result = await getConnectionStatus('avatar-123', mockDeps);
 
     expect(result).toEqual({ connected: false });
   });
@@ -482,7 +482,7 @@ describe('Twitter OAuth - Connection Status', () => {
     const connectedAt = Date.now() - 86400000; // 1 day ago
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({
       Item: {
-        pk: 'AGENT#agent-123',
+        pk: 'AVATAR#avatar-123',
         sk: 'TWITTER#CONNECTION',
         username: 'testuser',
         userId: '12345',
@@ -491,7 +491,7 @@ describe('Twitter OAuth - Connection Status', () => {
       },
     }));
 
-    const result = await getConnectionStatus('agent-123', mockDeps);
+    const result = await getConnectionStatus('avatar-123', mockDeps);
 
     expect(result).toEqual({
       connected: true,
@@ -510,7 +510,7 @@ describe('Twitter OAuth - Connection Status', () => {
       },
     }));
 
-    const result = await getConnectionStatus('agent-xyz', mockDeps);
+    const result = await getConnectionStatus('avatar-xyz', mockDeps);
 
     expect(result.username).toBe('handle');
     expect(result.userId).toBe('999');
@@ -531,10 +531,10 @@ describe('Twitter OAuth - Disconnect', () => {
     mockDeps.mockDeleteSecret.mockImplementation(() => Promise.resolve());
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({}));
 
-    await disconnectTwitter('agent-123', session, mockDeps);
+    await disconnectTwitter('avatar-123', session, mockDeps);
 
     expect(mockDeps.mockDeleteSecret).toHaveBeenCalledWith(
-      'agent-123',
+      'avatar-123',
       'twitter_access_token',
       'default',
       session
@@ -545,10 +545,10 @@ describe('Twitter OAuth - Disconnect', () => {
     mockDeps.mockDeleteSecret.mockImplementation(() => Promise.resolve());
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({}));
 
-    await disconnectTwitter('agent-123', session, mockDeps);
+    await disconnectTwitter('avatar-123', session, mockDeps);
 
     expect(mockDeps.mockDeleteSecret).toHaveBeenCalledWith(
-      'agent-123',
+      'avatar-123',
       'twitter_access_secret',
       'default',
       session
@@ -560,23 +560,23 @@ describe('Twitter OAuth - Disconnect', () => {
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({}));
 
     // Should resolve without throwing
-    await expect(disconnectTwitter('agent-123', session, mockDeps)).resolves.toBeUndefined();
+    await expect(disconnectTwitter('avatar-123', session, mockDeps)).resolves.toBeUndefined();
   });
 
   it('disconnectTwitter deletes connection record from DynamoDB', async () => {
     mockDeps.mockDeleteSecret.mockImplementation(() => Promise.resolve());
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({}));
 
-    await disconnectTwitter('agent-123', session, mockDeps);
+    await disconnectTwitter('avatar-123', session, mockDeps);
 
     expect(mockDeps.mockDynamoSend).toHaveBeenCalled();
     const call = mockDeps.mockDynamoSend.mock.calls[0][0] as { input?: { Key?: Record<string, unknown> } };
-    expect(call.input?.Key?.pk).toBe('AGENT#agent-123');
+    expect(call.input?.Key?.pk).toBe('AVATAR#avatar-123');
     expect(call.input?.Key?.sk).toBe('TWITTER#CONNECTION');
   });
 });
 
-describe('Twitter OAuth - Get Agent Credentials', () => {
+describe('Twitter OAuth - Get Avatar Credentials', () => {
   let mockDeps: ReturnType<typeof createMockDeps>;
 
   beforeEach(() => {
@@ -584,15 +584,15 @@ describe('Twitter OAuth - Get Agent Credentials', () => {
     _resetCacheForTesting();
   });
 
-  it('getAgentTwitterCredentials returns configured=false when no app credentials', async () => {
+  it('getAvatarTwitterCredentials returns configured=false when no app credentials', async () => {
     mockDeps.mockSecretsSend.mockImplementation(() => Promise.reject(new Error('Not found')));
 
-    const result = await getAgentTwitterCredentials('agent-123', mockDeps);
+    const result = await getAvatarTwitterCredentials('avatar-123', mockDeps);
 
     expect(result).toEqual({ configured: false });
   });
 
-  it('getAgentTwitterCredentials returns configured=false when not connected', async () => {
+  it('getAvatarTwitterCredentials returns configured=false when not connected', async () => {
     mockDeps.mockSecretsSend.mockImplementation(() => Promise.resolve({
       SecretString: JSON.stringify({
         TWITTER_APP_KEY: 'test-app-key',
@@ -601,12 +601,12 @@ describe('Twitter OAuth - Get Agent Credentials', () => {
     }));
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({ Item: undefined }));
 
-    const result = await getAgentTwitterCredentials('agent-123', mockDeps);
+    const result = await getAvatarTwitterCredentials('avatar-123', mockDeps);
 
     expect(result).toEqual({ configured: false });
   });
 
-  it('getAgentTwitterCredentials fetches tokens from Secrets Manager', async () => {
+  it('getAvatarTwitterCredentials fetches tokens from Secrets Manager', async () => {
     mockDeps.mockSecretsSend.mockImplementation(() => Promise.resolve({
       SecretString: JSON.stringify({
         TWITTER_APP_KEY: 'test-app-key',
@@ -620,13 +620,13 @@ describe('Twitter OAuth - Get Agent Credentials', () => {
       .mockImplementationOnce(() => Promise.resolve('user-access-token'))
       .mockImplementationOnce(() => Promise.resolve('user-access-secret'));
 
-    await getAgentTwitterCredentials('agent-123', mockDeps);
+    await getAvatarTwitterCredentials('avatar-123', mockDeps);
 
-    expect(mockDeps.mockGetSecretValue).toHaveBeenCalledWith('agent-123', 'twitter_access_token', 'default');
-    expect(mockDeps.mockGetSecretValue).toHaveBeenCalledWith('agent-123', 'twitter_access_secret', 'default');
+    expect(mockDeps.mockGetSecretValue).toHaveBeenCalledWith('avatar-123', 'twitter_access_token', 'default');
+    expect(mockDeps.mockGetSecretValue).toHaveBeenCalledWith('avatar-123', 'twitter_access_secret', 'default');
   });
 
-  it('getAgentTwitterCredentials returns configured=false when tokens missing', async () => {
+  it('getAvatarTwitterCredentials returns configured=false when tokens missing', async () => {
     mockDeps.mockSecretsSend.mockImplementation(() => Promise.resolve({
       SecretString: JSON.stringify({
         TWITTER_APP_KEY: 'test-app-key',
@@ -638,12 +638,12 @@ describe('Twitter OAuth - Get Agent Credentials', () => {
     }));
     mockDeps.mockGetSecretValue.mockImplementation(() => Promise.resolve(null));
 
-    const result = await getAgentTwitterCredentials('agent-123', mockDeps);
+    const result = await getAvatarTwitterCredentials('avatar-123', mockDeps);
 
     expect(result).toEqual({ configured: false });
   });
 
-  it('getAgentTwitterCredentials returns full credentials when configured', async () => {
+  it('getAvatarTwitterCredentials returns full credentials when configured', async () => {
     mockDeps.mockSecretsSend.mockImplementation(() => Promise.resolve({
       SecretString: JSON.stringify({
         TWITTER_APP_KEY: 'test-app-key',
@@ -657,7 +657,7 @@ describe('Twitter OAuth - Get Agent Credentials', () => {
       .mockImplementationOnce(() => Promise.resolve('user-access-token'))
       .mockImplementationOnce(() => Promise.resolve('user-access-secret'));
 
-    const result = await getAgentTwitterCredentials('agent-123', mockDeps);
+    const result = await getAvatarTwitterCredentials('avatar-123', mockDeps);
 
     expect(result).toEqual({
       configured: true,
@@ -668,7 +668,7 @@ describe('Twitter OAuth - Get Agent Credentials', () => {
     });
   });
 
-  it('getAgentTwitterCredentials handles Secrets Manager errors', async () => {
+  it('getAvatarTwitterCredentials handles Secrets Manager errors', async () => {
     mockDeps.mockSecretsSend.mockImplementation(() => Promise.resolve({
       SecretString: JSON.stringify({
         TWITTER_APP_KEY: 'test-app-key',
@@ -680,7 +680,7 @@ describe('Twitter OAuth - Get Agent Credentials', () => {
     }));
     mockDeps.mockGetSecretValue.mockImplementation(() => Promise.reject(new Error('Access denied')));
 
-    const result = await getAgentTwitterCredentials('agent-123', mockDeps);
+    const result = await getAvatarTwitterCredentials('avatar-123', mockDeps);
 
     expect(result).toEqual({ configured: false });
   });
@@ -707,7 +707,7 @@ describe('Twitter OAuth - Security', () => {
       if (callCount === 1) {
         return Promise.resolve({
           Item: {
-            agentId: 'agent-123',
+            avatarId: 'avatar-123',
             oauthToken: 'token',
             oauthTokenSecret: 'secret',
           },
@@ -740,7 +740,7 @@ describe('Twitter OAuth - Security', () => {
       if (callCount === 1) {
         return Promise.resolve({
           Item: {
-            agentId: 'agent-123',
+            avatarId: 'avatar-123',
             oauthToken: 'token',
             oauthTokenSecret: 'secret',
           },

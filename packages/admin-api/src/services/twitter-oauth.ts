@@ -1,9 +1,9 @@
 /**
  * Twitter OAuth 1.0a Service
- * Handles 3-legged OAuth flow for connecting X/Twitter accounts to agents
+ * Handles 3-legged OAuth flow for connecting X/Twitter accounts to avatars
  *
  * Flow:
- * 1. User clicks "Connect X Account" → /oauth/twitter/start?agentId=xxx
+ * 1. User clicks "Connect X Account" → /oauth/twitter/start?avatarId=xxx
  * 2. We get request token from Twitter, store it, redirect user to Twitter
  * 3. User authorizes on Twitter → redirected back to /oauth/twitter/callback
  * 4. We exchange request token for access token, store in Secrets Manager
@@ -113,7 +113,7 @@ async function getAppCredentials(deps: TwitterOAuthServiceDeps = defaultDeps): P
 interface OAuthRequestToken {
   pk: string;           // OAUTH#TWITTER#<oauth_token>
   sk: string;           // OAUTH_REQUEST
-  agentId: string;
+  avatarId: string;
   oauthToken: string;
   oauthTokenSecret: string;
   createdAt: number;
@@ -131,7 +131,7 @@ export async function isConfigured(deps: TwitterOAuthServiceDeps = defaultDeps):
 /**
  * Start the OAuth flow - get request token and return authorization URL
  */
-export async function startOAuthFlow(agentId: string, deps: TwitterOAuthServiceDeps = defaultDeps): Promise<{
+export async function startOAuthFlow(avatarId: string, deps: TwitterOAuthServiceDeps = defaultDeps): Promise<{
   authorizationUrl: string;
   oauthToken: string;
 }> {
@@ -157,7 +157,7 @@ export async function startOAuthFlow(agentId: string, deps: TwitterOAuthServiceD
   const record: OAuthRequestToken = {
     pk: `OAUTH#TWITTER#${oauth_token}`,
     sk: 'OAUTH_REQUEST',
-    agentId,
+    avatarId,
     oauthToken: oauth_token,
     oauthTokenSecret: oauth_token_secret,
     createdAt: now,
@@ -173,7 +173,7 @@ export async function startOAuthFlow(agentId: string, deps: TwitterOAuthServiceD
     level: 'INFO',
     subsystem: 'twitter-oauth',
     event: 'oauth_flow_started',
-    agentId,
+    avatarId,
     oauthToken: oauth_token,
   }));
 
@@ -193,7 +193,7 @@ export async function completeOAuthFlow(
   deps: TwitterOAuthServiceDeps = defaultDeps
 ): Promise<{
   success: boolean;
-  agentId: string;
+  avatarId: string;
   username?: string;
   userId?: string;
   error?: string;
@@ -215,13 +215,13 @@ export async function completeOAuthFlow(
   if (!result.Item) {
     return {
       success: false,
-      agentId: '',
+      avatarId: '',
       error: 'OAuth session expired or not found. Please try again.',
     };
   }
 
   const requestToken = result.Item as OAuthRequestToken;
-  const { agentId, oauthTokenSecret } = requestToken;
+  const { avatarId, oauthTokenSecret } = requestToken;
 
   // Clean up the request token
   await deps.dynamoClient.send(new DeleteCommand({
@@ -250,7 +250,7 @@ export async function completeOAuthFlow(
 
     // Store the access tokens in Secrets Manager
     await deps.secretsService.storeSecret(
-      agentId,
+      avatarId,
       'twitter_access_token',
       'default',
       accessToken,
@@ -259,7 +259,7 @@ export async function completeOAuthFlow(
     );
 
     await deps.secretsService.storeSecret(
-      agentId,
+      avatarId,
       'twitter_access_secret',
       'default',
       accessSecret,
@@ -271,7 +271,7 @@ export async function completeOAuthFlow(
     await deps.dynamoClient.send(new PutCommand({
       TableName: deps.tableName,
       Item: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: 'TWITTER#CONNECTION',
         username,
         userId,
@@ -284,14 +284,14 @@ export async function completeOAuthFlow(
       level: 'INFO',
       subsystem: 'twitter-oauth',
       event: 'oauth_completed',
-      agentId,
+      avatarId,
       username,
       userId,
     }));
 
     return {
       success: true,
-      agentId,
+      avatarId,
       username,
       userId,
     };
@@ -300,22 +300,22 @@ export async function completeOAuthFlow(
       level: 'ERROR',
       subsystem: 'twitter-oauth',
       event: 'oauth_failed',
-      agentId,
+      avatarId,
       error: error instanceof Error ? error.message : String(error),
     }));
 
     return {
       success: false,
-      agentId,
+      avatarId,
       error: error instanceof Error ? error.message : 'Failed to complete OAuth flow',
     };
   }
 }
 
 /**
- * Get the Twitter connection status for an agent
+ * Get the Twitter connection status for an avatar
  */
-export async function getConnectionStatus(agentId: string, deps: TwitterOAuthServiceDeps = defaultDeps): Promise<{
+export async function getConnectionStatus(avatarId: string, deps: TwitterOAuthServiceDeps = defaultDeps): Promise<{
   connected: boolean;
   username?: string;
   userId?: string;
@@ -324,7 +324,7 @@ export async function getConnectionStatus(agentId: string, deps: TwitterOAuthSer
   const result = await deps.dynamoClient.send(new GetCommand({
     TableName: deps.tableName,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: 'TWITTER#CONNECTION',
     },
   })) as { Item?: { username?: string; userId?: string; connectedAt?: number } };
@@ -342,22 +342,22 @@ export async function getConnectionStatus(agentId: string, deps: TwitterOAuthSer
 }
 
 /**
- * Disconnect Twitter from an agent (remove tokens)
+ * Disconnect Twitter from an avatar (remove tokens)
  */
 export async function disconnectTwitter(
-  agentId: string,
+  avatarId: string,
   session: UserSession,
   deps: TwitterOAuthServiceDeps = defaultDeps
 ): Promise<void> {
   // Delete the access tokens from Secrets Manager
   try {
-    await deps.secretsService.deleteSecret(agentId, 'twitter_access_token', 'default', session);
+    await deps.secretsService.deleteSecret(avatarId, 'twitter_access_token', 'default', session);
   } catch {
     // Ignore if not found
   }
 
   try {
-    await deps.secretsService.deleteSecret(agentId, 'twitter_access_secret', 'default', session);
+    await deps.secretsService.deleteSecret(avatarId, 'twitter_access_secret', 'default', session);
   } catch {
     // Ignore if not found
   }
@@ -366,7 +366,7 @@ export async function disconnectTwitter(
   await deps.dynamoClient.send(new DeleteCommand({
     TableName: deps.tableName,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: 'TWITTER#CONNECTION',
     },
   }));
@@ -375,16 +375,16 @@ export async function disconnectTwitter(
     level: 'INFO',
     subsystem: 'twitter-oauth',
     event: 'twitter_disconnected',
-    agentId,
+    avatarId,
     by: session.email,
   }));
 }
 
 /**
- * Get credentials for an agent (used by handlers that need to post)
+ * Get credentials for an avatar (used by handlers that need to post)
  * Returns the app + user credentials needed to create a TwitterApi client
  */
-export async function getAgentTwitterCredentials(agentId: string, deps: TwitterOAuthServiceDeps = defaultDeps): Promise<{
+export async function getAvatarTwitterCredentials(avatarId: string, deps: TwitterOAuthServiceDeps = defaultDeps): Promise<{
   configured: boolean;
   appKey?: string;
   appSecret?: string;
@@ -396,16 +396,16 @@ export async function getAgentTwitterCredentials(agentId: string, deps: TwitterO
     return { configured: false };
   }
 
-  // Check if agent has connected Twitter
-  const status = await getConnectionStatus(agentId, deps);
+  // Check if avatar has connected Twitter
+  const status = await getConnectionStatus(avatarId, deps);
   if (!status.connected) {
     return { configured: false };
   }
 
   // Get the access tokens from Secrets Manager
   try {
-    const accessToken = await deps.secretsService.getSecretValue(agentId, 'twitter_access_token', 'default');
-    const accessSecret = await deps.secretsService.getSecretValue(agentId, 'twitter_access_secret', 'default');
+    const accessToken = await deps.secretsService.getSecretValue(avatarId, 'twitter_access_token', 'default');
+    const accessSecret = await deps.secretsService.getSecretValue(avatarId, 'twitter_access_secret', 'default');
 
     if (!accessToken || !accessSecret) {
       return { configured: false };
@@ -423,3 +423,10 @@ export async function getAgentTwitterCredentials(agentId: string, deps: TwitterO
     return { configured: false };
   }
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use getAvatarTwitterCredentials instead */
+export const getAgentTwitterCredentials = getAvatarTwitterCredentials;

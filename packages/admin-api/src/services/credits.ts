@@ -68,7 +68,7 @@ export const TOOL_CREDITS: Record<string, {
 
 /**
  * Energy system configuration
- * Agents get 1 energy per hour, max 10
+ * Avatars get 1 energy per hour, max 10
  */
 export const ENERGY_MAX = 10;
 export const ENERGY_PER_HOUR = 1;
@@ -83,10 +83,10 @@ export const ENERGY_COSTS = {
 } as const;
 
 /**
- * Get or create a credit bucket for an agent/tool
+ * Get or create a credit bucket for an avatar/tool
  */
 async function getOrCreateBucket(
-  agentId: string,
+  avatarId: string,
   toolName: string
 ): Promise<CreditBucket> {
   const config = TOOL_CREDITS[toolName];
@@ -94,7 +94,7 @@ async function getOrCreateBucket(
     throw new Error(`Unknown tool: ${toolName}`);
   }
 
-  const pk = `AGENT#${agentId}`;
+  const pk = `AVATAR#${avatarId}`;
   const sk = `CREDIT#${toolName}`;
 
   const result = await dynamoClient.send(new GetCommand({
@@ -111,7 +111,7 @@ async function getOrCreateBucket(
   const bucket: CreditBucket = {
     pk,
     sk,
-    agentId,
+    avatarId,
     toolName,
     credits: config.maxCredits,
     maxCredits: config.maxCredits,
@@ -129,8 +129,8 @@ async function getOrCreateBucket(
   return bucket;
 }
 
-async function getOrCreateEnergyBucket(agentId: string): Promise<CreditBucket> {
-  const pk = `AGENT#${agentId}`;
+async function getOrCreateEnergyBucket(avatarId: string): Promise<CreditBucket> {
+  const pk = `AVATAR#${avatarId}`;
   const sk = 'CREDIT#energy';
 
   const result = await dynamoClient.send(new GetCommand({
@@ -146,7 +146,7 @@ async function getOrCreateEnergyBucket(agentId: string): Promise<CreditBucket> {
   const bucket: CreditBucket = {
     pk,
     sk,
-    agentId,
+    avatarId,
     toolName: 'energy',
     credits: ENERGY_MAX, // Start with full energy
     maxCredits: ENERGY_MAX,
@@ -204,7 +204,7 @@ function calculateRefill(bucket: CreditBucket, config: typeof TOOL_CREDITS[strin
  * Check if a tool can be used (has credits available)
  */
 export async function canUseTool(
-  agentId: string,
+  avatarId: string,
   toolName: string
 ): Promise<{ allowed: boolean; reason?: string; credits?: number }> {
   const config = TOOL_CREDITS[toolName];
@@ -212,7 +212,7 @@ export async function canUseTool(
     return { allowed: true }; // Unknown tools are always allowed
   }
 
-  const bucket = await getOrCreateBucket(agentId, toolName);
+  const bucket = await getOrCreateBucket(avatarId, toolName);
   const now = Date.now();
 
   // Check daily reset
@@ -250,7 +250,7 @@ export async function canUseTool(
  * Consume a credit for tool usage
  */
 export async function consumeCredit(
-  agentId: string,
+  avatarId: string,
   toolName: string
 ): Promise<boolean> {
   const config = TOOL_CREDITS[toolName];
@@ -258,7 +258,7 @@ export async function consumeCredit(
     return true; // Unknown tools don't consume credits
   }
 
-  const bucket = await getOrCreateBucket(agentId, toolName);
+  const bucket = await getOrCreateBucket(avatarId, toolName);
   const now = Date.now();
 
   // Calculate current credits with refill
@@ -293,14 +293,14 @@ export async function consumeCredit(
 }
 
 export async function canUseEnergy(
-  agentId: string,
+  avatarId: string,
   cost: number
 ): Promise<{ allowed: boolean; reason?: string; remaining?: number }> {
   if (cost <= 0) {
     return { allowed: true, remaining: ENERGY_MAX };
   }
 
-  const bucket = await getOrCreateEnergyBucket(agentId);
+  const bucket = await getOrCreateEnergyBucket(avatarId);
 
   // Calculate current energy with hourly refill
   const currentEnergy = calculateEnergyRefill(bucket);
@@ -318,14 +318,14 @@ export async function canUseEnergy(
 }
 
 export async function consumeEnergy(
-  agentId: string,
+  avatarId: string,
   cost: number
 ): Promise<boolean> {
   if (cost <= 0) {
     return true;
   }
 
-  const bucket = await getOrCreateEnergyBucket(agentId);
+  const bucket = await getOrCreateEnergyBucket(avatarId);
   const now = Date.now();
 
   // Calculate current energy with hourly refill
@@ -349,12 +349,12 @@ export async function consumeEnergy(
 }
 
 /**
- * Get current energy status for an agent
+ * Get current energy status for an avatar
  */
 export async function getEnergyStatus(
-  agentId: string
+  avatarId: string
 ): Promise<{ current: number; max: number; nextRefillIn: number }> {
-  const bucket = await getOrCreateEnergyBucket(agentId);
+  const bucket = await getOrCreateEnergyBucket(avatarId);
   const now = Date.now();
   const currentEnergy = calculateEnergyRefill(bucket);
   
@@ -386,12 +386,12 @@ export interface ToolCreditStatus {
  * Get structured credit status for all tools
  */
 export async function getToolStatusStructured(
-  agentId: string
+  avatarId: string
 ): Promise<Record<string, ToolCreditStatus>> {
   const result: Record<string, ToolCreditStatus> = {};
 
   for (const [toolName, config] of Object.entries(TOOL_CREDITS)) {
-    const bucket = await getOrCreateBucket(agentId, toolName);
+    const bucket = await getOrCreateBucket(avatarId, toolName);
     const now = Date.now();
 
     // Calculate current credits
@@ -419,11 +419,11 @@ export async function getToolStatusStructured(
 /**
  * Get credit status for all tools (for AI prompt injection)
  */
-export async function getToolStatus(agentId: string): Promise<string> {
+export async function getToolStatus(avatarId: string): Promise<string> {
   const statuses: string[] = [];
 
   for (const [toolName, config] of Object.entries(TOOL_CREDITS)) {
-    const bucket = await getOrCreateBucket(agentId, toolName);
+    const bucket = await getOrCreateBucket(avatarId, toolName);
     const now = Date.now();
 
     // Calculate current credits
@@ -449,13 +449,13 @@ export async function getToolStatus(agentId: string): Promise<string> {
  * Get credit bucket details
  */
 export async function getCreditBucket(
-  agentId: string,
+  avatarId: string,
   toolName: string
 ): Promise<CreditBucket | null> {
   const result = await dynamoClient.send(new GetCommand({
     TableName: ADMIN_TABLE,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: `CREDIT#${toolName}`,
     },
   }));

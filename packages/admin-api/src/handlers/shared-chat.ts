@@ -2,7 +2,7 @@
  * Shared Chat Handler
  *
  * Multi-user chat where authenticated users appear as their inhabited avatar
- * or as a "ghost" if they haven't inhabited an agent yet.
+ * or as a "ghost" if they haven't inhabited an avatar yet.
  *
  * Features:
  * - Wallet-based authentication (SIWS)
@@ -14,7 +14,7 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda
 import { z } from 'zod';
 import { logger } from '@swarm/core';
 import { getSessionWithUser } from '../services/wallet-auth.js';
-import { getInhabitedAgent } from '../services/agent-ownership.js';
+import { getInhabitedAgent } from '../services/avatar-ownership.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
@@ -160,8 +160,8 @@ async function buildSenderIdentity(walletAddress: string): Promise<MessageSender
     walletAddress,
     displayName: inhabitedAgent.name,
     avatarUrl: inhabitedAgent.profileImage?.url,
-    inhabitedAgentId: inhabitedAgent.agentId,
-    inhabitedAgentName: inhabitedAgent.name,
+    inhabitedAvatarId: inhabitedAgent.avatarId,
+    inhabitedAvatarName: inhabitedAgent.name,
     isGhost: false,
   };
 }
@@ -336,7 +336,7 @@ export async function handleSendMessage(
     logger.info('Message sent', {
       subsystem: 'shared-chat',
       isGhost: sender.isGhost,
-      agentName: sender.inhabitedAgentName,
+      avatarName: sender.inhabitedAvatarName,
       channelId,
     });
 

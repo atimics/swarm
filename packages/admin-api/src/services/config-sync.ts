@@ -1,6 +1,6 @@
 /**
- * Agent Config Sync Service
- * Syncs agent configurations from Admin API to the main state table
+ * Avatar Config Sync Service
+ * Syncs avatar configurations from Admin API to the main state table
  * so that Lambda handlers can access them at runtime.
  */
 import {
@@ -11,10 +11,10 @@ import {
   PutCommand,
   DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
-import type { AgentRecord } from '../types.js';
+import type { AvatarRecord } from '../types.js';
 
-// Core AgentConfig type (matches @swarm/core)
-interface AgentConfig {
+// Core AvatarConfig type (matches @swarm/core)
+interface AvatarConfig {
   id: string;
   name: string;
   version: string;
@@ -96,9 +96,9 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 const STATE_TABLE = process.env.STATE_TABLE;
 
 /**
- * Convert AdminAPI AgentRecord to Core AgentConfig format
+ * Convert AdminAPI AvatarRecord to Core AvatarConfig format
  */
-function convertToAgentConfig(record: AgentRecord): AgentConfig {
+function convertToAgentConfig(record: AvatarRecord): AvatarConfig {
   const defaultVoiceConfig = {
     enabled: true,
     ttsProvider: 'voice-clone' as const,
@@ -106,8 +106,8 @@ function convertToAgentConfig(record: AgentRecord): AgentConfig {
     ...record.voiceConfig,
   };
 
-  const config: AgentConfig = {
-    id: record.agentId,
+  const config: AvatarConfig = {
+    id: record.avatarId,
     name: record.name,
     version: '1.0.0',
     persona: record.persona || `You are ${record.name}, a helpful AI assistant.`,
@@ -156,7 +156,7 @@ function convertToAgentConfig(record: AgentRecord): AgentConfig {
     config.platforms.telegram = {
       enabled: true,
       botUsername: record.platforms.telegram.botUsername || '',
-      webhookPath: `/webhook/telegram/${record.agentId}`,
+      webhookPath: `/webhook/telegram/${record.avatarId}`,
       allowedChatTypes: ['private', 'group', 'supergroup'],
     };
     config.secrets.push('TELEGRAM_BOT_TOKEN');
@@ -230,25 +230,25 @@ function convertToAgentConfig(record: AgentRecord): AgentConfig {
 }
 
 /**
- * Sync an agent config to the main state table
+ * Sync an avatar config to the main state table
  */
-export async function syncAgentConfig(record: AgentRecord): Promise<void> {
+export async function syncAvatarConfig(record: AvatarRecord): Promise<void> {
   if (!STATE_TABLE) {
     console.warn('STATE_TABLE not configured, skipping config sync');
     return;
   }
 
-  // Only sync active agents (not drafts or deleted)
+  // Only sync active avatars (not drafts or deleted)
   if (record.status === 'deleted') {
     // Remove from state table
     await dynamoClient.send(new DeleteCommand({
       TableName: STATE_TABLE,
       Key: {
-        pk: `AGENT#${record.agentId}`,
+        pk: `AVATAR#${record.avatarId}`,
         sk: 'CONFIG',
       },
     }));
-    console.log(`Removed agent config from state table: ${record.agentId}`);
+    console.log(`Removed avatar config from state table: ${record.avatarId}`);
     return;
   }
 
@@ -257,7 +257,7 @@ export async function syncAgentConfig(record: AgentRecord): Promise<void> {
   await dynamoClient.send(new PutCommand({
     TableName: STATE_TABLE,
     Item: {
-      pk: `AGENT#${record.agentId}`,
+      pk: `AVATAR#${record.avatarId}`,
       sk: 'CONFIG',
       config,
       // Metadata for tracking
@@ -267,7 +267,7 @@ export async function syncAgentConfig(record: AgentRecord): Promise<void> {
     },
   }));
 
-  console.log(`Synced agent config to state table: ${record.agentId}`);
+  console.log(`Synced avatar config to state table: ${record.avatarId}`);
 }
 
 /**
@@ -276,3 +276,10 @@ export async function syncAgentConfig(record: AgentRecord): Promise<void> {
 export function isSyncEnabled(): boolean {
   return !!STATE_TABLE;
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use syncAvatarConfig instead */
+export const syncAgentConfig = syncAvatarConfig;

@@ -1,6 +1,6 @@
 /**
  * Shared Telegram Webhook Handler
- * Full-featured agent with conversation history and tool support
+ * Full-featured avatar with conversation history and tool support
  *
  * Features:
  * - Conversation history per chat (stored in DynamoDB)
@@ -30,8 +30,8 @@ import * as credits from '../services/credits.js';
 import { getPlatformPromptSection } from '../services/platform-prompts.js';
 import * as sharedChannel from '../services/shared-channel.js';
 import * as initiative from '../services/initiative.js';
-import { generateAgentStats } from '../services/agent-stats.js';
-import type { AgentRecord, SharedChannelRecord } from '../types.js';
+import { generateAvatarStats } from '../services/avatar-stats.js';
+import type { AvatarRecord, SharedChannelRecord } from '../types.js';
 import {
   ToolRegistry,
   createToolClient,
@@ -117,9 +117,9 @@ function extractMessage(update: TelegramUpdate): TelegramUpdate['message'] | und
   return update.channel_post || update.edited_channel_post || update.message || update.edited_message;
 }
 
-// Agent config (internal use)
-interface AgentConfig {
-  agentId: string;
+// Avatar config (internal use)
+interface AvatarConfig {
+  avatarId: string;
   name: string;
   persona?: string;
   platforms: {
@@ -158,11 +158,11 @@ type ToolCall = z.infer<typeof _ToolCallSchema>;
 // === THINKING TAGS MEMORY STORAGE ===
 
 /**
- * Save extracted thinking content to agent's memory.
+ * Save extracted thinking content to avatar's memory.
  * Thinking tags are internal reasoning that should persist but not be shown in chat.
  */
 async function saveThinkingToMemory(
-  agentId: string,
+  avatarId: string,
   thinkingBlocks: string[],
   contextHint?: string
 ): Promise<void> {
@@ -188,7 +188,7 @@ async function saveThinkingToMemory(
     await dynamoClient.send(new PutCommand({
       TableName: ADMIN_TABLE,
       Item: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: `FACT#thinking#${factId}`,
         fact: factWithContext,
         about: 'thinking',
@@ -198,7 +198,7 @@ async function saveThinkingToMemory(
     }));
   }
 
-  logger.info('Saved thinking blocks to memory', { count: thinkingBlocks.length, agentId });
+  logger.info('Saved thinking blocks to memory', { count: thinkingBlocks.length, avatarId });
 }
 
 // === MCP TOOL CLIENT SETUP ===
@@ -206,9 +206,9 @@ async function saveThinkingToMemory(
 /**
  * Create a ToolClient for Telegram with context-enhanced descriptions
  */
-async function createTelegramToolClient(agentId: string) {
+async function createTelegramToolClient(avatarId: string) {
   const registry = new ToolRegistry();
-  const services = createTelegramMCPServices(agentId);
+  const services = createTelegramMCPServices(avatarId);
   registerAllTools(registry, services);
   return createToolClient(registry, 'telegram');
 }
@@ -286,19 +286,19 @@ async function getSecret(secretArn: string): Promise<string | null> {
   }
 }
 
-async function getAgentConfig(agentId: string): Promise<AgentConfig | null> {
+async function getAvatarConfig(avatarId: string): Promise<AvatarConfig | null> {
   const result = await dynamoClient.send(new GetCommand({
     TableName: ADMIN_TABLE,
-    Key: { pk: `AGENT#${agentId}`, sk: 'CONFIG' },
+    Key: { pk: `AVATAR#${avatarId}`, sk: 'CONFIG' },
   }));
   if (!result.Item) return null;
-  const config = result.Item as AgentConfig;
+  const config = result.Item as AvatarConfig;
 
   // Fetch wallets
   const walletsResult = await dynamoClient.send(new QueryCommand({
     TableName: ADMIN_TABLE,
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
-    ExpressionAttributeValues: { ':pk': `AGENT#${agentId}`, ':sk': 'WALLET#' },
+    ExpressionAttributeValues: { ':pk': `AVATAR#${avatarId}`, ':sk': 'WALLET#' },
   }));
   if (walletsResult.Items?.length) {
     config.wallets = walletsResult.Items.map(w => ({ name: w.name, publicKey: w.publicKey }));
@@ -308,29 +308,29 @@ async function getAgentConfig(agentId: string): Promise<AgentConfig | null> {
 }
 
 /**
- * Get full agent record including createdAt (for D&D stats generation)
+ * Get full avatar record including createdAt (for D&D stats generation)
  */
-async function getAgentRecord(agentId: string): Promise<AgentRecord | null> {
+async function getAvatarRecord(avatarId: string): Promise<AvatarRecord | null> {
   const result = await dynamoClient.send(new GetCommand({
     TableName: ADMIN_TABLE,
-    Key: { pk: `AGENT#${agentId}`, sk: 'CONFIG' },
+    Key: { pk: `AVATAR#${avatarId}`, sk: 'CONFIG' },
   }));
-  return result.Item as AgentRecord | null;
+  return result.Item as AvatarRecord | null;
 }
 
-async function getTelegramToken(agentId: string): Promise<string | null> {
+async function getTelegramToken(avatarId: string): Promise<string | null> {
   const result = await dynamoClient.send(new GetCommand({
     TableName: ADMIN_TABLE,
-    Key: { pk: `AGENT#${agentId}`, sk: 'SECRET#telegram_bot_token#default' },
+    Key: { pk: `AVATAR#${avatarId}`, sk: 'SECRET#telegram_bot_token#default' },
   }));
   if (!result.Item?.secretArn) return null;
   return getSecret(result.Item.secretArn);
 }
 
-async function getWebhookSecret(agentId: string): Promise<string | null> {
+async function getWebhookSecret(avatarId: string): Promise<string | null> {
   const result = await dynamoClient.send(new GetCommand({
     TableName: ADMIN_TABLE,
-    Key: { pk: `AGENT#${agentId}`, sk: 'SECRET#telegram_webhook_secret#default' },
+    Key: { pk: `AVATAR#${avatarId}`, sk: 'SECRET#telegram_webhook_secret#default' },
   }));
   if (!result.Item?.secretArn) return null;
   return getSecret(result.Item.secretArn);
@@ -351,10 +351,10 @@ async function getLlmApiKey(): Promise<string> {
 // === MESSAGE DEDUPLICATION ===
 // Prevents reprocessing the same message when Telegram retries due to Lambda timeout
 // Handles stale "processing" markers from timed-out Lambda invocations
-async function startMessageProcessing(agentId: string, updateId: number): Promise<boolean> {
+async function startMessageProcessing(avatarId: string, updateId: number): Promise<boolean> {
   const now = Date.now();
   const ttl = Math.floor(now / 1000) + PROCESSING_TTL_SECONDS;
-  const pk = `TELEGRAM#${agentId}`;
+  const pk = `TELEGRAM#${avatarId}`;
   const sk = `PROCESSED#${updateId}`;
 
   try {
@@ -384,7 +384,7 @@ async function startMessageProcessing(agentId: string, updateId: number): Promis
 
     if (!existing.Item) {
       // Race condition - record was deleted, try again
-      return startMessageProcessing(agentId, updateId);
+      return startMessageProcessing(avatarId, updateId);
     }
 
     const { status, startedAt } = existing.Item;
@@ -428,12 +428,12 @@ async function startMessageProcessing(agentId: string, updateId: number): Promis
   }
 }
 
-async function markMessageProcessed(agentId: string, updateId: number): Promise<void> {
+async function markMessageProcessed(avatarId: string, updateId: number): Promise<void> {
   const ttl = Math.floor(Date.now() / 1000) + DEDUP_TTL_SECONDS;
   try {
     await dynamoClient.send(new UpdateCommand({
       TableName: ADMIN_TABLE,
-      Key: { pk: `TELEGRAM#${agentId}`, sk: `PROCESSED#${updateId}` },
+      Key: { pk: `TELEGRAM#${avatarId}`, sk: `PROCESSED#${updateId}` },
       UpdateExpression: 'SET #status = :status, processedAt = :processedAt, #ttl = :ttl',
       ExpressionAttributeNames: { '#status': 'status', '#ttl': 'ttl' },
       ExpressionAttributeValues: {
@@ -447,11 +447,11 @@ async function markMessageProcessed(agentId: string, updateId: number): Promise<
   }
 }
 
-async function clearMessageProcessing(agentId: string, updateId: number): Promise<void> {
+async function clearMessageProcessing(avatarId: string, updateId: number): Promise<void> {
   try {
     await dynamoClient.send(new DeleteCommand({
       TableName: ADMIN_TABLE,
-      Key: { pk: `TELEGRAM#${agentId}`, sk: `PROCESSED#${updateId}` },
+      Key: { pk: `TELEGRAM#${avatarId}`, sk: `PROCESSED#${updateId}` },
     }));
   } catch (err) {
     logger.warn('Failed to clear message processing marker', { error: err });
@@ -464,10 +464,10 @@ function escapeTelegramMarkdownV2(text: string): string {
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
 }
 
-async function sendTelegramMessage(token: string, agentId: string, chatId: number, text: string, replyTo?: number): Promise<number | null> {
-  const canUse = await credits.canUseTool(agentId, 'send_message');
+async function sendTelegramMessage(token: string, avatarId: string, chatId: number, text: string, replyTo?: number): Promise<number | null> {
+  const canUse = await credits.canUseTool(avatarId, 'send_message');
   if (!canUse.allowed) {
-    logger.warn('send_message rate limit hit', { agentId, reason: canUse.reason });
+    logger.warn('send_message rate limit hit', { avatarId, reason: canUse.reason });
     return null;
   }
 
@@ -492,7 +492,7 @@ async function sendTelegramMessage(token: string, agentId: string, chatId: numbe
       logger.error('Telegram sendMessage error', undefined, { responseText: await response.text() });
       return null;
     }
-    await credits.consumeCredit(agentId, 'send_message');
+    await credits.consumeCredit(avatarId, 'send_message');
     const data = await response.json() as { result?: { message_id: number } };
     return data.result?.message_id || null;
   } catch (error) {
@@ -745,7 +745,7 @@ async function sendTelegramSticker(token: string, chatId: number, stickerUrl: st
  */
 async function sendTelegramStickerOrPhoto(
   token: string,
-  agentId: string,
+  avatarId: string,
   chatId: number,
   mediaUrl: string,
   caption?: string,
@@ -757,7 +757,7 @@ async function sendTelegramStickerOrPhoto(
     await sendTelegramSticker(token, chatId, mediaUrl, replyTo);
     // Telegram stickers don't support captions, send as separate message
     if (caption) {
-      await sendTelegramMessage(token, agentId, chatId, caption);
+      await sendTelegramMessage(token, avatarId, chatId, caption);
     }
     return;
   }
@@ -814,7 +814,7 @@ function parseToolArgs(raw: string | undefined, toolName: string): { ok: boolean
  * Converts MCP result format to Telegram handler format
  */
 async function executeTool(
-  agentId: string,
+  avatarId: string,
   toolName: string,
   args: Record<string, unknown>,
   token: string,
@@ -832,7 +832,7 @@ async function executeTool(
     // Execute via MCP ToolClient with conversationId for async callbacks
     // Note: conversationId is raw chatId (not prefixed) for compatibility with Telegram API
     const mcpResult = await toolClient.execute(toolName, args, { 
-      agentId,
+      avatarId,
       conversationId: String(chatId),
       replyToMessageId: undefined, // Will be set by response queue handler
     });
@@ -939,13 +939,13 @@ function buildMultimodalContent(
 // === LLM CALL WITH TOOLS ===
 async function callLLM(
   messages: ChatMessage[],
-  agent: AgentConfig,
+  avatar: AvatarConfig,
   tools?: OpenAITool[]
 ): Promise<{ content?: string; toolCalls?: ToolCall[] }> {
   const apiKey = await getLlmApiKey();
 
-  // Sanitize agent name for HTTP header (strip non-printable and non-ASCII)
-  const safeAgentName = agent.name.replace(/[^\u0020-\u007E]/g, '').trim() || 'Agent';
+  // Sanitize avatar name for HTTP header (strip non-printable and non-ASCII)
+  const safeAvatarName = avatar.name.replace(/[^\u0020-\u007E]/g, '').trim() || 'Avatar';
 
   const response = await fetchWithRetry(
     LLM_ENDPOINT,
@@ -955,14 +955,14 @@ async function callLLM(
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
         'HTTP-Referer': 'https://swarm.telegram',
-        'X-Title': `Swarm Agent: ${safeAgentName}`,
+        'X-Title': `Swarm Avatar: ${safeAvatarName}`,
       },
       body: JSON.stringify({
-        model: agent.llmConfig.model || LLM_MODEL,
+        model: avatar.llmConfig.model || LLM_MODEL,
         messages,
         tools: tools?.length ? tools : undefined,
-        max_tokens: agent.llmConfig.maxTokens || 1024,
-        temperature: agent.llmConfig.temperature || 0.8,
+        max_tokens: avatar.llmConfig.maxTokens || 1024,
+        temperature: avatar.llmConfig.temperature || 0.8,
       }),
     },
     LLM_TIMEOUT_MS,
@@ -990,8 +990,8 @@ async function callLLM(
  * - Responds to CHANNEL with full context (not individual messages)
  */
 async function processChannelMessage(
-  agentId: string,
-  agent: AgentConfig,
+  avatarId: string,
+  avatar: AvatarConfig,
   message: NonNullable<TelegramUpdate['message']>,
   token: string
 ): Promise<{ responded: boolean; reason: string }> {
@@ -1010,8 +1010,8 @@ async function processChannelMessage(
   const userId = message.from?.id || 0;
   const userName = message.from?.first_name || 'User';
   const username = message.from?.username;
-  const botUsername = agent.platforms.telegram?.botUsername;
-  const botId = agent.platforms.telegram?.botId;
+  const botUsername = avatar.platforms.telegram?.botUsername;
+  const botId = avatar.platforms.telegram?.botId;
 
   // Extract media attachments
   const media: BufferedMedia[] = [];
@@ -1062,7 +1062,7 @@ async function processChannelMessage(
 
   // Add message to buffer and get updated state
   const updatedState = await channelState.addMessageToBuffer(
-    agentId,
+    avatarId,
     chatId,
     chatType,
     message.chat.title,
@@ -1070,7 +1070,7 @@ async function processChannelMessage(
   );
 
   logger.info('Channel state', {
-    agentId,
+    avatarId,
     chatId,
     chatType,
     state: updatedState.state,
@@ -1100,12 +1100,12 @@ async function processChannelMessage(
   }
 
   // Transition to ACTIVE state
-  await channelState.transitionState(agentId, chatId, 'ACTIVE');
+  await channelState.transitionState(avatarId, chatId, 'ACTIVE');
 
   // Process and respond to the channel
   const responseMessageId = await processChannelResponse(
-    agentId,
-    agent,
+    avatarId,
+    avatar,
     updatedState,
     token,
     decision.trigger,
@@ -1114,7 +1114,7 @@ async function processChannelMessage(
 
   if (responseMessageId) {
     // Mark response sent and transition to COOLDOWN
-    await channelState.markResponseSent(agentId, chatId, responseMessageId);
+    await channelState.markResponseSent(avatarId, chatId, responseMessageId);
     return { responded: true, reason: decision.trigger };
   }
 
@@ -1124,11 +1124,11 @@ async function processChannelMessage(
 /**
  * Generate and send response to the channel
  * Uses full channel context (all buffered messages)
- * For multi-agent channels, includes shared history so bots can see each other's messages
+ * For multi-avatar channels, includes shared history so bots can see each other's messages
  */
 async function processChannelResponse(
-  agentId: string,
-  agent: AgentConfig,
+  avatarId: string,
+  avatar: AvatarConfig,
   state: ChannelStateRecord,
   token: string,
   trigger: string,
@@ -1139,15 +1139,15 @@ async function processChannelResponse(
 
   // === CREATE MCP TOOL CLIENT ===
   // Tools get context injected into descriptions automatically
-  const toolClient = await createTelegramToolClient(agentId);
-  const contextualTools = await toolClient.getOpenAIToolsWithContext(agentId);
+  const toolClient = await createTelegramToolClient(avatarId);
+  const contextualTools = await toolClient.getOpenAIToolsWithContext(avatarId);
 
   // Build conversation context
-  // For multi-agent channels, fetch shared history so we can see other bots' messages
+  // For multi-avatar channels, fetch shared history so we can see other bots' messages
   let conversationContext: string;
   if (isMultiAgent) {
     const sharedHistory = await channelState.getSharedHistory(chatId);
-    conversationContext = channelState.buildCombinedConversationContext(state, sharedHistory, agentId);
+    conversationContext = channelState.buildCombinedConversationContext(state, sharedHistory, avatarId);
   } else {
     conversationContext = channelState.buildConversationContext(state);
   }
@@ -1155,7 +1155,7 @@ async function processChannelResponse(
   const responseTarget = channelState.getResponseTarget(state);
 
   // Build system prompt
-  let systemPrompt = agent.persona || `You are ${agent.name}, a helpful AI assistant on Telegram.`;
+  let systemPrompt = avatar.persona || `You are ${avatar.name}, a helpful AI assistant on Telegram.`;
   
   // Add platform-specific prompt from markdown file
   systemPrompt += getPlatformPromptSection('telegram');
@@ -1177,13 +1177,13 @@ async function processChannelResponse(
     systemPrompt += `\n\nThe conversation has been active - feel free to chime in naturally if you have something to add.`;
   }
 
-  if (agent.wallets?.length) {
+  if (avatar.wallets?.length) {
     systemPrompt += `\n\n## Your Solana Wallets\n`;
-    agent.wallets.forEach(w => { systemPrompt += `- ${w.name}: ${w.publicKey}\n`; });
+    avatar.wallets.forEach(w => { systemPrompt += `- ${w.name}: ${w.publicKey}\n`; });
   }
 
-  if (agent.profileImage?.url) {
-    systemPrompt += `\n\n## Your Profile Image\n${agent.profileImage.url}`;
+  if (avatar.profileImage?.url) {
+    systemPrompt += `\n\n## Your Profile Image\n${avatar.profileImage.url}`;
   }
 
   // Final reminder about brevity
@@ -1234,7 +1234,7 @@ async function processChannelResponse(
   while (iterations++ < maxIterations) {
     await sendChatAction(token, chatId, 'typing');
 
-    const llmResponse = await callLLM(messages, agent, contextualTools);
+    const llmResponse = await callLLM(messages, avatar, contextualTools);
 
     if (llmResponse.toolCalls?.length) {
       messages.push({ role: 'assistant', content: '', tool_calls: llmResponse.toolCalls });
@@ -1265,7 +1265,7 @@ async function processChannelResponse(
           continue;
         }
 
-        const result = await executeTool(agentId, toolName, parsedArgs.args, token, chatId, toolClient);
+        const result = await executeTool(avatarId, toolName, parsedArgs.args, token, chatId, toolClient);
 
         // Only add to failedTools for permanent failures, not rate limits or transient errors
         // Rate limits and "not found" errors should not block future attempts
@@ -1303,8 +1303,8 @@ async function processChannelResponse(
       const { cleanContent, thinkingBlocks, hasThinking } = extractThinking(llmResponse.content);
       
       if (hasThinking) {
-        // Save thinking to agent's memory (async, don't block response)
-        saveThinkingToMemory(agentId, thinkingBlocks, `chat ${chatId}`).catch(err => {
+        // Save thinking to avatar's memory (async, don't block response)
+        saveThinkingToMemory(avatarId, thinkingBlocks, `chat ${chatId}`).catch(err => {
           logger.error('Failed to save thinking to memory', err);
         });
       }
@@ -1314,7 +1314,7 @@ async function processChannelResponse(
       
       // Send only clean content (without thinking) to chat
       if (cleanContent) {
-        responseMessageId = await sendTelegramMessage(token, agentId, chatId, cleanContent, replyToMessageId);
+        responseMessageId = await sendTelegramMessage(token, avatarId, chatId, cleanContent, replyToMessageId);
         finalResponseContent = cleanContent; // Use clean content for shared history
       }
     }
@@ -1327,7 +1327,7 @@ async function processChannelResponse(
         await sendTelegramVideo(token, chatId, m.url, m.caption);
       } else if (m.type === 'sticker') {
         // Route by format: .webp/.tgs/.webm → sendSticker, else → sendPhoto
-        await sendTelegramStickerOrPhoto(token, agentId, chatId, m.url, m.caption);
+        await sendTelegramStickerOrPhoto(token, avatarId, chatId, m.url, m.caption);
       }
     }
     mediasToSend.length = 0;
@@ -1340,7 +1340,7 @@ async function processChannelResponse(
     const fallbackMessage = "Sorry, I ran into some issues processing your request. Please try again!";
     responseMessageId = await sendTelegramMessage(
       token,
-      agentId,
+      avatarId,
       chatId,
       fallbackMessage,
       replyToMessageId
@@ -1352,16 +1352,16 @@ async function processChannelResponse(
       } else if (m.type === 'video') {
         await sendTelegramVideo(token, chatId, m.url, m.caption);
       } else if (m.type === 'sticker') {
-        await sendTelegramStickerOrPhoto(token, agentId, chatId, m.url, m.caption);
+        await sendTelegramStickerOrPhoto(token, avatarId, chatId, m.url, m.caption);
       }
     }
   }
 
-  // Record bot's message to shared history for multi-agent visibility
+  // Record bot's message to shared history for multi-avatar visibility
   if (responseMessageId && finalResponseContent && isMultiAgent && botUsername) {
     await channelState.recordBotMessage(chatId, {
       messageId: responseMessageId,
-      agentId,
+      avatarId,
       botUsername,
       text: finalResponseContent,
       timestamp: Date.now(),
@@ -1375,28 +1375,28 @@ async function processChannelResponse(
 // === MULTI-AGENT COORDINATION ===
 
 /**
- * Handle message in a multi-agent channel using D&D-style initiative.
+ * Handle message in a multi-avatar channel using D&D-style initiative.
  *
  * Flow:
  * 1. Check interest (CHA/WIS roll)
  * 2. Roll initiative (1d20 + DEX)
  * 3. Winner responds, others can react
  *
- * Note: Agent is already registered in shared channel by caller.
+ * Note: Avatar is already registered in shared channel by caller.
  */
-async function handleMultiAgentMessage(
-  agentId: string,
-  agent: AgentConfig,
-  agentRecord: AgentRecord,
+async function handleMultiAvatarMessage(
+  avatarId: string,
+  avatar: AvatarConfig,
+  avatarRecord: AvatarRecord,
   message: NonNullable<TelegramUpdate['message']>,
   token: string,
-  _channelAgents: SharedChannelRecord[]
+  _channelAvatars: SharedChannelRecord[]
 ): Promise<{ responded: boolean; reason: string }> {
   const chatId = message.chat.id;
   const chatType = message.chat.type;
   const messageId = message.message_id;
   const text = message.text || message.caption || '';
-  const botUsername = agent.platforms.telegram?.botUsername;
+  const botUsername = avatar.platforms.telegram?.botUsername;
 
   // Extract media attachments (same as processChannelMessage)
   const msgMedia: BufferedMedia[] = [];
@@ -1424,12 +1424,12 @@ async function handleMultiAgentMessage(
     msgMedia.push({ type: 'sticker', fileId: sticker.file_id });
   }
 
-  // Get or generate agent stats
-  const stats = generateAgentStats(agentRecord.createdAt, agentId);
+  // Get or generate avatar stats
+  const stats = generateAvatarStats(avatarRecord.createdAt, avatarId);
 
   // Get channel state for activity metrics
   const state = await channelState.getOrCreateChannelState(
-    agentId,
+    avatarId,
     chatId,
     chatType,
     message.chat.title
@@ -1469,7 +1469,7 @@ async function handleMultiAgentMessage(
 
   // Add message to buffer (needed for context)
   await channelState.addMessageToBuffer(
-    agentId,
+    avatarId,
     chatId,
     chatType,
     message.chat.title,
@@ -1482,7 +1482,7 @@ async function handleMultiAgentMessage(
     initiativeResult = await initiative.coordinateInitiative(
       chatId,
       messageId,
-      agentId,
+      avatarId,
       stats,
       bufferedMessage,
       recentResponseAge,
@@ -1495,8 +1495,8 @@ async function handleMultiAgentMessage(
     return { responded: false, reason: 'initiative_error' };
   }
 
-  logger.info('Multi-agent initiative result', {
-    agentId,
+  logger.info('Multi-avatar initiative result', {
+    avatarId,
     chatId,
     messageId,
     action: initiativeResult.action,
@@ -1509,8 +1509,8 @@ async function handleMultiAgentMessage(
 
   switch (initiativeResult.action) {
     case 'respond': {
-      // This agent won initiative - send full response
-      const updatedState = await channelState.getChannelState(agentId, chatId);
+      // This avatar won initiative - send full response
+      const updatedState = await channelState.getChannelState(avatarId, chatId);
       if (!updatedState) {
         return { responded: false, reason: 'state_not_found' };
       }
@@ -1519,21 +1519,21 @@ async function handleMultiAgentMessage(
       const thinkingDelay = channelState.calculateThinkingDelay(
         text.length,
         isFromBot,
-        _channelAgents.length
+        _channelAvatars.length
       );
       
       if (thinkingDelay > 0) {
         logger.info('Waiting for cosy response delay', { 
           delayMs: thinkingDelay, 
           isFromBot,
-          agentCount: _channelAgents.length 
+          avatarCount: _channelAvatars.length 
         });
         await new Promise(resolve => setTimeout(resolve, thinkingDelay));
       }
 
       const responseMessageId = await processChannelResponse(
-        agentId,
-        agent,
+        avatarId,
+        avatar,
         updatedState,
         token,
         'initiative_winner',
@@ -1543,7 +1543,7 @@ async function handleMultiAgentMessage(
       if (responseMessageId) {
         // Track if we responded to a bot message (for bot-to-bot rate limiting)
         await channelState.markResponseSent(
-          agentId, 
+          avatarId, 
           chatId, 
           responseMessageId,
           isFromBot ? senderBotUsername : undefined
@@ -1556,12 +1556,12 @@ async function handleMultiAgentMessage(
     }
 
     case 'react': {
-      // This agent lost initiative - SKIP silently instead of reacting
-      // The natural conversation flow will give this agent a chance to respond 
-      // when it sees the winner's message (or other agents' messages) come through.
+      // This avatar lost initiative - SKIP silently instead of reacting
+      // The natural conversation flow will give this avatar a chance to respond 
+      // when it sees the winner's message (or other avatars' messages) come through.
       // This prevents all bots from piling on a single user message.
       logger.info('Lost initiative, skipping to allow natural flow', {
-        agentId,
+        avatarId,
         chatId,
         messageId,
         winnerId: initiativeResult.winnerId,
@@ -1600,12 +1600,12 @@ function getClientIP(event: APIGatewayProxyEventV2): string | null {
 
 // === HANDLER ===
 export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
-  const agentId = event.pathParameters?.agentId;
+  const avatarId = event.pathParameters?.avatarId;
   const clientIP = getClientIP(event);
   const requestId = event.requestContext.requestId;
 
   // Structured log for request entry - queryable by /logs API
-  logger.setContext({ subsystem: 'telegram', agentId, requestId });
+  logger.setContext({ subsystem: 'telegram', avatarId, requestId });
   logger.info('Request received', {
     event: 'request_received',
     clientIP,
@@ -1615,8 +1615,8 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   const ok = () => ({ statusCode: 200, body: 'OK' });
 
   try {
-    if (!agentId || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
-      logger.warn('Invalid agent ID');
+    if (!avatarId || !/^[a-zA-Z0-9_-]+$/.test(avatarId)) {
+      logger.warn('Invalid avatar ID');
       return ok();
     }
 
@@ -1632,24 +1632,24 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     }
 
     // Verify webhook secret
-    const webhookSecret = await getWebhookSecret(agentId);
+    const webhookSecret = await getWebhookSecret(avatarId);
     const providedSecret = event.headers['x-telegram-bot-api-secret-token'];
     if (webhookSecret && !verifySecretToken(providedSecret, webhookSecret)) {
-      logger.warn('Invalid secret for agent', { agentId });
+      logger.warn('Invalid secret for avatar', { avatarId });
       return ok();
     }
 
-    // Load agent
-    const agent = await getAgentConfig(agentId);
-    if (!agent || !agent.platforms.telegram?.enabled) {
-      logger.warn('Agent not found or Telegram disabled', { agentId });
+    // Load avatar
+    const avatar = await getAvatarConfig(avatarId);
+    if (!avatar || !avatar.platforms.telegram?.enabled) {
+      logger.warn('Avatar not found or Telegram disabled', { avatarId });
       return ok();
     }
 
     // Get token
-    const token = await getTelegramToken(agentId);
+    const token = await getTelegramToken(avatarId);
     if (!token) {
-      logger.error('No Telegram token', undefined, { agentId });
+      logger.error('No Telegram token', undefined, { avatarId });
       return ok();
     }
 
@@ -1684,7 +1684,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     if (message.from?.username?.endsWith('bot')) return ok();
 
     // Deduplication: Check if we already processed this update (prevents infinite loops on Lambda timeout/retry)
-    const shouldProcess = await startMessageProcessing(agentId, update.update_id);
+    const shouldProcess = await startMessageProcessing(avatarId, update.update_id);
     if (!shouldProcess) {
       logger.info('Skipping already processed update', { updateId: update.update_id });
       return ok();
@@ -1693,18 +1693,18 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     try {
       const chatId = message.chat.id;
       const text = message.text || message.caption || '';
-      const botUsername = agent.platforms.telegram?.botUsername;
+      const botUsername = avatar.platforms.telegram?.botUsername;
 
       // === MULTI-AGENT ROUTING ===
       // 1. If this bot is @mentioned directly OR replied to -> respond immediately (bypass initiative)
-      // 2. If channel has multiple agents -> use initiative system
-      // 3. Otherwise -> use existing single-agent behavior
+      // 2. If channel has multiple avatars -> use initiative system
+      // 3. Otherwise -> use existing single-avatar behavior
 
       // Check if THIS bot is mentioned directly
       const isDirectMention = isBotMentioned(text, botUsername);
 
       // Check if THIS bot is being replied to (P1 - treat reply-to-bot as direct targeting)
-      const botId = agent.platforms.telegram?.botId;
+      const botId = avatar.platforms.telegram?.botId;
       const isReplyToThisBot = !!(
         (botId && message.reply_to_message?.from?.id === botId) ||
         (botUsername && message.reply_to_message?.from?.username === botUsername)
@@ -1716,7 +1716,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       if (isDirectEngagement) {
         // DIRECT ENGAGEMENT: This bot responds, but still respect cooldown
         // Check if we're in cooldown to prevent spam
-        const existingState = await channelState.getChannelState(agentId, chatId);
+        const existingState = await channelState.getChannelState(avatarId, chatId);
 
         if (existingState?.state === 'COOLDOWN') {
           const cooldownRemaining = channelState.CHANNEL_CONFIG.COOLDOWN_DURATION_MS -
@@ -1729,16 +1729,16 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
               botUsername,
               cooldownRemaining: Math.round(cooldownRemaining / 1000),
             });
-            await markMessageProcessed(agentId, update.update_id);
+            await markMessageProcessed(avatarId, update.update_id);
             return ok();
           }
         }
 
         const engagementType = isDirectMention ? 'mention' : 'reply-to-bot';
         logger.info('Direct engagement detected, responding', { engagementType, botUsername });
-        const result = await processChannelMessage(agentId, agent, message, token);
+        const result = await processChannelMessage(avatarId, avatar, message, token);
 
-        await markMessageProcessed(agentId, update.update_id);
+        await markMessageProcessed(avatarId, update.update_id);
 
         logger.info('Direct engagement processed', {
           event: 'direct_engagement_processed',
@@ -1755,59 +1755,59 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         return ok();
       }
 
-      // Check if this is a multi-agent chat (for group and channel chats)
-      // Channels now support multi-agent coordination just like groups
-      const isMultiAgentEligible = message.chat.type === 'group' || 
+      // Check if this is a multi-avatar chat (for group and channel chats)
+      // Channels now support multi-avatar coordination just like groups
+      const isMultiAvatarEligible = message.chat.type === 'group' || 
                                    message.chat.type === 'supergroup' || 
                                    message.chat.type === 'channel';
-      let channelAgents: SharedChannelRecord[] = [];
-      let agentRecord: AgentRecord | null = null;
+      let channelAvatars: SharedChannelRecord[] = [];
+      let avatarRecord: AvatarRecord | null = null;
 
-      if (isMultiAgentEligible) {
-        // Get agent record for createdAt timestamp (fetched once, reused below)
-        agentRecord = await getAgentRecord(agentId);
-        if (agentRecord) {
-          // Register this agent in the shared channel (updates presence)
-          await sharedChannel.ensureAgentInChannel(
+      if (isMultiAvatarEligible) {
+        // Get avatar record for createdAt timestamp (fetched once, reused below)
+        avatarRecord = await getAvatarRecord(avatarId);
+        if (avatarRecord) {
+          // Register this avatar in the shared channel (updates presence)
+          await sharedChannel.ensureAvatarInChannel(
             chatId,
-            agentId,
+            avatarId,
             botUsername || '',
-            agentRecord.createdAt
+            avatarRecord.createdAt
           );
 
-          // Get all agents in this channel
-          channelAgents = await sharedChannel.getChannelAgents(chatId);
+          // Get all avatars in this channel
+          channelAvatars = await sharedChannel.getChannelAgents(chatId);
         }
       }
 
       let result: { responded: boolean; reason: string };
 
-      if (isMultiAgentEligible && channelAgents.length > 1) {
+      if (isMultiAvatarEligible && channelAvatars.length > 1) {
         // MULTI-AGENT MODE: Use D&D-style initiative
-        logger.info('Multi-agent chat detected, using initiative system', {
+        logger.info('Multi-avatar chat detected, using initiative system', {
           chatType: message.chat.type,
-          agentCount: channelAgents.length,
+          avatarCount: channelAvatars.length,
         });
 
-        if (!agentRecord) {
-          logger.warn('Agent record not found', { agentId });
+        if (!avatarRecord) {
+          logger.warn('Avatar record not found', { avatarId });
           return ok();
         }
 
-        result = await handleMultiAgentMessage(
-          agentId,
-          agent,
-          agentRecord,
+        result = await handleMultiAvatarMessage(
+          avatarId,
+          avatar,
+          avatarRecord,
           message,
           token,
-          channelAgents
+          channelAvatars
         );
       } else {
         // SINGLE-AGENT MODE: Use existing Kyro-style channel processing
-        result = await processChannelMessage(agentId, agent, message, token);
+        result = await processChannelMessage(avatarId, avatar, message, token);
       }
 
-      await markMessageProcessed(agentId, update.update_id);
+      await markMessageProcessed(avatarId, update.update_id);
 
       logger.info('Channel processed', {
         event: 'channel_processed',
@@ -1817,14 +1817,14 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         updateId: update.update_id,
         responded: result.responded,
         reason: result.reason,
-        multiAgent: channelAgents.length > 1,
-        agentCount: channelAgents.length,
+        multiAvatar: channelAvatars.length > 1,
+        avatarCount: channelAvatars.length,
         isChannelPost,
       });
 
       return ok();
     } catch (error) {
-      await clearMessageProcessing(agentId, update.update_id);
+      await clearMessageProcessing(avatarId, update.update_id);
       throw error;
     }
   } catch (error) {
@@ -1839,7 +1839,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       stack: errorStack,
       subsystem: 'telegram',
       category: 'webhook_error',
-      agentId,
+      avatarId,
       requestId,
     }).catch(() => {
       // Ignore recording failures

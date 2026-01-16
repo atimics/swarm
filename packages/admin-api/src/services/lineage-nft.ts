@@ -1,8 +1,8 @@
 /**
  * Lineage NFT Service
  *
- * Manages the minting of lineage NFTs when users abandon agents.
- * Each agent has its own NFT collection (lineage) with eras.
+ * Manages the minting of lineage NFTs when users abandon avatars.
+ * Each avatar has its own NFT collection (lineage) with eras.
  *
  * Flow:
  * 1. User initiates abandon
@@ -10,12 +10,12 @@
  * 3. Backend prepares lineage metadata (era, snapshot)
  * 4. Client burns Gate NFT
  * 5. Client or backend mints Lineage NFT
- * 6. Backend updates agent state
+ * 6. Backend updates avatar state
  */
 import { Connection, type VersionedTransactionResponse } from '@solana/web3.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
-import type { AgentRecord } from '../types.js';
+import type { AvatarRecord } from '../types.js';
 
 const TABLE_NAME = process.env.ADMIN_TABLE || 'SwarmAdminTable';
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
@@ -236,8 +236,8 @@ async function getAssetCollection(mint: string): Promise<string | null> {
 }
 
 export interface LineageMetadata {
-  agentId: string;
-  agentName: string;
+  avatarId: string;
+  avatarName: string;
   era: number;
   isGenesis: boolean;
   abandonedAt: number;
@@ -247,7 +247,7 @@ export interface LineageMetadata {
 }
 
 export interface LineageCollection {
-  agentId: string;
+  avatarId: string;
   collectionMint: string;
   createdAt: number;
   totalMinted: number;
@@ -348,14 +348,14 @@ export async function verifyGateBurn(
 }
 
 /**
- * Get or create a lineage collection for an agent
+ * Get or create a lineage collection for an avatar
  * On first abandon, we'll need to create the collection
  */
-export async function getLineageCollection(agentId: string): Promise<LineageCollection | null> {
+export async function getLineageCollection(avatarId: string): Promise<LineageCollection | null> {
   const result = await dynamoClient.send(new GetCommand({
     TableName: TABLE_NAME,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: 'LINEAGE_COLLECTION',
     },
   }));
@@ -367,7 +367,7 @@ export async function getLineageCollection(agentId: string): Promise<LineageColl
  * Record a newly created lineage collection
  */
 export async function recordLineageCollection(
-  agentId: string,
+  avatarId: string,
   collectionMint: string
 ): Promise<void> {
   const now = Date.now();
@@ -376,23 +376,23 @@ export async function recordLineageCollection(
   await dynamoClient.send(new UpdateCommand({
     TableName: TABLE_NAME,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: 'LINEAGE_COLLECTION',
     },
-    UpdateExpression: 'SET collectionMint = :mint, createdAt = :now, totalMinted = :zero, agentId = :agentId',
+    UpdateExpression: 'SET collectionMint = :mint, createdAt = :now, totalMinted = :zero, avatarId = :avatarId',
     ExpressionAttributeValues: {
       ':mint': collectionMint,
       ':now': now,
       ':zero': 0,
-      ':agentId': agentId,
+      ':avatarId': avatarId,
     },
   }));
 
-  // Also update the agent record with the collection mint
+  // Also update the avatar record with the collection mint
   await dynamoClient.send(new UpdateCommand({
     TableName: TABLE_NAME,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: 'CONFIG',
     },
     UpdateExpression: 'SET nftCollectionMint = :mint, updatedAt = :now',
@@ -402,17 +402,17 @@ export async function recordLineageCollection(
     },
   }));
 
-  console.log(`[LineageNFT] Recorded collection ${collectionMint} for agent ${agentId}`);
+  console.log(`[LineageNFT] Recorded collection ${collectionMint} for avatar ${avatarId}`);
 }
 
 /**
  * Increment the minted count for a lineage collection
  */
-export async function incrementMintedCount(agentId: string): Promise<number> {
+export async function incrementMintedCount(avatarId: string): Promise<number> {
   const result = await dynamoClient.send(new UpdateCommand({
     TableName: TABLE_NAME,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: 'LINEAGE_COLLECTION',
     },
     UpdateExpression: 'SET totalMinted = if_not_exists(totalMinted, :zero) + :one',
@@ -430,46 +430,46 @@ export async function incrementMintedCount(agentId: string): Promise<number> {
  * Prepare metadata for a lineage NFT mint
  */
 export async function prepareLineageMint(
-  agentId: string,
+  avatarId: string,
   walletAddress: string
 ): Promise<MintPreparation> {
-  // Get the agent
-  const agentResult = await dynamoClient.send(new GetCommand({
+  // Get the avatar
+  const avatarResult = await dynamoClient.send(new GetCommand({
     TableName: TABLE_NAME,
     Key: {
-      pk: `AGENT#${agentId}`,
+      pk: `AVATAR#${avatarId}`,
       sk: 'CONFIG',
     },
   }));
 
-  if (!agentResult.Item) {
-    return { success: false, error: 'Agent not found' };
+  if (!avatarResult.Item) {
+    return { success: false, error: 'Avatar not found' };
   }
 
-  const agent = agentResult.Item as AgentRecord;
+  const avatar = avatarResult.Item as AvatarRecord;
 
   // Verify this wallet is the inhabitant
-  if (agent.inhabitantWallet !== walletAddress && agent.ownerWallet !== walletAddress) {
-    return { success: false, error: 'You do not inhabit this agent' };
+  if (avatar.inhabitantWallet !== walletAddress && avatar.ownerWallet !== walletAddress) {
+    return { success: false, error: 'You do not inhabit this avatar' };
   }
 
-  const era = (agent.currentEra || 0) + 1;
+  const era = (avatar.currentEra || 0) + 1;
   const isGenesis = era === 1;
 
   const metadata: LineageMetadata = {
-    agentId,
-    agentName: agent.name,
+    avatarId,
+    avatarName: avatar.name,
     era,
     isGenesis,
     abandonedAt: Date.now(),
     inhabitantWallet: walletAddress,
-    avatarUrl: agent.profileImage?.url,
+    avatarUrl: avatar.profileImage?.url,
   };
 
   return {
     success: true,
     metadata,
-    collectionMint: agent.nftCollectionMint,
+    collectionMint: avatar.nftCollectionMint,
   };
 }
 
@@ -477,7 +477,7 @@ export async function prepareLineageMint(
  * Record a lineage NFT mint in the database
  */
 export async function recordLineageMint(
-  agentId: string,
+  avatarId: string,
   walletAddress: string,
   nftMint: string,
   era: number,
@@ -489,14 +489,14 @@ export async function recordLineageMint(
   await dynamoClient.send(new UpdateCommand({
     TableName: TABLE_NAME,
     Key: {
-      pk: `LINEAGE#${agentId}`,
+      pk: `LINEAGE#${avatarId}`,
       sk: `ERA#${era}`,
     },
     UpdateExpression: `
       SET nftMint = :mint,
           walletAddress = :wallet,
           mintedAt = :now,
-          agentId = :agentId,
+          avatarId = :avatarId,
           era = :era
           ${burnSignature ? ', gateBurnSignature = :burnSig' : ''}
     `,
@@ -504,20 +504,20 @@ export async function recordLineageMint(
       ':mint': nftMint,
       ':wallet': walletAddress,
       ':now': now,
-      ':agentId': agentId,
+      ':avatarId': avatarId,
       ':era': era,
       ...(burnSignature ? { ':burnSig': burnSignature } : {}),
     },
   }));
 
   // Increment collection count
-  await incrementMintedCount(agentId);
+  await incrementMintedCount(avatarId);
 
-  console.log(`[LineageNFT] Recorded mint for agent ${agentId} era ${era}: ${nftMint}`);
+  console.log(`[LineageNFT] Recorded mint for avatar ${avatarId} era ${era}: ${nftMint}`);
 }
 
 /**
- * Get lineage history for an agent
+ * Get lineage history for an avatar
  */
 export async function getLineageHistory(_agentId: string): Promise<Array<{
   era: number;
@@ -526,7 +526,7 @@ export async function getLineageHistory(_agentId: string): Promise<Array<{
   mintedAt: number;
 }>> {
   // TODO: Implement proper query when needed
-  // Would query all LINEAGE#{agentId} ERA#{n} records
+  // Would query all LINEAGE#{avatarId} ERA#{n} records
   return [];
 }
 
@@ -535,13 +535,13 @@ export async function getLineageHistory(_agentId: string): Promise<Array<{
  */
 export function generateLineageMetadataJson(metadata: LineageMetadata): object {
   return {
-    name: `${metadata.agentName} - Era ${metadata.era}`,
+    name: `${metadata.avatarName} - Era ${metadata.era}`,
     symbol: 'SWARM',
-    description: `Lineage NFT for ${metadata.agentName}. Era ${metadata.era}${metadata.isGenesis ? ' (Genesis)' : ''}.`,
+    description: `Lineage NFT for ${metadata.avatarName}. Era ${metadata.era}${metadata.isGenesis ? ' (Genesis)' : ''}.`,
     image: metadata.avatarUrl || metadata.snapshotUrl,
-    external_url: `https://swarm.rati.chat/agent/${metadata.agentId}`,
+    external_url: `https://swarm.rati.chat/avatar/${metadata.avatarId}`,
     attributes: [
-      { trait_type: 'Agent', value: metadata.agentName },
+      { trait_type: 'Avatar', value: metadata.avatarName },
       { trait_type: 'Era', value: metadata.era },
       { trait_type: 'Genesis', value: metadata.isGenesis },
       { trait_type: 'Abandoned At', value: new Date(metadata.abandonedAt).toISOString() },
