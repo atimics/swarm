@@ -184,12 +184,12 @@ async function executeClaudeCode(
  * Process a Claude Code task
  */
 async function processTask(msg: ClaudeCodeQueueMessage): Promise<void> {
-  const { jobId, agentId, task, workingDir, maxTurns, sessionId, callbackQueueUrl } = msg;
+  const { jobId, avatarId, task, workingDir, maxTurns, sessionId, callbackQueueUrl } = msg;
 
-  console.log(`[${jobId}] Processing task for agent ${agentId}`);
+  console.log(`[${jobId}] Processing task for avatar ${avatarId}`);
 
   // Update job status to processing
-  await updateJobStatus(agentId, jobId, 'processing');
+  await updateJobStatus(avatarId, jobId, 'processing');
 
   try {
     const result = await executeClaudeCode(task!, {
@@ -208,7 +208,7 @@ async function processTask(msg: ClaudeCodeQueueMessage): Promise<void> {
       console.log(`[${jobId}] Task completed, output length: ${result.output.length}`);
 
       // Update job status to completed
-      await updateJobStatus(agentId, jobId, 'completed', {
+      await updateJobStatus(avatarId, jobId, 'completed', {
         result: result.output,
         sessionId: result.sessionId,
       });
@@ -217,7 +217,7 @@ async function processTask(msg: ClaudeCodeQueueMessage): Promise<void> {
       const callback: ClaudeCodeCallback = {
         type: 'claude_code_callback',
         jobId,
-        agentId,
+        avatarId,
         conversationId: msg.conversationId,
         replyToMessageId: msg.replyToMessageId,
         status: 'completed',
@@ -235,13 +235,13 @@ async function processTask(msg: ClaudeCodeQueueMessage): Promise<void> {
       console.error(`[${jobId}] Task failed: ${result.error}`);
 
       // Update job status to failed
-      await updateJobStatus(agentId, jobId, 'failed', { error: result.error });
+      await updateJobStatus(avatarId, jobId, 'failed', { error: result.error });
 
       // Send error callback
       const callback: ClaudeCodeCallback = {
         type: 'claude_code_callback',
         jobId,
-        agentId,
+        avatarId,
         conversationId: msg.conversationId,
         replyToMessageId: msg.replyToMessageId,
         status: 'failed',
@@ -260,13 +260,13 @@ async function processTask(msg: ClaudeCodeQueueMessage): Promise<void> {
     console.error(`[${jobId}] Task exception:`, errorMessage);
 
     // Update job status to failed
-    await updateJobStatus(agentId, jobId, 'failed', { error: errorMessage });
+    await updateJobStatus(avatarId, jobId, 'failed', { error: errorMessage });
 
     // Send error callback
     const callback: ClaudeCodeCallback = {
       type: 'claude_code_callback',
       jobId,
-      agentId,
+      avatarId,
       conversationId: msg.conversationId,
       replyToMessageId: msg.replyToMessageId,
       status: 'failed',
@@ -286,7 +286,7 @@ async function processTask(msg: ClaudeCodeQueueMessage): Promise<void> {
  * Update job status in DynamoDB
  */
 async function updateJobStatus(
-  agentId: string,
+  avatarId: string,
   jobId: string,
   status: string,
   extra?: { result?: string; error?: string; sessionId?: string }
@@ -329,7 +329,7 @@ async function updateJobStatus(
     new UpdateCommand({
       TableName: STATE_TABLE,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: `CLAUDE_CODE#${jobId}`,
       },
       UpdateExpression: `SET ${updateExpr.join(', ')}`,
@@ -381,7 +381,7 @@ export async function runWorker(): Promise<void> {
               new PutCommand({
                 TableName: STATE_TABLE,
                 Item: {
-                  pk: `AGENT#${msg.agentId}`,
+                  pk: `AVATAR#${msg.avatarId}`,
                   sk: `CLAUDE_CODE_RESPONSE#${msg.jobId}`,
                   response: msg.response,
                   timestamp: Date.now(),

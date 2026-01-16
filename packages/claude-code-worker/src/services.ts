@@ -27,7 +27,7 @@ const JOB_TTL_SECONDS = 24 * 60 * 60; // 24 hours
  */
 export interface ClaudeCodeJob {
   jobId: string;
-  agentId: string;
+  avatarId: string;
   conversationId?: string;
   status: ClaudeCodeJobStatus;
   task: string;
@@ -49,7 +49,7 @@ export interface ClaudeCodeJob {
  */
 export interface ClaudeCodeServices {
   enqueueTask: (params: {
-    agentId: string;
+    avatarId: string;
     conversationId?: string;
     replyToMessageId?: string;
     task: string;
@@ -60,17 +60,17 @@ export interface ClaudeCodeServices {
   }) => Promise<{ jobId: string }>;
 
   respondToQuestion: (params: {
-    agentId: string;
+    avatarId: string;
     jobId: string;
     sessionId: string;
     response: string;
   }) => Promise<void>;
 
-  getJob: (agentId: string, jobId: string) => Promise<ClaudeCodeJob | null>;
+  getJob: (avatarId: string, jobId: string) => Promise<ClaudeCodeJob | null>;
 
-  getActiveJobs: (agentId: string) => Promise<ClaudeCodeJob[]>;
+  getActiveJobs: (avatarId: string) => Promise<ClaudeCodeJob[]>;
 
-  cancelJob?: (agentId: string, jobId: string) => Promise<boolean>;
+  cancelJob?: (avatarId: string, jobId: string) => Promise<boolean>;
 }
 
 /**
@@ -86,14 +86,14 @@ export function createClaudeCodeServices(config: {
 
   return {
     async enqueueTask(params) {
-      const jobId = `cc-${params.agentId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const jobId = `cc-${params.avatarId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       // Create job record in DynamoDB
       const jobRecord: ClaudeCodeJobRecord = {
-        pk: `AGENT#${params.agentId}`,
+        pk: `AVATAR#${params.avatarId}`,
         sk: `CLAUDE_CODE#${jobId}`,
         jobId,
-        agentId: params.agentId,
+        avatarId: params.avatarId,
         conversationId: params.conversationId,
         replyToMessageId: params.replyToMessageId,
         status: 'pending',
@@ -117,7 +117,7 @@ export function createClaudeCodeServices(config: {
       const queueMessage: ClaudeCodeQueueMessage = {
         type: 'task',
         jobId,
-        agentId: params.agentId,
+        avatarId: params.avatarId,
         conversationId: params.conversationId,
         replyToMessageId: params.replyToMessageId,
         task: params.task,
@@ -132,7 +132,7 @@ export function createClaudeCodeServices(config: {
         new SendMessageCommand({
           QueueUrl: config.queueUrl,
           MessageBody: JSON.stringify(queueMessage),
-          MessageGroupId: params.agentId, // FIFO ordering per agent
+          MessageGroupId: params.avatarId, // FIFO ordering per avatar
           MessageDeduplicationId: jobId,
         })
       );
@@ -145,7 +145,7 @@ export function createClaudeCodeServices(config: {
       const queueMessage: ClaudeCodeQueueMessage = {
         type: 'response',
         jobId: params.jobId,
-        agentId: params.agentId,
+        avatarId: params.avatarId,
         sessionId: params.sessionId,
         response: params.response,
         callbackQueueUrl: config.responseQueueUrl,
@@ -155,14 +155,14 @@ export function createClaudeCodeServices(config: {
         new SendMessageCommand({
           QueueUrl: config.queueUrl,
           MessageBody: JSON.stringify(queueMessage),
-          MessageGroupId: params.agentId,
+          MessageGroupId: params.avatarId,
           MessageDeduplicationId: `${params.jobId}-resp-${Date.now()}`,
         })
       );
 
       // Also store directly in DynamoDB for faster pickup
       const responseRecord: ClaudeCodeResponseRecord = {
-        pk: `AGENT#${params.agentId}`,
+        pk: `AVATAR#${params.avatarId}`,
         sk: `CLAUDE_CODE_RESPONSE#${params.jobId}`,
         response: params.response,
         timestamp: Date.now(),
@@ -177,12 +177,12 @@ export function createClaudeCodeServices(config: {
       );
     },
 
-    async getJob(agentId, jobId): Promise<ClaudeCodeJob | null> {
+    async getJob(avatarId, jobId): Promise<ClaudeCodeJob | null> {
       const result = await ddb.send(
         new GetCommand({
           TableName: config.stateTable,
           Key: {
-            pk: `AGENT#${agentId}`,
+            pk: `AVATAR#${avatarId}`,
             sk: `CLAUDE_CODE#${jobId}`,
           },
         })
@@ -193,7 +193,7 @@ export function createClaudeCodeServices(config: {
       const record = result.Item as ClaudeCodeJobRecord;
       return {
         jobId: record.jobId,
-        agentId: record.agentId,
+        avatarId: record.avatarId,
         conversationId: record.conversationId,
         status: record.status,
         task: record.task,
@@ -208,7 +208,7 @@ export function createClaudeCodeServices(config: {
       };
     },
 
-    async getActiveJobs(agentId): Promise<ClaudeCodeJob[]> {
+    async getActiveJobs(avatarId): Promise<ClaudeCodeJob[]> {
       const result = await ddb.send(
         new QueryCommand({
           TableName: config.stateTable,
@@ -218,7 +218,7 @@ export function createClaudeCodeServices(config: {
             '#status': 'status',
           },
           ExpressionAttributeValues: {
-            ':pk': `AGENT#${agentId}`,
+            ':pk': `AVATAR#${avatarId}`,
             ':prefix': 'CLAUDE_CODE#',
             ':pending': 'pending',
             ':processing': 'processing',
@@ -231,7 +231,7 @@ export function createClaudeCodeServices(config: {
         const record = item as ClaudeCodeJobRecord;
         return {
           jobId: record.jobId,
-          agentId: record.agentId,
+          avatarId: record.avatarId,
           conversationId: record.conversationId,
           status: record.status,
           task: record.task,
@@ -247,13 +247,13 @@ export function createClaudeCodeServices(config: {
       });
     },
 
-    async cancelJob(agentId, jobId): Promise<boolean> {
+    async cancelJob(avatarId, jobId): Promise<boolean> {
       try {
         await ddb.send(
           new UpdateCommand({
             TableName: config.stateTable,
             Key: {
-              pk: `AGENT#${agentId}`,
+              pk: `AVATAR#${avatarId}`,
               sk: `CLAUDE_CODE#${jobId}`,
             },
             UpdateExpression: 'SET #status = :status, #updatedAt = :updatedAt',

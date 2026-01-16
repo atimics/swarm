@@ -19,8 +19,8 @@ export interface ClaudeCodeQueueMessage {
   /** Unique job ID */
   jobId: string;
 
-  /** Agent ID that owns this job */
-  agentId: string;
+  /** Avatar ID that owns this job */
+  avatarId: string;
 
   /** Conversation ID for callback */
   conversationId?: string;
@@ -34,7 +34,7 @@ export interface ClaudeCodeQueueMessage {
   /** Working directory */
   workingDir?: string;
 
-  /** Maximum turns for agent */
+  /** Maximum turns for avatar */
   maxTurns?: number;
 
   /** Session ID for resume */
@@ -59,8 +59,8 @@ export interface ClaudeCodeCallback {
   /** Job ID */
   jobId: string;
 
-  /** Agent ID */
-  agentId: string;
+  /** Avatar ID */
+  avatarId: string;
 
   /** Conversation ID for routing */
   conversationId?: string;
@@ -91,10 +91,10 @@ export interface ClaudeCodeCallback {
  * DynamoDB record for job state
  */
 export interface ClaudeCodeJobRecord {
-  pk: string; // AGENT#{agentId}
+  pk: string; // AVATAR#{avatarId}
   sk: string; // CLAUDE_CODE#{jobId}
   jobId: string;
-  agentId: string;
+  avatarId: string;
   conversationId?: string;
   replyToMessageId?: string;
   status: ClaudeCodeJobStatus;
@@ -118,7 +118,7 @@ export interface ClaudeCodeJobRecord {
  * DynamoDB record for pending response
  */
 export interface ClaudeCodeResponseRecord {
-  pk: string; // AGENT#{agentId}
+  pk: string; // AVATAR#{avatarId}
   sk: string; // CLAUDE_CODE_RESPONSE#{jobId}
   response: string;
   timestamp: number;
