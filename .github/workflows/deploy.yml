@@ -193,7 +193,9 @@ jobs:
       - name: Build Admin UI
         run: |
           cd packages/admin-ui
-          VITE_API_URL=${{ needs.setup.outputs.api_url }} pnpm build
+          VITE_API_URL=${{ needs.setup.outputs.api_url }} \
+          VITE_CROSSMINT_PROJECT_ID=${{ secrets.VITE_CROSSMINT_PROJECT_ID }} \
+          pnpm build
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
