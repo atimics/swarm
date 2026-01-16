@@ -1,12 +1,12 @@
 /**
  * Platform Tool Executor
- * Executes tools on behalf of agents when responding on platforms
+ * Executes tools on behalf of avatars when responding on platforms
  */
-import type { AgentConfig, ToolCall, ResponseAction } from '../types/index.js';
+import type { AvatarConfig, ToolCall, ResponseAction } from '../types/index.js';
 
 export interface ToolExecutorDependencies {
-  agentId: string;
-  agentConfig: AgentConfig;
+  avatarId: string;
+  avatarConfig: AvatarConfig;
   secrets: Record<string, string>;
   wallets?: Array<{ name: string; publicKey: string }>;
   mediaBucket?: string;
@@ -129,15 +129,15 @@ async function executeImageGeneration(
     };
   }
 
-  // Build prompt with agent's character for selfies
+  // Build prompt with avatar's character for selfies
   let finalPrompt = args.prompt;
   if (args.style) {
     finalPrompt += `, ${args.style} style`;
   }
 
-  // Add agent name context for selfies
-  if (deps.agentConfig.name) {
-    finalPrompt = `${deps.agentConfig.name}: ${finalPrompt}`;
+  // Add avatar name context for selfies
+  if (deps.avatarConfig.name) {
+    finalPrompt = `${deps.avatarConfig.name}: ${finalPrompt}`;
   }
 
   try {

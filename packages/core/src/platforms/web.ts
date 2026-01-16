@@ -4,7 +4,7 @@
  */
 import { PlatformAdapter } from './base.js';
 import type {
-  AgentConfig,
+  AvatarConfig,
   SwarmEnvelope,
   ResponseAction,
   SenderInfo,
@@ -35,7 +35,7 @@ export interface WebChatMessage {
 
 export interface WebChatResponse {
   messageId: string;
-  agentId: string;
+  avatarId: string;
   text: string;
   media?: Array<{
     type: 'image' | 'video';
@@ -48,9 +48,9 @@ export class WebAdapter extends PlatformAdapter {
   readonly platform = 'web' as const;
   private config: WebConfig;
 
-  constructor(agentConfig: AgentConfig) {
-    super(agentConfig);
-    this.config = agentConfig.platforms.web!;
+  constructor(avatarConfig: AvatarConfig) {
+    super(avatarConfig);
+    this.config = avatarConfig.platforms.web!;
   }
 
   isConfigured(): boolean {
@@ -133,13 +133,13 @@ export class WebAdapter extends PlatformAdapter {
    * Create a response object for synchronous API responses
    */
   createResponse(
-    agentId: string,
+    avatarId: string,
     text: string,
     media?: Array<{ type: 'image' | 'video'; url: string }>
   ): WebChatResponse {
     return {
       messageId: `resp_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      agentId,
+      avatarId,
       text,
       media,
       timestamp: Date.now(),

@@ -78,7 +78,7 @@ export class OutboundSender {
     if (this.activityService) {
       try {
         await this.activityService.logResponseSent(
-          response.agentId,
+          response.avatarId,
           response.platform,
           response.actions
         );
@@ -98,7 +98,7 @@ export class OutboundSender {
    * Send a simple text message
    */
   async sendMessage(
-    _agentId: string,
+    _avatarId: string,
     platform: Platform,
     conversationId: string,
     text: string,

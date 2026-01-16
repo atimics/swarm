@@ -1,13 +1,13 @@
 /**
  * Shared Tool Definitions and Executors
- * These tools are available to agents on all platforms (Telegram, Twitter, web, etc.)
+ * These tools are available to avatars on all platforms (Telegram, Twitter, web, etc.)
  * Admin-only tools are defined separately in the admin-api package.
  */
 import { z } from 'zod';
 import type { ToolDefinition } from '../types/index.js';
 
 /**
- * Standard response tools - basic actions an agent can take
+ * Standard response tools - basic actions an avatar can take
  */
 export const responseTools: ToolDefinition[] = [
   {
@@ -126,7 +126,7 @@ export const socialTools: ToolDefinition[] = [
 ];
 
 /**
- * All public tools available to agents
+ * All public tools available to avatars
  */
 export const publicTools: ToolDefinition[] = [
   ...responseTools,
@@ -153,9 +153,9 @@ export const toolCategories = {
 } as const;
 
 /**
- * Default tool set for new agents
+ * Default tool set for new avatars
  */
-export const defaultAgentTools = [
+export const defaultAvatarTools = [
   // Response tools
   'send_message',
   'react',
@@ -172,3 +172,6 @@ export const defaultAgentTools = [
   'remember',
   'recall',
 ];
+
+/** @deprecated Use defaultAvatarTools instead */
+export const defaultAgentTools = defaultAvatarTools;

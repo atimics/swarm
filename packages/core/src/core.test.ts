@@ -149,7 +149,7 @@ describe('LLM Message Format', () => {
     });
 
     it('should format system prompt correctly', () => {
-      const _agentName = 'TestBot';
+      const _avatarName = 'TestBot';
       const persona = 'You are a helpful AI assistant.';
       
       let systemPrompt = persona;
@@ -209,10 +209,10 @@ describe('LLM Message Format', () => {
 });
 
 describe('Configuration Parsing', () => {
-  describe('Agent Config', () => {
-    it('should parse agent config correctly', () => {
+  describe('Avatar Config', () => {
+    it('should parse avatar config correctly', () => {
       const config = {
-        id: 'agent-1',
+        id: 'avatar-1',
         name: 'TestBot',
         persona: 'You are a helpful assistant.',
         platforms: {
@@ -233,7 +233,7 @@ describe('Configuration Parsing', () => {
 
     it('should handle missing optional config', () => {
       const config = {
-        id: 'agent-1',
+        id: 'avatar-1',
         name: 'TestBot',
         platforms: {
           telegram: { enabled: true },

@@ -37,12 +37,12 @@ export class DynamoDBUsageMeteringService implements UsageMeteringService {
   /**
    * Get the current credits for a tool/feature.
    */
-  async getCredits(agentId: string, toolId: string, config: UsageConfig): Promise<UsageCredit> {
+  async getCredits(avatarId: string, toolId: string, config: UsageConfig): Promise<UsageCredit> {
     try {
       const result = await this.docClient.send(new GetCommand({
         TableName: this.tableName,
         Key: {
-          pk: `AGENT#${agentId}`,
+          pk: `AVATAR#${avatarId}`,
           sk: `USAGE#${toolId}`,
         },
       }));
@@ -63,7 +63,7 @@ export class DynamoDBUsageMeteringService implements UsageMeteringService {
         lastRecharge: stored.lastRecharge,
       };
     } catch (err) {
-      console.error(`[UsageMetering] Failed to get credits for agent=${agentId}, tool=${toolId}:`, err);
+      console.error(`[UsageMetering] Failed to get credits for avatar=${avatarId}, tool=${toolId}:`, err);
       // Fail open with 0 credits to be safe, or 1 to avoid breaking things?
       // Defaulting to 0 for better enforcement.
       return { credits: 0, lastRecharge: Date.now() };
@@ -73,17 +73,17 @@ export class DynamoDBUsageMeteringService implements UsageMeteringService {
   /**
    * Check if a tool/feature can be used.
    */
-  async canUseTool(agentId: string, toolId: string, config: UsageConfig): Promise<boolean> {
-    const { credits } = await this.getCredits(agentId, toolId, config);
+  async canUseTool(avatarId: string, toolId: string, config: UsageConfig): Promise<boolean> {
+    const { credits } = await this.getCredits(avatarId, toolId, config);
     return credits > 0;
   }
 
   /**
    * Consume a credit for a tool/feature.
    */
-  async consumeCredit(agentId: string, toolId: string, config: UsageConfig): Promise<{ allowed: boolean; remaining: number }> {
+  async consumeCredit(avatarId: string, toolId: string, config: UsageConfig): Promise<{ allowed: boolean; remaining: number }> {
     const now = Date.now();
-    const stored = await this.getCredits(agentId, toolId, config);
+    const stored = await this.getCredits(avatarId, toolId, config);
     
     if (stored.credits <= 0) {
       return { allowed: false, remaining: 0 };
@@ -108,7 +108,7 @@ export class DynamoDBUsageMeteringService implements UsageMeteringService {
       await this.docClient.send(new PutCommand({
         TableName: this.tableName,
         Item: {
-          pk: `AGENT#${agentId}`,
+          pk: `AVATAR#${avatarId}`,
           sk: `USAGE#${toolId}`,
           credits: newCredits,
           lastRecharge: updatedLastRecharge,
@@ -121,7 +121,7 @@ export class DynamoDBUsageMeteringService implements UsageMeteringService {
         remaining: newCredits,
       };
     } catch (err) {
-      console.error(`[UsageMetering] Failed to consume credit for agent=${agentId}, tool=${toolId}:`, err);
+      console.error(`[UsageMetering] Failed to consume credit for avatar=${avatarId}, tool=${toolId}:`, err);
       return { allowed: false, remaining: stored.credits };
     }
   }

@@ -8,7 +8,7 @@
  */
 import { PlatformAdapter } from './base.js';
 import type {
-  AgentConfig,
+  AvatarConfig,
   SwarmEnvelope,
   ResponseAction,
   SenderInfo,
@@ -131,9 +131,9 @@ export class DiscordAdapter extends PlatformAdapter {
   private credentials: DiscordCredentials;
   private botUserId?: string;
 
-  constructor(agentConfig: AgentConfig, credentials: DiscordCredentials) {
-    super(agentConfig);
-    this.config = agentConfig.platforms.discord!;
+  constructor(avatarConfig: AvatarConfig, credentials: DiscordCredentials) {
+    super(avatarConfig);
+    this.config = avatarConfig.platforms.discord!;
     this.credentials = credentials;
   }
 
@@ -258,7 +258,7 @@ export class DiscordAdapter extends PlatformAdapter {
 
   private parseMessageEvent(message: DiscordMessage): SwarmEnvelope | null {
     // Skip bot messages if configured
-    if (this.agentConfig.behavior.ignoreBots && message.author.bot) {
+    if (this.avatarConfig.behavior.ignoreBots && message.author.bot) {
       return null;
     }
 
@@ -471,8 +471,8 @@ export class DiscordAdapter extends PlatformAdapter {
 
     const payload: DiscordWebhookPayload = {
       content,
-      username: this.agentConfig.name,
-      avatar_url: this.agentConfig.profileImage?.url,
+      username: this.avatarConfig.name,
+      avatar_url: this.avatarConfig.profileImage?.url,
     };
 
     // Add embeds for media
@@ -682,7 +682,7 @@ export class DiscordAdapter extends PlatformAdapter {
 export function buildDiscordEnvelope(
   message: DiscordMessage,
   config: {
-    agentId: string;
+    avatarId: string;
     botUserId?: string;
     allowedGuilds?: string[];
     allowedChannels?: string[];
@@ -748,7 +748,7 @@ export function buildDiscordEnvelope(
   );
 
   const envelope: SwarmEnvelope = {
-    agentId: config.agentId,
+    avatarId: config.avatarId,
     platform: 'discord',
     messageId: message.id,
     conversationId: message.channel_id,
@@ -761,7 +761,7 @@ export function buildDiscordEnvelope(
     metadata: {
       receivedAt: Date.now(),
       priority: (isMention || isReplyToBot) ? 'high' : 'normal',
-      idempotencyKey: `discord:${config.agentId}:${message.id}`,
+      idempotencyKey: `discord:${config.avatarId}:${message.id}`,
       isMention,
       isReplyToBot,
       chatType: message.guild_id ? 'group' : 'private',

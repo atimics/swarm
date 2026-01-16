@@ -230,7 +230,7 @@ export class OpenRouterLLMService implements LLMService {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`,
           'HTTP-Referer': 'https://swarm.ai',
-          'X-Title': 'Swarm Agent',
+          'X-Title': 'Swarm Avatar',
         },
         body: JSON.stringify(body),
       },

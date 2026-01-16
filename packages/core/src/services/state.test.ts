@@ -19,25 +19,25 @@ class InMemoryStateService extends DynamoDBStateService {
     super('test-table');
   }
 
-  private key(agentId: string, channelId: string): string {
-    return `${agentId}:${channelId}`;
+  private key(avatarId: string, channelId: string): string {
+    return `${avatarId}:${channelId}`;
   }
 
-  override async getChannelState(agentId: string, channelId: string): Promise<ChannelState | null> {
-    return this.store.get(this.key(agentId, channelId)) || null;
+  override async getChannelState(avatarId: string, channelId: string): Promise<ChannelState | null> {
+    return this.store.get(this.key(avatarId, channelId)) || null;
   }
 
   override async updateChannelState(state: ChannelState): Promise<void> {
-    this.store.set(this.key(state.agentId, state.channelId), state);
+    this.store.set(this.key(state.avatarId, state.channelId), state);
   }
 
   setState(state: ChannelState): void {
-    this.store.set(this.key(state.agentId, state.channelId), state);
+    this.store.set(this.key(state.avatarId, state.channelId), state);
   }
 
   // Override to avoid DynamoDB UpdateCommand in tests
   override async addMessageToChannel(
-    agentId: string,
+    avatarId: string,
     channelId: string,
     platform: Platform,
     message: ContextMessage,
@@ -46,12 +46,12 @@ class InMemoryStateService extends DynamoDBStateService {
     chatTitle?: string
   ): Promise<ChannelState> {
     const now = Date.now();
-    let state = await this.getChannelState(agentId, channelId);
+    let state = await this.getChannelState(avatarId, channelId);
     const isDirect = Boolean(message.isMention || message.isReplyToBot);
 
     if (!state) {
       state = {
-        agentId,
+        avatarId,
         channelId,
         platform,
         recentMessages: [],
@@ -118,7 +118,7 @@ describe('Channel State Machine Logic', () => {
   function createChannelState(overrides: Partial<ChannelState> = {}): ChannelState {
     const now = Date.now();
     return {
-      agentId: 'test-agent',
+      avatarId: 'test-avatar',
       channelId: '-100123456789',
       platform: 'telegram',
       recentMessages: [],
@@ -491,7 +491,7 @@ describe('Channel State Machine Logic', () => {
       const beforeTime = Date.now();
 
       const result = await svc.addMessageToChannel(
-        'agent',
+        'avatar',
         'channel',
         'telegram' as Platform,
         createMessage({ isMention: true })
@@ -522,7 +522,7 @@ describe('Channel State Machine Logic', () => {
       });
       svc.setState(initialState);
 
-      const updated = await svc.markResponseSent('test-agent', 'channel', 'resp-1');
+      const updated = await svc.markResponseSent('test-avatar', 'channel', 'resp-1');
 
       expect(updated?.state).toBe('COOLDOWN');
       expect(updated?.recentMessages.length).toBe(0);
@@ -698,7 +698,7 @@ describe('DynamoDB Response Validation', () => {
   function createTestChannelState(overrides: Partial<ChannelState> = {}): ChannelState {
     const now = Date.now();
     return {
-      agentId: 'test-agent',
+      avatarId: 'test-avatar',
       channelId: '-100123456789',
       platform: 'telegram',
       recentMessages: [],
@@ -735,20 +735,20 @@ describe('DynamoDB Response Validation', () => {
       // Simulate DynamoDB response with partial attributes
       const dynamoResponse = {
         Attributes: {
-          agentId: 'agent-1',
+          avatarId: 'avatar-1',
           channelId: 'channel-1',
           // Missing platform, recentMessages, etc.
         },
       };
 
       const now = Date.now();
-      const agentId = 'agent-1';
+      const avatarId = 'avatar-1';
       const channelId = 'channel-1';
       const platform = 'telegram';
 
       // The fix: explicit mapping with defaults
       const validated: ChannelState & { updatedAt?: number } = {
-        agentId: dynamoResponse.Attributes.agentId ?? agentId,
+        avatarId: dynamoResponse.Attributes.avatarId ?? avatarId,
         channelId: dynamoResponse.Attributes.channelId ?? channelId,
         platform: (dynamoResponse.Attributes as Record<string, unknown>).platform as Platform ?? platform,
         recentMessages: (dynamoResponse.Attributes as Record<string, unknown>).recentMessages as ContextMessage[] ?? [],
@@ -757,7 +757,7 @@ describe('DynamoDB Response Validation', () => {
         state: (dynamoResponse.Attributes as Record<string, unknown>).state as ChannelState['state'] ?? 'IDLE',
       };
 
-      expect(validated.agentId).toBe('agent-1');
+      expect(validated.avatarId).toBe('avatar-1');
       expect(validated.channelId).toBe('channel-1');
       expect(validated.platform).toBe('telegram');
       expect(validated.recentMessages).toEqual([]);
@@ -784,7 +784,7 @@ describe('DynamoDB Response Validation', () => {
       const now = Date.now();
       const dynamoResponse = {
         Attributes: {
-          agentId: 'agent-1',
+          avatarId: 'avatar-1',
           channelId: 'channel-1',
           platform: 'telegram',
           recentMessages: [{ messageId: '1', sender: 'User', content: 'Hi', timestamp: now, isBot: false }],
@@ -801,7 +801,7 @@ describe('DynamoDB Response Validation', () => {
 
       const attrs = dynamoResponse.Attributes as Record<string, unknown>;
       const validated = {
-        agentId: attrs.agentId ?? 'fallback',
+        avatarId: attrs.avatarId ?? 'fallback',
         channelId: attrs.channelId ?? 'fallback',
         platform: attrs.platform ?? 'telegram',
         recentMessages: attrs.recentMessages ?? [],
@@ -815,7 +815,7 @@ describe('DynamoDB Response Validation', () => {
         directEngagementAt: attrs.directEngagementAt,
       };
 
-      expect(validated.agentId).toBe('agent-1');
+      expect(validated.avatarId).toBe('avatar-1');
       expect(validated.state).toBe('ACTIVE');
       expect(validated.chatType).toBe('supergroup');
       expect(validated.chatTitle).toBe('Test Group');

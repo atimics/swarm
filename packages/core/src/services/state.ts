@@ -1,6 +1,6 @@
 /**
  * State Service - DynamoDB-based state management
- * Multi-tenant storage for channel state, user cooldowns, and agent state
+ * Multi-tenant storage for channel state, user cooldowns, and avatar state
  *
  * Supports Kyro-style channel-aware messaging:
  * - State machine: IDLE → ACTIVE → COOLDOWN
@@ -25,7 +25,7 @@ import type {
   UserCooldown,
   Platform,
   ContextMessage,
-  AgentConfig,
+  AvatarConfig,
   ResponseDecision,
 } from '../types/index.js';
 
@@ -74,11 +74,11 @@ export class DynamoDBStateService implements StateService {
   // CHANNEL STATE
   // =====================================================================
 
-  async getChannelState(agentId: string, channelId: string): Promise<ChannelState | null> {
+  async getChannelState(avatarId: string, channelId: string): Promise<ChannelState | null> {
     const result = await this.docClient.send(new GetCommand({
       TableName: this.tableName,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: `CHANNEL#${channelId}#STATE`,
       },
     }));
@@ -93,7 +93,7 @@ export class DynamoDBStateService implements StateService {
     }
 
     return {
-      agentId: result.Item.agentId,
+      avatarId: result.Item.avatarId,
       channelId: result.Item.channelId,
       platform: result.Item.platform,
       recentMessages: result.Item.recentMessages || [],
@@ -121,7 +121,7 @@ export class DynamoDBStateService implements StateService {
     await this.docClient.send(new PutCommand({
       TableName: this.tableName,
       Item: {
-        pk: `AGENT#${state.agentId}`,
+        pk: `AVATAR#${state.avatarId}`,
         sk: `CHANNEL#${state.channelId}#STATE`,
         ...state,
         ttl: state.ttl || ttl,
@@ -134,13 +134,13 @@ export class DynamoDBStateService implements StateService {
    * Get or create channel state with Kyro-style initialization
    */
   async getOrCreateChannelState(
-    agentId: string,
+    avatarId: string,
     channelId: string,
     platform: Platform,
     chatType?: 'private' | 'group' | 'supergroup' | 'channel',
     chatTitle?: string
   ): Promise<ChannelState> {
-    const existing = await this.getChannelState(agentId, channelId);
+    const existing = await this.getChannelState(avatarId, channelId);
     if (existing) {
       // Update chat context if provided
       if (chatType && existing.chatType !== chatType) {
@@ -153,7 +153,7 @@ export class DynamoDBStateService implements StateService {
 
     const now = Date.now();
     const newState: ChannelState = {
-      agentId,
+      avatarId,
       channelId,
       platform,
       recentMessages: [],
@@ -171,7 +171,7 @@ export class DynamoDBStateService implements StateService {
       await this.docClient.send(new PutCommand({
         TableName: this.tableName,
         Item: {
-          pk: `AGENT#${agentId}`,
+          pk: `AVATAR#${avatarId}`,
           sk: `CHANNEL#${channelId}#STATE`,
           ...newState,
           updatedAt: now,
@@ -181,7 +181,7 @@ export class DynamoDBStateService implements StateService {
     } catch (err: unknown) {
       // Race condition - another request created it first
       if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
-        const fetched = await this.getChannelState(agentId, channelId);
+        const fetched = await this.getChannelState(avatarId, channelId);
         if (fetched) return fetched;
       }
       throw err;
@@ -194,7 +194,7 @@ export class DynamoDBStateService implements StateService {
    * Add message to channel with Kyro-style state machine updates
    */
   async addMessageToChannel(
-    agentId: string,
+    avatarId: string,
     channelId: string,
     platform: Platform,
     message: ContextMessage,
@@ -212,7 +212,7 @@ export class DynamoDBStateService implements StateService {
       'lastActivityAt = :now',
       'updatedAt = :now',
       '#ttl = :ttl',
-      'agentId = if_not_exists(agentId, :agentId)',
+      'avatarId = if_not_exists(avatarId, :avatarId)',
       'channelId = if_not_exists(channelId, :channelId)',
       'platform = if_not_exists(platform, :platform)',
     ];
@@ -233,7 +233,7 @@ export class DynamoDBStateService implements StateService {
     const response = await this.docClient.send(new UpdateCommand({
       TableName: this.tableName,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: `CHANNEL#${channelId}#STATE`,
       },
       UpdateExpression: `SET ${updateParts.join(', ')}`,
@@ -248,7 +248,7 @@ export class DynamoDBStateService implements StateService {
         ':one': 1,
         ':now': now,
         ':ttl': ttl,
-        ':agentId': agentId,
+        ':avatarId': avatarId,
         ':channelId': channelId,
         ':platform': platform,
         ...(chatType ? { ':chatType': chatType } : {}),
@@ -265,7 +265,7 @@ export class DynamoDBStateService implements StateService {
     }
 
     let updated: ChannelState & { updatedAt?: number } = {
-      agentId: response.Attributes.agentId ?? agentId,
+      avatarId: response.Attributes.avatarId ?? avatarId,
       channelId: response.Attributes.channelId ?? channelId,
       platform: response.Attributes.platform ?? platform,
       recentMessages: response.Attributes.recentMessages ?? [],
@@ -292,7 +292,7 @@ export class DynamoDBStateService implements StateService {
         await this.docClient.send(new UpdateCommand({
           TableName: this.tableName,
           Key: {
-            pk: `AGENT#${agentId}`,
+            pk: `AVATAR#${avatarId}`,
             sk: `CHANNEL#${channelId}#STATE`,
           },
           UpdateExpression: 'SET recentMessages = :messages, updatedAt = :updatedAt, #ttl = :ttl',
@@ -336,11 +336,11 @@ export class DynamoDBStateService implements StateService {
    * Transition channel to a new state
    */
   async transitionState(
-    agentId: string,
+    avatarId: string,
     channelId: string,
     newState: ChannelStateMachine
   ): Promise<ChannelState | null> {
-    const current = await this.getChannelState(agentId, channelId);
+    const current = await this.getChannelState(avatarId, channelId);
     if (!current) return null;
 
     const now = Date.now();
@@ -356,11 +356,11 @@ export class DynamoDBStateService implements StateService {
    * Mark response sent - transitions to COOLDOWN and clears buffer
    */
   async markResponseSent(
-    agentId: string,
+    avatarId: string,
     channelId: string,
     responseMessageId: string
   ): Promise<ChannelState | null> {
-    const current = await this.getChannelState(agentId, channelId);
+    const current = await this.getChannelState(avatarId, channelId);
     if (!current) return null;
 
     const now = Date.now();
@@ -595,14 +595,14 @@ export class DynamoDBStateService implements StateService {
   // =====================================================================
 
   async getUserCooldown(
-    agentId: string,
+    avatarId: string,
     platform: Platform,
     userId: string
   ): Promise<UserCooldown | null> {
     const result = await this.docClient.send(new GetCommand({
       TableName: this.tableName,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: `COOLDOWN#${platform}#${userId}`,
       },
     }));
@@ -617,7 +617,7 @@ export class DynamoDBStateService implements StateService {
     }
 
     return {
-      agentId: result.Item.agentId,
+      avatarId: result.Item.avatarId,
       platform: result.Item.platform,
       userId: result.Item.userId,
       cooldownUntil: result.Item.cooldownUntil,
@@ -631,7 +631,7 @@ export class DynamoDBStateService implements StateService {
     await this.docClient.send(new PutCommand({
       TableName: this.tableName,
       Item: {
-        pk: `AGENT#${cooldown.agentId}`,
+        pk: `AVATAR#${cooldown.avatarId}`,
         sk: `COOLDOWN#${cooldown.platform}#${cooldown.userId}`,
         ...cooldown,
         ttl,
@@ -640,14 +640,14 @@ export class DynamoDBStateService implements StateService {
   }
 
   async clearUserCooldown(
-    agentId: string,
+    avatarId: string,
     platform: Platform,
     userId: string
   ): Promise<void> {
     await this.docClient.send(new DeleteCommand({
       TableName: this.tableName,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: `COOLDOWN#${platform}#${userId}`,
       },
     }));
@@ -657,11 +657,11 @@ export class DynamoDBStateService implements StateService {
   // AGENT CONFIG
   // =====================================================================
 
-  async getAgentConfig(agentId: string): Promise<AgentConfig | null> {
+  async getAvatarConfig(avatarId: string): Promise<AvatarConfig | null> {
     const result = await this.docClient.send(new GetCommand({
       TableName: this.tableName,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: 'CONFIG',
       },
     }));
@@ -670,14 +670,14 @@ export class DynamoDBStateService implements StateService {
       return null;
     }
 
-    return result.Item.config as AgentConfig;
+    return result.Item.config as AvatarConfig;
   }
 
-  async saveAgentConfig(config: AgentConfig): Promise<void> {
+  async saveAvatarConfig(config: AvatarConfig): Promise<void> {
     await this.docClient.send(new PutCommand({
       TableName: this.tableName,
       Item: {
-        pk: `AGENT#${config.id}`,
+        pk: `AVATAR#${config.id}`,
         sk: 'CONFIG',
         config,
         updatedAt: Date.now(),
@@ -685,21 +685,21 @@ export class DynamoDBStateService implements StateService {
     }));
   }
 
-  async listAgents(): Promise<string[]> {
+  async listAvatars(): Promise<string[]> {
     // Note: Using Scan because begins_with() cannot be used on partition keys in Query.
     // For better performance at scale, consider adding a GSI with entityType as PK.
     const result = await this.docClient.send(new ScanCommand({
       TableName: this.tableName,
       FilterExpression: 'begins_with(pk, :prefix) AND sk = :sk',
       ExpressionAttributeValues: {
-        ':prefix': 'AGENT#',
+        ':prefix': 'AVATAR#',
         ':sk': 'CONFIG',
       },
       ProjectionExpression: 'pk',
     }));
 
     return (result.Items || []).map(item =>
-      (item.pk as string).replace('AGENT#', '')
+      (item.pk as string).replace('AVATAR#', '')
     );
   }
 
@@ -735,11 +735,11 @@ export class DynamoDBStateService implements StateService {
   // SCHEDULED TASKS STATE
   // =====================================================================
 
-  async getLastMentionId(agentId: string): Promise<string | null> {
+  async getLastMentionId(avatarId: string): Promise<string | null> {
     const result = await this.docClient.send(new GetCommand({
       TableName: this.tableName,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: 'TWITTER#LAST_MENTION',
       },
     }));
@@ -747,11 +747,11 @@ export class DynamoDBStateService implements StateService {
     return result.Item?.lastMentionId || null;
   }
 
-  async setLastMentionId(agentId: string, mentionId: string): Promise<void> {
+  async setLastMentionId(avatarId: string, mentionId: string): Promise<void> {
     await this.docClient.send(new PutCommand({
       TableName: this.tableName,
       Item: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: 'TWITTER#LAST_MENTION',
         lastMentionId: mentionId,
         updatedAt: Date.now(),
@@ -763,7 +763,7 @@ export class DynamoDBStateService implements StateService {
   // MEMORY / FACTS STORAGE
   // =====================================================================
 
-  async saveFact(agentId: string, fact: { fact: string; about?: string; userId?: string; timestamp: number }): Promise<void> {
+  async saveFact(avatarId: string, fact: { fact: string; about?: string; userId?: string; timestamp: number }): Promise<void> {
     // Create a deterministic ID from the fact content for deduplication
     // Use TextEncoder to properly handle Unicode (including emojis)
     const encoder = new TextEncoder();
@@ -774,7 +774,7 @@ export class DynamoDBStateService implements StateService {
     await this.docClient.send(new PutCommand({
       TableName: this.tableName,
       Item: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: sortKey,
         fact: fact.fact,
         about: fact.about,
@@ -786,14 +786,14 @@ export class DynamoDBStateService implements StateService {
     }));
   }
 
-  async getFacts(agentId: string, query: string, userId?: string): Promise<Array<{ fact: string; about?: string; userId?: string; timestamp: number }>> {
+  async getFacts(avatarId: string, query: string, userId?: string): Promise<Array<{ fact: string; about?: string; userId?: string; timestamp: number }>> {
     // Query facts by prefix (about field)
     // For more sophisticated search, would need GSI or OpenSearch
     const result = await this.docClient.send(new ScanCommand({
       TableName: this.tableName,
       FilterExpression: 'pk = :pk AND begins_with(sk, :prefix) AND (contains(fact, :query) OR contains(about, :query))',
       ExpressionAttributeValues: {
-        ':pk': `AGENT#${agentId}`,
+        ':pk': `AVATAR#${avatarId}`,
         ':prefix': 'FACT#',
         ':query': query.toLowerCase(),
       },

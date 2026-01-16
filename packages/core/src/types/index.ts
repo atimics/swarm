@@ -15,7 +15,7 @@ export const PlatformSchema = z.enum(['telegram', 'discord', 'twitter', 'web']);
 // AGENT CONFIGURATION
 // =============================================================================
 
-export interface AgentConfig {
+export interface AvatarConfig {
   id: string;
   name: string;
   version: string;
@@ -171,7 +171,7 @@ export interface SolanaConfig {
   enabled: boolean;
   network: 'mainnet-beta' | 'devnet' | 'testnet';
   rpcUrl: string;
-  tokenMint?: string; // Agent's token if applicable
+  tokenMint?: string; // Avatar's token if applicable
   walletSecretName: string;
   features: SolanaFeature[];
 }
@@ -192,7 +192,7 @@ export type SolanaFeature =
  */
 export interface SwarmEnvelope {
   // Routing
-  agentId: string;
+  avatarId: string;
   platform: Platform;
   
   // Message identification
@@ -303,7 +303,7 @@ export interface EnvelopeMetadata {
 // =============================================================================
 
 export interface SwarmResponse {
-  agentId: string;
+  avatarId: string;
   platform: Platform;
   conversationId: string;
   replyToMessageId?: string;
@@ -412,14 +412,14 @@ export interface MessageQueueItem {
 }
 
 export interface ResponseQueueItem {
-  agentId: string;
+  avatarId: string;
   envelope: SwarmEnvelope;
   enqueuedAt: number;
   priority: 'high' | 'normal' | 'low';
 }
 
 export interface MediaQueueItem {
-  agentId: string;
+  avatarId: string;
   conversationId: string;
   action: TakeSelfieAction | GenerateVideoAction;
   callbackUrl?: string;
@@ -457,7 +457,7 @@ export interface ResponseDecision {
 }
 
 export interface ChannelState {
-  agentId: string;
+  avatarId: string;
   channelId: string;
   platform: Platform;
 
@@ -510,7 +510,7 @@ export interface ContextMessage {
 }
 
 export interface UserCooldown {
-  agentId: string;
+  avatarId: string;
   platform: Platform;
   userId: string;
   cooldownUntil: number;
@@ -529,7 +529,7 @@ export interface ToolDefinition {
 }
 
 export interface ToolContext {
-  agentId: string;
+  avatarId: string;
   envelope: SwarmEnvelope;
   services: ServiceContainer;
 }
@@ -565,25 +565,25 @@ export interface UsageConfig {
 }
 
 export interface UsageMeteringService {
-  canUseTool(agentId: string, toolId: string, config: UsageConfig): Promise<boolean>;
-  consumeCredit(agentId: string, toolId: string, config: UsageConfig): Promise<{ allowed: boolean; remaining: number }>;
-  getCredits(agentId: string, toolId: string, config: UsageConfig): Promise<UsageCredit>;
+  canUseTool(avatarId: string, toolId: string, config: UsageConfig): Promise<boolean>;
+  consumeCredit(avatarId: string, toolId: string, config: UsageConfig): Promise<{ allowed: boolean; remaining: number }>;
+  getCredits(avatarId: string, toolId: string, config: UsageConfig): Promise<UsageCredit>;
 }
 
 // Service interfaces (implemented in services/)
 export interface StateService {
-  getChannelState(agentId: string, channelId: string): Promise<ChannelState | null>;
+  getChannelState(avatarId: string, channelId: string): Promise<ChannelState | null>;
   updateChannelState(state: ChannelState): Promise<void>;
-  getUserCooldown(agentId: string, platform: Platform, userId: string): Promise<UserCooldown | null>;
+  getUserCooldown(avatarId: string, platform: Platform, userId: string): Promise<UserCooldown | null>;
   setUserCooldown(cooldown: UserCooldown): Promise<void>;
   
   // Memory/facts storage
-  saveFact(agentId: string, fact: MemoryFact): Promise<void>;
-  getFacts(agentId: string, query: string, userId?: string): Promise<MemoryFact[]>;
+  saveFact(avatarId: string, fact: MemoryFact): Promise<void>;
+  getFacts(avatarId: string, query: string, userId?: string): Promise<MemoryFact[]>;
 }
 
 /**
- * A fact stored in agent memory
+ * A fact stored in avatar memory
  */
 export interface MemoryFact {
   fact: string;
@@ -597,7 +597,7 @@ export interface LLMService {
 }
 
 export interface LLMGenerateParams {
-  agentId: string;
+  avatarId: string;
   systemPrompt: string;
   messages: LLMMessage[];
   tools?: ToolDefinition[];
@@ -778,7 +778,7 @@ export const SolanaConfigSchema = z.object({
   features: z.array(SolanaFeatureSchema),
 });
 
-export const AgentConfigSchema = z.object({
+export const AvatarConfigSchema = z.object({
   id: z.string(),
   name: z.string(),
   version: z.string(),
@@ -859,7 +859,7 @@ export const EnvelopeMetadataSchema = z.object({
 });
 
 export const SwarmEnvelopeSchema = z.object({
-  agentId: z.string(),
+  avatarId: z.string(),
   platform: PlatformSchema,
   messageId: z.string(),
   conversationId: z.string(),
@@ -958,7 +958,7 @@ export const ResponseActionSchema = z.discriminatedUnion('type', [
 ]);
 
 export const SwarmResponseSchema = z.object({
-  agentId: z.string(),
+  avatarId: z.string(),
   platform: PlatformSchema,
   conversationId: z.string(),
   replyToMessageId: z.string().optional(),
@@ -977,14 +977,14 @@ export const MessageQueueItemSchema = z.object({
 });
 
 export const ResponseQueueItemSchema = z.object({
-  agentId: z.string(),
+  avatarId: z.string(),
   envelope: SwarmEnvelopeSchema,
   enqueuedAt: z.number(),
   priority: z.enum(['high', 'normal', 'low']),
 });
 
 export const MediaQueueItemSchema = z.object({
-  agentId: z.string(),
+  avatarId: z.string(),
   conversationId: z.string(),
   action: z.union([TakeSelfieActionSchema, GenerateVideoActionSchema]),
   callbackUrl: z.string().optional(),
@@ -1024,7 +1024,7 @@ export const ContextMessageSchema = z.object({
 });
 
 export const ChannelStateSchema = z.object({
-  agentId: z.string(),
+  avatarId: z.string(),
   channelId: z.string(),
   platform: PlatformSchema,
   recentMessages: z.array(ContextMessageSchema),
@@ -1044,7 +1044,7 @@ export const ChannelStateSchema = z.object({
 });
 
 export const UserCooldownSchema = z.object({
-  agentId: z.string(),
+  avatarId: z.string(),
   platform: PlatformSchema,
   userId: z.string(),
   cooldownUntil: z.number(),

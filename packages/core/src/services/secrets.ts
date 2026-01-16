@@ -47,24 +47,24 @@ export class AWSSecretsService implements SecretsService {
   }
 
   /**
-   * Get multiple secrets at once (for agent initialization)
+   * Get multiple secrets at once (for avatar initialization)
    */
-  async getAgentSecrets(agentId: string, secretNames: string[]): Promise<Record<string, string>> {
+  async getAvatarSecrets(avatarId: string, secretNames: string[]): Promise<Record<string, string>> {
     const secrets: Record<string, string> = {};
 
     await Promise.all(
       secretNames.map(async (name) => {
         try {
-          // Try agent-specific secret first
-          const agentSecretName = `swarm/${agentId}/${name}`;
-          secrets[name] = await this.getSecret(agentSecretName);
+          // Try avatar-specific secret first
+          const avatarecretName = `swarm/${avatarId}/${name}`;
+          secrets[name] = await this.getSecret(avatarecretName);
         } catch {
           try {
             // Fall back to shared secret
             const sharedSecretName = `swarm/shared/${name}`;
             secrets[name] = await this.getSecret(sharedSecretName);
           } catch {
-            console.warn(`Secret ${name} not found for agent ${agentId}`);
+            console.warn(`Secret ${name} not found for avatar ${avatarId}`);
           }
         }
       })

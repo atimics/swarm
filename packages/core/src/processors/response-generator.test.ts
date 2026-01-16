@@ -1,19 +1,19 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { ResponseGenerator } from './response-generator.js';
-import type { SwarmEnvelope, AgentConfig } from '../types/index.js';
+import type { SwarmEnvelope, AvatarConfig } from '../types/index.js';
 
 describe('ResponseGenerator', () => {
-  let mockAgentConfig: AgentConfig;
+  let mockAvatarConfig: AvatarConfig;
   let mockLLMService: any;
   let mockStateService: any;
   let generator: ResponseGenerator;
   let mockTools: any[];
 
   beforeEach(() => {
-    mockAgentConfig = {
-      id: 'test-agent',
-      name: 'Test Agent',
-      persona: 'You are a test agent.',
+    mockAvatarConfig = {
+      id: 'test-avatar',
+      name: 'Test Avatar',
+      persona: 'You are a test avatar.',
       llm: { provider: 'openrouter', model: 'gpt-4' } as any,
       behavior: {
         responseDelayMs: [0, 0], // No delay by default in tests
@@ -36,7 +36,7 @@ describe('ResponseGenerator', () => {
     mockTools = [];
 
     generator = new ResponseGenerator(
-      mockAgentConfig,
+      mockAvatarConfig,
       mockLLMService,
       mockStateService,
       mockTools,
@@ -46,7 +46,7 @@ describe('ResponseGenerator', () => {
 
   it('should generate a text response', async () => {
     const envelope = {
-      agentId: 'test-agent',
+      avatarId: 'test-avatar',
       platform: 'telegram',
       conversationId: 'chat-1',
       messageId: 'msg-1',
@@ -65,10 +65,10 @@ describe('ResponseGenerator', () => {
   });
 
   it('should include a wait action if response delay is configured', async () => {
-    mockAgentConfig.behavior.responseDelayMs = [100, 200];
+    mockAvatarConfig.behavior.responseDelayMs = [100, 200];
     
     const envelope = {
-      agentId: 'test-agent',
+      avatarId: 'test-avatar',
       platform: 'telegram',
       conversationId: 'chat-1',
       messageId: 'msg-1',
@@ -96,7 +96,7 @@ describe('ResponseGenerator', () => {
     }));
 
     const envelope = {
-      agentId: 'test-agent',
+      avatarId: 'test-avatar',
       platform: 'telegram',
       conversationId: 'chat-1',
       messageId: 'msg-1',
@@ -122,7 +122,7 @@ describe('ResponseGenerator', () => {
     }));
 
     const envelope = {
-      agentId: 'test-agent',
+      avatarId: 'test-avatar',
       platform: 'telegram',
       conversationId: 'chat-1',
       messageId: 'msg-2',

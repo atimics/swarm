@@ -5,12 +5,12 @@
  */
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { TwitterAdapter } from './twitter.js';
-import type { AgentConfig } from '../types/index.js';
+import type { AvatarConfig } from '../types/index.js';
 import type { TwitterApi } from 'twitter-api-v2';
 
-const createMockAgentConfig = (twitterEnabled = true): AgentConfig => ({
-  id: 'test-agent',
-  name: 'Test Agent',
+const createMockAvatarConfig = (twitterEnabled = true): AvatarConfig => ({
+  id: 'test-avatar',
+  name: 'Test Avatar',
   version: '1.0.0',
   persona: 'Test persona',
   platforms: {
@@ -56,13 +56,13 @@ describe('TwitterAdapter - Configuration', () => {
   });
 
   it('isConfigured returns true when all credentials are present', () => {
-    const adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials());
+    const adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials());
     expect(adapter.isConfigured()).toBe(true);
   });
 
   it('isConfigured returns false when any credential is missing', () => {
     const adapter = new TwitterAdapter(
-      createMockAgentConfig(),
+      createMockAvatarConfig(),
       createMockCredentials({ appKey: '' })
     );
     expect(adapter.isConfigured()).toBe(false);
@@ -70,14 +70,14 @@ describe('TwitterAdapter - Configuration', () => {
 
   it('isConfigured returns false when twitter config is disabled', () => {
     const adapter = new TwitterAdapter(
-      createMockAgentConfig(false),
+      createMockAvatarConfig(false),
       createMockCredentials()
     );
     expect(adapter.isConfigured()).toBe(false);
   });
 
   it('getDisplayName returns formatted username', () => {
-    const adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials());
+    const adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials());
     expect(adapter.getDisplayName()).toBe('Twitter @test_bot');
   });
 });
@@ -86,7 +86,7 @@ describe('TwitterAdapter - Message Parsing', () => {
   let adapter: TwitterAdapter;
 
   beforeEach(() => {
-    adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials());
+    adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials());
   });
 
   it('parseMessage returns null for invalid tweet data', async () => {
@@ -179,7 +179,7 @@ describe('TwitterAdapter - Mention Extraction', () => {
   });
 
   it('extractMentions returns empty array for no mentions', async () => {
-    const adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials());
+    const adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials());
     const tweet = { id: '1', text: 'No mentions here' };
     const envelope = await adapter.parseMessage(tweet);
 
@@ -187,7 +187,7 @@ describe('TwitterAdapter - Mention Extraction', () => {
   });
 
   it('extractMentions returns correct offset and length', async () => {
-    const adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials());
+    const adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials());
     const tweet = { id: '1', text: 'Hello @test_bot' };
     const envelope = await adapter.parseMessage(tweet);
 
@@ -199,7 +199,7 @@ describe('TwitterAdapter - Mention Extraction', () => {
   });
 
   it('extractMentions handles multiple consecutive mentions', async () => {
-    const adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials());
+    const adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials());
     const tweet = { id: '1', text: '@user1 @user2 @user3 hello' };
     const envelope = await adapter.parseMessage(tweet);
 
@@ -213,12 +213,12 @@ describe('TwitterAdapter - Action Execution', () => {
 
   beforeEach(() => {
     mockClient = createMockTwitterClient();
-    adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials(), mockClient);
+    adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials(), mockClient);
   });
 
   it('executeAction throws when client not initialized', async () => {
     const unconfiguredAdapter = new TwitterAdapter(
-      createMockAgentConfig(false),
+      createMockAvatarConfig(false),
       createMockCredentials()
     );
 
@@ -294,12 +294,12 @@ describe('TwitterAdapter - Tweet Posting', () => {
 
   beforeEach(() => {
     mockClient = createMockTwitterClient();
-    adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials(), mockClient);
+    adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials(), mockClient);
   });
 
   it('postTweet throws when client not initialized', async () => {
     const unconfiguredAdapter = new TwitterAdapter(
-      createMockAgentConfig(false),
+      createMockAvatarConfig(false),
       createMockCredentials()
     );
 
@@ -357,12 +357,12 @@ describe('TwitterAdapter - Mentions Retrieval', () => {
 
   beforeEach(() => {
     mockClient = createMockTwitterClient();
-    adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials(), mockClient);
+    adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials(), mockClient);
   });
 
   it('getMentions throws when client not initialized', async () => {
     const unconfiguredAdapter = new TwitterAdapter(
-      createMockAgentConfig(false),
+      createMockAvatarConfig(false),
       createMockCredentials()
     );
 
@@ -438,12 +438,12 @@ describe('TwitterAdapter - Quote Tweets', () => {
 
   beforeEach(() => {
     mockClient = createMockTwitterClient();
-    adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials(), mockClient);
+    adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials(), mockClient);
   });
 
   it('quoteTweet throws when client not initialized', async () => {
     const unconfiguredAdapter = new TwitterAdapter(
-      createMockAgentConfig(false),
+      createMockAvatarConfig(false),
       createMockCredentials()
     );
 
@@ -469,7 +469,7 @@ describe('TwitterAdapter - Bot User ID', () => {
 
   beforeEach(() => {
     mockClient = createMockTwitterClient();
-    adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials(), mockClient);
+    adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials(), mockClient);
   });
 
   it('getBotUserId fetches and caches user ID', async () => {
@@ -492,7 +492,7 @@ describe('TwitterAdapter - Bot User ID', () => {
 
   it('getBotUserId throws when client not initialized', async () => {
     const unconfiguredAdapter = new TwitterAdapter(
-      createMockAgentConfig(false),
+      createMockAvatarConfig(false),
       createMockCredentials()
     );
 
@@ -508,7 +508,7 @@ describe('TwitterAdapter - Integration Scenarios', () => {
 
   beforeEach(() => {
     mockClient = createMockTwitterClient();
-    adapter = new TwitterAdapter(createMockAgentConfig(), createMockCredentials(), mockClient);
+    adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials(), mockClient);
   });
 
   it('E2E: Full mention processing workflow', async () => {

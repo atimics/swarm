@@ -12,7 +12,7 @@ import {
 import type { Platform, ResponseAction } from '../types/index.js';
 
 export interface ActivityEvent {
-  agentId: string;
+  avatarId: string;
   timestamp: number;
   eventType: 'message_received' | 'response_sent' | 'media_generated' | 'error';
   platform: Platform;
@@ -41,7 +41,7 @@ export class ActivityService {
     await this.docClient.send(new PutCommand({
       TableName: this.tableName,
       Item: {
-        pk: `AGENT#${event.agentId}`,
+        pk: `AVATAR#${event.avatarId}`,
         sk: `ACT#${event.timestamp}#${Math.random().toString(36).slice(2)}`,
         ...event,
         ttl,
@@ -53,13 +53,13 @@ export class ActivityService {
    * Log a received message
    */
   async logMessageReceived(
-    agentId: string,
+    avatarId: string,
     platform: Platform,
     senderName: string,
     preview: string
   ): Promise<void> {
     await this.log({
-      agentId,
+      avatarId,
       timestamp: Date.now(),
       eventType: 'message_received',
       platform,
@@ -72,7 +72,7 @@ export class ActivityService {
    * Log a sent response
    */
   async logResponseSent(
-    agentId: string,
+    avatarId: string,
     platform: Platform,
     actions: ResponseAction[]
   ): Promise<void> {
@@ -83,7 +83,7 @@ export class ActivityService {
       : actionTypes;
 
     await this.log({
-      agentId,
+      avatarId,
       timestamp: Date.now(),
       eventType: 'response_sent',
       platform,
@@ -96,13 +96,13 @@ export class ActivityService {
    * Log media generation
    */
   async logMediaGenerated(
-    agentId: string,
+    avatarId: string,
     platform: Platform,
     mediaType: 'image' | 'video',
     prompt: string
   ): Promise<void> {
     await this.log({
-      agentId,
+      avatarId,
       timestamp: Date.now(),
       eventType: 'media_generated',
       platform,
@@ -115,13 +115,13 @@ export class ActivityService {
    * Log an error
    */
   async logError(
-    agentId: string,
+    avatarId: string,
     platform: Platform,
     error: string,
     context?: Record<string, unknown>
   ): Promise<void> {
     await this.log({
-      agentId,
+      avatarId,
       timestamp: Date.now(),
       eventType: 'error',
       platform,
@@ -131,17 +131,17 @@ export class ActivityService {
   }
 
   /**
-   * Get recent activity for an agent
+   * Get recent activity for an avatar
    */
   async getRecentActivity(
-    agentId: string,
+    avatarId: string,
     limit: number = 50
   ): Promise<ActivityEvent[]> {
     const result = await this.docClient.send(new QueryCommand({
       TableName: this.tableName,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
       ExpressionAttributeValues: {
-        ':pk': `AGENT#${agentId}`,
+        ':pk': `AVATAR#${avatarId}`,
         ':prefix': 'ACT#',
       },
       ScanIndexForward: false, // Newest first
@@ -149,7 +149,7 @@ export class ActivityService {
     }));
 
     return (result.Items || []).map(item => ({
-      agentId: item.agentId,
+      avatarId: item.avatarId,
       timestamp: item.timestamp,
       eventType: item.eventType,
       platform: item.platform,
@@ -159,17 +159,17 @@ export class ActivityService {
   }
 
   /**
-   * Get activity feed for multiple agents (dashboard)
+   * Get activity feed for multiple avatars (dashboard)
    */
   async getSwarmActivity(
-    agentIds: string[],
+    avatarIds: string[],
     limit: number = 100
   ): Promise<ActivityEvent[]> {
     const activities: ActivityEvent[] = [];
 
     await Promise.all(
-      agentIds.map(async (agentId) => {
-        const events = await this.getRecentActivity(agentId, Math.ceil(limit / agentIds.length));
+      avatarIds.map(async (avatarId) => {
+        const events = await this.getRecentActivity(avatarId, Math.ceil(limit / avatarIds.length));
         activities.push(...events);
       })
     );

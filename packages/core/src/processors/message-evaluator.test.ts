@@ -1,16 +1,16 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { MessageEvaluator } from './message-evaluator.js';
-import type { AgentConfig } from '../types/index.js';
+import type { AvatarConfig } from '../types/index.js';
 
 describe('MessageEvaluator', () => {
-  let mockAgentConfig: AgentConfig;
+  let mockAvatarConfig: AvatarConfig;
   let mockStateService: any;
   let mockEvaluatorConfig: any;
   let evaluator: MessageEvaluator;
 
   beforeEach(() => {
-    mockAgentConfig = {
-      id: 'test-agent',
+    mockAvatarConfig = {
+      id: 'test-avatar',
       behavior: {
         ignoreBots: true,
       },
@@ -29,7 +29,7 @@ describe('MessageEvaluator', () => {
       botUsernames: ['test_bot'],
     };
 
-    evaluator = new MessageEvaluator(mockAgentConfig, mockStateService, mockEvaluatorConfig);
+    evaluator = new MessageEvaluator(mockAvatarConfig, mockStateService, mockEvaluatorConfig);
   });
 
   describe('Global Rules', () => {
@@ -46,7 +46,7 @@ describe('MessageEvaluator', () => {
 
     it('should respond if bot is mentioned (high priority)', async () => {
       const envelope = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         platform: 'telegram',
         sender: { isBot: false, id: 'user-1' },
         content: { text: 'Hello @test_bot' },
@@ -62,7 +62,7 @@ describe('MessageEvaluator', () => {
 
     it('should respond if replying to bot message (high priority)', async () => {
       const envelope = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         conversationId: 'chat-1',
         sender: { isBot: false, id: 'user-1' },
         replyTo: 'msg-bot-1',
@@ -122,7 +122,7 @@ describe('MessageEvaluator', () => {
       mockStateService.getUserCooldown.mockImplementation(() => Promise.resolve({ cooldownUntil }));
 
       const envelope = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         platform: 'telegram',
         sender: { isBot: false, id: 'user-1' },
         content: { text: 'Hello' },
@@ -141,7 +141,7 @@ describe('MessageEvaluator', () => {
       mockStateService.getUserCooldown.mockImplementation(() => Promise.resolve({ cooldownUntil }));
 
       const envelope = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         platform: 'telegram',
         sender: { isBot: false, id: 'admin-1' },
         content: { text: 'Hello' },
@@ -159,7 +159,7 @@ describe('MessageEvaluator', () => {
   describe('Platform: Telegram', () => {
     it('should always respond in private chats', async () => {
       const envelope = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         platform: 'telegram',
         sender: { isBot: false, id: 'user-1' },
         content: { text: 'Hello' },
@@ -175,7 +175,7 @@ describe('MessageEvaluator', () => {
 
     it('should respond in groups if recently active and conversational', async () => {
       const envelope = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         conversationId: 'group-1',
         platform: 'telegram',
         sender: { isBot: false, id: 'user-1' },
@@ -196,7 +196,7 @@ describe('MessageEvaluator', () => {
 
     it('should ignore group messages if not mentioned and no recent activity', async () => {
       const envelope = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         conversationId: 'group-1',
         platform: 'telegram',
         sender: { isBot: false, id: 'user-1' },
@@ -215,7 +215,7 @@ describe('MessageEvaluator', () => {
   describe('Platform: Web', () => {
     it('should always respond in web chat by default', async () => {
       const envelope = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         platform: 'web',
         sender: { isBot: false, id: 'user-1' },
         content: { text: 'Hello' },
@@ -229,13 +229,13 @@ describe('MessageEvaluator', () => {
     });
 
     it('should implement token gating if enabled', async () => {
-      mockAgentConfig.platforms.web = {
+      mockAvatarConfig.platforms.web = {
         enabled: true,
         tokenGated: { enabled: true, tokenMint: 'mint-1', minBalance: 10 }
       } as any;
 
       const envelope = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         platform: 'web',
         sender: { isBot: false, id: 'user-1' }, // No walletAddress
         content: { text: 'Hello' },

@@ -1,11 +1,11 @@
 /**
- * Agent Continuation Types
+ * Avatar Continuation Types
  *
  * Defines the message format for async job results that should trigger
- * the agent to continue processing. This enables:
+ * the avatar to continue processing. This enables:
  * - Partial results (streaming updates during long tasks)
- * - Completion callbacks (agent acts on generated media)
- * - Error handling (agent responds to failures)
+ * - Completion callbacks (avatar acts on generated media)
+ * - Error handling (avatar responds to failures)
  */
 
 /**
@@ -14,8 +14,8 @@
 export interface ContinuationMessageBase {
   /** Type of continuation event */
   type: ContinuationType;
-  /** Agent that should receive this continuation */
-  agentId: string;
+  /** Avatar that should receive this continuation */
+  avatarId: string;
   /** Platform where the conversation is happening */
   platform: 'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api';
   /** Conversation/channel ID */
@@ -61,7 +61,7 @@ export interface MediaGeneratedContinuation extends ContinuationMessageBase {
     mediaType: 'image' | 'video' | 'sticker';
     mediaUrl: string;
     prompt: string;
-    /** Purpose hint for the agent */
+    /** Purpose hint for the avatar */
     purpose?: 'profile' | 'post_to_twitter' | 'send_to_chat' | 'gallery';
   };
 }
@@ -218,7 +218,7 @@ export type ContinuationMessage =
 
 /**
  * Format a continuation message as a system prompt injection
- * This creates a message the agent will see and can act upon
+ * This creates a message the avatar will see and can act upon
  */
 export function formatContinuationAsSystemMessage(msg: ContinuationMessage): string {
   const timestamp = new Date(msg.timestamp).toISOString();
@@ -323,11 +323,11 @@ Unknown event type: ${(msg as ContinuationMessageBase).type}`;
 }
 
 /**
- * Determine if an agent should continue processing based on the continuation
+ * Determine if an avatar should continue processing based on the continuation
  * Some events are informational (progress), others require action (completed)
  */
-export function shouldTriggerAgentLoop(msg: ContinuationMessage): boolean {
-  // Completion and failure events should trigger the agent to respond
+export function shouldTriggerAvatarLoop(msg: ContinuationMessage): boolean {
+  // Completion and failure events should trigger the avatar to respond
   const actionableTypes: ContinuationType[] = [
     'media_generated',
     'media_failed',
@@ -356,3 +356,10 @@ export function isProgressUpdate(msg: ContinuationMessage): boolean {
 
   return progressTypes.includes(msg.type);
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use shouldTriggerAvatarLoop instead */
+export const shouldTriggerAgentLoop = shouldTriggerAvatarLoop;

@@ -12,7 +12,7 @@ describe('DynamoDBStateService Integration', () => {
       if (command.input?.UpdateExpression) {
         return Promise.resolve({
           Attributes: {
-            agentId: 'a1',
+            avatarId: 'a1',
             channelId: 'c1',
             platform: 'telegram',
             recentMessages: [],
@@ -23,7 +23,7 @@ describe('DynamoDBStateService Integration', () => {
       // Handle GetCommand
       if (command.input?.Key && !command.input?.UpdateExpression) {
         return Promise.resolve({
-          Item: { agentId: 'a1', channelId: 'c1', platform: 'telegram' }
+          Item: { avatarId: 'a1', channelId: 'c1', platform: 'telegram' }
         });
       }
       return Promise.resolve({});
@@ -39,7 +39,7 @@ describe('DynamoDBStateService Integration', () => {
     expect(mockSend).toHaveBeenCalled();
     const call = mockSend.mock.calls[0][0] as any;
     expect(call.input.TableName).toBe('test-table');
-    expect(call.input.Key).toEqual({ pk: 'AGENT#a1', sk: 'CHANNEL#c1#STATE' });
+    expect(call.input.Key).toEqual({ pk: 'AVATAR#a1', sk: 'CHANNEL#c1#STATE' });
   });
 
   it('should call UpdateCommand for addMessageToChannel', async () => {

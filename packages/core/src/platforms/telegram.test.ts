@@ -40,7 +40,7 @@ function createTelegramUpdate(overrides: Partial<Message> = {}): Update {
 
 describe('buildTelegramEnvelope', () => {
   const defaultConfig: TelegramEnvelopeConfig = {
-    agentId: 'test-agent',
+    avatarId: 'test-avatar',
     botUsername: 'TestBot',
     botId: 12345,
   };
@@ -51,7 +51,7 @@ describe('buildTelegramEnvelope', () => {
       const envelope = buildTelegramEnvelope(update, defaultConfig);
 
       expect(envelope).not.toBeNull();
-      expect(envelope!.agentId).toBe('test-agent');
+      expect(envelope!.avatarId).toBe('test-avatar');
       expect(envelope!.platform).toBe('telegram');
       expect(envelope!.messageId).toBe('123');
       expect(envelope!.conversationId).toBe('-100123456789');
@@ -239,7 +239,7 @@ describe('buildTelegramEnvelope', () => {
 
     it('should not detect mention when botUsername not provided', () => {
       const update = createTelegramUpdate({ text: 'Hey @TestBot' });
-      const config: TelegramEnvelopeConfig = { agentId: 'test-agent' };
+      const config: TelegramEnvelopeConfig = { avatarId: 'test-avatar' };
 
       const envelope = buildTelegramEnvelope(update, config);
 
@@ -404,7 +404,7 @@ describe('buildTelegramEnvelope', () => {
       const envelope2 = buildTelegramEnvelope(update, defaultConfig);
 
       expect(envelope1!.metadata.idempotencyKey).toBe(envelope2!.metadata.idempotencyKey);
-      expect(envelope1!.metadata.idempotencyKey).toBe('telegram:test-agent:123');
+      expect(envelope1!.metadata.idempotencyKey).toBe('telegram:test-avatar:123');
     });
 
     it('should include platformUpdateId', () => {
@@ -470,7 +470,7 @@ describe('envelopeToBufferedMessage', () => {
   it('should convert envelope to buffered message format', () => {
     const update = createTelegramUpdate({ text: 'Test message' });
     const config: TelegramEnvelopeConfig = {
-      agentId: 'test-agent',
+      avatarId: 'test-avatar',
       botUsername: 'TestBot',
     };
 
@@ -489,7 +489,7 @@ describe('envelopeToBufferedMessage', () => {
   it('should preserve engagement flags', () => {
     const update = createTelegramUpdate({ text: '@TestBot help me' });
     const config: TelegramEnvelopeConfig = {
-      agentId: 'test-agent',
+      avatarId: 'test-avatar',
       botUsername: 'TestBot',
     };
 

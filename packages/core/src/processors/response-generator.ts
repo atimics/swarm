@@ -1,11 +1,11 @@
 /**
  * Response Generator Processor
- * Generates LLM responses using agent persona and conversation context
+ * Generates LLM responses using avatar persona and conversation context
  */
 import type {
   SwarmEnvelope,
   SwarmResponse,
-  AgentConfig,
+  AvatarConfig,
   ChannelState,
   LLMService,
   LLMMessage,
@@ -22,7 +22,7 @@ export interface ResponseGeneratorConfig {
 
 export class ResponseGenerator {
   constructor(
-    private readonly agentConfig: AgentConfig,
+    private readonly avatarConfig: AvatarConfig,
     private readonly llmService: LLMService,
     private readonly stateService: StateService,
     private readonly tools: ToolDefinition[],
@@ -35,7 +35,7 @@ export class ResponseGenerator {
   async generate(envelope: SwarmEnvelope): Promise<SwarmResponse> {
     // 1. Get channel context
     const channelState = await this.stateService.getChannelState(
-      envelope.agentId,
+      envelope.avatarId,
       envelope.conversationId
     );
 
@@ -47,11 +47,11 @@ export class ResponseGenerator {
 
     // 4. Generate LLM response
     const llmResponse = await this.llmService.generateResponse({
-      agentId: envelope.agentId,
+      avatarId: envelope.avatarId,
       systemPrompt,
       messages,
       tools: this.tools,
-      config: this.agentConfig.llm,
+      config: this.avatarConfig.llm,
     });
 
     // 5. Process tool calls if any
@@ -69,8 +69,8 @@ export class ResponseGenerator {
     }
 
     // 6. Apply response delay if configured
-    if (this.agentConfig.behavior.responseDelayMs) {
-      const [min, max] = this.agentConfig.behavior.responseDelayMs;
+    if (this.avatarConfig.behavior.responseDelayMs) {
+      const [min, max] = this.avatarConfig.behavior.responseDelayMs;
       const delay = Math.floor(Math.random() * (max - min + 1)) + min;
       
       if (delay > 0) {
@@ -83,7 +83,7 @@ export class ResponseGenerator {
     }
 
     return {
-      agentId: envelope.agentId,
+      avatarId: envelope.avatarId,
       platform: envelope.platform,
       conversationId: envelope.conversationId,
       replyToMessageId: envelope.messageId,
@@ -98,7 +98,7 @@ export class ResponseGenerator {
    * Build the system prompt from persona and context
    */
   private buildSystemPrompt(envelope: SwarmEnvelope, channelState: ChannelState | null): string {
-    let prompt = this.agentConfig.persona || this.config.defaultSystemPrompt;
+    let prompt = this.avatarConfig.persona || this.config.defaultSystemPrompt;
 
     // Add platform context
     prompt += `\n\n## Current Context
@@ -295,14 +295,14 @@ If the message doesn't warrant a response, use the ignore tool.
  * Factory function
  */
 export function createResponseGenerator(
-  agentConfig: AgentConfig,
+  avatarConfig: AvatarConfig,
   llmService: LLMService,
   stateService: StateService,
   tools: ToolDefinition[],
   defaultSystemPrompt: string = 'You are a helpful AI assistant.'
 ): ResponseGenerator {
-  return new ResponseGenerator(agentConfig, llmService, stateService, tools, {
-    maxContextMessages: agentConfig.behavior.maxContextMessages || 20,
+  return new ResponseGenerator(avatarConfig, llmService, stateService, tools, {
+    maxContextMessages: avatarConfig.behavior.maxContextMessages || 20,
     defaultSystemPrompt,
   });
 }

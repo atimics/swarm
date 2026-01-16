@@ -6,7 +6,7 @@ import { Bot, webhookCallback } from 'grammy';
 import type { Message, Update } from 'grammy/types';
 import { PlatformAdapter } from './base.js';
 import type {
-  AgentConfig,
+  AvatarConfig,
   SwarmEnvelope,
   ResponseAction,
   SenderInfo,
@@ -24,7 +24,7 @@ import type {
  * Configuration for building a Telegram envelope
  */
 export interface TelegramEnvelopeConfig {
-  agentId: string;
+  avatarId: string;
   botUsername?: string;
   botId?: number;
   allowedChatTypes?: ('private' | 'group' | 'supergroup' | 'channel')[];
@@ -35,7 +35,7 @@ export interface TelegramEnvelopeConfig {
  *
  * This is a shared utility function that can be used by both:
  * - packages/handlers/src/telegram-webhook.ts (core pipeline)
- * - packages/admin-api/src/handlers/telegram-webhook.ts (admin agent)
+ * - packages/admin-api/src/handlers/telegram-webhook.ts (admin avatar)
  *
  * It handles:
  * - Extracting sender, content, mentions from the update
@@ -89,7 +89,7 @@ export function buildTelegramEnvelope(
 
   // Build the envelope
   const envelope: SwarmEnvelope = {
-    agentId: config.agentId,
+    avatarId: config.avatarId,
     platform: 'telegram',
     messageId: message.message_id.toString(),
     conversationId: message.chat.id.toString(),
@@ -102,7 +102,7 @@ export function buildTelegramEnvelope(
     metadata: {
       receivedAt: Date.now(),
       priority: (isMention || isReplyToBot) ? 'high' : 'normal',
-      idempotencyKey: `telegram:${config.agentId}:${message.message_id}`,
+      idempotencyKey: `telegram:${config.avatarId}:${message.message_id}`,
 
       // Direct engagement detection
       isMention,
@@ -313,9 +313,9 @@ export class TelegramAdapter extends PlatformAdapter {
   private config: TelegramConfig;
   private botId?: number;
 
-  constructor(agentConfig: AgentConfig, private readonly botToken: string, botId?: number) {
-    super(agentConfig);
-    this.config = agentConfig.platforms.telegram!;
+  constructor(avatarConfig: AvatarConfig, private readonly botToken: string, botId?: number) {
+    super(avatarConfig);
+    this.config = avatarConfig.platforms.telegram!;
     this.botId = botId;
 
     if (this.isConfigured()) {
@@ -368,7 +368,7 @@ export class TelegramAdapter extends PlatformAdapter {
     const update = body as Update;
 
     return buildTelegramEnvelope(update, {
-      agentId: this.agentConfig.id,
+      avatarId: this.avatarConfig.id,
       botUsername: this.config.botUsername,
       botId: this.botId,
       allowedChatTypes: this.config.allowedChatTypes,

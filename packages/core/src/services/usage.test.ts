@@ -7,7 +7,7 @@ describe('UsageMeteringService', () => {
   let mockSend: ReturnType<typeof mock>;
 
   const tableName = 'test-table';
-  const agentId = 'test-agent';
+  const avatarId = 'test-avatar';
   const toolId = 'image_gen';
   const config = {
     maxCredits: 3,
@@ -25,7 +25,7 @@ describe('UsageMeteringService', () => {
     it('returns max credits if no record exists', async () => {
       mockSend.mockImplementation(() => Promise.resolve({ Item: undefined }));
 
-      const result = await service.getCredits(agentId, toolId, config);
+      const result = await service.getCredits(avatarId, toolId, config);
 
       expect(result.credits).toBe(config.maxCredits);
       expect(mockSend).toHaveBeenCalled();
@@ -40,7 +40,7 @@ describe('UsageMeteringService', () => {
         }
       }));
 
-      const result = await service.getCredits(agentId, toolId, config);
+      const result = await service.getCredits(avatarId, toolId, config);
 
       // 1 existing + 1 recharged (1.5 days = 1 interval)
       expect(result.credits).toBe(2);
@@ -55,7 +55,7 @@ describe('UsageMeteringService', () => {
         }
       }));
 
-      const result = await service.getCredits(agentId, toolId, config);
+      const result = await service.getCredits(avatarId, toolId, config);
 
       expect(result.credits).toBe(config.maxCredits);
     });
@@ -67,7 +67,7 @@ describe('UsageMeteringService', () => {
         Item: { credits: 1, lastRecharge: Date.now() }
       }));
 
-      const result = await service.canUseTool(agentId, toolId, config);
+      const result = await service.canUseTool(avatarId, toolId, config);
       expect(result).toBe(true);
     });
 
@@ -76,7 +76,7 @@ describe('UsageMeteringService', () => {
         Item: { credits: 0, lastRecharge: Date.now() }
       }));
 
-      const result = await service.canUseTool(agentId, toolId, config);
+      const result = await service.canUseTool(avatarId, toolId, config);
       expect(result).toBe(false);
     });
   });
@@ -93,7 +93,7 @@ describe('UsageMeteringService', () => {
         return Promise.resolve({}); // PutCommand response
       });
 
-      const result = await service.consumeCredit(agentId, toolId, config);
+      const result = await service.consumeCredit(avatarId, toolId, config);
 
       expect(result.allowed).toBe(true);
       expect(result.remaining).toBe(1);
@@ -102,7 +102,7 @@ describe('UsageMeteringService', () => {
       // Check the PutCommand call
       const putCall = mockSend.mock.calls[1][0] as any;
       expect(putCall.input.Item.credits).toBe(1);
-      expect(putCall.input.Item.pk).toBe(`AGENT#${agentId}`);
+      expect(putCall.input.Item.pk).toBe(`AVATAR#${avatarId}`);
       expect(putCall.input.Item.sk).toBe(`USAGE#${toolId}`);
     });
 
@@ -111,7 +111,7 @@ describe('UsageMeteringService', () => {
         Item: { credits: 0, lastRecharge: Date.now() }
       }));
 
-      const result = await service.consumeCredit(agentId, toolId, config);
+      const result = await service.consumeCredit(avatarId, toolId, config);
 
       expect(result.allowed).toBe(false);
       expect(result.remaining).toBe(0);
@@ -131,7 +131,7 @@ describe('UsageMeteringService', () => {
         return Promise.resolve({}); // PutCommand
       });
 
-      const result = await service.consumeCredit(agentId, toolId, config);
+      const result = await service.consumeCredit(avatarId, toolId, config);
 
       expect(result.allowed).toBe(true);
       // 0 + 2 (recharge) - 1 (consume) = 1
@@ -149,7 +149,7 @@ describe('UsageMeteringService', () => {
         Item: { credits: 0, lastRecharge: Date.now() }
       }));
 
-      const result = await service.canUseTool(agentId, toolId, config);
+      const result = await service.canUseTool(avatarId, toolId, config);
       expect(result).toBe(false);
     });
 
@@ -158,14 +158,14 @@ describe('UsageMeteringService', () => {
         Item: { credits: -1, lastRecharge: Date.now() }
       }));
 
-      const result = await service.canUseTool(agentId, toolId, config);
+      const result = await service.canUseTool(avatarId, toolId, config);
       expect(result).toBe(false);
     });
 
     it('returns false on DynamoDB error (fail closed for safety)', async () => {
       mockSend.mockImplementation(() => Promise.reject(new Error('DynamoDB timeout')));
 
-      const result = await service.canUseTool(agentId, toolId, config);
+      const result = await service.canUseTool(avatarId, toolId, config);
       // Fails with 0 credits on error, so canUseTool returns false
       expect(result).toBe(false);
     });
@@ -182,7 +182,7 @@ describe('UsageMeteringService', () => {
         return Promise.resolve({});
       });
 
-      const result = await service.consumeCredit(agentId, toolId, config);
+      const result = await service.consumeCredit(avatarId, toolId, config);
 
       expect(result.allowed).toBe(true);
       expect(result.remaining).toBe(config.maxCredits - 1);
@@ -198,7 +198,7 @@ describe('UsageMeteringService', () => {
         return Promise.resolve({});
       });
 
-      const result = await service.consumeCredit(agentId, toolId, config);
+      const result = await service.consumeCredit(avatarId, toolId, config);
 
       expect(result.allowed).toBe(true);
       expect(result.remaining).toBe(0);
@@ -209,7 +209,7 @@ describe('UsageMeteringService', () => {
         Item: { credits: 0, lastRecharge: Date.now() }
       }));
 
-      const result = await service.consumeCredit(agentId, toolId, config);
+      const result = await service.consumeCredit(avatarId, toolId, config);
 
       expect(result.allowed).toBe(false);
       expect(result.remaining).toBe(0);
@@ -225,7 +225,7 @@ describe('UsageMeteringService', () => {
         return Promise.reject(new Error('Write failed'));
       });
 
-      const result = await service.consumeCredit(agentId, toolId, config);
+      const result = await service.consumeCredit(avatarId, toolId, config);
 
       expect(result.allowed).toBe(false);
       expect(result.remaining).toBe(2);
@@ -241,7 +241,7 @@ describe('UsageMeteringService', () => {
         Item: { credits: 0, lastRecharge }
       }));
 
-      const result = await service.getCredits(agentId, toolId, config);
+      const result = await service.getCredits(avatarId, toolId, config);
 
       // 0 + 1 (1 interval * rechargeAmount) = 1
       expect(result.credits).toBe(config.rechargeAmount);
@@ -255,7 +255,7 @@ describe('UsageMeteringService', () => {
         Item: { credits: 0, lastRecharge }
       }));
 
-      const result = await service.getCredits(agentId, toolId, config);
+      const result = await service.getCredits(avatarId, toolId, config);
 
       // 0 + 3 (3 intervals * rechargeAmount) = 3, capped at maxCredits
       expect(result.credits).toBe(Math.min(3 * config.rechargeAmount, config.maxCredits));
@@ -269,7 +269,7 @@ describe('UsageMeteringService', () => {
         Item: { credits: 1, lastRecharge }
       }));
 
-      const result = await service.getCredits(agentId, toolId, config);
+      const result = await service.getCredits(avatarId, toolId, config);
 
       expect(result.credits).toBe(config.maxCredits);
     });
@@ -282,7 +282,7 @@ describe('UsageMeteringService', () => {
         Item: { credits: 1, lastRecharge }
       }));
 
-      const result = await service.getCredits(agentId, toolId, config);
+      const result = await service.getCredits(avatarId, toolId, config);
 
       // No recharge yet
       expect(result.credits).toBe(1);
@@ -296,7 +296,7 @@ describe('UsageMeteringService', () => {
         Item: { credits: 1, lastRecharge }
       }));
 
-      const result = await service.getCredits(agentId, toolId, config);
+      const result = await service.getCredits(avatarId, toolId, config);
 
       // 1 existing + 1 recharged = 2
       expect(result.credits).toBe(1 + config.rechargeAmount);

@@ -1,11 +1,11 @@
 /**
- * Configuration loader for agents
- * Loads agent configuration from YAML files or DynamoDB
+ * Configuration loader for avatars
+ * Loads avatar configuration from YAML files or DynamoDB
  */
 import { readFileSync, existsSync } from 'fs';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import type { AgentConfig } from '../types/index.js';
+import type { AvatarConfig } from '../types/index.js';
 
 // =============================================================================
 // CONFIG FILE SCHEMAS (with defaults and snake_case support)
@@ -219,8 +219,8 @@ const SolanaConfigFileSchema = z.object({
   features: val.features,
 }));
 
-const AgentConfigFileSchema = z.object({
-  agent: z.object({
+const AvatarConfigFileSchema = z.object({
+  avatar: z.object({
     id: z.string(),
     name: z.string().optional(),
     version: z.string().default('1.0.0'),
@@ -238,13 +238,13 @@ const AgentConfigFileSchema = z.object({
   solana: SolanaConfigFileSchema.optional(),
   tools: z.array(z.string()).default(['send_message', 'ignore']),
   secrets: z.array(z.string()).default([]),
-}).transform((val): AgentConfig => {
-  const agent = val.agent || { id: val.id || 'unknown', name: val.name, version: val.version, persona: val.persona };
+}).transform((val): AvatarConfig => {
+  const avatar = val.avatar || { id: val.id || 'unknown', name: val.name, version: val.version, persona: val.persona };
   return {
-    id: agent.id || val.id || 'unknown',
-    name: agent.name || val.name || agent.id || val.id || 'Unknown Agent',
-    version: agent.version || val.version || '1.0.0',
-    persona: agent.persona || val.persona || '',
+    id: avatar.id || val.id || 'unknown',
+    name: avatar.name || val.name || avatar.id || val.id || 'Unknown Avatar',
+    version: avatar.version || val.version || '1.0.0',
+    persona: avatar.persona || val.persona || '',
     platforms: val.platforms,
     llm: val.llm,
     media: val.media,
@@ -257,49 +257,49 @@ const AgentConfigFileSchema = z.object({
 });
 
 /**
- * Load agent configuration from a YAML file
+ * Load avatar configuration from a YAML file
  */
-export function loadAgentConfigFromFile(filePath: string): AgentConfig {
+export function loadAvatarConfigFromFile(filePath: string): AvatarConfig {
   if (!existsSync(filePath)) {
-    throw new Error(`Agent config file not found: ${filePath}`);
+    throw new Error(`Avatar config file not found: ${filePath}`);
   }
 
   const content = readFileSync(filePath, 'utf-8');
   const parsed = parseYaml(content);
 
-  const result = AgentConfigFileSchema.safeParse(parsed);
+  const result = AvatarConfigFileSchema.safeParse(parsed);
   if (!result.success) {
-    throw new Error(`Invalid agent config: ${result.error.message}`);
+    throw new Error(`Invalid avatar config: ${result.error.message}`);
   }
 
   return result.data;
 }
 
 /**
- * Load agent configuration from environment variables or inline object
+ * Load avatar configuration from environment variables or inline object
  */
-export function loadAgentConfigFromEnv(agentId: string): AgentConfig {
-  const configJson = process.env[`AGENT_CONFIG_${agentId.toUpperCase()}`];
+export function loadAvatarConfigFromEnv(avatarId: string): AvatarConfig {
+  const configJson = process.env[`AGENT_CONFIG_${avatarId.toUpperCase()}`];
 
   if (configJson) {
-    const result = AgentConfigFileSchema.safeParse(JSON.parse(configJson));
+    const result = AvatarConfigFileSchema.safeParse(JSON.parse(configJson));
     if (!result.success) {
-      throw new Error(`Invalid agent config from env: ${result.error.message}`);
+      throw new Error(`Invalid avatar config from env: ${result.error.message}`);
     }
     return result.data;
   }
 
   // Build minimal config from individual env vars
   return {
-    id: agentId,
-    name: process.env.AGENT_NAME || agentId,
+    id: avatarId,
+    name: process.env.AVATAR_NAME || avatarId,
     version: '1.0.0',
     persona: process.env.AGENT_PERSONA || '',
     platforms: {
       telegram: process.env.TELEGRAM_BOT_USERNAME ? {
         enabled: true,
         botUsername: process.env.TELEGRAM_BOT_USERNAME,
-        webhookPath: `/webhook/telegram/${agentId}`,
+        webhookPath: `/webhook/telegram/${avatarId}`,
       } : undefined,
       twitter: process.env.TWITTER_USERNAME ? {
         enabled: true,
@@ -343,7 +343,7 @@ export function loadAgentConfigFromEnv(agentId: string): AgentConfig {
 /**
  * Merge multiple configs with later configs overriding earlier ones
  */
-export function mergeAgentConfigs(...configs: Partial<AgentConfig>[]): AgentConfig {
+export function mergeAvatarConfigs(...configs: Partial<AvatarConfig>[]): AvatarConfig {
   // Start with an empty object and merge each config
   let result: Record<string, unknown> = {};
 
@@ -360,13 +360,24 @@ export function mergeAgentConfigs(...configs: Partial<AgentConfig>[]): AgentConf
   }
 
   // Validate the merged config
-  const parseResult = AgentConfigFileSchema.safeParse(result);
+  const parseResult = AvatarConfigFileSchema.safeParse(result);
   if (!parseResult.success) {
-    throw new Error(`Invalid merged agent config: ${parseResult.error.message}`);
+    throw new Error(`Invalid merged avatar config: ${parseResult.error.message}`);
   }
 
   return parseResult.data;
 }
 
 // Export the config file schema for use in other parts of the codebase
-export { AgentConfigFileSchema };
+export { AvatarConfigFileSchema };
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use loadAvatarConfigFromFile instead */
+export const loadAgentConfigFromFile = loadAvatarConfigFromFile;
+/** @deprecated Use loadAvatarConfigFromEnv instead */
+export const loadAgentConfigFromEnv = loadAvatarConfigFromEnv;
+/** @deprecated Use mergeAvatarConfigs instead */
+export const mergeAgentConfigs = mergeAvatarConfigs;

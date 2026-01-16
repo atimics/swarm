@@ -5,7 +5,7 @@ import type {
   Platform, 
   SwarmEnvelope, 
   ResponseAction, 
-  AgentConfig,
+  AvatarConfig,
   SenderInfo,
   MessageContent 
 } from '../types/index.js';
@@ -17,7 +17,7 @@ import type {
 export abstract class PlatformAdapter {
   abstract readonly platform: Platform;
   
-  constructor(protected readonly agentConfig: AgentConfig) {}
+  constructor(protected readonly avatarConfig: AvatarConfig) {}
 
   /**
    * Verify incoming webhook request authenticity
@@ -58,10 +58,10 @@ export abstract class PlatformAdapter {
    */
   protected generateIdempotencyKey(
     platform: Platform,
-    agentId: string,
+    avatarId: string,
     messageId: string
   ): string {
-    return `${platform}:${agentId}:${messageId}`;
+    return `${platform}:${avatarId}:${messageId}`;
   }
 
   /**
@@ -76,7 +76,7 @@ export abstract class PlatformAdapter {
     raw: unknown;
   }): SwarmEnvelope {
     return {
-      agentId: this.agentConfig.id,
+      avatarId: this.avatarConfig.id,
       platform: this.platform,
       messageId: params.messageId,
       conversationId: params.conversationId,
@@ -90,7 +90,7 @@ export abstract class PlatformAdapter {
         priority: 'normal',
         idempotencyKey: this.generateIdempotencyKey(
           this.platform,
-          this.agentConfig.id,
+          this.avatarConfig.id,
           params.messageId
         ),
       },

@@ -4,7 +4,7 @@
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export interface LogContext {
-  agentId?: string;
+  avatarId?: string;
   platform?: string;
   conversationId?: string;
   messageId?: string;

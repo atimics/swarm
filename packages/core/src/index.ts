@@ -1,8 +1,8 @@
 /**
- * @swarm/core - Social Media Agent Swarm Framework
+ * @swarm/core - Social Media Avatar Swarm Framework
  * 
  * Core types, platform adapters, processors, and services for building
- * AI-powered social media agents on AWS.
+ * AI-powered social media avatars on AWS.
  */
 
 // Constants
@@ -29,7 +29,7 @@ export * from './utils/index.js';
 
 // Re-export commonly used types for convenience
 export type {
-  AgentConfig,
+  AvatarConfig,
   SwarmEnvelope,
   SwarmResponse,
   Platform,

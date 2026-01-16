@@ -5,7 +5,7 @@
 import { TwitterApi, TweetV2, UserV2 } from 'twitter-api-v2';
 import { PlatformAdapter } from './base.js';
 import type {
-  AgentConfig,
+  AvatarConfig,
   SwarmEnvelope,
   ResponseAction,
   SenderInfo,
@@ -27,12 +27,12 @@ export class TwitterAdapter extends PlatformAdapter {
   private botUserId: string | null = null;
 
   constructor(
-    agentConfig: AgentConfig,
+    avatarConfig: AvatarConfig,
     private readonly credentials: TwitterCredentials,
     injectedClient?: TwitterApi
   ) {
-    super(agentConfig);
-    this.config = agentConfig.platforms.twitter!;
+    super(avatarConfig);
+    this.config = avatarConfig.platforms.twitter!;
 
     if (injectedClient) {
       this.client = injectedClient;

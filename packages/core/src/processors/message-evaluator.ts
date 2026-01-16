@@ -1,10 +1,10 @@
 /**
  * Message Evaluator Processor
- * Determines whether the agent should respond to an incoming message
+ * Determines whether the avatar should respond to an incoming message
  */
 import type {
   SwarmEnvelope,
-  AgentConfig,
+  AvatarConfig,
   StateService,
 } from '../types/index.js';
 
@@ -23,14 +23,14 @@ export interface MessageEvaluatorConfig {
 
 export class MessageEvaluator {
   constructor(
-    private readonly agentConfig: AgentConfig,
+    private readonly avatarConfig: AvatarConfig,
     private readonly stateService: StateService,
     private readonly evaluatorConfig: MessageEvaluatorConfig
   ) {}
 
   async evaluate(envelope: SwarmEnvelope): Promise<EvaluationResult> {
     // 1. Check if sender is a bot (and we should ignore bots)
-    if (this.agentConfig.behavior.ignoreBots && envelope.sender.isBot) {
+    if (this.avatarConfig.behavior.ignoreBots && envelope.sender.isBot) {
       return {
         shouldRespond: false,
         reason: 'Sender is a bot',
@@ -45,7 +45,7 @@ export class MessageEvaluator {
 
     // 3. Check if user is on cooldown
     const cooldown = await this.stateService.getUserCooldown(
-      envelope.agentId,
+      envelope.avatarId,
       envelope.platform,
       envelope.sender.id
     );
@@ -140,7 +140,7 @@ export class MessageEvaluator {
     // Group chats - use probabilistic response or context-based
     // Get channel state to check recent activity
     const channelState = await this.stateService.getChannelState(
-      envelope.agentId,
+      envelope.avatarId,
       envelope.conversationId
     );
 
@@ -176,7 +176,7 @@ export class MessageEvaluator {
    * Discord-specific evaluation
    */
   private evaluateDiscord(envelope: SwarmEnvelope): EvaluationResult {
-    const config = this.agentConfig.platforms.discord;
+    const config = this.avatarConfig.platforms.discord;
     const chatType = envelope.metadata.chatType;
 
     if (chatType === 'private') {
@@ -230,7 +230,7 @@ export class MessageEvaluator {
     // Token gating check could be done here
     const sender = envelope.sender;
     
-    if (this.agentConfig.platforms.web?.tokenGated?.enabled) {
+    if (this.avatarConfig.platforms.web?.tokenGated?.enabled) {
       if (!sender.walletAddress) {
         return {
           shouldRespond: false,
@@ -292,7 +292,7 @@ export class MessageEvaluator {
 
     // Get channel state to check recent messages
     const channelState = await this.stateService.getChannelState(
-      envelope.agentId,
+      envelope.avatarId,
       envelope.conversationId
     );
 
@@ -347,7 +347,7 @@ export class MessageEvaluator {
  * Factory function
  */
 export function createMessageEvaluator(
-  agentConfig: AgentConfig,
+  avatarConfig: AvatarConfig,
   stateService: StateService,
   configOrBotUsernames: MessageEvaluatorConfig | string[],
   adminUserIds?: string[]
@@ -356,5 +356,5 @@ export function createMessageEvaluator(
     ? { botUsernames: configOrBotUsernames, adminUserIds }
     : configOrBotUsernames;
 
-  return new MessageEvaluator(agentConfig, stateService, config);
+  return new MessageEvaluator(avatarConfig, stateService, config);
 }
