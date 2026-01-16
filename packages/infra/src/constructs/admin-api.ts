@@ -37,7 +37,7 @@ export interface AdminApiConstructProps {
 
   /**
    * Comma-separated list of admin wallet addresses (Solana public keys)
-   * These wallets can see all agents regardless of creator
+   * These wallets can see all avatars regardless of creator
    */
   adminWallets?: string;
 
@@ -48,7 +48,7 @@ export interface AdminApiConstructProps {
 
   /**
    * Global Replicate API key (stored in Secrets Manager)
-   * Used for image/video generation with a trial limit per agent
+   * Used for image/video generation with a trial limit per avatar
    */
   replicateApiKeyArn?: string;
 
@@ -99,7 +99,7 @@ export interface AdminApiConstructProps {
   apiCertificateArn?: string;
 
   /**
-   * Shared state table for syncing agent configs to handlers
+   * Shared state table for syncing avatar configs to handlers
    */
   stateTable?: dynamodb.ITable;
 
@@ -183,8 +183,8 @@ export class AdminApiConstruct extends Construct {
 
     // GSI1 for inverted lookups (sk → pk)
     // Used for:
-    // - Finding agent by inhabitant: sk=INHABITANT#<wallet> returns pk=AGENT#<agentId>
-    // - Listing items by type: sk=CONFIG returns all agents
+    // - Finding avatar by inhabitant: sk=INHABITANT#<wallet> returns pk=AVATAR#<avatarId>
+    // - Listing items by type: sk=CONFIG returns all avatars
     this.table.addGlobalSecondaryIndex({
       indexName: 'GSI1',
       partitionKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
@@ -324,7 +324,7 @@ export class AdminApiConstruct extends Construct {
       webSearchApiKey.grantRead(this.chatHandler);
     }
 
-    // Grant permissions to state table for agent config sync
+    // Grant permissions to state table for avatar config sync
     if (stateTable) {
       stateTable.grantReadWriteData(this.chatHandler);
     }
@@ -443,10 +443,10 @@ export class AdminApiConstruct extends Construct {
       integration: transcribeIntegration,
     });
 
-    // Agents handler - for CRUD operations on agents
-    const agentsHandler = new nodejs.NodejsFunction(this, 'AgentsHandler', {
+    // Avatars handler - for CRUD operations on avatars
+    const avatarsHandler = new nodejs.NodejsFunction(this, 'Avatarsandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(__dirname, '../../../admin-api/src/handlers/agents.ts'),
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/avatars.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
@@ -470,16 +470,16 @@ export class AdminApiConstruct extends Construct {
       },
     });
 
-    // Grant permissions to agents handler
-    this.table.grantReadWriteData(agentsHandler);
-    this.encryptionKey.grantEncryptDecrypt(agentsHandler);
+    // Grant permissions to avatars handler
+    this.table.grantReadWriteData(avatarsHandler);
+    this.encryptionKey.grantEncryptDecrypt(avatarsHandler);
     if (stateTable) {
-      stateTable.grantReadWriteData(agentsHandler);
+      stateTable.grantReadWriteData(avatarsHandler);
     }
 
-    // Grant secrets manager permissions to agents handler
+    // Grant secrets manager permissions to avatars handler
     // CreateSecret needs wildcard since the secret doesn't exist yet
-    agentsHandler.addToRolePolicy(new iam.PolicyStatement({
+    avatarsHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['secretsmanager:CreateSecret'],
       resources: ['*'],
@@ -490,7 +490,7 @@ export class AdminApiConstruct extends Construct {
       },
     }));
 
-    agentsHandler.addToRolePolicy(new iam.PolicyStatement({
+    avatarsHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         'secretsmanager:UpdateSecret',
@@ -506,14 +506,14 @@ export class AdminApiConstruct extends Construct {
     }));
 
     // ListSecrets doesn't support resource-level permissions
-    agentsHandler.addToRolePolicy(new iam.PolicyStatement({
+    avatarsHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['secretsmanager:ListSecrets'],
       resources: ['*'],
     }));
 
-    // CloudWatch Logs access for consolidated agent logs
-    agentsHandler.addToRolePolicy(new iam.PolicyStatement({
+    // CloudWatch Logs access for consolidated avatar logs
+    avatarsHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         'logs:StartQuery',
@@ -523,46 +523,46 @@ export class AdminApiConstruct extends Construct {
       resources: ['*'],
     }));
 
-    const agentsIntegration = new integrations.HttpLambdaIntegration(
-      'AgentsIntegration',
-      agentsHandler
+    const avatarsIntegration = new integrations.HttpLambdaIntegration(
+      'Avatarsntegration',
+      avatarsHandler
     );
 
-    // Agent routes
+    // Avatar routes
     this.api.addRoutes({
-      path: '/agents',
+      path: '/avatars',
       methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.POST],
-      integration: agentsIntegration,
+      integration: avatarsIntegration,
     });
 
     this.api.addRoutes({
-      path: '/agents/{agentId}',
+      path: '/avatars/{avatarId}',
       methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.PUT, apigateway.HttpMethod.DELETE],
-      integration: agentsIntegration,
+      integration: avatarsIntegration,
     });
 
     this.api.addRoutes({
-      path: '/agents/{agentId}/secrets',
+      path: '/avatars/{avatarId}/secrets',
       methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.POST],
-      integration: agentsIntegration,
+      integration: avatarsIntegration,
     });
 
     this.api.addRoutes({
-      path: '/agents/{agentId}/logs',
+      path: '/avatars/{avatarId}/logs',
       methods: [apigateway.HttpMethod.GET],
-      integration: agentsIntegration,
+      integration: avatarsIntegration,
     });
 
     this.api.addRoutes({
-      path: '/agents/{agentId}/issues',
+      path: '/avatars/{avatarId}/issues',
       methods: [apigateway.HttpMethod.GET],
-      integration: agentsIntegration,
+      integration: avatarsIntegration,
     });
 
     this.api.addRoutes({
-      path: '/agents/{agentId}/events',
+      path: '/avatars/{avatarId}/events',
       methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.PATCH],
-      integration: agentsIntegration,
+      integration: avatarsIntegration,
     });
 
     // Issues handler - for auto-issue tracking system (used by CI/CD, browser tests)
@@ -777,9 +777,9 @@ export class AdminApiConstruct extends Construct {
       integration: walletAuthIntegration,
     });
 
-    // Inhabitation routes - for agent claiming/abandoning
+    // Inhabitation routes - for avatar claiming/abandoning
     this.api.addRoutes({
-      path: '/auth/unclaimed-agents',
+      path: '/auth/unclaimed-avatars',
       methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
       integration: walletAuthIntegration,
     });
@@ -814,7 +814,7 @@ export class AdminApiConstruct extends Construct {
       integration: walletAuthIntegration,
     });
 
-    // Shared Telegram webhook handler - handles ALL agents dynamically
+    // Shared Telegram webhook handler - handles ALL avatars dynamically
     const telegramWebhookHandler = new nodejs.NodejsFunction(this, 'TelegramWebhookHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/telegram-webhook.ts'),
@@ -863,7 +863,7 @@ export class AdminApiConstruct extends Construct {
       replicateApiKey.grantRead(telegramWebhookHandler);
     }
 
-    // Grant KMS decrypt for agent secrets
+    // Grant KMS decrypt for avatar secrets
     this.encryptionKey.grantDecrypt(telegramWebhookHandler);
 
     // Grant S3 permissions for media operations
@@ -871,7 +871,7 @@ export class AdminApiConstruct extends Construct {
       mediaBucket.grantReadWrite(telegramWebhookHandler);
     }
 
-    // Grant read access to agent secrets (bot tokens and webhook secrets)
+    // Grant read access to avatar secrets (bot tokens and webhook secrets)
     telegramWebhookHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['secretsmanager:GetSecretValue'],
@@ -885,9 +885,9 @@ export class AdminApiConstruct extends Construct {
       telegramWebhookHandler
     );
 
-    // Webhook route: /webhook/telegram/{agentId}
+    // Webhook route: /webhook/telegram/{avatarId}
     this.api.addRoutes({
-      path: '/webhook/telegram/{agentId}',
+      path: '/webhook/telegram/{avatarId}',
       methods: [apigateway.HttpMethod.POST],
       integration: telegramIntegration,
     });
@@ -1055,24 +1055,24 @@ export class AdminApiConstruct extends Construct {
     });
 
     this.api.addRoutes({
-      path: '/oauth/twitter/status/{agentId}',
+      path: '/oauth/twitter/status/{avatarId}',
       methods: [apigateway.HttpMethod.GET],
       integration: twitterOAuthIntegration,
     });
 
     this.api.addRoutes({
-      path: '/oauth/twitter/{agentId}',
+      path: '/oauth/twitter/{avatarId}',
       methods: [apigateway.HttpMethod.DELETE],
       integration: twitterOAuthIntegration,
     });
 
     // Configure log group prefixes for the consolidated logs endpoint
-    // This allows querying logs across all admin API handlers for a given agent
+    // This allows querying logs across all admin API handlers for a given avatar
     const stackPrefix = cdk.Stack.of(this).stackName;
-    agentsHandler.addEnvironment('ADMIN_LOG_GROUPS', '');
-    agentsHandler.addEnvironment('LOG_GROUP_PREFIX', '/aws/lambda/');
-    agentsHandler.addEnvironment('ADMIN_LOG_GROUP_PREFIXES', [
-      `/aws/lambda/${stackPrefix}-AdminApi`,  // All admin API handlers (chat, agents, telegram)
+    avatarsHandler.addEnvironment('ADMIN_LOG_GROUPS', '');
+    avatarsHandler.addEnvironment('LOG_GROUP_PREFIX', '/aws/lambda/');
+    avatarsHandler.addEnvironment('ADMIN_LOG_GROUP_PREFIXES', [
+      `/aws/lambda/${stackPrefix}-AdminApi`,  // All admin API handlers (chat, avatars, telegram)
     ].join(','));
 
     // Custom domain configuration (for Cloudflare Access proxy)

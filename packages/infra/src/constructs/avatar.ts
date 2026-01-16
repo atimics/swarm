@@ -1,6 +1,6 @@
 /**
- * Agent Construct
- * CDK construct for a single swarm agent with all its resources
+ * Avatar Construct
+ * CDK construct for a single swarm avatar with all its resources
  */
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -18,18 +18,18 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
-import type { AgentConfig } from '@swarm/core';
+import type { AvatarConfig } from '@swarm/core';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export interface AgentConstructProps {
+export interface AvatarConstructProps {
   /**
-   * Agent configuration
+   * Avatar configuration
    */
-  config: AgentConfig;
+  config: AvatarConfig;
 
   /**
    * Shared state table (multi-tenant)
@@ -77,14 +77,14 @@ export interface AgentConstructProps {
   discordCluster?: ecs.ICluster;
 }
 
-export class AgentConstruct extends Construct {
+export class AvatarConstruct extends Construct {
   public readonly messageQueue: sqs.Queue;
   public readonly responseQueue: sqs.Queue;
   public readonly mediaQueue: sqs.Queue;
   public readonly api: apigateway.RestApi;
   public readonly secrets: secretsmanager.ISecret;
 
-  constructor(scope: Construct, id: string, props: AgentConstructProps) {
+  constructor(scope: Construct, id: string, props: AvatarConstructProps) {
     super(scope, id);
 
     const {
@@ -105,7 +105,7 @@ export class AgentConstruct extends Construct {
     } else {
       this.secrets = new secretsmanager.Secret(this, 'Secrets', {
         secretName: `swarm/${config.id}/secrets`,
-        description: `Secrets for agent ${config.name}`,
+        description: `Secrets for avatar ${config.name}`,
       });
     }
 
@@ -152,8 +152,8 @@ export class AgentConstruct extends Construct {
     // Common Lambda environment
     const commonEnv: Record<string, string> = {
       NODE_OPTIONS: '--enable-source-maps',
-      AGENT_ID: config.id,
-      AGENT_NAME: config.name,
+      AVATAR_ID: config.id,
+      AVATAR_NAME: config.name,
       STATE_TABLE: stateTable.tableName,
       ACTIVITY_TABLE: activityTable.tableName,
       MEDIA_BUCKET: mediaBucket.bucketName,
@@ -197,7 +197,7 @@ export class AgentConstruct extends Construct {
     // Create API Gateway
     this.api = new apigateway.RestApi(this, 'Api', {
       restApiName: `${config.id}-api`,
-      description: `API for agent ${config.name}`,
+      description: `API for avatar ${config.name}`,
       deployOptions: {
         stageName: environment,
       },
@@ -345,8 +345,8 @@ export class AgentConstruct extends Construct {
             streamPrefix: `${config.id}-discord`,
           }),
           environment: {
-            AGENT_ID: config.id,
-            AGENT_NAME: config.name,
+            AVATAR_ID: config.id,
+            AVATAR_NAME: config.name,
             STATE_TABLE: stateTable.tableName,
             ACTIVITY_TABLE: activityTable.tableName,
             MESSAGE_QUEUE_URL: this.messageQueue.queueUrl,
@@ -525,7 +525,7 @@ export class AgentConstruct extends Construct {
     // Outputs
     new cdk.CfnOutput(this, 'ApiUrl', {
       value: this.api.url,
-      description: `API URL for agent ${config.name}`,
+      description: `API URL for avatar ${config.name}`,
     });
 
     if (config.platforms.telegram?.enabled) {

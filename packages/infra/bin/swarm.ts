@@ -16,7 +16,7 @@ const app = new cdk.App();
 
 // Get environment from context or default
 const environment = app.node.tryGetContext('environment') || 'dev';
-const agentIds = app.node.tryGetContext('agents')?.split(',');
+const avatarIds = app.node.tryGetContext('avatars')?.split(',');
 
 // Get environment-specific config
 const environments = app.node.tryGetContext('environments') || {};
@@ -40,15 +40,15 @@ const claudeCodeUseOpenRouter = app.node.tryGetContext('claudeCodeUseOpenRouter'
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
 const monorepoRoot = path.resolve(__dirname, '../../..');
-const agentsPath = path.join(monorepoRoot, 'agents');
+const avatarsPath = path.join(monorepoRoot, 'avatars');
 const handlersPath = path.join(monorepoRoot, 'packages/handlers/dist');
 
 new SwarmStack(app, `SwarmStack-${environment}`, {
   environment,
-  agentsPath,
+  avatarsPath,
   handlersPath,
   enableCdn: true, // CDN required for media to be accessible (S3 bucket is private)
-  agentIds,
+  avatarIds,
   adminDomain,
   adminCertificateArn,
   cloudflareTeamDomain,
@@ -68,7 +68,7 @@ new SwarmStack(app, `SwarmStack-${environment}`, {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
   },
-  description: `Swarm AI Agent Framework (${environment})`,
+  description: `Swarm AI Avatar Framework (${environment})`,
 });
 
 app.synth();

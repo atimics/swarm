@@ -1,6 +1,6 @@
 /**
  * Shared Infrastructure Construct
- * Creates shared resources used by all agents
+ * Creates shared resources used by all avatars
  */
 import * as cdk from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
@@ -38,7 +38,7 @@ export interface SharedInfrastructureProps {
 
   /**
    * Custom domain for CDN (e.g., 'rati.chat')
-   * If set, images will be served from https://{cdnDomain}/agents/{agentId}/images/{imageId}.png
+   * If set, images will be served from https://{cdnDomain}/avatars/{avatarId}/images/{imageId}.png
    */
   cdnDomain?: string;
 

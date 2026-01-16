@@ -2,7 +2,7 @@
  * Claude Code Worker Construct
  *
  * ECS Fargate service that processes Claude Code tasks.
- * Uses FIFO SQS queue for ordered processing per agent.
+ * Uses FIFO SQS queue for ordered processing per avatar.
  */
 import * as cdk from 'aws-cdk-lib';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -104,7 +104,7 @@ export class ClaudeCodeWorker extends Construct {
       maxCapacity = 5,
     } = props;
 
-    // FIFO queue for ordered processing per agent
+    // FIFO queue for ordered processing per avatar
     this.queue = new sqs.Queue(this, 'ClaudeCodeQueue', {
       queueName: `swarm-claude-code-${environment}.fifo`,
       fifo: true,
@@ -265,7 +265,7 @@ export class ClaudeCodeWorker extends Construct {
       // Grant permissions to callback Lambda
       stateTable.grantReadData(callbackLambda);
 
-      // Grant access to all agent secrets (for platform adapters)
+      // Grant access to all avatar secrets (for platform adapters)
       callbackLambda.addToRolePolicy(
         new iam.PolicyStatement({
           actions: ['secretsmanager:GetSecretValue'],

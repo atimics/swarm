@@ -1,6 +1,6 @@
 /**
  * Swarm Stack
- * Main CDK stack that deploys shared infrastructure and agents
+ * Main CDK stack that deploys shared infrastructure and avatars
  */
 import * as cdk from 'aws-cdk-lib';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -9,11 +9,11 @@ import * as path from 'path';
 import * as yaml from 'yaml';
 import { Construct } from 'constructs';
 import { SharedInfrastructure } from '../constructs/shared.js';
-import { AgentConstruct } from '../constructs/agent.js';
+import { AvatarConstruct } from '../constructs/avatar.js';
 import { AdminUi } from '../constructs/admin-ui.js';
 import { AdminApiConstruct } from '../constructs/admin-api.js';
 import { ClaudeCodeWorker } from '../constructs/claude-code-worker.js';
-import type { AgentConfig } from '@swarm/core';
+import type { AvatarConfig } from '@swarm/core';
 
 export interface SwarmStackProps extends cdk.StackProps {
   /**
@@ -22,9 +22,9 @@ export interface SwarmStackProps extends cdk.StackProps {
   environment: string;
 
   /**
-   * Path to agents directory
+   * Path to avatars directory
    */
-  agentsPath: string;
+  avatarsPath: string;
 
   /**
    * Path to compiled handlers
@@ -37,9 +37,9 @@ export interface SwarmStackProps extends cdk.StackProps {
   enableCdn?: boolean;
 
   /**
-   * Specific agents to deploy (default: all)
+   * Specific avatars to deploy (default: all)
    */
-  agentIds?: string[];
+  avatarIds?: string[];
 
   /**
    * Custom domain for Admin UI (e.g., 'admin-staging.rati.chat')
@@ -63,7 +63,7 @@ export interface SwarmStackProps extends cdk.StackProps {
 
   /**
    * Admin wallet addresses (comma-separated Solana public keys)
-   * These wallets can see all agents regardless of creator
+   * These wallets can see all avatars regardless of creator
    */
   adminWallets?: string;
 
@@ -84,7 +84,7 @@ export interface SwarmStackProps extends cdk.StackProps {
 
   /**
    * Custom domain for gallery CDN (e.g., 'gallery.rati.chat' or 'gallery-staging.rati.chat')
-   * Images will be served from https://{galleryDomain}/agents/{agentId}/images/{imageId}.png
+   * Images will be served from https://{galleryDomain}/avatars/{avatarId}/images/{imageId}.png
    */
   galleryDomain?: string;
 
@@ -139,17 +139,17 @@ export class SwarmStack extends cdk.Stack {
   public readonly adminUi: AdminUi;
   public readonly adminApi?: AdminApiConstruct;
   public readonly claudeCodeWorker?: ClaudeCodeWorker;
-  public readonly agents: Map<string, AgentConstruct> = new Map();
+  public readonly avatars: Map<string, AvatarConstruct> = new Map();
 
   constructor(scope: Construct, id: string, props: SwarmStackProps) {
     super(scope, id, props);
 
     const {
       environment,
-      agentsPath,
+      avatarsPath,
       handlersPath,
       enableCdn = true,
-      agentIds,
+      avatarIds: requestedAvatarIds,
       adminDomain,
       adminCertificateArn,
       cloudflareTeamDomain,
@@ -237,7 +237,7 @@ export class SwarmStack extends cdk.Stack {
         dependencyLayer: this.shared.dependencyLayer,
       });
 
-      // Output the queue URL for agents to use
+      // Output the queue URL for avatars to use
       new cdk.CfnOutput(this, 'ClaudeCodeQueueUrl', {
         value: this.claudeCodeWorker.queue.queueUrl,
         description: 'Claude Code task queue URL',
@@ -251,39 +251,39 @@ export class SwarmStack extends cdk.Stack {
       });
     }
 
-    // Load and deploy agents (skip if agents directory doesn't exist)
-    if (!fs.existsSync(agentsPath)) {
-      console.log(`Agents directory not found at ${agentsPath}, skipping agent deployment`);
+    // Load and deploy avatars (skip if avatars directory doesn't exist)
+    if (!fs.existsSync(avatarsPath)) {
+      console.log(`Avatars directory not found at ${avatarsPath}, skipping avatar deployment`);
     } else {
-      const agentDirs = fs.readdirSync(agentsPath)
+      const discoveredAvatarIds = fs.readdirSync(avatarsPath)
         .filter(f => {
-          const fullPath = path.join(agentsPath, f);
+          const fullPath = path.join(avatarsPath, f);
           return fs.statSync(fullPath).isDirectory() && !f.startsWith('.') && f !== 'node_modules';
         })
-        .filter(f => !agentIds || agentIds.includes(f));
+        .filter(f => !requestedAvatarIds || requestedAvatarIds.includes(f));
 
-      for (const agentDir of agentDirs) {
-        const configPath = path.join(agentsPath, agentDir, 'config.yaml');
+      for (const avatarId of discoveredAvatarIds) {
+        const configPath = path.join(avatarsPath, avatarId, 'config.yaml');
         
         if (!fs.existsSync(configPath)) {
-          console.warn(`Skipping ${agentDir}: no config.yaml found`);
+          console.warn(`Skipping ${avatarId}: no config.yaml found`);
           continue;
         }
 
         const configYaml = fs.readFileSync(configPath, 'utf-8');
-        const config: AgentConfig = yaml.parse(configYaml);
+        const config: AvatarConfig = yaml.parse(configYaml);
 
-        // Ensure agent ID matches directory name
-        config.id = agentDir;
+        // Ensure avatar ID matches directory name
+        config.id = avatarId;
 
         // Read persona file if exists
-        const personaPath = path.join(agentsPath, agentDir, 'persona.md');
+        const personaPath = path.join(avatarsPath, avatarId, 'persona.md');
         if (fs.existsSync(personaPath)) {
           config.persona = fs.readFileSync(personaPath, 'utf-8');
         }
 
-        // Create agent
-        const agent = new AgentConstruct(this, `Agent-${agentDir}`, {
+        // Create avatar
+        const avatar = new AvatarConstruct(this, `Avatar-${avatarId}`, {
           config,
           stateTable: this.shared.stateTable,
           activityTable: this.shared.activityTable,
@@ -295,14 +295,14 @@ export class SwarmStack extends cdk.Stack {
           discordCluster: this.shared.discordCluster,
         });
 
-        this.agents.set(agentDir, agent);
+        this.avatars.set(avatarId, avatar);
       }
     }
 
     // Stack outputs
-    new cdk.CfnOutput(this, 'AgentCount', {
-      value: String(this.agents.size),
-      description: 'Number of agents deployed',
+    new cdk.CfnOutput(this, 'AvatarCount', {
+      value: String(this.avatars.size),
+      description: 'Number of avatars deployed',
     });
   }
 }
