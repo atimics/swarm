@@ -90,6 +90,8 @@ const BACKOFF_MULTIPLIER = 1.5; // Exponential backoff multiplier
 // Early failure detection thresholds
 const MAX_EMPTY_PAGE_STEPS = 3;  // Abort after 3 consecutive steps with no elements
 const MAX_WAIT_ACTIONS = 4;      // Abort after 4 consecutive WAIT actions (unparseable responses)
+const MAX_CONSECUTIVE_FAILURES = 3;  // Abort after 3 consecutive failed actions
+const MAX_REPEATED_ACTIONS = 3;  // Abort after 3 repetitions of the same action
 
 function getStackOutput(exportNameSuffix) {
   const stack = `SwarmStack-${ENV === 'production' ? 'prod' : ENV}`;
@@ -944,6 +946,9 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
   // Early failure detection counters
   let consecutiveEmptyPageSteps = 0;
   let consecutiveWaitActions = 0;
+  let consecutiveFailedActions = 0;
+  let lastAction = null;
+  let sameActionCount = 0;
   
   try {
     console.log('📸 Loading application...');
@@ -1058,6 +1063,38 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
       console.log(`💭 Reasoning: ${(action.reasoning || '').substring(0, 120)}...`);
       console.log(`⚡ Action: ${action.type}: ${action.params}`);
       
+      // Early failure: detect repeated actions (agent stuck in loop)
+      const actionKey = `${action.type}:${action.params}`;
+      if (lastAction === actionKey) {
+        sameActionCount++;
+        console.log(`   ⚠️  Same action repeated (${sameActionCount}/${MAX_REPEATED_ACTIONS})`);
+        
+        if (sameActionCount >= MAX_REPEATED_ACTIONS) {
+          const abortReason = `Agent stuck: repeated "${action.type}: ${action.params}" ${sameActionCount} times. The action may not be working or the page is unresponsive.`;
+          console.log(`\n🛑 Early abort: ${abortReason}`);
+          history.push(`[AUTO-ABORT: ${abortReason}]`);
+          finalSummary = `ABORTED: ${abortReason}`;
+          
+          await reportError(apiUrl, testKey, {
+            error: `Browser test auto-aborted: agent stuck in loop`,
+            subsystem: 'browser-test',
+            context: {
+              environment: ENV,
+              step,
+              adminUrl,
+              repeatedAction: actionKey,
+              sameActionCount,
+              history: history.slice(-5),
+            },
+          }).catch(err => console.warn(`   ⚠️ Failed to report: ${err.message}`));
+          
+          break;
+        }
+      } else {
+        sameActionCount = 1;
+        lastAction = actionKey;
+      }
+      
       // Early failure: detect consecutive unparseable/WAIT actions
       if (action.type === 'WAIT' && action.params === 'Could not parse action') {
         consecutiveWaitActions++;
@@ -1092,6 +1129,31 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
       if (result.error) {
         console.log(`⚠️  Action failed: ${result.error}`);
         history.push(`${action.type}: ${action.params} -> FAILED: ${result.error}`);
+        
+        // Track consecutive failures
+        consecutiveFailedActions++;
+        console.log(`   ⚠️  Consecutive failures: ${consecutiveFailedActions}/${MAX_CONSECUTIVE_FAILURES}`);
+        
+        if (consecutiveFailedActions >= MAX_CONSECUTIVE_FAILURES) {
+          const abortReason = `${consecutiveFailedActions} consecutive action failures. The UI may have changed or elements are not clickable.`;
+          console.log(`\n🛑 Early abort: ${abortReason}`);
+          history.push(`[AUTO-ABORT: ${abortReason}]`);
+          finalSummary = `ABORTED: ${abortReason}`;
+          
+          await reportError(apiUrl, testKey, {
+            error: `Browser test auto-aborted: consecutive action failures`,
+            subsystem: 'browser-test',
+            context: {
+              environment: ENV,
+              step,
+              adminUrl,
+              consecutiveFailedActions,
+              history: history.slice(-5),
+            },
+          }).catch(err => console.warn(`   ⚠️ Failed to report: ${err.message}`));
+          
+          break;
+        }
       } else if (result.aborted) {
         console.log(`🛑 Agent aborted test: ${result.reason}`);
         history.push(`ABORT: ${result.reason}`);
@@ -1120,6 +1182,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
       } else {
         console.log('✅ Action executed');
         history.push(`${action.type}: ${action.params} -> OK`);
+        consecutiveFailedActions = 0; // Reset on success
       }
       
       // Wait for page to change with exponential backoff before next LLM call
