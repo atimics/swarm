@@ -66,7 +66,7 @@ export const TOOL_TAGS = [
   'inhabitation',
   'claude-code',
   'coding',
-  'agent',
+  'avatar',
 ] as const;
 
 export type ToolTag = typeof TOOL_TAGS[number];
@@ -105,5 +105,5 @@ export const TOOLSET_DEFAULT_TAGS: Record<ToolsetId, ToolTag[]> = {
   property: ['property', 'listings', 'assessor', 'schools'],
   memory: ['memory', 'recall', 'remember'],
   nft: ['nft', 'ownership', 'inhabitation'],
-  'claude-code': ['claude-code', 'coding', 'agent'],
+  'claude-code': ['claude-code', 'coding', 'avatar'],
 };

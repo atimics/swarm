@@ -23,8 +23,8 @@ import { CATEGORY_TOOLSET_MAP, TOOLSET_DEFAULT_TAGS, type ToolsetId, type ToolTa
  * Execution context passed to every tool
  */
 export interface ToolContext {
-  /** The agent ID executing the tool */
-  agentId: string;
+  /** The avatar ID executing the tool */
+  avatarId: string;
   /** Platform the request originated from */
   platform: 'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api' | 'mcp';
   /** User or chat identifier */

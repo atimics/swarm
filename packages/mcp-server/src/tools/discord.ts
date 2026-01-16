@@ -65,7 +65,7 @@ export interface DiscordMessageInfo {
  */
 export interface DiscordServices {
   /**
-   * Get Discord connection status for current agent
+   * Get Discord connection status for current avatar
    */
   getConnectionStatus: () => Promise<DiscordConnectionStatus>;
 

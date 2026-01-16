@@ -23,14 +23,14 @@ export interface ModelInfo {
 export interface ModelServices {
   listModels: (family?: string) => Promise<ModelInfo[]>;
   
-  getConfig: (agentId: string) => Promise<{
+  getConfig: (avatarId: string) => Promise<{
     model: string;
     temperature: number;
     maxTokens: number;
     provider?: string;
   }>;
   
-  updateConfig: (agentId: string, config: {
+  updateConfig: (avatarId: string, config: {
     model?: string;
     temperature?: number;
     maxTokens?: number;
@@ -75,7 +75,7 @@ export const createModelTools = (services: ModelServices) => [
     platforms: ['admin-ui', 'api'],
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
-      const config = await services.getConfig(context.agentId);
+      const config = await services.getConfig(context.avatarId);
 
       return {
         success: true,
@@ -104,7 +104,7 @@ export const createModelTools = (services: ModelServices) => [
         .describe('Maximum response length'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      await services.updateConfig(context.agentId, {
+      await services.updateConfig(context.avatarId, {
         model: input.model,
         temperature: input.temperature,
         maxTokens: input.maxTokens,

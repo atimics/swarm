@@ -1,7 +1,7 @@
 /**
  * Claude Code Integration Tools
  *
- * Tools for executing complex coding tasks using Claude Code agent.
+ * Tools for executing complex coding tasks using Claude Code avatar.
  * Uses async job queue pattern similar to media generation.
  */
 import { z } from 'zod';
@@ -20,7 +20,7 @@ export type ClaudeCodeJobStatus =
 
 export interface ClaudeCodeJob {
   jobId: string;
-  agentId: string;
+  avatarId: string;
   conversationId?: string;
   status: ClaudeCodeJobStatus;
   task: string;
@@ -42,7 +42,7 @@ export interface ClaudeCodeServices {
    * Enqueue a new Claude Code task
    */
   enqueueTask: (params: {
-    agentId: string;
+    avatarId: string;
     conversationId?: string;
     replyToMessageId?: string;
     task: string;
@@ -56,7 +56,7 @@ export interface ClaudeCodeServices {
    * Respond to a pending question from Claude Code
    */
   respondToQuestion: (params: {
-    agentId: string;
+    avatarId: string;
     jobId: string;
     sessionId: string;
     response: string;
@@ -65,17 +65,17 @@ export interface ClaudeCodeServices {
   /**
    * Get job status
    */
-  getJob: (agentId: string, jobId: string) => Promise<ClaudeCodeJob | null>;
+  getJob: (avatarId: string, jobId: string) => Promise<ClaudeCodeJob | null>;
 
   /**
-   * Get all pending/active jobs for an agent
+   * Get all pending/active jobs for an avatar
    */
-  getActiveJobs: (agentId: string) => Promise<ClaudeCodeJob[]>;
+  getActiveJobs: (avatarId: string) => Promise<ClaudeCodeJob[]>;
 
   /**
    * Cancel a running job
    */
-  cancelJob?: (agentId: string, jobId: string) => Promise<boolean>;
+  cancelJob?: (avatarId: string, jobId: string) => Promise<boolean>;
 }
 
 // ============================================================================
@@ -85,7 +85,7 @@ export interface ClaudeCodeServices {
 export const createClaudeCodeTools = (services: ClaudeCodeServices) => [
   defineTool({
     name: 'claude_code_execute',
-    description: `Execute a complex coding task using Claude Code agent. Use this for:
+    description: `Execute a complex coding task using Claude Code avatar. Use this for:
 - Multi-file code generation or refactoring
 - Debugging and fixing complex bugs
 - Code analysis and review
@@ -107,7 +107,7 @@ The task runs asynchronously. Use get_claude_code_job to check status.`,
         .number()
         .optional()
         .default(30)
-        .describe('Maximum number of agent turns (default: 30)'),
+        .describe('Maximum number of avatar turns (default: 30)'),
       sessionId: z
         .string()
         .optional()
@@ -120,7 +120,7 @@ The task runs asynchronously. Use get_claude_code_job to check status.`,
     execute: async (input, context): Promise<ToolResult> => {
       try {
         const { jobId } = await services.enqueueTask({
-          agentId: context.agentId,
+          avatarId: context.avatarId,
           conversationId: context.conversationId,
           replyToMessageId: context.replyToMessageId,
           task: input.task,
@@ -167,7 +167,7 @@ The task runs asynchronously. Use get_claude_code_job to check status.`,
     execute: async (input, context): Promise<ToolResult> => {
       try {
         await services.respondToQuestion({
-          agentId: context.agentId,
+          avatarId: context.avatarId,
           jobId: input.jobId,
           sessionId: input.sessionId,
           response: input.response,
@@ -198,7 +198,7 @@ The task runs asynchronously. Use get_claude_code_job to check status.`,
       jobId: z.string().describe('The job ID to check'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      const job = await services.getJob(context.agentId, input.jobId);
+      const job = await services.getJob(context.avatarId, input.jobId);
 
       if (!job) {
         return { success: false, error: 'Job not found' };
@@ -239,7 +239,7 @@ The task runs asynchronously. Use get_claude_code_job to check status.`,
     toolset: 'core',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
-      const jobs = await services.getActiveJobs(context.agentId);
+      const jobs = await services.getActiveJobs(context.avatarId);
 
       return {
         success: true,
@@ -269,7 +269,7 @@ The task runs asynchronously. Use get_claude_code_job to check status.`,
             jobId: z.string().describe('The job ID to cancel'),
           }),
           execute: async (input, context): Promise<ToolResult> => {
-            const cancelled = await services.cancelJob!(context.agentId, input.jobId);
+            const cancelled = await services.cancelJob!(context.avatarId, input.jobId);
 
             if (cancelled) {
               return {

@@ -4,8 +4,8 @@
  * Tools for creating and managing Telegram stickers:
  * - generate_sticker: Generate a new sticker from a text prompt
  * - create_sticker: Convert a gallery image into a sticker
- * - send_sticker: Send a sticker from the agent's sticker pack
- * - get_sticker_pack: View stickers in the agent's pack
+ * - send_sticker: Send a sticker from the avatar's sticker pack
+ * - get_sticker_pack: View stickers in the avatar's pack
  */
 import { z } from 'zod';
 import { defineTool, type ToolResult } from '../registry.js';
@@ -46,7 +46,7 @@ export interface StickerServices {
    * (background removal, sizing), and adds it to the sticker pack.
    */
   generateSticker: (
-    agentId: string,
+    avatarId: string,
     prompt: string,
     emoji?: string,
     conversationId?: string
@@ -65,7 +65,7 @@ export interface StickerServices {
    * Processes the image (background removal, sizing) and adds to pack.
    */
   createStickerFromGallery: (
-    agentId: string,
+    avatarId: string,
     galleryItemId: string,
     emoji?: string,
     conversationId?: string
@@ -80,15 +80,15 @@ export interface StickerServices {
   }>;
 
   /**
-   * Get the agent's sticker pack info
+   * Get the avatar's sticker pack info
    */
-  getStickerPack: (agentId: string) => Promise<StickerPackInfo | null>;
+  getStickerPack: (avatarId: string) => Promise<StickerPackInfo | null>;
 
   /**
    * Get gallery items that can be converted to stickers
    */
   getGalleryForStickers: (
-    agentId: string,
+    avatarId: string,
     options?: { limit?: number; unconvertedOnly?: boolean }
   ) => Promise<GalleryItemForSticker[]>;
 
@@ -96,7 +96,7 @@ export interface StickerServices {
    * Find a sticker by description/emoji
    */
   findSticker: (
-    agentId: string,
+    avatarId: string,
     description: string
   ) => Promise<StickerInfo | null>;
 }
@@ -123,7 +123,7 @@ export const createStickerTools = (services: StickerServices) => [
     execute: async (input, context): Promise<ToolResult> => {
       try {
         const result = await services.generateSticker(
-          context.agentId,
+          context.avatarId,
           input.prompt,
           input.emoji,
           context.conversationId
@@ -167,7 +167,7 @@ export const createStickerTools = (services: StickerServices) => [
     execute: async (input, context): Promise<ToolResult> => {
       try {
         const result = await services.createStickerFromGallery(
-          context.agentId,
+          context.avatarId,
           input.galleryItemId,
           input.emoji,
           context.conversationId
@@ -208,7 +208,7 @@ export const createStickerTools = (services: StickerServices) => [
     }),
     execute: async (input, context): Promise<ToolResult> => {
       try {
-        const pack = await services.getStickerPack(context.agentId);
+        const pack = await services.getStickerPack(context.avatarId);
 
         if (!pack || pack.stickerCount === 0) {
           return {
@@ -219,7 +219,7 @@ export const createStickerTools = (services: StickerServices) => [
 
         // Find a matching sticker
         const description = input.description || 'random';
-        const sticker = await services.findSticker(context.agentId, description);
+        const sticker = await services.findSticker(context.avatarId, description);
 
         if (!sticker) {
           return {
@@ -250,7 +250,7 @@ export const createStickerTools = (services: StickerServices) => [
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
       try {
-        const pack = await services.getStickerPack(context.agentId);
+        const pack = await services.getStickerPack(context.avatarId);
 
         if (!pack) {
           return {
@@ -302,7 +302,7 @@ export const createStickerTools = (services: StickerServices) => [
     }),
     execute: async (input, context): Promise<ToolResult> => {
       try {
-        const items = await services.getGalleryForStickers(context.agentId, {
+        const items = await services.getGalleryForStickers(context.avatarId, {
           limit: input.limit,
           unconvertedOnly: input.unconvertedOnly,
         });

@@ -2,7 +2,7 @@
  * Twitter/X Integration Tools
  *
  * Tools for managing Twitter/X account connection and interactions.
- * Agents can request Twitter integration when they want to post tweets.
+ * Avatars can request Twitter integration when they want to post tweets.
  */
 import { z } from 'zod';
 import { defineTool, type ToolResult } from '../registry.js';
@@ -43,7 +43,7 @@ export interface Tweet {
  */
 export interface TwitterServices {
   /**
-   * Get Twitter connection status for current agent
+   * Get Twitter connection status for current avatar
    */
   getConnectionStatus: () => Promise<TwitterConnectionStatus>;
 
@@ -118,7 +118,7 @@ export function createTwitterTools(services: TwitterServices) {
   return [
     defineTool({
       name: 'twitter_status',
-      description: 'Check if Twitter/X is connected for this agent. Returns connection status and username if connected.',
+      description: 'Check if Twitter/X is connected for this avatar. Returns connection status and username if connected.',
       category: 'readonly',
       toolset: 'twitter',
       inputSchema: z.object({}),
@@ -148,7 +148,7 @@ export function createTwitterTools(services: TwitterServices) {
     
     defineTool({
       name: 'twitter_request_integration',
-      description: 'Request Twitter/X integration for this agent. If not already connected, this will provide a link for the admin to authorize the Twitter account. Use this when you want to start posting tweets but Twitter is not yet connected.',
+      description: 'Request Twitter/X integration for this avatar. If not already connected, this will provide a link for the admin to authorize the Twitter account. Use this when you want to start posting tweets but Twitter is not yet connected.',
       category: 'config',
       toolset: 'twitter',
       inputSchema: z.object({

@@ -2,7 +2,7 @@
  * Memory Tools
  *
  * Tools for remembering and recalling facts about users and conversations.
- * This enables agents to build persistent memory across interactions.
+ * This enables avatars to build persistent memory across interactions.
  */
 import { z } from 'zod';
 import { defineTool, type ToolResult } from '../registry.js';
@@ -23,7 +23,7 @@ export interface MemoryFact {
 }
 
 /**
- * Embedding statistics for an agent's memories
+ * Embedding statistics for an avatar's memories
  */
 export interface EmbeddingStats {
   total: number;
@@ -58,7 +58,7 @@ export interface MemoryServices {
   recall: (query: string, userId?: string) => Promise<{ facts: MemoryFact[] }>;
 
   /**
-   * Get embedding statistics for an agent (optional)
+   * Get embedding statistics for an avatar (optional)
    */
   getEmbeddingStats?: () => Promise<EmbeddingStats>;
 
@@ -158,7 +158,7 @@ export const createMemoryTools = (memory: MemoryServices) => [
         if (!memory.getEmbeddingStats) {
           return {
             success: false,
-            error: 'Embedding stats not available for this agent',
+            error: 'Embedding stats not available for this avatar',
           };
         }
 
@@ -198,7 +198,7 @@ export const createMemoryTools = (memory: MemoryServices) => [
         if (!memory.backfillEmbeddings) {
           return {
             success: false,
-            error: 'Embedding backfill not available for this agent',
+            error: 'Embedding backfill not available for this avatar',
           };
         }
 

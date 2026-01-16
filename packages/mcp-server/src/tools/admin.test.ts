@@ -65,7 +65,7 @@ describe('Admin tools - get_twitter_connection_status', () => {
     expect(tool?.execute).not.toBe(false);
 
     const result = await (tool!.execute as any)({}, {
-      agentId: 'agent-1',
+      avatarId: 'avatar-1',
       platform: 'admin-ui',
     });
 
@@ -88,7 +88,7 @@ describe('Admin tools - get_twitter_connection_status', () => {
     expect(tool).toBeTruthy();
 
     const result = await (tool!.execute as any)({}, {
-      agentId: 'agent-1',
+      avatarId: 'avatar-1',
       platform: 'admin-ui',
     });
 
@@ -104,7 +104,7 @@ describe('Admin tools - get_twitter_connection_status', () => {
     expect(tool).toBeTruthy();
 
     const result = await (tool!.execute as any)({}, {
-      agentId: 'agent-1',
+      avatarId: 'avatar-1',
       platform: 'admin-ui',
     });
 

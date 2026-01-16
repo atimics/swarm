@@ -31,7 +31,7 @@ export class ToolClient {
   async execute<T = unknown>(
     toolName: string,
     args: Record<string, unknown>,
-    context: { agentId: string; userId?: string; conversationId?: string; replyToMessageId?: string; session?: { email?: string; isAdmin?: boolean } }
+    context: { avatarId: string; userId?: string; conversationId?: string; replyToMessageId?: string; session?: { email?: string; isAdmin?: boolean } }
   ): Promise<ToolResult<T>> {
     const fullContext: ToolContext = {
       ...context,
@@ -59,7 +59,7 @@ export class ToolClient {
    * Get tools with context-enhanced descriptions
    */
   async getOpenAIToolsWithContext(
-    agentId: string
+    avatarId: string
   ): Promise<Array<{
     type: 'function';
     function: {
@@ -69,7 +69,7 @@ export class ToolClient {
     };
   }>> {
     return this.registry.toOpenAIFormatWithContext({
-      agentId,
+      avatarId,
       platform: this.platform,
     });
   }

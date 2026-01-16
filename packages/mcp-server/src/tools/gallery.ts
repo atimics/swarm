@@ -19,14 +19,14 @@ export interface GalleryItem {
 }
 
 export interface GalleryServices {
-  getGallery: (agentId: string, options: {
+  getGallery: (avatarId: string, options: {
     type?: 'image' | 'video' | 'sticker';
     limit?: number;
   }) => Promise<GalleryItem[]>;
 
-  getGalleryItem: (agentId: string, itemId: string) => Promise<GalleryItem | null>;
+  getGalleryItem: (avatarId: string, itemId: string) => Promise<GalleryItem | null>;
 
-  searchGallery: (agentId: string, query: string, type?: 'image' | 'video' | 'sticker') => Promise<GalleryItem[]>;
+  searchGallery: (avatarId: string, query: string, type?: 'image' | 'video' | 'sticker') => Promise<GalleryItem[]>;
 }
 
 // ============================================================================
@@ -38,9 +38,9 @@ export interface GalleryServices {
  */
 export async function buildGalleryContext(
   services: GalleryServices,
-  agentId: string
+  avatarId: string
 ): Promise<string | undefined> {
-  const items = await services.getGallery(agentId, { limit: 5 });
+  const items = await services.getGallery(avatarId, { limit: 5 });
   if (items.length === 0) {
     return 'Gallery is empty - generate some images first!';
   }
@@ -81,10 +81,10 @@ export const createGalleryTools = (services: GalleryServices) => [
         .describe('Maximum items to return'),
     }),
     contextBuilder: async (context) => {
-      return buildGalleryContext(services, context.agentId);
+      return buildGalleryContext(services, context.avatarId);
     },
     execute: async (input, context): Promise<ToolResult> => {
-      const items = await services.getGallery(context.agentId, {
+      const items = await services.getGallery(context.avatarId, {
         type: input.type,
         limit: input.limit,
       });
@@ -113,7 +113,7 @@ export const createGalleryTools = (services: GalleryServices) => [
     }),
     execute: async (input, context): Promise<ToolResult> => {
       const items = await services.searchGallery(
-        context.agentId,
+        context.avatarId,
         input.query,
         input.type
       );
@@ -142,10 +142,10 @@ export const createGalleryTools = (services: GalleryServices) => [
       imageId: z.string().describe('ID of the gallery image to send'),
     }),
     contextBuilder: async (context) => {
-      return buildGalleryContext(services, context.agentId);
+      return buildGalleryContext(services, context.avatarId);
     },
     execute: async (input, context): Promise<ToolResult> => {
-      const item = await services.getGalleryItem(context.agentId, input.imageId);
+      const item = await services.getGalleryItem(context.avatarId, input.imageId);
 
       if (!item) {
         return { success: false, error: 'Image not found in gallery' };

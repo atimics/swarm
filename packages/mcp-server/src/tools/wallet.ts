@@ -29,15 +29,15 @@ export interface VanityWalletResult {
 }
 
 export interface WalletServices {
-  listWallets: (agentId: string) => Promise<WalletInfo[]>;
+  listWallets: (avatarId: string) => Promise<WalletInfo[]>;
   
-  createWallet: (agentId: string, name: string, chain?: string) => Promise<{
+  createWallet: (avatarId: string, name: string, chain?: string) => Promise<{
     publicKey: string;
     address?: string;
     walletType: string;
   }>;
   
-  createVanityWallet?: (agentId: string, name: string, pattern: string, matchStart: boolean) => Promise<{
+  createVanityWallet?: (avatarId: string, name: string, pattern: string, matchStart: boolean) => Promise<{
     publicKey: string;
     address?: string;
     walletType: string;
@@ -45,7 +45,7 @@ export interface WalletServices {
     elapsedMs: number;
   }>;
   
-  getBalance: (publicKey: string, agentId: string, chain?: string) => Promise<{
+  getBalance: (publicKey: string, avatarId: string, chain?: string) => Promise<{
     balance: number;
     chain: string;
     solBalance?: number;
@@ -62,9 +62,9 @@ export interface WalletServices {
 
 export async function buildWalletContext(
   services: WalletServices,
-  agentId: string
+  avatarId: string
 ): Promise<string | undefined> {
-  const wallets = await services.listWallets(agentId);
+  const wallets = await services.listWallets(avatarId);
   if (wallets.length === 0) {
     return 'No wallets created yet';
   }
@@ -91,16 +91,16 @@ export const createWalletTools = (services: WalletServices) => [
     category: 'wallet',
     inputSchema: z.object({}),
     contextBuilder: async (context) => {
-      return buildWalletContext(services, context.agentId);
+      return buildWalletContext(services, context.avatarId);
     },
     execute: async (_input, context): Promise<ToolResult> => {
-      const walletsData = await services.listWallets(context.agentId);
+      const walletsData = await services.listWallets(context.avatarId);
 
       // Enrich with balances
       const enriched = await Promise.all(
         walletsData.map(async (w) => {
           try {
-            const balance = await services.getBalance(w.publicKey, context.agentId, w.walletType);
+            const balance = await services.getBalance(w.publicKey, context.avatarId, w.walletType);
             return { 
               ...w, 
               balance: balance.balance,
@@ -129,7 +129,7 @@ export const createWalletTools = (services: WalletServices) => [
       name: z.string().min(1).describe('A friendly name for this wallet'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      const result = await services.createWallet(context.agentId, input.name, 'solana');
+      const result = await services.createWallet(context.avatarId, input.name, 'solana');
 
       return {
         success: true,
@@ -167,7 +167,7 @@ Short patterns (2-3 chars) are fast. 4+ chars take progressively longer.`,
       
       try {
         const result = await services.createVanityWallet(
-          context.agentId, 
+          context.avatarId, 
           input.name, 
           input.pattern,
           input.matchStart
@@ -206,7 +206,7 @@ Short patterns (2-3 chars) are fast. 4+ chars take progressively longer.`,
       name: z.string().min(1).describe('A friendly name for this wallet'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      const result = await services.createWallet(context.agentId, input.name, 'ethereum');
+      const result = await services.createWallet(context.avatarId, input.name, 'ethereum');
 
       return {
         success: true,
@@ -229,7 +229,7 @@ Short patterns (2-3 chars) are fast. 4+ chars take progressively longer.`,
     }),
     execute: async (input, context): Promise<ToolResult> => {
       try {
-        const balance = await services.getBalance(input.address, context.agentId, input.chain);
+        const balance = await services.getBalance(input.address, context.avatarId, input.chain);
         return {
           success: true,
           data: {

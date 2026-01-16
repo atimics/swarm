@@ -57,34 +57,34 @@ export interface TelegramStatus {
 
 export interface TelegramServices {
   /** Get Telegram integration status */
-  getTelegramStatus?: (agentId: string) => Promise<TelegramStatus>;
+  getTelegramStatus?: (avatarId: string) => Promise<TelegramStatus>;
   
   /** Get user profile photos */
-  getUserProfilePhotos: (agentId: string, userId: number, options?: {
+  getUserProfilePhotos: (avatarId: string, userId: number, options?: {
     offset?: number;
     limit?: number;
   }) => Promise<TelegramUserProfile>;
   
   /** Get bot's current name */
-  getBotName: (agentId: string) => Promise<{ name: string }>;
+  getBotName: (avatarId: string) => Promise<{ name: string }>;
   
   /** Set bot's name (per language, or default) */
-  setBotName: (agentId: string, name: string, languageCode?: string) => Promise<void>;
+  setBotName: (avatarId: string, name: string, languageCode?: string) => Promise<void>;
   
   /** Get bot's description */
-  getBotDescription: (agentId: string) => Promise<{ description: string }>;
+  getBotDescription: (avatarId: string) => Promise<{ description: string }>;
   
   /** Set bot's description */
-  setBotDescription: (agentId: string, description: string, languageCode?: string) => Promise<void>;
+  setBotDescription: (avatarId: string, description: string, languageCode?: string) => Promise<void>;
   
   /** Get bot's short description */
-  getBotShortDescription: (agentId: string) => Promise<{ shortDescription: string }>;
+  getBotShortDescription: (avatarId: string) => Promise<{ shortDescription: string }>;
   
   /** Set bot's short description */
-  setBotShortDescription: (agentId: string, shortDescription: string, languageCode?: string) => Promise<void>;
+  setBotShortDescription: (avatarId: string, shortDescription: string, languageCode?: string) => Promise<void>;
   
   /** Send typing indicator */
-  sendChatAction: (agentId: string, chatId: number, action: 
+  sendChatAction: (avatarId: string, chatId: number, action: 
     | 'typing' | 'upload_photo' | 'record_video' | 'upload_video' 
     | 'record_voice' | 'upload_voice' | 'upload_document' | 'choose_sticker'
     | 'find_location' | 'record_video_note' | 'upload_video_note'
@@ -93,11 +93,11 @@ export interface TelegramServices {
   // === Chat Modification Voting System ===
   
   /** Get list of bots in a chat */
-  getChatBots: (chatId: number) => Promise<Array<{ agentId: string; botUsername: string }>>;
+  getChatBots: (chatId: number) => Promise<Array<{ avatarId: string; botUsername: string }>>;
   
   /** Create a proposal to modify chat */
   proposeModification: (
-    agentId: string,
+    avatarId: string,
     chatId: number,
     type: 'photo' | 'description' | 'title',
     newValue: string,
@@ -106,7 +106,7 @@ export interface TelegramServices {
   
   /** Vote on a proposal */
   voteOnProposal: (
-    agentId: string,
+    avatarId: string,
     proposalId: string,
     vote: 'approve' | 'reject',
     comment?: string
@@ -127,7 +127,7 @@ export interface TelegramServices {
   }>;
   
   /** Execute approved modification */
-  executeModification: (agentId: string, proposalId: string) => Promise<{
+  executeModification: (avatarId: string, proposalId: string) => Promise<{
     success: boolean;
     error?: string;
   }>;
@@ -151,7 +151,7 @@ export const createTelegramTools = (services: TelegramServices) => [
     execute: async (input, context): Promise<ToolResult> => {
       try {
         const profile = await services.getUserProfilePhotos(
-          context.agentId,
+          context.avatarId,
           input.userId,
           { limit: input.limit || 10 }
         );
@@ -188,7 +188,7 @@ export const createTelegramTools = (services: TelegramServices) => [
     }),
     execute: async (input, context): Promise<ToolResult> => {
       try {
-        await services.setBotName(context.agentId, input.name, input.languageCode);
+        await services.setBotName(context.avatarId, input.name, input.languageCode);
         return {
           success: true,
           data: {
@@ -212,7 +212,7 @@ export const createTelegramTools = (services: TelegramServices) => [
     }),
     execute: async (input, context): Promise<ToolResult> => {
       try {
-        await services.setBotDescription(context.agentId, input.description, input.languageCode);
+        await services.setBotDescription(context.avatarId, input.description, input.languageCode);
         return {
           success: true,
           data: {
@@ -238,7 +238,7 @@ export const createTelegramTools = (services: TelegramServices) => [
     }),
     execute: async (input, context): Promise<ToolResult> => {
       try {
-        await services.setBotShortDescription(context.agentId, input.shortDescription, input.languageCode);
+        await services.setBotShortDescription(context.avatarId, input.shortDescription, input.languageCode);
         return {
           success: true,
           data: {
@@ -272,7 +272,7 @@ export const createTelegramTools = (services: TelegramServices) => [
       
       try {
         await services.sendChatAction(
-          context.agentId,
+          context.avatarId,
           parseInt(context.conversationId),
           input.action || 'typing'
         );
@@ -317,7 +317,7 @@ export const createTelegramTools = (services: TelegramServices) => [
         
         // Create proposal
         const proposal = await services.proposeModification(
-          context.agentId,
+          context.avatarId,
           chatId,
           input.type,
           input.newValue,
@@ -353,7 +353,7 @@ export const createTelegramTools = (services: TelegramServices) => [
     execute: async (input, context): Promise<ToolResult> => {
       try {
         const proposal = await services.voteOnProposal(
-          context.agentId,
+          context.avatarId,
           input.proposalId,
           input.vote,
           input.comment
@@ -361,7 +361,7 @@ export const createTelegramTools = (services: TelegramServices) => [
         
         // Check if we should auto-execute
         if (proposal.status === 'approved') {
-          const result = await services.executeModification(context.agentId, proposal.proposalId);
+          const result = await services.executeModification(context.avatarId, proposal.proposalId);
           if (result.success) {
             return {
               success: true,

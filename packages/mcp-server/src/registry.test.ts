@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { ToolRegistry, defineTool, defineManualTool } from './registry.js';
 
 function buildContext() {
-  return { agentId: 'agent-1', platform: 'admin-ui' as const };
+  return { avatarId: 'avatar-1', platform: 'admin-ui' as const };
 }
 
 describe('ToolRegistry - platform filtering', () => {
@@ -140,7 +140,7 @@ describe('ToolRegistry - OpenAI format', () => {
       execute: async () => ({ success: true }),
     }));
 
-    const context = { agentId: 'a1', platform: 'telegram' as const };
+    const context = { avatarId: 'a1', platform: 'telegram' as const };
     const result = await registry.execute('discord_only', {}, context);
 
     expect(result.success).toBe(false);

@@ -1,7 +1,7 @@
 /**
- * MCP Server for Swarm Agent Tools
+ * MCP Server for Swarm Avatar Tools
  * 
- * Exposes agent tools via Model Context Protocol for use by any MCP client.
+ * Exposes avatar tools via Model Context Protocol for use by any MCP client.
  * This enables tool sharing across different AI assistants and platforms.
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -20,9 +20,9 @@ export interface MCPServerOptions {
   /** The tool registry to expose */
   registry: ToolRegistry;
   /** Default context for tool execution */
-  defaultContext: Omit<ToolContext, 'agentId'>;
-  /** Function to resolve agent ID from request metadata */
-  resolveAgentId?: (meta?: Record<string, unknown>) => string;
+  defaultContext: Omit<ToolContext, 'avatarId'>;
+  /** Function to resolve avatar ID from request metadata */
+  resolveAvatarId?: (meta?: Record<string, unknown>) => string;
 }
 
 /**
@@ -30,11 +30,11 @@ export interface MCPServerOptions {
  */
 export function createMCPServer(options: MCPServerOptions): Server {
   const {
-    name = 'swarm-agent-tools',
+    name = 'swarm-avatar-tools',
     version = '1.0.0',
     registry,
     defaultContext,
-    resolveAgentId,
+    resolveAvatarId,
   } = options;
 
   const server = new Server(
@@ -52,11 +52,11 @@ export function createMCPServer(options: MCPServerOptions): Server {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name: toolName, arguments: args } = request.params;
 
-    // Resolve agent ID - require it to be present
-    const agentId = resolveAgentId?.(request.params._meta as Record<string, unknown> | undefined);
-    if (!agentId) {
+    // Resolve avatar ID - require it to be present
+    const avatarId = resolveAvatarId?.(request.params._meta as Record<string, unknown> | undefined);
+    if (!avatarId) {
       return {
-        content: [{ type: 'text', text: JSON.stringify({ error: 'agentId is required in request metadata' }) }],
+        content: [{ type: 'text', text: JSON.stringify({ error: 'avatarId is required in request metadata' }) }],
         isError: true,
       };
     }
@@ -64,7 +64,7 @@ export function createMCPServer(options: MCPServerOptions): Server {
     // Build context
     const context: ToolContext = {
       ...defaultContext,
-      agentId,
+      avatarId,
     };
 
     // Execute tool
@@ -124,7 +124,7 @@ export async function runMCPServer(options: MCPServerOptions): Promise<void> {
 
   await server.connect(transport);
 
-  console.error(`[MCP Server] ${options.name || 'swarm-agent-tools'} running on stdio`);
+  console.error(`[MCP Server] ${options.name || 'swarm-avatar-tools'} running on stdio`);
 }
 
 export default createMCPServer;

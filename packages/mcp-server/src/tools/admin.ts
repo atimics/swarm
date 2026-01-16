@@ -27,8 +27,8 @@ export function createAdminTools(services: AdminToolServices) {
   return [
     /**
      * Unified integration configuration tool.
-     * Agent calls this with the integration name, UI shows a complete setup panel.
-     * Much simpler than having the agent walk through multi-step credential flows.
+     * Avatar calls this with the integration name, UI shows a complete setup panel.
+     * Much simpler than having the avatar walk through multi-step credential flows.
      */
     defineManualTool({
       name: 'configure_integration',
@@ -79,7 +79,7 @@ The UI handles all the complexity - just call this tool with the integration nam
 
     defineTool({
       name: 'get_twitter_connection_status',
-      description: 'Check if an X/Twitter account is connected to this agent.',
+      description: 'Check if an X/Twitter account is connected to this avatar.',
       category: 'readonly',
       toolset: 'twitter',
       platforms: ['admin-ui', 'api'],

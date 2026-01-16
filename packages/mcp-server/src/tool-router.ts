@@ -29,7 +29,7 @@ const TOOLSET_KEYWORDS: Record<ToolsetId, string[]> = {
   reference: ['reference', 'character', 'style'],
   models: ['model', 'temperature', 'max tokens', 'llm'],
   config: ['config', 'setting', 'toggle', 'enable'],
-  admin: ['admin', 'agent', 'template', 'deploy'],
+  admin: ['admin', 'avatar', 'template', 'deploy'],
   diagnostics: ['diagnostic', 'issue', 'error', 'log'],
   telegram: ['telegram', 'bot', 'chat', 'channel'],
   twitter: ['twitter', 'tweet', 'x.com', 'x account', 'x oauth', 'x api', 'x app', 'dm'],

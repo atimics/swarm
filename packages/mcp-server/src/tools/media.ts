@@ -16,7 +16,7 @@ import { defineTool, type ToolResult } from '../registry.js';
 export interface MediaServices {
   generateImage: (params: {
     prompt: string;
-    agentId: string;
+    avatarId: string;
     platform: string;
     referenceImageUrls?: string[];
     resolution?: '1K' | '2K' | '4K';
@@ -27,7 +27,7 @@ export interface MediaServices {
 
   generateVideo: (params: {
     prompt: string;
-    agentId: string;
+    avatarId: string;
     platform: string;
     referenceImageUrl?: string;
     conversationId?: string;
@@ -37,18 +37,18 @@ export interface MediaServices {
   generateSticker: (params: {
     prompt?: string;
     sourceImageId?: string;
-    agentId: string;
+    avatarId: string;
   }) => Promise<{ url: string; id: string }>;
 
-  getProfileImageUrl: (agentId: string) => Promise<string | undefined>;
-  getReferenceImageUrl: (agentId: string, category: 'profile' | 'character') => Promise<string | undefined>;
-  getCharacterReferenceUrl?: (agentId: string) => Promise<string | undefined>;
-  getBestReferenceImageUrl?: (agentId: string) => Promise<string | undefined>;
+  getProfileImageUrl: (avatarId: string) => Promise<string | undefined>;
+  getReferenceImageUrl: (avatarId: string, category: 'profile' | 'character') => Promise<string | undefined>;
+  getCharacterReferenceUrl?: (avatarId: string) => Promise<string | undefined>;
+  getBestReferenceImageUrl?: (avatarId: string) => Promise<string | undefined>;
 }
 
 export interface CreditServices {
-  canUseTool: (agentId: string, toolName: string) => Promise<{ allowed: boolean; reason?: string }>;
-  consumeCredit: (agentId: string, toolName: string) => Promise<boolean>;
+  canUseTool: (avatarId: string, toolName: string) => Promise<{ allowed: boolean; reason?: string }>;
+  consumeCredit: (avatarId: string, toolName: string) => Promise<boolean>;
 }
 
 // ============================================================================
@@ -80,7 +80,7 @@ export const createMediaTools = (
     }),
     execute: async (input, context): Promise<ToolResult> => {
       // Check credits
-      const canUse = await credits.canUseTool(context.agentId, 'generate_image');
+      const canUse = await credits.canUseTool(context.avatarId, 'generate_image');
       if (!canUse.allowed) {
         return { success: false, error: `Rate limited: ${canUse.reason}` };
       }
@@ -90,17 +90,17 @@ export const createMediaTools = (
       if (input.useProfileAsReference) {
         // Use getBestReferenceImageUrl if available (prefers character reference over profile)
         if (media.getBestReferenceImageUrl) {
-          const bestRef = await media.getBestReferenceImageUrl(context.agentId);
+          const bestRef = await media.getBestReferenceImageUrl(context.avatarId);
           if (bestRef) referenceImageUrls.push(bestRef);
         } else {
           // Fallback: try character reference first, then profile image
           const charRef = media.getCharacterReferenceUrl 
-            ? await media.getCharacterReferenceUrl(context.agentId)
-            : await media.getReferenceImageUrl(context.agentId, 'character');
+            ? await media.getCharacterReferenceUrl(context.avatarId)
+            : await media.getReferenceImageUrl(context.avatarId, 'character');
           if (charRef) {
             referenceImageUrls.push(charRef);
           } else {
-            const profileUrl = await media.getProfileImageUrl(context.agentId);
+            const profileUrl = await media.getProfileImageUrl(context.avatarId);
             if (profileUrl) referenceImageUrls.push(profileUrl);
           }
         }
@@ -108,7 +108,7 @@ export const createMediaTools = (
 
       const result = await media.generateImage({
         prompt: input.prompt,
-        agentId: context.agentId,
+        avatarId: context.avatarId,
         platform: context.platform,
         referenceImageUrls,
         resolution: input.resolution,
@@ -156,7 +156,7 @@ export const createMediaTools = (
         .describe('Use character reference (or profile image) as starting frame'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      const canUse = await credits.canUseTool(context.agentId, 'generate_video');
+      const canUse = await credits.canUseTool(context.avatarId, 'generate_video');
       if (!canUse.allowed) {
         return { success: false, error: `Rate limited: ${canUse.reason}` };
       }
@@ -165,24 +165,24 @@ export const createMediaTools = (
       let referenceImageUrl: string | undefined;
       if (input.useProfileAsReference) {
         if (media.getBestReferenceImageUrl) {
-          referenceImageUrl = await media.getBestReferenceImageUrl(context.agentId);
+          referenceImageUrl = await media.getBestReferenceImageUrl(context.avatarId);
         } else {
           // Fallback: try character reference first, then profile image
           if (media.getCharacterReferenceUrl) {
-            referenceImageUrl = await media.getCharacterReferenceUrl(context.agentId);
+            referenceImageUrl = await media.getCharacterReferenceUrl(context.avatarId);
           }
           if (!referenceImageUrl) {
-            referenceImageUrl = await media.getReferenceImageUrl(context.agentId, 'character');
+            referenceImageUrl = await media.getReferenceImageUrl(context.avatarId, 'character');
           }
           if (!referenceImageUrl) {
-            referenceImageUrl = await media.getProfileImageUrl(context.agentId);
+            referenceImageUrl = await media.getProfileImageUrl(context.avatarId);
           }
         }
       }
 
       const result = await media.generateVideo({
         prompt: input.prompt,
-        agentId: context.agentId,
+        avatarId: context.avatarId,
         platform: context.platform,
         referenceImageUrl,
         conversationId: context.conversationId,
@@ -215,7 +215,7 @@ export const createMediaTools = (
         return { success: false, error: 'Provide either prompt or sourceImageId' };
       }
 
-      const canUse = await credits.canUseTool(context.agentId, 'generate_sticker');
+      const canUse = await credits.canUseTool(context.avatarId, 'generate_sticker');
       if (!canUse.allowed) {
         return { success: false, error: `Rate limited: ${canUse.reason}` };
       }
@@ -223,7 +223,7 @@ export const createMediaTools = (
       const result = await media.generateSticker({
         prompt: input.prompt,
         sourceImageId: input.sourceImageId,
-        agentId: context.agentId,
+        avatarId: context.avatarId,
       });
 
       return {

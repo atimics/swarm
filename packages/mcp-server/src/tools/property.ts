@@ -30,7 +30,7 @@ export interface ResearchProgress {
 
 export interface PropertyResearchJob {
   jobId: string;
-  agentId: string;
+  avatarId: string;
   property: PropertyAddress;
   status: 'queued' | 'researching' | 'completed' | 'failed';
   progress: ResearchProgress;
@@ -42,14 +42,14 @@ export interface PropertyResearchJob {
 
 export interface PropertyServices {
   // Authorization
-  checkAuth: (agentId: string, walletAddress: string) => Promise<boolean>;
-  grantAuth: (agentId: string, walletAddress: string) => Promise<void>;
-  revokeAuth: (agentId: string, walletAddress: string) => Promise<void>;
+  checkAuth: (avatarId: string, walletAddress: string) => Promise<boolean>;
+  grantAuth: (avatarId: string, walletAddress: string) => Promise<void>;
+  revokeAuth: (avatarId: string, walletAddress: string) => Promise<void>;
 
   // Job management
-  createJob: (agentId: string, property: PropertyAddress, requestedBy?: string) => Promise<PropertyResearchJob>;
+  createJob: (avatarId: string, property: PropertyAddress, requestedBy?: string) => Promise<PropertyResearchJob>;
   getJob: (jobId: string) => Promise<PropertyResearchJob | null>;
-  getJobsForAgent: (agentId: string, statusFilter?: string) => Promise<PropertyResearchJob[]>;
+  getJobsForAvatar: (avatarId: string, statusFilter?: string) => Promise<PropertyResearchJob[]>;
   deleteJob: (jobId: string) => Promise<void>;
 
   // Research execution
@@ -62,14 +62,14 @@ export interface PropertyServices {
 
 /**
  * Build property research context summary for tool descriptions
- * Shows recent properties researched so agent can reference them
+ * Shows recent properties researched so avatar can reference them
  */
 export async function buildPropertyContext(
   services: PropertyServices,
-  agentId: string
+  avatarId: string
 ): Promise<string | undefined> {
   try {
-    const jobs = await services.getJobsForAgent(agentId, 'completed');
+    const jobs = await services.getJobsForAvatar(avatarId, 'completed');
     
     if (jobs.length === 0) {
       return 'No properties researched yet. Ask the user for a property address to research!';
@@ -89,7 +89,7 @@ export async function buildPropertyContext(
     }
     
     // Check for pending jobs
-    const pendingJobs = await services.getJobsForAgent(agentId, 'researching');
+    const pendingJobs = await services.getJobsForAvatar(avatarId, 'researching');
     if (pendingJobs.length > 0) {
       context += `\n\n⏳ ${pendingJobs.length} research job(s) in progress`;
     }
@@ -134,11 +134,11 @@ export const createPropertyTools = (services: PropertyServices) => [
       includeReports: z.boolean().optional().default(false).describe('Include full research reports (can be long)'),
     }),
     contextBuilder: async (context: ToolContext) => {
-      return buildPropertyContext(services, context.agentId);
+      return buildPropertyContext(services, context.avatarId);
     },
     execute: async (input, context): Promise<ToolResult> => {
       try {
-        const jobs = await services.getJobsForAgent(context.agentId, 'completed');
+        const jobs = await services.getJobsForAvatar(context.avatarId, 'completed');
         const recentJobs = jobs.slice(0, input.limit);
 
         if (recentJobs.length === 0) {
@@ -194,12 +194,12 @@ export const createPropertyTools = (services: PropertyServices) => [
       county: z.string().optional().describe('County name (helps with assessor records)'),
     }),
     contextBuilder: async (context: ToolContext) => {
-      return buildPropertyContext(services, context.agentId);
+      return buildPropertyContext(services, context.avatarId);
     },
     execute: async (input, context): Promise<ToolResult> => {
       try {
         // Check authorization
-        const hasAuth = await services.checkAuth(context.agentId, context.userId || '');
+        const hasAuth = await services.checkAuth(context.avatarId, context.userId || '');
         if (!hasAuth) {
           return {
             success: false,
@@ -211,7 +211,7 @@ export const createPropertyTools = (services: PropertyServices) => [
 
         // Create the research job
         const job = await services.createJob(
-          context.agentId,
+          context.avatarId,
           {
             address: input.address,
             city: input.city,
@@ -258,7 +258,7 @@ export const createPropertyTools = (services: PropertyServices) => [
     execute: async (input, context): Promise<ToolResult> => {
       try {
         // Check authorization
-        const hasAuth = await services.checkAuth(context.agentId, context.userId || '');
+        const hasAuth = await services.checkAuth(context.avatarId, context.userId || '');
         if (!hasAuth) {
           return {
             success: false,
@@ -357,7 +357,7 @@ export const createPropertyTools = (services: PropertyServices) => [
 
   defineReadonlyTool({
     name: 'list_research_queue',
-    description: 'List all property research jobs for this agent, optionally filtered by status. Use this to see pending research or find completed reports.',
+    description: 'List all property research jobs for this avatar, optionally filtered by status. Use this to see pending research or find completed reports.',
     inputSchema: z.object({
       status: z
         .enum(['queued', 'researching', 'completed', 'failed'])
@@ -365,11 +365,11 @@ export const createPropertyTools = (services: PropertyServices) => [
         .describe('Filter by job status (omit to see all)'),
     }),
     contextBuilder: async (context: ToolContext) => {
-      return buildPropertyContext(services, context.agentId);
+      return buildPropertyContext(services, context.avatarId);
     },
     execute: async (input, context): Promise<ToolResult> => {
       try {
-        const jobs = await services.getJobsForAgent(context.agentId, input.status);
+        const jobs = await services.getJobsForAvatar(context.avatarId, input.status);
 
         return {
           success: true,
@@ -407,7 +407,7 @@ export const createPropertyTools = (services: PropertyServices) => [
     execute: async (input, context): Promise<ToolResult> => {
       try {
         // Check authorization
-        const hasAuth = await services.checkAuth(context.agentId, context.userId || '');
+        const hasAuth = await services.checkAuth(context.avatarId, context.userId || '');
         if (!hasAuth) {
           return {
             success: false,
@@ -450,12 +450,12 @@ export const createPropertyTools = (services: PropertyServices) => [
       county: z.string().optional().describe('County name (helps with assessor records)'),
     }),
     contextBuilder: async (context: ToolContext) => {
-      return buildPropertyContext(services, context.agentId);
+      return buildPropertyContext(services, context.avatarId);
     },
     execute: async (input, context): Promise<ToolResult> => {
       try {
         // Check authorization
-        const hasAuth = await services.checkAuth(context.agentId, context.userId || '');
+        const hasAuth = await services.checkAuth(context.avatarId, context.userId || '');
         if (!hasAuth) {
           return {
             success: false,
@@ -467,7 +467,7 @@ export const createPropertyTools = (services: PropertyServices) => [
 
         // Create the job
         const job = await services.createJob(
-          context.agentId,
+          context.avatarId,
           {
             address: input.address,
             city: input.city,

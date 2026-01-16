@@ -1,7 +1,7 @@
 /**
  * Profile & Configuration Tools
  * 
- * Tools for managing agent profile, persona, and settings.
+ * Tools for managing avatar profile, persona, and settings.
  */
 import { z } from 'zod';
 import { defineTool, type ToolResult } from '../registry.js';
@@ -11,7 +11,7 @@ import { defineTool, type ToolResult } from '../registry.js';
 // ============================================================================
 
 export interface ProfileServices {
-  getProfile: (agentId: string) => Promise<{
+  getProfile: (avatarId: string) => Promise<{
     name: string;
     description?: string;
     persona?: string;
@@ -19,41 +19,41 @@ export interface ProfileServices {
     characterReference?: { url: string; description?: string };
   }>;
   
-  updateProfile: (agentId: string, updates: {
+  updateProfile: (avatarId: string, updates: {
     name?: string;
     description?: string;
     persona?: string;
   }) => Promise<void>;
   
-  setProfileImage: (agentId: string, source: 
+  setProfileImage: (avatarId: string, source: 
     | { type: 'url'; url: string }
     | { type: 'gallery'; imageId: string }
     | { type: 'generate'; prompt: string }
   ) => Promise<{ url: string } | { jobId: string; status: string }>;
   
-  getProfileUploadUrl: (agentId: string) => Promise<{
+  getProfileUploadUrl: (avatarId: string) => Promise<{
     uploadUrl: string;
     s3Key: string;
     publicUrl: string;
   }>;
   
-  saveProfileImage: (agentId: string, s3Key: string, publicUrl: string) => Promise<void>;
+  saveProfileImage: (avatarId: string, s3Key: string, publicUrl: string) => Promise<void>;
 
   // Character reference (full-body) for image/video generation
-  setCharacterReference?: (agentId: string, source: 
+  setCharacterReference?: (avatarId: string, source: 
     | { type: 'url'; url: string }
     | { type: 'gallery'; imageId: string }
     | { type: 'generate'; prompt: string },
     description?: string
   ) => Promise<{ url: string } | { jobId: string; status: string }>;
 
-  getCharacterReferenceUploadUrl?: (agentId: string) => Promise<{
+  getCharacterReferenceUploadUrl?: (avatarId: string) => Promise<{
     uploadUrl: string;
     s3Key: string;
     publicUrl: string;
   }>;
 
-  saveCharacterReference?: (agentId: string, s3Key: string, publicUrl: string, description?: string) => Promise<void>;
+  saveCharacterReference?: (avatarId: string, s3Key: string, publicUrl: string, description?: string) => Promise<void>;
 }
 
 // ============================================================================
@@ -76,7 +76,7 @@ export const createProfileTools = (services: ProfileServices) => [
         return { success: false, error: 'Provide at least one field to update' };
       }
 
-      await services.updateProfile(context.agentId, {
+      await services.updateProfile(context.avatarId, {
         name: input.name,
         description: input.description,
         persona: input.persona,
@@ -107,7 +107,7 @@ export const createProfileTools = (services: ProfileServices) => [
     execute: async (input, context): Promise<ToolResult> => {
       // Upload source returns a widget for the UI
       if (input.source === 'upload') {
-        const uploadInfo = await services.getProfileUploadUrl(context.agentId);
+        const uploadInfo = await services.getProfileUploadUrl(context.avatarId);
         return {
           success: true,
           data: uploadInfo,
@@ -138,7 +138,7 @@ export const createProfileTools = (services: ProfileServices) => [
         sourceArg = { type: 'generate', prompt: input.prompt! };
       }
 
-      const result = await services.setProfileImage(context.agentId, sourceArg);
+      const result = await services.setProfileImage(context.avatarId, sourceArg);
 
       if ('jobId' in result) {
         return {
@@ -174,7 +174,7 @@ export const createProfileTools = (services: ProfileServices) => [
     platforms: ['admin-ui'], // Only makes sense in UI context
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
-      const uploadInfo = await services.getProfileUploadUrl(context.agentId);
+      const uploadInfo = await services.getProfileUploadUrl(context.avatarId);
 
       return {
         success: true,
@@ -197,7 +197,7 @@ export const createProfileTools = (services: ProfileServices) => [
       publicUrl: z.string().describe('The public URL of the uploaded image'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      await services.saveProfileImage(context.agentId, input.s3Key, input.publicUrl);
+      await services.saveProfileImage(context.avatarId, input.s3Key, input.publicUrl);
 
       return {
         success: true,
@@ -233,7 +233,7 @@ export const createProfileTools = (services: ProfileServices) => [
         if (!services.getCharacterReferenceUploadUrl) {
           return { success: false, error: 'Character reference upload not supported' };
         }
-        const uploadInfo = await services.getCharacterReferenceUploadUrl(context.agentId);
+        const uploadInfo = await services.getCharacterReferenceUploadUrl(context.avatarId);
         return {
           success: true,
           data: { ...uploadInfo, description: input.description },
@@ -264,7 +264,7 @@ export const createProfileTools = (services: ProfileServices) => [
         sourceArg = { type: 'generate', prompt: input.prompt! };
       }
 
-      const result = await services.setCharacterReference(context.agentId, sourceArg, input.description);
+      const result = await services.setCharacterReference(context.avatarId, sourceArg, input.description);
 
       if ('jobId' in result) {
         return {
@@ -307,7 +307,7 @@ export const createProfileTools = (services: ProfileServices) => [
         return { success: false, error: 'Character reference upload not supported' };
       }
 
-      const uploadInfo = await services.getCharacterReferenceUploadUrl(context.agentId);
+      const uploadInfo = await services.getCharacterReferenceUploadUrl(context.avatarId);
 
       return {
         success: true,
@@ -335,7 +335,7 @@ export const createProfileTools = (services: ProfileServices) => [
         return { success: false, error: 'Character reference not supported' };
       }
 
-      await services.saveCharacterReference(context.agentId, input.s3Key, input.publicUrl, input.description);
+      await services.saveCharacterReference(context.avatarId, input.s3Key, input.publicUrl, input.description);
 
       return {
         success: true,

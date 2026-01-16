@@ -44,28 +44,28 @@ export interface VoiceServices {
     diarize?: boolean;
   }) => Promise<VoiceTranscription>;
   /**
-   * Create a voice for the agent based on a description.
+   * Create a voice for the avatar based on a description.
    * This is the consolidated voice creation method that:
    * 1. Generates a voice seed audio based on the description
    * 2. Clones the voice from the seed
-   * 3. Sets it as the agent's active voice profile
+   * 3. Sets it as the avatar's active voice profile
    * 4. Generates a voice introduction message
    */
   createMyVoice: (params: {
-    agentId: string;
+    avatarId: string;
     description: string;
   }) => Promise<{ voiceId: string; message: string; previewUrl?: string; introAssetId?: string; introUrl?: string }>;
   /**
-   * Check if the agent has a voice configured
+   * Check if the avatar has a voice configured
    */
-  hasVoice: (agentId: string) => Promise<{ hasVoice: boolean; voiceId?: string; voiceStyle?: string }>;
+  hasVoice: (avatarId: string) => Promise<{ hasVoice: boolean; voiceId?: string; voiceStyle?: string }>;
   /**
    * Generate and optionally send a voice message.
    * On Telegram: sends directly to the conversation
    * On Web/other: returns the audio URL for playback
    */
   sendVoiceMessage: (params: {
-    agentId: string;
+    avatarId: string;
     platform: string;
     text: string;
     conversationId?: string;
@@ -93,7 +93,7 @@ export const createVoiceTools = (services: VoiceServices) => [
     shouldShow: async (context) => {
       // Hide this tool if voice is already configured (one-shot voice creation)
       try {
-        const status = await services.hasVoice(context.agentId);
+        const status = await services.hasVoice(context.avatarId);
         return !status.hasVoice;
       } catch {
         return true; // Show on error (let them try)
@@ -105,7 +105,7 @@ export const createVoiceTools = (services: VoiceServices) => [
     execute: async (input, context): Promise<ToolResult> => {
       // Double-check voice doesn't exist (in case tool was cached)
       try {
-        const status = await services.hasVoice(context.agentId);
+        const status = await services.hasVoice(context.avatarId);
         if (status.hasVoice) {
           return {
             success: true,
@@ -122,14 +122,14 @@ export const createVoiceTools = (services: VoiceServices) => [
 
       try {
         const result = await services.createMyVoice({
-          agentId: context.agentId,
+          avatarId: context.avatarId,
           description: input.description,
         });
         return { success: true, data: result };
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
         if (msg.includes('Replicate API key not configured')) {
-          return { success: false, error: `Voice creation requires replicate_api_key to be configured. Ask an admin to set it up globally or for your agent.` };
+          return { success: false, error: `Voice creation requires replicate_api_key to be configured. Ask an admin to set it up globally or for your avatar.` };
         }
         if (msg.includes('Not enough energy')) {
           return { success: false, error: msg };
@@ -154,7 +154,7 @@ export const createVoiceTools = (services: VoiceServices) => [
     }),
     contextBuilder: async (context) => {
       try {
-        const status = await services.hasVoice(context.agentId);
+        const status = await services.hasVoice(context.avatarId);
         if (status.hasVoice) {
           return `🎤 Your voice is ready (${status.voiceStyle || 'voice-clone'}). Speak your message!`;
         }
@@ -171,7 +171,7 @@ export const createVoiceTools = (services: VoiceServices) => [
 
       try {
         const result = await services.sendVoiceMessage({
-          agentId: context.agentId,
+          avatarId: context.avatarId,
           platform: context.platform,
           text: input.text,
           conversationId: input.conversationId || context.conversationId,

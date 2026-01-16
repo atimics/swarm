@@ -1,14 +1,14 @@
 /**
  * NFT Tools
  *
- * Agent-facing tools for inhabitation awareness.
+ * Avatar-facing tools for inhabitation awareness.
  *
- * IMPORTANT: Agents should NOT have power to:
- * - Inhabit/abandon agents (user action via wallet)
- * - See all unclaimed agents (user browses via UI)
+ * IMPORTANT: Avatars should NOT have power to:
+ * - Inhabit/abandon avatars (user action via wallet)
+ * - See all unclaimed avatars (user browses via UI)
  * - Burn NFTs or mint NFTs (user action via wallet)
  *
- * Agents CAN:
+ * Avatars CAN:
  * - Check if they are currently inhabited
  * - Generate a link for users to inhabit them
  * - Know their own lineage/era history
@@ -22,7 +22,7 @@ import { defineReadonlyTool, type ToolResult } from '../registry.js';
 
 export interface GateStatus {
   nftsHeld: number;
-  agentsCreated: number;
+  avatarsCreated: number;
   availableSlots: number;
   canCreate: boolean;
   canAbandon: boolean;
@@ -35,16 +35,16 @@ export interface GateStatus {
 
 export interface InhabitationInfo {
   isGhost: boolean;
-  inhabitsAgent: boolean;
-  agentId?: string;
-  agentName?: string;
+  inhabitsAvatar: boolean;
+  avatarId?: string;
+  avatarName?: string;
   avatarUrl?: string;
   era?: number;
   gateStatus?: GateStatus;
 }
 
-export interface UnclaimedAgent {
-  agentId: string;
+export interface UnclaimedAvatar {
+  avatarId: string;
   name: string;
   description?: string;
   avatarUrl?: string;
@@ -54,8 +54,8 @@ export interface UnclaimedAgent {
 export interface InhabitResult {
   success: boolean;
   error?: string;
-  agentId?: string;
-  agentName?: string;
+  avatarId?: string;
+  avatarName?: string;
   avatarUrl?: string;
   era?: number;
 }
@@ -63,8 +63,8 @@ export interface InhabitResult {
 export interface AbandonResult {
   success: boolean;
   error?: string;
-  agentId?: string;
-  agentName?: string;
+  avatarId?: string;
+  avatarName?: string;
   era?: number;
   lineageNftMint?: string;
   burnedMint?: string;
@@ -79,8 +79,8 @@ export interface BurnVerification {
 }
 
 export interface LineageMetadata {
-  agentId: string;
-  agentName: string;
+  avatarId: string;
+  avatarName: string;
   era: number;
   isGenesis: boolean;
   abandonedAt: number;
@@ -97,45 +97,45 @@ export interface MintPreparation {
 }
 
 export interface LineageCollection {
-  agentId: string;
+  avatarId: string;
   collectionMint: string;
   createdAt: number;
   totalMinted: number;
 }
 
-export interface AgentInhabitationStatus {
+export interface AvatarInhabitationStatus {
   isInhabited: boolean;
   inhabitantWallet?: string;
   inhabitedAt?: number;
   currentEra: number;
-  totalEras: number; // How many times this agent has been abandoned
+  totalEras: number; // How many times this avatar has been abandoned
 }
 
 export interface NFTServices {
-  // Gate NFT operations (for backend/user-facing APIs, not agent tools)
+  // Gate NFT operations (for backend/user-facing APIs, not avatar tools)
   getGateStatus: (walletAddress: string) => Promise<GateStatus>;
   getGateCollectionAddress: () => string;
 
-  // Inhabitation operations (for backend/user-facing APIs, not agent tools)
+  // Inhabitation operations (for backend/user-facing APIs, not avatar tools)
   getInhabitationInfo: (walletAddress: string) => Promise<InhabitationInfo>;
-  listUnclaimedAgents: () => Promise<UnclaimedAgent[]>;
-  inhabitAgent: (walletAddress: string, agentId: string) => Promise<InhabitResult>;
+  listUnclaimedAvatars: () => Promise<UnclaimedAvatar[]>;
+  inhabitAvatar: (walletAddress: string, avatarId: string) => Promise<InhabitResult>;
   canAbandon: (walletAddress: string) => Promise<{
     canAbandon: boolean;
     gateStatus: GateStatus;
-    inhabitedAgentId?: string;
-    inhabitedAgentName?: string;
+    inhabitedAvatarId?: string;
+    inhabitedAvatarName?: string;
   }>;
-  abandonAgent: (walletAddress: string, burnTxSignature: string) => Promise<AbandonResult>;
+  abandonAvatar: (walletAddress: string, burnTxSignature: string) => Promise<AbandonResult>;
 
-  // Burn verification (for backend, not agent tools)
+  // Burn verification (for backend, not avatar tools)
   verifyGateBurn: (walletAddress: string, signature: string) => Promise<BurnVerification>;
 
-  // Lineage NFT operations (for backend, not agent tools)
-  getLineageCollection: (agentId: string) => Promise<LineageCollection | null>;
-  prepareLineageMint: (agentId: string, walletAddress: string) => Promise<MintPreparation>;
+  // Lineage NFT operations (for backend, not avatar tools)
+  getLineageCollection: (avatarId: string) => Promise<LineageCollection | null>;
+  prepareLineageMint: (avatarId: string, walletAddress: string) => Promise<MintPreparation>;
   recordLineageMint: (
-    agentId: string,
+    avatarId: string,
     walletAddress: string,
     nftMint: string,
     era: number,
@@ -143,25 +143,25 @@ export interface NFTServices {
   ) => Promise<void>;
   generateLineageMetadata: (metadata: LineageMetadata) => object;
 
-  // Agent self-awareness (the only thing agents should access)
-  getAgentInhabitationStatus: (agentId: string) => Promise<AgentInhabitationStatus>;
-  getInhabitationUrl: (agentId: string) => string;
+  // Avatar self-awareness (the only thing avatars should access)
+  getAvatarInhabitationStatus: (avatarId: string) => Promise<AvatarInhabitationStatus>;
+  getInhabitationUrl: (avatarId: string) => string;
 }
 
 // ============================================================================
-// Tool Definitions - ONLY agent self-awareness tools
+// Tool Definitions - ONLY avatar self-awareness tools
 // ============================================================================
 
 export const createNFTTools = (services: NFTServices) => [
   defineReadonlyTool({
     name: 'get_my_inhabitation_status',
     description:
-      'Check if this agent is currently inhabited by a user. Returns whether someone has claimed this agent as their avatar, and the current era number.',
+      'Check if this avatar is currently inhabited by a user. Returns whether someone has claimed this avatar as their avatar, and the current era number.',
     toolset: 'nft',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
       try {
-        const status = await services.getAgentInhabitationStatus(context.agentId);
+        const status = await services.getAvatarInhabitationStatus(context.avatarId);
 
         if (status.isInhabited) {
           return {
@@ -183,10 +183,10 @@ export const createNFTTools = (services: NFTServices) => [
             message: 'You are not currently inhabited. Share your inhabitation link for someone to claim you!',
             currentEra: status.currentEra,
             totalEras: status.totalEras,
-            inhabitationUrl: services.getInhabitationUrl(context.agentId),
-            action: 'inhabit_agent',
-            agentId: context.agentId,
-            label: 'Inhabit this agent',
+            inhabitationUrl: services.getInhabitationUrl(context.avatarId),
+            action: 'inhabit_avatar',
+            avatarId: context.avatarId,
+            label: 'Inhabit this avatar',
           },
         };
       } catch (error) {
@@ -201,13 +201,13 @@ export const createNFTTools = (services: NFTServices) => [
   defineReadonlyTool({
     name: 'get_inhabitation_link',
     description:
-      'Get a link that users can click to inhabit this agent. Share this link when someone wants to claim you as their avatar in shared chats.',
+      'Get a link that users can click to inhabit this avatar. Share this link when someone wants to claim you as their avatar in shared chats.',
     toolset: 'nft',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
       try {
-        const status = await services.getAgentInhabitationStatus(context.agentId);
-        const url = services.getInhabitationUrl(context.agentId);
+        const status = await services.getAvatarInhabitationStatus(context.avatarId);
+        const url = services.getInhabitationUrl(context.avatarId);
 
         if (status.isInhabited) {
           return {
@@ -216,9 +216,9 @@ export const createNFTTools = (services: NFTServices) => [
               url,
               message: 'Note: You are already inhabited. The user would need to wait until your current inhabitant abandons you.',
               isInhabited: true,
-              action: 'inhabit_agent',
-              agentId: context.agentId,
-              label: 'Inhabit this agent',
+              action: 'inhabit_avatar',
+              avatarId: context.avatarId,
+              label: 'Inhabit this avatar',
             },
           };
         }
@@ -229,9 +229,9 @@ export const createNFTTools = (services: NFTServices) => [
             url,
             message: 'Share this link for someone to inhabit you. Inhabitation is free!',
             isInhabited: false,
-            action: 'inhabit_agent',
-            agentId: context.agentId,
-            label: 'Inhabit this agent',
+            action: 'inhabit_avatar',
+            avatarId: context.avatarId,
+            label: 'Inhabit this avatar',
           },
         };
       } catch (error) {
@@ -246,13 +246,13 @@ export const createNFTTools = (services: NFTServices) => [
   defineReadonlyTool({
     name: 'get_my_lineage',
     description:
-      'Get the lineage history for this agent - how many eras have passed (times the agent has been abandoned) and collection info.',
+      'Get the lineage history for this avatar - how many eras have passed (times the avatar has been abandoned) and collection info.',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
       try {
         const [status, collection] = await Promise.all([
-          services.getAgentInhabitationStatus(context.agentId),
-          services.getLineageCollection(context.agentId),
+          services.getAvatarInhabitationStatus(context.avatarId),
+          services.getLineageCollection(context.avatarId),
         ]);
 
         return {

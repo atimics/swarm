@@ -22,10 +22,10 @@ export interface SecretInfo {
 }
 
 export interface SecretServices {
-  listSecrets: (agentId: string) => Promise<SecretInfo[]>;
+  listSecrets: (avatarId: string) => Promise<SecretInfo[]>;
   
   storeSecret: (
-    agentId: string,
+    avatarId: string,
     secretType: string,
     name: string,
     value: string,
@@ -51,7 +51,7 @@ export const createSecretTools = (services: SecretServices) => [
     platforms: ['admin-ui', 'api'],
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
-      const secrets = await services.listSecrets(context.agentId);
+      const secrets = await services.listSecrets(context.avatarId);
 
       return {
         success: true,
@@ -99,7 +99,7 @@ export const createSecretTools = (services: SecretServices) => [
       }
 
       await services.storeSecret(
-        context.agentId,
+        context.avatarId,
         input.secretType as SecretType,
         input.name,
         input.value,

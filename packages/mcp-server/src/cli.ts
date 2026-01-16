@@ -5,7 +5,7 @@
  * Starts the MCP server with stdio transport for use by MCP clients.
  * 
  * Environment variables:
- *   AGENT_ID - Default agent ID for tool context
+ *   AVATAR_ID - Default avatar ID for tool context
  *   ADMIN_API_URL - Admin API URL for remote tool execution
  */
 import { runMCPServer } from './server.js';
@@ -13,7 +13,7 @@ import { ToolRegistry } from './registry.js';
 import { createDiagnosticsTools } from './tools/diagnostics.js';
 
 // Get config from environment
-const agentId = process.env.AGENT_ID || 'default';
+const avatarId = process.env.AVATAR_ID || 'default';
 
 // Create registry and register available tools
 const registry = new ToolRegistry();
@@ -32,9 +32,9 @@ runMCPServer({
   defaultContext: {
     platform: 'mcp',
   },
-  resolveAgentId: (meta) => {
-    // Allow agentId override via request metadata, fall back to env var
-    return (meta?.agentId as string) || agentId;
+  resolveAvatarId: (meta) => {
+    // Allow avatarId override via request metadata, fall back to env var
+    return (meta?.avatarId as string) || avatarId;
   },
 }).catch((err) => {
   console.error('[MCP Server] Fatal error:', err);

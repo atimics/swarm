@@ -1,12 +1,12 @@
 /**
  * MCP Twitter Tools Tests
  *
- * Tests for the MCP tools that enable agents to interact with Twitter/X.
+ * Tests for the MCP tools that enable avatars to interact with Twitter/X.
  */
 import { describe, it, expect, mock } from 'bun:test';
 import { createTwitterTools } from './twitter.js';
 
-const baseContext = { agentId: 'agent-1', platform: 'admin-ui' as const };
+const baseContext = { avatarId: 'avatar-1', platform: 'admin-ui' as const };
 
 function getTool(name: string, services: Parameters<typeof createTwitterTools>[0]) {
   const tool = createTwitterTools(services).find(candidate => candidate.name === name);
@@ -941,15 +941,15 @@ describe('Twitter Tools - Input Validation', () => {
 describe('Twitter Tools - Integration Scenarios', () => {
   /**
    * These tests document E2E scenarios with real MCP context.
-   * They use mocks to simulate the full agent interaction flow.
+   * They use mocks to simulate the full avatar interaction flow.
    */
 
-  const baseContext = { agentId: 'agent-1', platform: 'admin-ui' as const };
+  const baseContext = { avatarId: 'avatar-1', platform: 'admin-ui' as const };
 
-  it('E2E: Agent checks status and requests integration', async () => {
-    // Simulate agent checking Twitter status and requesting OAuth
-    // 1. Agent calls twitter_status - not connected
-    // 2. Agent calls twitter_request_integration
+  it('E2E: Avatar checks status and requests integration', async () => {
+    // Simulate avatar checking Twitter status and requesting OAuth
+    // 1. Avatar calls twitter_status - not connected
+    // 2. Avatar calls twitter_request_integration
     // 3. Admin receives OAuth URL
     // 4. After auth, status shows connected
 
@@ -978,7 +978,7 @@ describe('Twitter Tools - Integration Scenarios', () => {
 
     // Step 3: After OAuth completion, status shows connected
     const connectedServices = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'agent_bot' })),
+      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
       startOAuthFlow: mock(() => {}),
     };
 
@@ -987,22 +987,22 @@ describe('Twitter Tools - Integration Scenarios', () => {
 
     expect(connectedResult.success).toBe(true);
     expect(connectedResult.data.connected).toBe(true);
-    expect(connectedResult.data.username).toBe('agent_bot');
+    expect(connectedResult.data.username).toBe('avatar_bot');
   });
 
-  it('E2E: Agent posts tweet after connection', async () => {
-    // Simulate agent posting their first tweet
+  it('E2E: Avatar posts tweet after connection', async () => {
+    // Simulate avatar posting their first tweet
     // 1. Verify connection
     // 2. Compose tweet content
     // 3. Post tweet
     // 4. Receive confirmation with URL
 
     const connectedServices = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'agent_bot' })),
+      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
       startOAuthFlow: mock(() => {}),
       postTweet: mock(() => Promise.resolve({
         tweetId: '1234567890123456789',
-        url: 'https://twitter.com/agent_bot/status/1234567890123456789',
+        url: 'https://twitter.com/avatar_bot/status/1234567890123456789',
       })),
     };
 
@@ -1020,7 +1020,7 @@ describe('Twitter Tools - Integration Scenarios', () => {
 
     expect(postResult.success).toBe(true);
     expect(postResult.data.tweetId).toBe('1234567890123456789');
-    expect(postResult.data.url).toContain('twitter.com/agent_bot/status');
+    expect(postResult.data.url).toContain('twitter.com/avatar_bot/status');
 
     // Verify postTweet was called correctly
     expect(connectedServices.postTweet).toHaveBeenCalledWith(
@@ -1030,8 +1030,8 @@ describe('Twitter Tools - Integration Scenarios', () => {
     );
   });
 
-  it('E2E: Agent reads and replies to mentions', async () => {
-    // Simulate agent reading and responding to mentions
+  it('E2E: Avatar reads and replies to mentions', async () => {
+    // Simulate avatar reading and responding to mentions
     // 1. Get mentions since last check
     // 2. Process each mention
     // 3. Generate contextual reply
@@ -1040,7 +1040,7 @@ describe('Twitter Tools - Integration Scenarios', () => {
     const mentionData = [
       {
         id: 'mention-1',
-        text: '@agent_bot What do you think about AI?',
+        text: '@avatar_bot What do you think about AI?',
         authorId: 'user-123',
         authorUsername: 'curious_human',
         authorName: 'Curious Human',
@@ -1050,7 +1050,7 @@ describe('Twitter Tools - Integration Scenarios', () => {
       },
       {
         id: 'mention-2',
-        text: '@agent_bot Can you help me with coding?',
+        text: '@avatar_bot Can you help me with coding?',
         authorId: 'user-456',
         authorUsername: 'dev_learner',
         authorName: 'Dev Learner',
@@ -1061,12 +1061,12 @@ describe('Twitter Tools - Integration Scenarios', () => {
     ];
 
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'agent_bot' })),
+      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
       startOAuthFlow: mock(() => {}),
       getMentions: mock(() => Promise.resolve(mentionData)),
       postTweet: mock(() => Promise.resolve({
         tweetId: 'reply-123',
-        url: 'https://twitter.com/agent_bot/status/reply-123',
+        url: 'https://twitter.com/avatar_bot/status/reply-123',
       })),
     };
 
@@ -1089,8 +1089,8 @@ describe('Twitter Tools - Integration Scenarios', () => {
     expect(services.postTweet).toHaveBeenCalled();
   });
 
-  it('E2E: Agent engages with timeline content', async () => {
-    // Simulate agent reading and engaging with timeline
+  it('E2E: Avatar engages with timeline content', async () => {
+    // Simulate avatar reading and engaging with timeline
     // 1. Fetch home timeline
     // 2. Analyze tweets for engagement opportunities
     // 3. Like/reply to relevant content
@@ -1117,12 +1117,12 @@ describe('Twitter Tools - Integration Scenarios', () => {
     ];
 
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'agent_bot' })),
+      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
       startOAuthFlow: mock(() => {}),
       getTimeline: mock(() => Promise.resolve(timelineData)),
       postTweet: mock(() => Promise.resolve({
         tweetId: 'engagement-reply-1',
-        url: 'https://twitter.com/agent_bot/status/engagement-reply-1',
+        url: 'https://twitter.com/avatar_bot/status/engagement-reply-1',
       })),
     };
 
@@ -1138,7 +1138,7 @@ describe('Twitter Tools - Integration Scenarios', () => {
     const firstTweet = timelineData[0];
     expect(firstTweet.metrics.likeCount).toBe(42);
 
-    // Agent could engage with high-performing relevant content
+    // Avatar could engage with high-performing relevant content
     const engagementThreshold = 10;
     const engageableTweets = timelineData.filter(t => t.metrics.likeCount > engagementThreshold);
     expect(engageableTweets.length).toBe(2);

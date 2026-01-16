@@ -30,14 +30,14 @@ export {
   type NFTServices,
   type GateStatus,
   type InhabitationInfo,
-  type UnclaimedAgent,
+  type UnclaimedAvatar,
   type InhabitResult,
   type AbandonResult,
   type BurnVerification,
   type LineageMetadata,
   type MintPreparation,
   type LineageCollection,
-  type AgentInhabitationStatus,
+  type AvatarInhabitationStatus,
 } from './nft.js';
 export {
   createPropertyTools,

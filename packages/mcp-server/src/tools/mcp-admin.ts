@@ -14,13 +14,13 @@ const TOOLSET_INFO: Record<ToolsetId, { name: string; description: string }> = {
   media: { name: 'Media', description: 'Image, video, and sticker generation' },
   voice: { name: 'Voice', description: 'Text-to-speech and voice cloning' },
   wallet: { name: 'Wallet', description: 'Solana and Ethereum wallet management' },
-  profile: { name: 'Profile', description: 'Agent profile and persona updates' },
+  profile: { name: 'Profile', description: 'Avatar profile and persona updates' },
   gallery: { name: 'Gallery', description: 'Media gallery and reference images' },
   secrets: { name: 'Secrets', description: 'API keys and credential management' },
   jobs: { name: 'Jobs', description: 'Background job and credit management' },
   reference: { name: 'Reference', description: 'Character reference images' },
   models: { name: 'Models', description: 'LLM model configuration' },
-  config: { name: 'Config', description: 'Agent configuration settings' },
+  config: { name: 'Config', description: 'Avatar configuration settings' },
   admin: { name: 'Admin', description: 'Administrative tools' },
   diagnostics: { name: 'Diagnostics', description: 'Issue reporting and debugging' },
   telegram: { name: 'Telegram', description: 'Telegram bot integration' },
@@ -29,7 +29,7 @@ const TOOLSET_INFO: Record<ToolsetId, { name: string; description: string }> = {
   property: { name: 'Property', description: 'Real estate property research' },
   memory: { name: 'Memory', description: 'Long-term memory and recall' },
   nft: { name: 'NFT', description: 'NFT ownership and inhabitation' },
-  'claude-code': { name: 'Claude Code', description: 'Claude Code agent for coding tasks' },
+  'claude-code': { name: 'Claude Code', description: 'Claude Code avatar for coding tasks' },
 };
 
 export interface McpConfig {
@@ -51,29 +51,29 @@ export interface ExternalMcpServer {
 }
 
 export interface McpAdminServices {
-  getMcpConfig: (agentId: string) => Promise<McpConfig | null>;
-  updateMcpConfig: (agentId: string, config: McpConfig, updatedBy: string) => Promise<void>;
+  getMcpConfig: (avatarId: string) => Promise<McpConfig | null>;
+  updateMcpConfig: (avatarId: string, config: McpConfig, updatedBy: string) => Promise<void>;
 }
 
 export const createMcpAdminTools = (services: McpAdminServices) => [
   defineTool({
     name: 'list_mcp_servers',
-    description: `List all available MCP servers (internal toolsets and external servers) for an agent.
+    description: `List all available MCP servers (internal toolsets and external servers) for an avatar.
 Shows which are currently enabled and provides descriptions for each.
-Use this to see what capabilities can be enabled for the agent.`,
+Use this to see what capabilities can be enabled for the avatar.`,
     toolset: 'admin',
     platforms: ['admin-ui', 'api', 'mcp'],
     inputSchema: z.object({
-      agentId: z.string().optional().describe('Agent ID to list servers for. Uses context agent if omitted.'),
+      avatarId: z.string().optional().describe('Avatar ID to list servers for. Uses context avatar if omitted.'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      const agentId = input.agentId || context.agentId;
-      if (!agentId || agentId === 'default') {
-        return { success: false, error: 'Agent ID required' };
+      const avatarId = input.avatarId || context.avatarId;
+      if (!avatarId || avatarId === 'default') {
+        return { success: false, error: 'Avatar ID required' };
       }
 
       try {
-        const config = await services.getMcpConfig(agentId);
+        const config = await services.getMcpConfig(avatarId);
         const enabledToolsets = config?.enabledToolsets || [];
         const externalServers = config?.externalServers || [];
 
@@ -107,7 +107,7 @@ Use this to see what capabilities can be enabled for the agent.`,
         return {
           success: true,
           data: {
-            agentId,
+            avatarId,
             summary: `${enabledCount}/${totalCount} servers enabled`,
             internal: internalServers,
             external,
@@ -124,21 +124,21 @@ Use this to see what capabilities can be enabled for the agent.`,
 
   defineTool({
     name: 'toggle_mcp_server',
-    description: `Enable or disable an MCP server (toolset or external server) for an agent.
+    description: `Enable or disable an MCP server (toolset or external server) for an avatar.
 Internal toolsets control which tool categories are available.
 External servers are custom MCP connections (stdio or SSE).
 Note: 'core' toolset cannot be disabled.`,
     toolset: 'admin',
     platforms: ['admin-ui', 'api', 'mcp'],
     inputSchema: z.object({
-      agentId: z.string().optional().describe('Agent ID to configure. Uses context agent if omitted.'),
+      avatarId: z.string().optional().describe('Avatar ID to configure. Uses context avatar if omitted.'),
       serverId: z.string().describe('ID of the server/toolset to toggle'),
       enabled: z.boolean().describe('Whether to enable (true) or disable (false)'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      const agentId = input.agentId || context.agentId;
-      if (!agentId || agentId === 'default') {
-        return { success: false, error: 'Agent ID required' };
+      const avatarId = input.avatarId || context.avatarId;
+      if (!avatarId || avatarId === 'default') {
+        return { success: false, error: 'Avatar ID required' };
       }
 
       // Prevent disabling core
@@ -147,7 +147,7 @@ Note: 'core' toolset cannot be disabled.`,
       }
 
       try {
-        const config = await services.getMcpConfig(agentId);
+        const config = await services.getMcpConfig(avatarId);
         const currentConfig: McpConfig = config || {
           enabledToolsets: [],
           externalServers: [],
@@ -180,7 +180,7 @@ Note: 'core' toolset cannot be disabled.`,
 
         // Save updated config
         await services.updateMcpConfig(
-          agentId,
+          avatarId,
           currentConfig,
           context.session?.email || 'system'
         );
@@ -192,7 +192,7 @@ Note: 'core' toolset cannot be disabled.`,
         return {
           success: true,
           data: {
-            agentId,
+            avatarId,
             serverId: input.serverId,
             enabled: input.enabled,
             message: `${input.enabled ? 'Enabled' : 'Disabled'} ${info?.name || input.serverId}`,
@@ -209,13 +209,13 @@ Note: 'core' toolset cannot be disabled.`,
 
   defineTool({
     name: 'add_external_mcp_server',
-    description: `Add an external MCP server connection to an agent.
+    description: `Add an external MCP server connection to an avatar.
 Supports stdio (command-based) and SSE (HTTP-based) transports.
 The server will be added but disabled by default.`,
     toolset: 'admin',
     platforms: ['admin-ui', 'api', 'mcp'],
     inputSchema: z.object({
-      agentId: z.string().optional().describe('Agent ID to add server to. Uses context agent if omitted.'),
+      avatarId: z.string().optional().describe('Avatar ID to add server to. Uses context avatar if omitted.'),
       name: z.string().describe('Display name for the server'),
       transport: z.enum(['stdio', 'sse']).describe('Transport type'),
       command: z.string().optional().describe('For stdio: command to run (e.g., "npx", "node")'),
@@ -224,9 +224,9 @@ The server will be added but disabled by default.`,
       env: z.record(z.string()).optional().describe('Environment variables to set'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      const agentId = input.agentId || context.agentId;
-      if (!agentId || agentId === 'default') {
-        return { success: false, error: 'Agent ID required' };
+      const avatarId = input.avatarId || context.avatarId;
+      if (!avatarId || avatarId === 'default') {
+        return { success: false, error: 'Avatar ID required' };
       }
 
       // Validate transport-specific fields
@@ -238,7 +238,7 @@ The server will be added but disabled by default.`,
       }
 
       try {
-        const config = await services.getMcpConfig(agentId);
+        const config = await services.getMcpConfig(avatarId);
         const currentConfig: McpConfig = config || {
           enabledToolsets: [],
           externalServers: [],
@@ -263,7 +263,7 @@ The server will be added but disabled by default.`,
         currentConfig.externalServers.push(newServer);
 
         await services.updateMcpConfig(
-          agentId,
+          avatarId,
           currentConfig,
           context.session?.email || 'system'
         );
@@ -271,7 +271,7 @@ The server will be added but disabled by default.`,
         return {
           success: true,
           data: {
-            agentId,
+            avatarId,
             server: newServer,
             message: `Added external MCP server '${input.name}'. Use toggle_mcp_server to enable it.`,
           },
@@ -287,23 +287,23 @@ The server will be added but disabled by default.`,
 
   defineTool({
     name: 'remove_external_mcp_server',
-    description: `Remove an external MCP server connection from an agent.`,
+    description: `Remove an external MCP server connection from an avatar.`,
     toolset: 'admin',
     platforms: ['admin-ui', 'api', 'mcp'],
     inputSchema: z.object({
-      agentId: z.string().optional().describe('Agent ID to remove server from. Uses context agent if omitted.'),
+      avatarId: z.string().optional().describe('Avatar ID to remove server from. Uses context avatar if omitted.'),
       serverId: z.string().describe('ID of the external server to remove'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      const agentId = input.agentId || context.agentId;
-      if (!agentId || agentId === 'default') {
-        return { success: false, error: 'Agent ID required' };
+      const avatarId = input.avatarId || context.avatarId;
+      if (!avatarId || avatarId === 'default') {
+        return { success: false, error: 'Avatar ID required' };
       }
 
       try {
-        const config = await services.getMcpConfig(agentId);
+        const config = await services.getMcpConfig(avatarId);
         if (!config) {
-          return { success: false, error: 'No MCP config found for agent' };
+          return { success: false, error: 'No MCP config found for avatar' };
         }
 
         const serverIndex = config.externalServers.findIndex((s) => s.id === input.serverId);
@@ -314,7 +314,7 @@ The server will be added but disabled by default.`,
         const removed = config.externalServers.splice(serverIndex, 1)[0];
 
         await services.updateMcpConfig(
-          agentId,
+          avatarId,
           config,
           context.session?.email || 'system'
         );
@@ -322,7 +322,7 @@ The server will be added but disabled by default.`,
         return {
           success: true,
           data: {
-            agentId,
+            avatarId,
             serverId: input.serverId,
             message: `Removed external MCP server '${removed.name}'`,
           },

@@ -1,7 +1,7 @@
 /**
  * Diagnostics Tools
  * 
- * Tools for agents to report issues and help debug problems.
+ * Tools for avatars to report issues and help debug problems.
  * 
  * These tools write to CloudWatch logs (always) and optionally to
  * DynamoDB via an injected service (for fast queries in the admin UI).
@@ -34,7 +34,7 @@ export type IssueCategory = z.infer<typeof IssueCategorySchema>;
 
 export interface DiagnosticsServices {
   recordIssue?: (params: {
-    agentId: string;
+    avatarId: string;
     platform: string;
     severity: IssueSeverity;
     category: IssueCategory;
@@ -50,7 +50,7 @@ export interface DiagnosticsServices {
   }) => Promise<{ id: string }>;
 
   recordFeedback?: (params: {
-    agentId: string;
+    avatarId: string;
     platform: string;
     sentiment: 'positive' | 'negative' | 'neutral';
     feature: string;
@@ -94,8 +94,8 @@ This helps developers debug and fix issues faster.`,
       console.log(JSON.stringify({
         level: input.severity === 'critical' ? 'ERROR' : input.severity === 'high' ? 'WARN' : 'INFO',
         subsystem: 'diagnostics',
-        event: 'agent_reported_issue',
-        agentId: context.agentId,
+        event: 'avatar_reported_issue',
+        avatarId: context.avatarId,
         platform: context.platform,
         issue: {
           category: input.category,
@@ -112,7 +112,7 @@ This helps developers debug and fix issues faster.`,
       if (services?.recordIssue) {
         try {
           const result = await services.recordIssue({
-            agentId: context.agentId,
+            avatarId: context.avatarId,
             platform: context.platform,
             severity: input.severity,
             category: input.category,
@@ -157,8 +157,8 @@ This helps developers debug and fix issues faster.`,
       console.log(JSON.stringify({
         level: 'INFO',
         subsystem: 'diagnostics',
-        event: 'agent_reported_feedback',
-        agentId: context.agentId,
+        event: 'avatar_reported_feedback',
+        avatarId: context.avatarId,
         platform: context.platform,
         feedback: {
           sentiment: input.sentiment,
@@ -172,7 +172,7 @@ This helps developers debug and fix issues faster.`,
       if (services?.recordFeedback) {
         try {
           const result = await services.recordFeedback({
-            agentId: context.agentId,
+            avatarId: context.avatarId,
             platform: context.platform,
             sentiment: input.sentiment,
             feature: input.feature,

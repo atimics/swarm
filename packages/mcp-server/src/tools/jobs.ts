@@ -22,8 +22,8 @@ export interface JobInfo {
 }
 
 export interface JobServices {
-  getPendingJobs: (agentId: string) => Promise<JobInfo[]>;
-  getJob: (agentId: string, jobId: string) => Promise<JobInfo | null>;
+  getPendingJobs: (avatarId: string) => Promise<JobInfo[]>;
+  getJob: (avatarId: string, jobId: string) => Promise<JobInfo | null>;
 }
 
 export interface CreditStatus {
@@ -40,8 +40,8 @@ export interface EnergyStatus {
 }
 
 export interface CreditServices {
-  getToolStatus: (agentId: string) => Promise<CreditStatus | Record<string, unknown>>;
-  getEnergyStatus?: (agentId: string) => Promise<EnergyStatus>;
+  getToolStatus: (avatarId: string) => Promise<CreditStatus | Record<string, unknown>>;
+  getEnergyStatus?: (avatarId: string) => Promise<EnergyStatus>;
 }
 
 // ============================================================================
@@ -59,7 +59,7 @@ export const createJobTools = (
     toolset: 'jobs',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
-      const jobs = await jobServices.getPendingJobs(context.agentId);
+      const jobs = await jobServices.getPendingJobs(context.avatarId);
 
       return {
         success: true,
@@ -84,7 +84,7 @@ export const createJobTools = (
       jobId: z.string().describe('The job ID to check'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      const job = await jobServices.getJob(context.agentId, input.jobId);
+      const job = await jobServices.getJob(context.avatarId, input.jobId);
 
       if (!job) {
         return { success: false, error: 'Job not found' };
@@ -124,7 +124,7 @@ export const createJobTools = (
     toolset: 'jobs',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
-      const status = await creditServices.getToolStatus(context.agentId);
+      const status = await creditServices.getToolStatus(context.avatarId);
 
       return {
         success: true,
@@ -147,7 +147,7 @@ export const createJobTools = (
       if (!creditServices.getEnergyStatus) {
         return { success: false, error: 'Energy system not available' };
       }
-      const status = await creditServices.getEnergyStatus(context.agentId);
+      const status = await creditServices.getEnergyStatus(context.avatarId);
 
       return {
         success: true,

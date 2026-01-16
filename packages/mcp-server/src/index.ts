@@ -18,7 +18,7 @@
  * registry.registerAll(createGalleryTools(galleryService));
  * 
  * const client = createToolClient(registry, 'telegram');
- * const result = await client.execute('generate_image', { prompt: '...' }, { agentId: '...' });
+ * const result = await client.execute('generate_image', { prompt: '...' }, { avatarId: '...' });
  * ```
  * 
  * Usage as MCP server:

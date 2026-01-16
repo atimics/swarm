@@ -23,13 +23,13 @@ export interface ReferenceImage {
 }
 
 export interface ReferenceImageServices {
-  getUploadUrl: (agentId: string, category: ReferenceImageCategory, name: string, description?: string) => Promise<{
+  getUploadUrl: (avatarId: string, category: ReferenceImageCategory, name: string, description?: string) => Promise<{
     uploadUrl: string;
     s3Key: string;
     publicUrl: string;
   }>;
   
-  saveReferenceImage: (agentId: string, data: {
+  saveReferenceImage: (avatarId: string, data: {
     s3Key: string;
     publicUrl: string;
     category: ReferenceImageCategory;
@@ -37,9 +37,9 @@ export interface ReferenceImageServices {
     description?: string;
   }) => Promise<{ id: string }>;
   
-  listReferenceImages: (agentId: string, category?: ReferenceImageCategory) => Promise<ReferenceImage[]>;
+  listReferenceImages: (avatarId: string, category?: ReferenceImageCategory) => Promise<ReferenceImage[]>;
   
-  deleteReferenceImage: (agentId: string, imageId: string) => Promise<void>;
+  deleteReferenceImage: (avatarId: string, imageId: string) => Promise<void>;
 }
 
 // ============================================================================
@@ -57,9 +57,9 @@ const ReferenceImageCategorySchema = z.enum(['profile', 'character', 'style', 'b
  */
 export async function buildReferenceContext(
   services: ReferenceImageServices,
-  agentId: string
+  avatarId: string
 ): Promise<string | undefined> {
-  const images = await services.listReferenceImages(agentId);
+  const images = await services.listReferenceImages(avatarId);
   if (images.length === 0) {
     return 'No reference images uploaded yet.';
   }
@@ -94,7 +94,7 @@ export const createReferenceImageTools = (services: ReferenceImageServices) => [
     }),
     execute: async (input, context): Promise<ToolResult> => {
       const uploadInfo = await services.getUploadUrl(
-        context.agentId,
+        context.avatarId,
         input.category,
         input.name,
         input.description
@@ -134,7 +134,7 @@ export const createReferenceImageTools = (services: ReferenceImageServices) => [
       description: z.string().optional().describe('Optional description'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      const result = await services.saveReferenceImage(context.agentId, {
+      const result = await services.saveReferenceImage(context.avatarId, {
         s3Key: input.s3Key,
         publicUrl: input.publicUrl,
         category: input.category,
@@ -163,10 +163,10 @@ export const createReferenceImageTools = (services: ReferenceImageServices) => [
       category: ReferenceImageCategorySchema.optional().describe('Filter by category'),
     }),
     contextBuilder: async (context) => {
-      return buildReferenceContext(services, context.agentId);
+      return buildReferenceContext(services, context.avatarId);
     },
     execute: async (input, context): Promise<ToolResult> => {
-      const images = await services.listReferenceImages(context.agentId, input.category);
+      const images = await services.listReferenceImages(context.avatarId, input.category);
 
       return {
         success: true,
@@ -193,7 +193,7 @@ export const createReferenceImageTools = (services: ReferenceImageServices) => [
       imageId: z.string().describe('The ID of the reference image to delete'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
-      await services.deleteReferenceImage(context.agentId, input.imageId);
+      await services.deleteReferenceImage(context.avatarId, input.imageId);
 
       return {
         success: true,
