@@ -26,11 +26,13 @@ interface ChatResponse {
     role: string;
     content: string;
     tool_calls?: unknown[];
+    media?: MediaItem[];
   }>;
   media?: MediaItem[];
   pendingJobs?: PendingJob[];
   agentUpdates?: {
     profileImageUrl?: string;
+    name?: string;
   };
   pendingToolCall?: PendingToolCall;
   error?: string;
@@ -167,7 +169,7 @@ export async function checkAuth(): Promise<{ authenticated: boolean; user?: stri
  */
 export async function fetchChatHistory(
   agentId?: string
-): Promise<Array<{ role: string; content: string }>> {
+): Promise<Array<{ role: string; content: string; media?: MediaItem[] }>> {
   const params = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
   const response = await fetch(`${API_BASE}/chat${params}`, {
     method: 'GET',

@@ -279,6 +279,8 @@ export const useAgentStore = create<AgentState>()(
               role: msg.role as 'user' | 'assistant',
               content: msg.content,
               timestamp: Date.now() - (history.length - index) * 1000,
+              // Include media if present (for images to persist across refresh)
+              media: msg.media,
             }));
             
             set((state) => ({

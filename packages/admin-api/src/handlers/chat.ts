@@ -628,7 +628,7 @@ async function processChat(
   history: AdminChatMessage[];
   media?: MediaItem[];
   pendingJobs?: Array<{ jobId: string; type: 'image' | 'video' | 'sticker'; prompt?: string; purpose?: string }>;
-  agentUpdates?: { profileImageUrl?: string };
+  agentUpdates?: { profileImageUrl?: string; name?: string };
   pendingToolCall?: {
     id: string;
     name: string;
@@ -671,7 +671,7 @@ async function processChat(
   let pendingToolCall: { id: string; name: string; arguments: Record<string, unknown> } | undefined;
   const allMedia: MediaItem[] = [];
   const pendingJobs: Array<{ jobId: string; type: 'image' | 'video' | 'sticker'; prompt?: string; purpose?: string }> = [];
-  const agentUpdates: { profileImageUrl?: string } = {};
+  const agentUpdates: { profileImageUrl?: string; name?: string } = {};
   
   // Use custom system prompt if provided (for e.g. browser automation agents)
   let systemPrompt = options?.customSystemPrompt || buildSystemPrompt(agent);
@@ -1039,20 +1039,36 @@ async function processChat(
   logger.info('Extracted media items from tool results', { count: mediaFromResults.length });
   allMedia.push(...mediaFromResults);
 
-  // Check for profile image updates from tool results
+  // Check for profile image updates and name changes from tool results
   for (const result of toolResults) {
     const toolName = toolCallNames.get(result.tool_call_id);
-    if (toolName === 'set_profile_image' || toolName === 'save_uploaded_profile_image') {
-      if (result.content && typeof result.content === 'string') {
-        try {
-          const parsed = JSON.parse(result.content);
+    if (result.content && typeof result.content === 'string') {
+      try {
+        const parsed = JSON.parse(result.content);
+        
+        // Profile image updates
+        if (toolName === 'set_profile_image' || toolName === 'save_uploaded_profile_image') {
           if (parsed.success && (parsed.data?.url || parsed.url || parsed.resultUrl)) {
             agentUpdates.profileImageUrl = parsed.data?.url || parsed.url || parsed.resultUrl;
             logger.info('Profile image updated', { profileImageUrl: agentUpdates.profileImageUrl });
           }
-        } catch {
-          // Not JSON, skip
         }
+        
+        // Name updates from update_my_profile
+        if (toolName === 'update_my_profile') {
+          if (parsed.success && parsed.data?.updated?.includes('name')) {
+            // Fetch the updated agent to get the new name
+            if (agentId) {
+              const updatedAgent = await agents.getAgent(agentId);
+              if (updatedAgent?.name) {
+                agentUpdates.name = updatedAgent.name;
+                logger.info('Agent name updated', { name: agentUpdates.name });
+              }
+            }
+          }
+        }
+      } catch {
+        // Not JSON, skip
       }
     }
   }
@@ -1068,7 +1084,7 @@ async function processChat(
     history: messages, 
     media: allMedia.length > 0 ? allMedia : undefined, 
     pendingJobs: pendingJobs.length > 0 ? pendingJobs : undefined,
-    agentUpdates: agentUpdates.profileImageUrl ? agentUpdates : undefined,
+    agentUpdates: (agentUpdates.profileImageUrl || agentUpdates.name) ? agentUpdates : undefined,
     pendingToolCall,
   };
 }

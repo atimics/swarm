@@ -148,6 +148,11 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         if (response.agentUpdates?.profileImageUrl) {
           updateAgent(targetAgent.id, { avatar: response.agentUpdates.profileImageUrl });
         }
+        
+        // Update agent name if it was changed
+        if (response.agentUpdates?.name) {
+          updateAgent(targetAgent.id, { name: response.agentUpdates.name });
+        }
 
         // Update the loading message with the response
         const currentMessages = useAgentStore.getState().chats[targetAgent.id] || [];

@@ -352,6 +352,13 @@ export const AdminChatMessageSchema = z.object({
   tool_calls: z.array(ToolCallSchema).optional(),
   tool_call_id: z.string().optional(),
   sender: MessageSenderSchema.optional(),
+  media: z.array(z.object({
+    type: z.enum(['image', 'video', 'sticker']),
+    url: z.string(),
+    prompt: z.string().optional(),
+    id: z.string().optional(),
+    thumbnailUrl: z.string().optional(),
+  })).optional(),
 });
 
 export const ToolResultSchema = z.object({
