@@ -214,8 +214,8 @@ export function AgentSidebar({ className, onClose }: AgentSidebarProps) {
             className={`w-full flex items-center gap-3 px-3 py-3 mb-2 rounded-lg border-2 border-dashed border-brand-500/50 hover:border-brand-500 hover:bg-brand-500/10 text-brand-400 hover:text-brand-300 transition-all ${
               isLoading ? 'opacity-50 cursor-not-allowed' : ''
             }`}
-            data-testid="new-agent-button"
-            aria-label="Create new agent"
+            data-testid="create-agent-button"
+            aria-label={`Create new agent${gateStatus?.availableSlots !== undefined ? ` (${gateStatus.availableSlots} slot${gateStatus.availableSlots !== 1 ? 's' : ''} available)` : ''}`}
           >
             {isLoading ? (
               <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24">
@@ -234,7 +234,7 @@ export function AgentSidebar({ className, onClose }: AgentSidebarProps) {
             )}
             <span className="font-medium">Create Agent</span>
             {gateStatus?.availableSlots !== undefined && (
-              <span className="ml-auto text-xs text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 rounded-full">
+              <span className="ml-auto text-xs text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 rounded-full" aria-hidden="true">
                 {gateStatus.availableSlots === 1 && gateStatus.nftsHeld === 0
                   ? '1 free slot'
                   : `${gateStatus.availableSlots} slot${gateStatus.availableSlots !== 1 ? 's' : ''}`}

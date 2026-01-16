@@ -338,7 +338,35 @@ async function authenticateWithWallet(apiUrl, testKey) {
 
 async function getPageElements(page) {
   try {
-    const buttons = await page.locator('button:visible').allTextContents();
+    // Extract button info, preferring aria-label over text content to avoid badge text pollution
+    const buttonElements = await page.locator('button:visible').evaluateAll(els =>
+      els.map(e => {
+        // Prefer aria-label for accessibility and cleaner text
+        const ariaLabel = e.getAttribute('aria-label');
+        if (ariaLabel) return ariaLabel;
+        
+        // Get text of direct children only, excluding nested badges/spans with slot counts
+        const directText = Array.from(e.childNodes)
+          .filter(n => n.nodeType === Node.TEXT_NODE || 
+                       (n.nodeType === Node.ELEMENT_NODE && 
+                        n.classList && 
+                        (n.classList.contains('font-medium') || n.tagName === 'SPAN' && !n.classList.contains('ml-auto'))))
+          .map(n => n.textContent?.trim())
+          .filter(t => t && t.length > 0 && !t.includes('slot') && !t.match(/^\d+/))
+          .join(' ')
+          .trim();
+        
+        if (directText) return directText;
+        
+        // Fallback to full text content but clean up common badge patterns
+        const fullText = (e.textContent || '').trim();
+        return fullText
+          .replace(/\d+\s*(free\s*)?slot(s)?/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }).filter(Boolean)
+    );
+    
     const links = await page.locator('a:visible').allTextContents();
     
     // Extract input field info including aria-label, placeholder, name, and id
@@ -355,16 +383,8 @@ async function getPageElements(page) {
       }).filter(Boolean)
     );
     
-    // Also extract buttons with aria-labels for icon buttons
-    const ariaButtons = await page.locator('button:visible[aria-label]').evaluateAll(els =>
-      els.map(e => e.getAttribute('aria-label')).filter(Boolean)
-    );
-    
-    // Merge button texts with aria-labels
-    const allButtons = [...buttons, ...ariaButtons];
-    
     // Clean up - remove empty strings and duplicates
-    const cleanButtons = [...new Set(allButtons.map(b => b.trim()).filter(b => b && b.length < 50))];
+    const cleanButtons = [...new Set(buttonElements.map(b => b.trim()).filter(b => b && b.length < 50 && b.length > 0))];
     const cleanLinks = [...new Set(links.map(l => l.trim()).filter(l => l && l.length < 50))];
     const cleanInputs = [...new Set(inputs.filter(i => i && i.length < 50))];
     

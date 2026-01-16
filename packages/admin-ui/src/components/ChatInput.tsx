@@ -145,6 +145,8 @@ export function ChatInput({ onSend, onSendAudio, disabled, voiceEnabled = true, 
             placeholder={placeholder}
             disabled={disabled}
             rows={1}
+            aria-label="Message input"
+            data-testid="chat-message-input"
             className="w-full px-3 lg:px-4 py-2.5 lg:py-3 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] placeholder-[var(--color-text-muted)] resize-none focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed max-h-36 text-sm lg:text-base"
           />
         </div>
