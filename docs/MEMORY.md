@@ -1,0 +1,343 @@
+# Agent Memory System - Research & Roadmap
+
+This document describes the memory system architecture for AWS Swarm agents, synthesizing learnings from prior experiments (cosyworld, kyro, mirquo) and outlining a roadmap for dynamic personality evolution.
+
+## Problem Statement
+
+Agents need persistent memory to:
+1. **Remember users** - Preferences, past interactions, relationship context
+2. **Learn from experience** - Recognize patterns, update behavior
+3. **Evolve personality** - Grow and adapt based on interactions
+4. **Maintain identity** - Consistent sense of self across conversations
+
+Without memory, every conversation starts from zero. The agent has no history, no growth, no relationships.
+
+## Research Summary
+
+### Cosyworld Approach
+- **Storage**: MongoDB with vector embeddings
+- **Key Innovation**: Weight-based memory with decay
+  - New memories: weight = 1.0
+  - Reinforced on recall: weight += 0.1
+  - Weekly decay: weight *= 0.95
+  - Pruned when: weight < threshold
+- **Retrieval**: Hybrid scoring
+  ```
+  score = (0.55 × semantic_similarity) +
+          (0.25 × recency) +
+          (0.15 × weight) +
+          (0.05 × entity_bonus)
+  ```
+- **Evolution**: Knowledge graph extraction from reflections
+- **Consolidation**: Nightly summarization of low-weight memories
+
+### Kyro Approach
+- **Storage**: DynamoDB (channel-state table)
+- **Key Innovation**: Perspective-based summaries
+  - Summaries written from agent's POV ("I observed...", "I talked to...")
+  - Compaction: 30+ messages → 2-4 sentence summary
+- **Learning**: Exponential cooldown for user management
+  - Base: 5 minutes
+  - Escalation: 5 → 15 → 45 → 135 minutes
+  - Forgiveness: Responding clears cooldown
+- **Cross-Platform**: Summaries shared between Discord/Telegram
+
+### Mirquo Approach
+- **Storage**: 3-tier cognitive model
+  ```
+  IMMEDIATE → Last 10 (full detail)
+  RECENT    → Last 50 (summaries + themes)
+  CORE      → Permanent (identity, learnings, patterns)
+  ```
+- **Key Innovation**: Identity evolution statements
+  - After consolidation: "I am becoming more thoughtful..."
+  - Max 10 words, stored as core identity
+  - Tracked over time for personality drift
+- **Attention**: Semantic interest space via embeddings
+  - Builds centroid of all memory embeddings
+  - Scores new content: relevance + novelty
+  - High scores = agent is curious
+
+## Current Implementation (Phase 1)
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      DynamoDB                                │
+│  pk: MEMORY#{agentId}                                       │
+│  sk: {tier}#{timestamp}#{id}                                │
+├─────────────────────────────────────────────────────────────┤
+│  IMMEDIATE     │  RECENT        │  CORE                     │
+│  (max 10)      │  (max 50)      │  (max 100)                │
+│  Full detail   │  Summarized    │  Permanent                │
+│  Auto-promotes │  Tagged themes │  Identity/Learning        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Memory Schema
+
+```typescript
+interface AgentMemory {
+  pk: string;              // MEMORY#{agentId}
+  sk: string;              // {tier}#{timestamp}#{id}
+  id: string;
+  agentId: string;
+  tier: 'immediate' | 'recent' | 'core';
+  type: 'event' | 'fact' | 'learning' | 'pattern' | 'identity' | 'relationship' | 'preference';
+  content: string;
+  about?: string;          // Who/what this is about
+  userId?: string;
+  themes?: string[];       // Tags for retrieval
+  strength: number;        // 0-1, reinforcement score
+  embedding?: number[];    // For semantic search (future)
+  createdAt: number;
+  updatedAt: number;
+}
+```
+
+### Current Tools
+
+| Tool | Purpose |
+|------|---------|
+| `remember` | Save a fact (creates immediate memory) |
+| `recall` | Search memories by keyword |
+
+### Prompt Injection
+
+When memory is enabled, agent system prompts include:
+```
+## Who I Am
+- I am becoming more playful and curious
+
+## What I've Learned
+- Users prefer concise responses
+- Questions about hunting are common
+
+## Recent Experiences
+- Had a conversation about speed with @cheetahfan
+- Generated an image of savanna at sunset
+```
+
+## Roadmap
+
+### Phase 2: Consolidation Service (1 week)
+
+**Goal**: Automatic memory management via scheduled jobs
+
+**Implementation**:
+1. **EventBridge Rule**: Trigger nightly at 3 AM UTC
+2. **Lambda Handler**: `consolidate-memories`
+3. **Per-Agent Process**:
+   ```
+   1. Promote old immediate → recent (summarize if needed)
+   2. Apply decay: strength *= 0.95
+   3. Prune weak memories: strength < 0.1
+   4. Extract patterns from recent memories
+   5. Generate identity evolution statement
+   ```
+
+**Key Functions**:
+```typescript
+// Already implemented in memory.ts:
+applyDecay(agentId, tier, decayRate)
+promoteImmediateToRecent(agentId, maxImmediate)
+saveIdentitySnapshot(agentId, statement, triggeringMemories)
+```
+
+**New Infrastructure**:
+- `packages/infra/src/constructs/memory-consolidation.ts`
+- EventBridge schedule + Lambda + DynamoDB access
+
+### Phase 3: Identity Evolution (1-2 weeks)
+
+**Goal**: Agents generate "I am becoming..." statements
+
+**Implementation**:
+1. After consolidation, if 5+ recent memories exist:
+2. Call LLM with recent memories as context
+3. Prompt: "Based on recent experiences, complete: 'I am becoming...'"
+4. Constraint: Max 30 tokens (~10 words)
+5. Store as core identity memory
+
+**Tracking Evolution**:
+```typescript
+interface AgentIdentitySnapshot {
+  pk: string;              // IDENTITY#{agentId}
+  sk: string;              // SNAPSHOT#{timestamp}
+  statement: string;       // "I am becoming more curious about users"
+  previousStatement?: string;
+  triggeringMemories: string[];
+  createdAt: number;
+}
+```
+
+**UI Component**: Identity timeline showing personality drift over time
+
+### Phase 4: Semantic Search (2 weeks)
+
+**Goal**: Find memories by meaning, not just keywords
+
+**Implementation**:
+1. **Embedding Generation**: On memory create, generate embedding via OpenAI
+2. **Storage**: Store embedding in memory record (1536 dimensions)
+3. **Search**: Cosine similarity against query embedding
+4. **Hybrid Scoring** (from cosyworld):
+   ```
+   score = (0.55 × semantic) + (0.25 × recency) + (0.15 × strength) + (0.05 × about_match)
+   ```
+
+**Optimization**:
+- Cache embeddings in separate table for faster queries
+- Build centroid of all embeddings for "interest space"
+- Score novelty: how different is this from what agent knows?
+
+### Phase 5: Relationship Tracking (2-3 weeks)
+
+**Goal**: Agents remember specific users across interactions
+
+**Schema**:
+```typescript
+interface AgentRelationship {
+  pk: string;              // RELATIONSHIP#{agentId}
+  sk: string;              // USER#{platform}#{userId}
+  agentId: string;
+  userId: string;
+  platform: string;
+  username?: string;
+
+  // Sentiment tracking
+  sentimentScore: number;  // -1 to 1
+  sentimentHistory: Array<{ score: number; timestamp: number }>;
+
+  // Interaction stats
+  interactionCount: number;
+  firstInteraction: number;
+  lastInteraction: number;
+
+  // Key memories about this user
+  keyMemories: Array<{
+    memoryId: string;
+    summary: string;
+    importance: number;
+  }>;
+
+  // LLM-generated relationship summary
+  summary?: string;
+  lastSummaryUpdate?: number;
+}
+```
+
+**Features**:
+- Auto-create relationship on first interaction
+- Update sentiment based on conversation tone
+- Regenerate summary weekly or after significant interactions
+- Surface relationship context in prompts
+
+### Phase 6: Learning Extraction (3 weeks)
+
+**Goal**: Agents automatically extract learnings from experiences
+
+**Pattern Detection**:
+1. Cluster recent memories by theme
+2. Identify recurring patterns (e.g., "users often ask about X")
+3. Generate learning statement via LLM
+4. Store as core memory with type='learning'
+
+**Knowledge Graph** (from cosyworld):
+```typescript
+interface KnowledgeTriple {
+  pk: string;              // KNOWLEDGE#{agentId}
+  sk: string;              // TRIPLE#{timestamp}#{id}
+  agentId: string;
+  subject: string;         // The agent or entity
+  relation: string;        // 'knows', 'prefers', 'avoids'
+  object: string;          // The fact
+  confidence: number;      // How sure (0-1)
+  sources: string[];       // Memory IDs that support this
+}
+```
+
+**Example Extractions**:
+- `(agent, knows, "cheetahs can run 70mph")`
+- `(agent, prefers, "short responses")`
+- `(@user123, likes, "hunting metaphors")`
+
+### Phase 7: Behavioral Adaptation (4 weeks)
+
+**Goal**: Agent behavior changes based on learned patterns
+
+**Adaptation Types**:
+1. **Response Style**: Adjust length, formality, emoji usage
+2. **Topic Weighting**: Prioritize topics users engage with
+3. **Timing**: Learn optimal response delays
+4. **Tool Usage**: Prefer tools that succeed
+
+**Feedback Loop**:
+```
+User Interaction → Memory Created → Pattern Detected →
+Learning Extracted → Behavior Adjusted → Better Interactions
+```
+
+**Guardrails**:
+- Core personality immutable (from persona.md)
+- Adaptations are additive, not replacements
+- Admin can reset adaptations
+- Log all behavioral changes for audit
+
+## Configuration
+
+### Enable Memory for an Agent
+
+```typescript
+// Via admin chat:
+"Enable memory for this agent"
+
+// Via API:
+await updateAgent(agentId, {
+  mcpConfig: {
+    enabledToolsets: ['memory', ...existing],
+    externalServers: []
+  }
+}, session);
+```
+
+### Memory Limits
+
+```typescript
+const DEFAULT_CONFIG = {
+  immediateMaxCount: 10,      // Full-detail memories
+  recentMaxCount: 50,         // Summarized memories
+  coreMaxCount: 100,          // Permanent memories
+  decayRate: 0.95,            // Per consolidation cycle
+  decayIntervalHours: 24,     // How often to decay
+  pruneThreshold: 0.1,        // Remove below this strength
+  reinforcementBoost: 0.1,    // Strength boost on recall
+};
+```
+
+## Open Questions
+
+1. **Embedding Model**: OpenAI ada-002 vs open-source alternatives?
+2. **Consolidation Frequency**: Daily vs weekly vs on-demand?
+3. **Memory Export**: Should users be able to export agent memories?
+4. **Privacy**: How to handle memories about users who request deletion?
+5. **Cross-Agent Memory**: Should agents share memories? (probably not)
+6. **Memory Tokens**: NFT-based memory ownership? (from kyro philosophy)
+
+## Success Metrics
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Memory recall accuracy | >80% | Test queries against stored facts |
+| Identity consistency | Low drift | Compare weekly snapshots |
+| User recognition | >90% | Agent remembers returning users |
+| Learning extraction | 1+ per week | Count new learnings |
+| Response personalization | Measurable | A/B test with/without memory |
+
+## References
+
+- Cosyworld: `/Users/ratimics/develop/cosyworld/` - Weight-based memory, knowledge graphs
+- Kyro: `/Users/ratimics/develop/kyro/` - Perspective summaries, cooldown learning
+- Mirquo: `/Users/ratimics/develop/mirquo/` - 3-tier model, identity evolution
+- Current impl: `packages/admin-api/src/services/memory.ts`
