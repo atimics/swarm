@@ -53,15 +53,31 @@ const VerifyRequestSchema = z.object({
 // ============================================================================
 
 const COOKIE_NAME = 'swarm_session';
+
+// Get domain for cookie (use parent domain if on a subdomain)
+function getCookieDomain(): string | undefined {
+  const authDomain = process.env.AUTH_DOMAIN; // e.g., 'admin.rati.chat' or 'admin-staging.rati.chat'
+  if (!authDomain) return undefined;
+  
+  // Extract parent domain (e.g., 'rati.chat' from 'admin-staging.rati.chat')
+  const parts = authDomain.split('.');
+  if (parts.length >= 2) {
+    // Return parent domain prefixed with dot for subdomain cookies
+    return '.' + parts.slice(-2).join('.');
+  }
+  return undefined;
+}
+
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: true,
-  sameSite: 'Strict' as const,
+  sameSite: 'Lax' as const, // Lax allows cookie on same-site navigations and cross-site top-level GETs
   path: '/',
   maxAge: 24 * 60 * 60, // 24 hours in seconds
 };
 
 function setSessionCookie(sessionToken: string): string {
+  const domain = getCookieDomain();
   const parts = [
     `${COOKIE_NAME}=${sessionToken}`,
     `HttpOnly`,
@@ -70,11 +86,16 @@ function setSessionCookie(sessionToken: string): string {
     `Path=${COOKIE_OPTIONS.path}`,
     `Max-Age=${COOKIE_OPTIONS.maxAge}`,
   ];
+  if (domain) {
+    parts.push(`Domain=${domain}`);
+  }
   return parts.join('; ');
 }
 
 function clearSessionCookie(): string {
-  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`;
+  const domain = getCookieDomain();
+  const domainPart = domain ? `; Domain=${domain}` : '';
+  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0${domainPart}`;
 }
 
 function getSessionFromCookie(event: APIGatewayProxyEventV2): string | null {

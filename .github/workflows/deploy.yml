@@ -33,8 +33,9 @@ permissions:
   actions: read
 
 jobs:
-  deploy:
-    name: Build & Deploy
+  # Shared setup job to determine environment
+  setup:
+    name: Setup
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -44,12 +45,11 @@ jobs:
          github.event.workflow_run.head_branch == 'main' ||
          startsWith(github.event.workflow_run.head_branch, 'v')
        ))
-    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (startsWith(github.event.workflow_run.head_branch, 'v') && 'production' || 'staging') }}
-    
     outputs:
       environment: ${{ steps.env.outputs.environment }}
-      admin-url: ${{ steps.outputs.outputs.url }}
-      api-url: ${{ steps.outputs.outputs.api_url }}
+      cdk_env: ${{ steps.env.outputs.cdk_env }}
+      api_url: ${{ steps.env.outputs.api_url }}
+      admin_url: ${{ steps.env.outputs.admin_url }}
 
     steps:
       - name: Set environment
@@ -69,10 +69,33 @@ jobs:
             fi
           fi
           CDK_ENV="${ENV/production/prod}"
+          
+          # Pre-compute resource names (deterministic from CDK)
+          if [ "$CDK_ENV" = "staging" ]; then
+            API_URL="https://api-staging.rati.chat"
+            ADMIN_URL="https://admin-staging.rati.chat"
+          else
+            API_URL="https://api.rati.chat"
+            ADMIN_URL="https://admin.rati.chat"
+          fi
+          
           echo "environment=$ENV" >> $GITHUB_OUTPUT
           echo "cdk_env=$CDK_ENV" >> $GITHUB_OUTPUT
+          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
+          echo "admin_url=$ADMIN_URL" >> $GITHUB_OUTPUT
           echo "🚀 Deploying to **$ENV**" >> $GITHUB_STEP_SUMMARY
 
+  # CDK deployment (Lambda, API Gateway, DynamoDB, etc)
+  cdk-deploy:
+    name: CDK Deploy
+    runs-on: ubuntu-latest
+    needs: setup
+    environment: ${{ needs.setup.outputs.environment }}
+    outputs:
+      bucket: ${{ steps.outputs.outputs.bucket }}
+      distribution: ${{ steps.outputs.outputs.distribution }}
+
+    steps:
       - uses: actions/checkout@v4
 
       - name: Download CI build artifacts
@@ -102,14 +125,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: packages/infra/cdk.out
-          key: cdk-${{ steps.env.outputs.cdk_env }}-${{ hashFiles('packages/infra/**/*.ts', 'packages/*/src/**/*.ts') }}
-          restore-keys: cdk-${{ steps.env.outputs.cdk_env }}-
+          key: cdk-${{ needs.setup.outputs.cdk_env }}-${{ hashFiles('packages/infra/**/*.ts', 'packages/*/src/**/*.ts') }}
+          restore-keys: cdk-${{ needs.setup.outputs.cdk_env }}-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Generate release signing wallet
-        if: steps.env.outputs.environment == 'production'
+        if: needs.setup.outputs.environment == 'production'
         run: node scripts/generate-vanity-wallet.mjs RATi --secret-name RELEASE_SIGNING_KEY
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -131,52 +154,102 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          role-session-name: deploy-${{ steps.env.outputs.environment }}
+          role-session-name: deploy-cdk-${{ needs.setup.outputs.environment }}
 
       - name: CDK Deploy
         working-directory: packages/infra
         run: |
-          HOTSWAP=${{ steps.env.outputs.cdk_env == 'staging' && '--hotswap-fallback' || '' }}
+          HOTSWAP=${{ needs.setup.outputs.cdk_env == 'staging' && '--hotswap-fallback' || '' }}
           STACK="${{ inputs.stack }}"
-          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ steps.env.outputs.cdk_env }}
+          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }}
 
-      - name: Get outputs
+      - name: Get stack outputs
         id: outputs
         run: |
-          STACK="SwarmStack-${{ steps.env.outputs.cdk_env }}"
-          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ steps.env.outputs.cdk_env }}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ steps.env.outputs.cdk_env }}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
-          echo "url=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-url-${{ steps.env.outputs.cdk_env }}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
-          echo "api_url=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?contains(OutputKey, 'ApiEndpoint')].OutputValue" --output text 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+          STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}"
+          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
 
-      - name: Build & Deploy Admin UI
+  # Admin UI build (runs in parallel with CDK)
+  admin-ui-build:
+    name: Build Admin UI
+    runs-on: ubuntu-latest
+    needs: setup
+    environment: ${{ needs.setup.outputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Admin UI
         run: |
           cd packages/admin-ui
-          API_URL="${{ steps.outputs.outputs.api_url }}"
-          if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
-            echo "::error::API URL output missing"
+          VITE_API_URL=${{ needs.setup.outputs.api_url }} pnpm build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-ui-dist
+          path: packages/admin-ui/dist
+          retention-days: 1
+
+  # Deploy Admin UI to S3 (after CDK creates/updates bucket)
+  admin-ui-deploy:
+    name: Deploy Admin UI
+    runs-on: ubuntu-latest
+    needs: [setup, cdk-deploy, admin-ui-build]
+
+    steps:
+      - name: Download Admin UI build
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-ui-dist
+          path: dist
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-ui-${{ needs.setup.outputs.environment }}
+
+      - name: Deploy to S3
+        run: |
+          BUCKET="${{ needs.cdk-deploy.outputs.bucket }}"
+          if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ]; then
+            echo "::error::Could not get bucket name from CDK outputs"
             exit 1
           fi
-          VITE_API_URL=$API_URL pnpm build
-          aws s3 sync dist s3://${{ steps.outputs.outputs.bucket }} --delete --cache-control "max-age=31536000,immutable" --exclude "index.html" --exclude "*.json"
-          aws s3 cp dist/index.html s3://${{ steps.outputs.outputs.bucket }}/index.html --cache-control "no-cache"
+          aws s3 sync dist s3://$BUCKET --delete --cache-control "max-age=31536000,immutable" --exclude "index.html" --exclude "*.json"
+          aws s3 cp dist/index.html s3://$BUCKET/index.html --cache-control "no-cache"
 
       - name: Invalidate CDN
         run: |
-          DIST="${{ steps.outputs.outputs.distribution }}"
-          [ -n "$DIST" ] && [ "$DIST" != "None" ] && aws cloudfront create-invalidation --distribution-id $DIST --paths "/*" --no-cli-pager || true
+          DIST="${{ needs.cdk-deploy.outputs.distribution }}"
+          if [ -n "$DIST" ] && [ "$DIST" != "None" ]; then
+            aws cloudfront create-invalidation --distribution-id $DIST --paths "/*" --no-cli-pager
+            echo "✅ CDN invalidated" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Summary
         run: |
-          echo "## ✅ Deployed to ${{ steps.env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **UI:** ${{ steps.outputs.outputs.url }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **API:** ${{ steps.outputs.outputs.api_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Deployed to ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **UI:** ${{ needs.setup.outputs.admin_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **API:** ${{ needs.setup.outputs.api_url }}" >> $GITHUB_STEP_SUMMARY
 
   e2e:
     name: E2E (Staging)
     runs-on: ubuntu-latest
-    needs: deploy
-    if: needs.deploy.outputs.environment == 'staging'
+    needs: [setup, admin-ui-deploy]
+    if: needs.setup.outputs.environment == 'staging'
     env:
       AWS_REGION: us-east-1
       E2E_TELEGRAM_AGENT_ID: ${{ secrets.E2E_TELEGRAM_AGENT_ID }}
@@ -206,14 +279,12 @@ jobs:
   browser:
     name: Browser Visual Tests
     runs-on: ubuntu-latest
-    needs: [deploy, e2e]
-    if: needs.deploy.outputs.environment == 'staging'
+    needs: [setup, admin-ui-deploy, e2e]
+    if: needs.setup.outputs.environment == 'staging'
     env:
       AWS_REGION: us-east-1
-      # Cloudflare Access service token for bypassing Zero Trust
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
       CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-      # Optional: reusable test wallet (generated fresh if not set)
       TEST_WALLET_PRIVATE_KEY: ${{ secrets.TEST_WALLET_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -238,9 +309,6 @@ jobs:
           role-session-name: browser-staging
 
       - name: Run Browser Tests
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: node scripts/test-browser.mjs staging
 
       - name: Upload Screenshots

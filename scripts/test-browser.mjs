@@ -876,31 +876,25 @@ async function runAutonomousBrowserTest() {
     const cookieMatch = authSession.sessionCookie.match(/^([^=]+)=([^;]*)/);
     if (cookieMatch) {
       const [, name, value] = cookieMatch;
-      const apiUrlParsed = new URL(apiUrl);
       
-      // Add cookie for admin UI domain
+      // Extract parent domain for cookie sharing between admin and api subdomains
+      // e.g., 'admin-staging.rati.chat' -> '.rati.chat'
+      const hostParts = adminUrlParsed.hostname.split('.');
+      const parentDomain = hostParts.length >= 2 
+        ? '.' + hostParts.slice(-2).join('.') 
+        : adminUrlParsed.hostname;
+      
+      // Add cookie for parent domain (covers both admin and api subdomains)
       await context.addCookies([{
         name,
         value,
-        domain: adminUrlParsed.hostname,
+        domain: parentDomain,
         path: '/',
         httpOnly: true,
         secure: true,
-        sameSite: 'None', // Required for cross-site requests
+        sameSite: 'Lax', // Match server-side cookie settings
       }]);
-      console.log(`🍪 Session cookie injected for ${adminUrlParsed.hostname}`);
-      
-      // Also add cookie for API domain (different subdomain)
-      await context.addCookies([{
-        name,
-        value,
-        domain: apiUrlParsed.hostname,
-        path: '/',
-        httpOnly: true,
-        secure: true,
-        sameSite: 'None', // Required for cross-site requests
-      }]);
-      console.log(`🍪 Session cookie injected for ${apiUrlParsed.hostname}`);
+      console.log(`🍪 Session cookie injected for ${parentDomain} (covers all subdomains)`);
     }
   }
   

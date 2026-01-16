@@ -67,6 +67,20 @@ const SendMessageSchema = z.object({
 
 const COOKIE_NAME = 'swarm_session';
 
+// Get domain for cookie (use parent domain if on a subdomain)
+function getCookieDomain(): string | undefined {
+  const authDomain = process.env.AUTH_DOMAIN; // e.g., 'admin.rati.chat' or 'admin-staging.rati.chat'
+  if (!authDomain) return undefined;
+  
+  // Extract parent domain (e.g., 'rati.chat' from 'admin-staging.rati.chat')
+  const parts = authDomain.split('.');
+  if (parts.length >= 2) {
+    // Return parent domain prefixed with dot for subdomain cookies
+    return '.' + parts.slice(-2).join('.');
+  }
+  return undefined;
+}
+
 function getSessionFromCookie(event: APIGatewayProxyEventV2): string | null {
   const cookies = event.cookies || [];
   for (const cookie of cookies) {
@@ -79,7 +93,9 @@ function getSessionFromCookie(event: APIGatewayProxyEventV2): string | null {
 }
 
 function clearSessionCookie(): string {
-  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`;
+  const domain = getCookieDomain();
+  const domainPart = domain ? `; Domain=${domain}` : '';
+  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0${domainPart}`;
 }
 
 // =============================================================================
