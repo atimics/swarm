@@ -160,11 +160,12 @@ export async function createAgentWithWallet(
   await incrementCreatorCount(creatorWallet);
 
   // 2. Re-verify gate status (pessimistic check for race conditions)
+  // Uses canCreate which properly accounts for free slot: availableSlots = (1 + nftsHeld) - agentsCreated
   const finalStatus = await getGateStatus(creatorWallet);
-  if (finalStatus.agentsCreated > finalStatus.nftsHeld) {
-    // Race condition: user sold NFT between check and create
+  if (!finalStatus.canCreate && finalStatus.availableSlots < 0) {
+    // Race condition: user sold NFT between check and create, now over limit
     // Rollback by deleting the agent
-    console.log(`[Agents] Gate slot race condition for wallet=${creatorWallet.slice(0, 8)}...`);
+    console.log(`[Agents] Gate slot race condition for wallet=${creatorWallet.slice(0, 8)}... (created=${finalStatus.agentsCreated}, slots=${finalStatus.nftsHeld + 1})`);
     await dynamoClient.send(new PutCommand({
       TableName: ADMIN_TABLE,
       Item: { ...agent, status: 'deleted' },
