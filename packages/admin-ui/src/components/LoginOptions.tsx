@@ -3,6 +3,7 @@
  * Provides both Crossmint (email/social) and native wallet login options
  */
 import { useCallback, useEffect, useRef } from 'react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useAuth as useCrossmintAuthHook, useWallet as useCrossmintWallet } from '@crossmint/client-sdk-react-ui';
 import { useWalletAuth } from '../store/walletAuth';
@@ -17,6 +18,9 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   const { setVisible } = useWalletModal();
   const walletAuth = useWalletAuth();
   const crossmintAuth = useCrossmintAuth();
+
+  // Solana wallet adapter hooks for Phantom/etc
+  const { publicKey, connected, signMessage } = useWallet();
 
   // Crossmint SDK hooks
   const { login: crossmintLogin, user: crossmintUser, jwt, status } = useCrossmintAuthHook();
@@ -35,6 +39,37 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   const syncAttemptedRef = useRef(false);
   const lastJwtRef = useRef<string | null>(null);
   const lastWalletAddressRef = useRef<string | null>(null);
+  
+  // Track Solana wallet login attempts
+  const solanaLoginAttemptedRef = useRef<string | null>(null);
+
+  // Handle Solana wallet connection (Phantom, etc.)
+  // This triggers when user connects wallet from the modal
+  useEffect(() => {
+    // Check if signMessage is available
+    if (!signMessage || typeof signMessage !== 'function') {
+      return;
+    }
+
+    if (connected && publicKey && !walletAuth.isLoading && !walletAuth.isAuthenticated) {
+      const publicKeyStr = publicKey.toBase58();
+      
+      // Only attempt login if we haven't already tried for this wallet
+      if (solanaLoginAttemptedRef.current !== publicKeyStr) {
+        console.log('[LoginOptions] 🔐 Solana wallet connected, triggering login:', publicKeyStr);
+        solanaLoginAttemptedRef.current = publicKeyStr;
+        walletAuth.login(signMessage, publicKeyStr).catch((err) => {
+          console.error('[LoginOptions] ❌ Solana wallet login failed:', err);
+          // Keep ref set to prevent retry loop
+        });
+      }
+    }
+    
+    // Reset attempt tracker when wallet disconnects
+    if (!connected) {
+      solanaLoginAttemptedRef.current = null;
+    }
+  }, [connected, publicKey, signMessage, walletAuth.isLoading, walletAuth.isAuthenticated, walletAuth.login]);
 
   // When Crossmint auth completes with a wallet, sync with our backend
   useEffect(() => {
@@ -85,6 +120,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   }, [status, crossmintUser, walletAddress, jwt, crossmintAuth.isAuthenticated]);
 
   const handleWalletConnect = useCallback(() => {
+    solanaLoginAttemptedRef.current = null; // Allow fresh attempt
     walletAuth.clearError();
     setVisible(true);
   }, [setVisible, walletAuth]);
