@@ -29,6 +29,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   // Track sync attempts to prevent infinite loops
   const syncAttemptedRef = useRef(false);
   const lastJwtRef = useRef<string | null>(null);
+  const lastWalletAddressRef = useRef<string | null>(null);
 
   // When Crossmint auth completes with a wallet, sync with our backend
   useEffect(() => {
@@ -36,26 +37,41 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     const walletAddress = crossmintWallet?.address;
     const hasWallet = !!walletAddress;
     const isNewJwt = jwt !== lastJwtRef.current;
+    const isNewWallet = walletAddress !== lastWalletAddressRef.current;
+
+    console.log('[LoginOptions] Auth state:', {
+      status,
+      hasUser: !!crossmintUser,
+      hasJwt: !!jwt,
+      walletAddress,
+      isAuthenticated: crossmintAuth.isAuthenticated,
+      syncAttempted: syncAttemptedRef.current,
+      isNewJwt,
+      isNewWallet,
+    });
 
     // Only sync if:
     // 1. User is logged in with a wallet address
-    // 2. We haven't already synced this JWT
+    // 2. We haven't already synced this JWT/wallet combo
     // 3. We're not already authenticated
-    if (isLoggedIn && crossmintUser && jwt && hasWallet && !crossmintAuth.isAuthenticated && (!syncAttemptedRef.current || isNewJwt)) {
+    if (isLoggedIn && crossmintUser && jwt && hasWallet && !crossmintAuth.isAuthenticated && (!syncAttemptedRef.current || isNewJwt || isNewWallet)) {
+      console.log('[LoginOptions] Starting backend sync with wallet:', walletAddress);
       syncAttemptedRef.current = true;
       lastJwtRef.current = jwt;
+      lastWalletAddressRef.current = walletAddress;
       // Pass wallet address from the wallet hook
       crossmintAuth.syncWithBackend(jwt, {
         ...crossmintUser,
         wallet: { address: walletAddress },
       }).catch((error) => {
         console.error('[LoginOptions] Sync failed:', error);
-        // Don't retry - syncAttemptedRef prevents further attempts
+        // Reset sync attempted so user can retry
+        syncAttemptedRef.current = false;
       });
     } else if (isLoggedIn && !hasWallet) {
       console.warn('[LoginOptions] Crossmint user logged in but wallet not yet created');
     }
-  }, [status, crossmintUser, crossmintWallet, jwt, crossmintAuth.isAuthenticated]);
+  }, [status, crossmintUser, crossmintWallet?.address, jwt, crossmintAuth.isAuthenticated]);
 
   const handleWalletConnect = useCallback(() => {
     walletAuth.clearError();
