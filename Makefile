@@ -1,7 +1,7 @@
 # Swarm Project Makefile
 # Common tasks for development and deployment
 
-.PHONY: help install build dev test lint typecheck clean secrets deploy
+.PHONY: help install build dev test lint typecheck clean secrets deploy gh-secrets
 
 # Default target
 help:
@@ -17,6 +17,7 @@ help:
 	@echo ""
 	@echo "  make secrets      - Setup AWS Secrets Manager (staging)"
 	@echo "  make secrets-prod - Setup AWS Secrets Manager (production)"
+	@echo "  make gh-secrets   - Manage GitHub repository secrets (CI/CD)"
 	@echo ""
 	@echo "  make deploy       - Deploy to staging (via GitHub Actions)"
 	@echo "  make synth        - Synthesize CDK stack"
@@ -53,6 +54,10 @@ secrets:
 
 secrets-prod:
 	./scripts/setup-secrets.sh prod
+
+# GitHub Secrets (CI/CD)
+gh-secrets:
+	./scripts/setup-github-secrets.sh
 
 # Deployment
 synth:
