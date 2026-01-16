@@ -161,7 +161,7 @@ describe('VoiceServices - Pure Logic Tests', () => {
 });
 
 describe('VoiceServices - Service Mock Integration', () => {
-  const _agentId = 'test-agent';
+  const _avatarId = 'test-avatar';
   const _secrets = {
     OPENAI_API_KEY: 'test-openai-key',
     TELEGRAM_BOT_TOKEN: 'test-telegram-token',
@@ -360,8 +360,8 @@ describe('VoiceServices - Service Mock Integration', () => {
     });
 
     it('should throw when voice URL not provided', () => {
-      const params: { agentId: string; platform: string; conversationId: string; url?: string } = {
-        agentId: 'test',
+      const params: { avatarId: string; platform: string; conversationId: string; url?: string } = {
+        avatarId: 'test',
         platform: 'telegram',
         conversationId: '123',
       };
@@ -437,7 +437,7 @@ describe('VoiceServices - Integration Scenarios', () => {
     // 4. URL returned for playback
 
     const text = 'Hello, this is a test message';
-    const agentId = 'test-agent';
+    const avatarId = 'test-avatar';
     const mediaBucket = 'test-bucket';
 
     // Simulate TTS response
@@ -445,14 +445,14 @@ describe('VoiceServices - Integration Scenarios', () => {
 
     // Simulate S3 upload
     const assetId = 'uuid-12345';
-    const s3Key = `agents/${agentId}/audio/${assetId}.ogg`;
+    const s3Key = `avatars/${avatarId}/audio/${assetId}.ogg`;
     const uploadedUrl = `https://${mediaBucket}.s3.amazonaws.com/${s3Key}`;
 
     // Verify the flow
     expect(text.length).toBeGreaterThan(0);
     expect(ttsAudio.byteLength).toBe(2048);
     expect(uploadedUrl).toContain(mediaBucket);
-    expect(uploadedUrl).toContain(agentId);
+    expect(uploadedUrl).toContain(avatarId);
   });
 
   it('E2E: Voice transcription from Telegram voice message', async () => {
@@ -489,7 +489,7 @@ describe('VoiceServices - Integration Scenarios', () => {
     // 4. Generated audio downloaded
     // 5. Uploaded to S3
 
-    const referenceUrl = 'https://cdn.example.com/agents/test/voice/reference.wav';
+    const referenceUrl = 'https://cdn.example.com/avatars/test/voice/reference.wav';
     const textToSpeak = 'This will be spoken in the cloned voice';
     const replicateModel = 'lucataco/xtts-v2';
 
@@ -511,7 +511,7 @@ describe('VoiceServices - Integration Scenarios', () => {
     // 2. Telegram sendVoice API called
     // 3. Success response received
 
-    const voiceUrl = 'https://cdn.example.com/agents/test/audio/message.ogg';
+    const voiceUrl = 'https://cdn.example.com/avatars/test/audio/message.ogg';
     const chatId = '-1001234567890';
     const caption = 'Voice response';
 

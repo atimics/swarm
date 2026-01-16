@@ -171,14 +171,14 @@ async function runReplicatePrediction(
 }
 
 async function uploadAudioAsset(params: {
-  agentId: string;
+  avatarId: string;
   buffer: Buffer;
   format: AudioFormat;
   mediaBucket: string;
   cdnUrl?: string;
 }): Promise<{ assetId: string; url: string }> {
   const assetId = randomUUID();
-  const s3Key = `agents/${params.agentId}/audio/${assetId}.${params.format}`;
+  const s3Key = `avatars/${params.avatarId}/audio/${assetId}.${params.format}`;
 
   await getDefaultS3Client().send(new PutObjectCommand({
     Bucket: params.mediaBucket,
@@ -217,7 +217,7 @@ async function getTelegramFileUrl(botToken: string, fileId: string): Promise<str
 }
 
 export function createVoiceServices(config: {
-  agentId: string;
+  avatarId: string;
   secrets: Record<string, string>;
   voiceConfig?: { ttsProvider?: 'voice-clone'; format?: AudioFormat; speed?: number; referenceUrl?: string };
   mediaBucket?: string;
@@ -327,7 +327,7 @@ export function createVoiceServices(config: {
     },
 
     generateVoiceMessage: async (params: {
-      agentId: string;
+      avatarId: string;
       platform: string;
       text: string;
       voiceId?: string;
@@ -372,7 +372,7 @@ export function createVoiceServices(config: {
         const detectedFormat = detectAudioFormat(contentType, outputUrl);
 
         const asset = await uploadAudioAsset({
-          agentId: config.agentId,
+          avatarId: config.avatarId,
           buffer,
           format: detectedFormat,
           mediaBucket: config.mediaBucket,
@@ -412,7 +412,7 @@ export function createVoiceServices(config: {
       const buffer = Buffer.from(await response.arrayBuffer());
 
       const asset = await uploadAudioAsset({
-        agentId: config.agentId,
+        avatarId: config.avatarId,
         buffer,
         format,
         mediaBucket: config.mediaBucket,
@@ -423,7 +423,7 @@ export function createVoiceServices(config: {
     },
 
     sendVoiceMessage: async (params: {
-      agentId: string;
+      avatarId: string;
       platform: string;
       text: string;
       conversationId?: string;
@@ -470,7 +470,7 @@ export function createVoiceServices(config: {
         const detectedFormat = detectAudioFormat(contentType, outputUrl);
 
         const asset = await uploadAudioAsset({
-          agentId: config.agentId,
+          avatarId: config.avatarId,
           buffer,
           format: detectedFormat,
           mediaBucket: config.mediaBucket,
@@ -510,7 +510,7 @@ export function createVoiceServices(config: {
         const buffer = Buffer.from(await response.arrayBuffer());
 
         const asset = await uploadAudioAsset({
-          agentId: config.agentId,
+          avatarId: config.avatarId,
           buffer,
           format,
           mediaBucket: config.mediaBucket,

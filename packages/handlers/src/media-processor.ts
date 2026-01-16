@@ -16,7 +16,7 @@ import {
 import {
   ResponseActionSchema,
   SwarmResponseSchema,
-  type AgentConfig,
+  type AvatarConfig,
   type ResponseAction,
   type SwarmResponse,
 } from '@swarm/core/types';
@@ -24,7 +24,7 @@ import {
 // Schema for media queue items
 const MediaQueueItemSchema = z.object({
   jobId: z.string(),
-  agentId: z.string(),
+  avatarId: z.string(),
   conversationId: z.string(),
   action: ResponseActionSchema,
   response: SwarmResponseSchema,
@@ -47,7 +47,7 @@ function getRequiredEnv(name: string): string {
 
 let _responseQueueUrl: string | undefined;
 let _stateTable: string | undefined;
-let _agentId: string | undefined;
+let _avatarId: string | undefined;
 let _mediaBucket: string | undefined;
 
 function getResponseQueueUrl(): string {
@@ -60,9 +60,9 @@ function getStateTable(): string {
   return _stateTable;
 }
 
-function getAgentId(): string {
-  if (!_agentId) _agentId = getRequiredEnv('AGENT_ID');
-  return _agentId;
+function getAvatarId(): string {
+  if (!_avatarId) _avatarId = getRequiredEnv('AVATAR_ID');
+  return _avatarId;
 }
 
 function getMediaBucket(): string {
@@ -78,7 +78,7 @@ async function claimJob(jobId: string): Promise<boolean> {
     await dynamo.send(new PutCommand({
       TableName: getStateTable(),
       Item: {
-        pk: `AGENT#${getAgentId()}`,
+        pk: `AVATAR#${getAvatarId()}`,
         sk: `MEDIAJOB#${jobId}`,
         createdAt: now,
         ttl,
@@ -97,7 +97,7 @@ async function claimJob(jobId: string): Promise<boolean> {
 let stateService: ReturnType<typeof createStateService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let secrets: Record<string, string>;
-let agentConfig: AgentConfig;
+let avatarConfig: AvatarConfig;
 let mediaService: ReturnType<typeof createMediaService>;
 
 async function initialize(): Promise<void> {
@@ -106,9 +106,9 @@ async function initialize(): Promise<void> {
   stateService = createStateService(getStateTable());
   secretsService = createSecretsService();
 
-  agentConfig = await stateService.getAgentConfig(getAgentId()) || {
-    id: getAgentId(),
-    name: process.env.AGENT_NAME || getAgentId(),
+  avatarConfig = await stateService.getAvatarConfig(getAvatarId()) || {
+    id: getAvatarId(),
+    name: process.env.AVATAR_NAME || getAvatarId(),
     version: '1.0.0',
     persona: process.env.AGENT_PERSONA || 'You are a helpful AI assistant.',
     platforms: {},
@@ -137,26 +137,26 @@ async function initialize(): Promise<void> {
   };
 
   secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${getAgentId()}/secrets`
+    process.env.SECRETS_ARN || `swarm/${getAvatarId()}/secrets`
   );
 
   mediaService = createMediaService(secrets, getMediaBucket(), process.env.CDN_URL);
 }
 
-function buildImagePrompt(action: { prompt: string; style?: string }, agent: AgentConfig): string {
+function buildImagePrompt(action: { prompt: string; style?: string }, avatar: AvatarConfig): string {
   let prompt = action.prompt;
   if (action.style) {
     prompt = `${prompt}, ${action.style} style`;
   }
-  if (agent.name) {
-    prompt = `${agent.name}: ${prompt}`;
+  if (avatar.name) {
+    prompt = `${avatar.name}: ${prompt}`;
   }
   return prompt;
 }
 
 export const handler = async (event: SQSEvent, context: Context): Promise<{ batchItemFailures: { itemIdentifier: string }[] } | void> => {
   logger.setContext({
-    agentId: getAgentId(),
+    avatarId: getAvatarId(),
     requestId: context.awsRequestId,
   });
 
@@ -208,12 +208,12 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
 
     try {
 
-      if (item.agentId && item.agentId !== getAgentId()) {
-        logger.warn('Media job agentId mismatch', {
-          event: 'agent_mismatch',
+      if (item.avatarId && item.avatarId !== getAvatarId()) {
+        logger.warn('Media job avatarId mismatch', {
+          event: 'avatar_mismatch',
           subsystem: 'media',
-          jobAgentId: item.agentId,
-          handlerAgentId: getAgentId(),
+          jobAvatarId: item.avatarId,
+          handlerAvatarId: getAvatarId(),
         });
         continue;
       }
@@ -232,8 +232,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       let mediaAction: ResponseAction | null = null;
 
       if (item.action.type === 'take_selfie') {
-        const prompt = buildImagePrompt(item.action, agentConfig);
-        const media = await mediaService.generateImage(prompt, agentConfig.media.image);
+        const prompt = buildImagePrompt(item.action, avatarConfig);
+        const media = await mediaService.generateImage(prompt, avatarConfig.media.image);
         mediaAction = {
           type: 'send_media',
           mediaType: media.type === 'video' ? 'video' : 'image',
@@ -242,13 +242,13 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
           replyToMessageId: item.response.replyToMessageId,
         };
       } else if (item.action.type === 'generate_video') {
-        if (!agentConfig.media.video) {
-          throw new Error('Video generation is not configured for this agent');
+        if (!avatarConfig.media.video) {
+          throw new Error('Video generation is not configured for this avatar');
         }
-        const prompt = agentConfig.name
-          ? `${agentConfig.name}: ${item.action.prompt}`
+        const prompt = avatarConfig.name
+          ? `${avatarConfig.name}: ${item.action.prompt}`
           : item.action.prompt;
-        const media = await mediaService.generateVideo(prompt, agentConfig.media.video);
+        const media = await mediaService.generateVideo(prompt, avatarConfig.media.video);
         mediaAction = {
           type: 'send_media',
           mediaType: 'video',

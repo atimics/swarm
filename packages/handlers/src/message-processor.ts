@@ -22,7 +22,7 @@ import {
   logger,
   MessageQueueItemSchema,
   extractThinking,
-  type AgentConfig,
+  type AvatarConfig,
   type ContextMessage,
   type SwarmEnvelope,
   type SwarmResponse,
@@ -56,7 +56,7 @@ function getRequiredEnv(name: string): string {
 // Environment variables - validated on first use
 let _responseQueueUrl: string | undefined;
 let _stateTable: string | undefined;
-let _agentId: string | undefined;
+let _avatarId: string | undefined;
 let _mediaBucket: string | undefined;
 let _cdnUrl: string | undefined;
 
@@ -70,9 +70,9 @@ function getStateTable(): string {
   return _stateTable;
 }
 
-function getAgentId(): string {
-  if (!_agentId) _agentId = getRequiredEnv('AGENT_ID');
-  return _agentId;
+function getAvatarId(): string {
+  if (!_avatarId) _avatarId = getRequiredEnv('AVATAR_ID');
+  return _avatarId;
 }
 
 function getMediaBucket(): string | undefined {
@@ -89,7 +89,7 @@ function getCdnUrl(): string | undefined {
 let stateService: ReturnType<typeof createStateService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let secrets: Record<string, string>;
-let agentConfig: AgentConfig;
+let avatarConfig: AvatarConfig;
 
 async function initialize(): Promise<void> {
   if (stateService) return;
@@ -97,10 +97,10 @@ async function initialize(): Promise<void> {
   stateService = createStateService(getStateTable());
   secretsService = createSecretsService();
 
-  // Load agent config from state (set via admin dashboard)
-  agentConfig = await stateService.getAgentConfig(getAgentId()) || {
-    id: getAgentId(),
-    name: process.env.AGENT_NAME || getAgentId(),
+  // Load avatar config from state (set via admin dashboard)
+  avatarConfig = await stateService.getAvatarConfig(getAvatarId()) || {
+    id: getAvatarId(),
+    name: process.env.AVATAR_NAME || getAvatarId(),
     version: '1.0.0',
     persona: process.env.AGENT_PERSONA || 'You are a helpful AI assistant.',
     platforms: {},
@@ -130,7 +130,7 @@ async function initialize(): Promise<void> {
 
   // Load secrets
   secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${getAgentId()}/secrets`
+    process.env.SECRETS_ARN || `swarm/${getAvatarId()}/secrets`
   );
 }
 
@@ -258,10 +258,10 @@ async function callLLM(
 }
 
 /**
- * Build system prompt from agent persona and context
+ * Build system prompt from avatar persona and context
  */
 function buildSystemPrompt(envelope: SwarmEnvelope): string {
-  let prompt = agentConfig.persona;
+  let prompt = avatarConfig.persona;
 
   prompt += `\n\n## Current Context
 - Platform: ${envelope.platform}
@@ -283,7 +283,7 @@ function buildSystemPrompt(envelope: SwarmEnvelope): string {
 - Use ignore if the message doesn't warrant a response
 - Keep responses concise and natural
 `;
-  if (agentConfig.voice?.enabled) {
+  if (avatarConfig.voice?.enabled) {
     prompt += `- Use generate_voice_message to reply with voice when it fits\n`;
   }
 
@@ -367,7 +367,7 @@ async function maybeTranscribeAudio(
   const audioAttachment = envelope.content.media?.find(m => m.type === 'audio');
   if (!audioAttachment?.fileId) return;
 
-  const shouldTranscribe = agentConfig.voice?.enabled || agentConfig.tools.includes('transcribe_audio');
+  const shouldTranscribe = avatarConfig.voice?.enabled || avatarConfig.tools.includes('transcribe_audio');
   if (!shouldTranscribe) return;
 
   try {
@@ -401,7 +401,7 @@ async function generateResponse(
   const systemPrompt = buildSystemPrompt(envelope);
   const toolDefinitions = toolClient
     .getToolDefinitions()
-    .filter((tool: { name: string }) => agentConfig.tools.includes(tool.name));
+    .filter((tool: { name: string }) => avatarConfig.tools.includes(tool.name));
   const enabledTools = toolClient.getOpenAIToolsForTools(toolDefinitions);
 
   // Build initial messages
@@ -424,7 +424,7 @@ async function generateResponse(
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
 
-    const llmResponse = await callLLM(messages, enabledTools, agentConfig.llm);
+    const llmResponse = await callLLM(messages, enabledTools, avatarConfig.llm);
     totalTokens += 100; // Approximate, would need actual count from API
 
     if (!llmResponse.toolCalls || llmResponse.toolCalls.length === 0) {
@@ -437,10 +437,10 @@ async function generateResponse(
         cleanFinalContent = cleanContent;
         
         if (hasThinking && thinkingBlocks.length > 0) {
-          // Save thinking to agent's memory
+          // Save thinking to avatar's memory
           for (const thinking of thinkingBlocks) {
             try {
-              await stateService.saveFact(envelope.agentId, {
+              await stateService.saveFact(envelope.avatarId, {
                 fact: `[Internal thought in ${envelope.conversationId}]: ${thinking}`,
                 about: 'thinking',
                 timestamp: Date.now(),
@@ -451,7 +451,7 @@ async function generateResponse(
           }
           logger.info('Saved thinking blocks to memory', { 
             count: thinkingBlocks.length, 
-            agentId: envelope.agentId 
+            avatarId: envelope.avatarId 
           });
         }
       }
@@ -508,20 +508,20 @@ async function generateResponse(
   }
 
   return {
-    agentId: envelope.agentId,
+    avatarId: envelope.avatarId,
     platform: envelope.platform,
     conversationId: envelope.conversationId,
     replyToMessageId: envelope.messageId,
     actions,
     generatedAt: Date.now(),
-    llmModel: agentConfig.llm.model,
+    llmModel: avatarConfig.llm.model,
     tokensUsed: totalTokens,
   };
 }
 
 export const handler = async (event: SQSEvent, context: Context): Promise<{ batchItemFailures: { itemIdentifier: string }[] }> => {
   logger.setContext({
-    agentId: getAgentId(),
+    avatarId: getAvatarId(),
     requestId: context.awsRequestId,
   });
 
@@ -536,8 +536,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
     : undefined;
 
   const mcpServices = createPlatformMCPServices({
-    agentId: getAgentId(),
-    agentConfig,
+    avatarId: getAvatarId(),
+    avatarConfig,
     stateService,
     mediaService,
     secrets,
@@ -597,7 +597,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       // =========================================================
 
       await stateService.getOrCreateChannelState(
-        getAgentId(),
+        getAvatarId(),
         envelope.conversationId,
         envelope.platform,
         envelope.metadata.chatType,
@@ -605,7 +605,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       );
 
       const updatedState = await stateService.addMessageToChannel(
-        getAgentId(),
+        getAvatarId(),
         envelope.conversationId,
         envelope.platform,
         envelopeToContextMessage(envelope),
@@ -646,7 +646,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
         await new Promise(resolve => setTimeout(resolve, decision.delay));
       }
 
-      await stateService.transitionState(getAgentId(), envelope.conversationId, 'ACTIVE');
+      await stateService.transitionState(getAvatarId(), envelope.conversationId, 'ACTIVE');
 
       // =========================================================
       // GENERATE RESPONSE WITH MCP TOOLS
@@ -655,7 +655,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       const toolClient = createToolClient(registry, envelope.platform as 'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api');
       
       const toolContext: ToolContext = {
-        agentId: getAgentId(),
+        avatarId: getAvatarId(),
         platform: envelope.platform as 'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api',
         userId: envelope.sender.id,
         conversationId: envelope.conversationId,
@@ -683,12 +683,12 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       // POST-RESPONSE STATE UPDATES
       // =========================================================
 
-      if (agentConfig.behavior.cooldownMinutes > 0) {
+      if (avatarConfig.behavior.cooldownMinutes > 0) {
         await stateService.setUserCooldown({
-          agentId: getAgentId(),
+          avatarId: getAvatarId(),
           platform: envelope.platform,
           userId: envelope.sender.id,
-          cooldownUntil: Date.now() + (agentConfig.behavior.cooldownMinutes * 60 * 1000),
+          cooldownUntil: Date.now() + (avatarConfig.behavior.cooldownMinutes * 60 * 1000),
         });
       }
 

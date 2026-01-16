@@ -14,7 +14,7 @@ describe('Twitter Mention Poller - Pure Logic Tests', () => {
   beforeEach(() => {
     process.env.STATE_TABLE = 'test-state-table';
     process.env.ACTIVITY_TABLE = 'test-activity-table';
-    process.env.AGENT_ID = 'test-agent';
+    process.env.AVATAR_ID = 'test-avatar';
     process.env.MESSAGE_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/123/queue.fifo';
   });
 
@@ -22,7 +22,7 @@ describe('Twitter Mention Poller - Pure Logic Tests', () => {
     const requiredEnvVars = [
       'STATE_TABLE',
       'ACTIVITY_TABLE',
-      'AGENT_ID',
+      'AVATAR_ID',
       'MESSAGE_QUEUE_URL',
     ];
 
@@ -143,20 +143,20 @@ describe('Twitter Mention Poller - Integration Scenarios', () => {
   beforeEach(() => {
     process.env.STATE_TABLE = 'test-state-table';
     process.env.ACTIVITY_TABLE = 'test-activity-table';
-    process.env.AGENT_ID = 'test-agent';
+    process.env.AVATAR_ID = 'test-avatar';
     process.env.MESSAGE_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/123/queue.fifo';
   });
 
   it('E2E: Full polling cycle data structure', async () => {
     // Simulate a complete polling cycle:
-    // 1. Fetch agent config from DynamoDB
+    // 1. Fetch avatar config from DynamoDB
     // 2. Get credentials from Secrets Manager
     // 3. Poll Twitter for mentions
     // 4. Queue each mention to SQS
     // 5. Update last mention ID in state
 
-    const agentConfig = {
-      id: 'test-agent',
+    const avatarConfig = {
+      id: 'test-avatar',
       platforms: { twitter: { enabled: true, username: 'test_bot' } },
     };
 
@@ -185,7 +185,7 @@ describe('Twitter Mention Poller - Integration Scenarios', () => {
     ];
 
     // Verify the polling cycle completes successfully
-    expect(agentConfig.platforms.twitter?.enabled).toBe(true);
+    expect(avatarConfig.platforms.twitter?.enabled).toBe(true);
     expect(Object.keys(secrets)).toContain('TWITTER_API_KEY');
     expect(mentions).toHaveLength(2);
     expect(mentions[0].conversationId).toBe('conv-1');
@@ -226,31 +226,31 @@ describe('Twitter Mention Poller - Integration Scenarios', () => {
     // Simulate state service with mock
     const stateStore: Record<string, string> = {};
     const mockStateService = {
-      getLastMentionId: mock((agentId: string) =>
-        Promise.resolve(stateStore[`${agentId}:lastMentionId`] || null)
+      getLastMentionId: mock((avatarId: string) =>
+        Promise.resolve(stateStore[`${avatarId}:lastMentionId`] || null)
       ),
-      setLastMentionId: mock((agentId: string, mentionId: string) => {
-        stateStore[`${agentId}:lastMentionId`] = mentionId;
+      setLastMentionId: mock((avatarId: string, mentionId: string) => {
+        stateStore[`${avatarId}:lastMentionId`] = mentionId;
         return Promise.resolve();
       }),
     };
 
     // First invocation - no previous state
-    const firstSinceId = await mockStateService.getLastMentionId('test-agent');
+    const firstSinceId = await mockStateService.getLastMentionId('test-avatar');
     expect(firstSinceId).toBeNull();
 
     // Process mentions and update state
-    await mockStateService.setLastMentionId('test-agent', 'mention-100');
+    await mockStateService.setLastMentionId('test-avatar', 'mention-100');
 
     // Second invocation - reads previous state
-    const secondSinceId = await mockStateService.getLastMentionId('test-agent');
+    const secondSinceId = await mockStateService.getLastMentionId('test-avatar');
     expect(secondSinceId).toBe('mention-100');
 
     // Process more mentions and update state
-    await mockStateService.setLastMentionId('test-agent', 'mention-200');
+    await mockStateService.setLastMentionId('test-avatar', 'mention-200');
 
     // Third invocation - reads updated state
-    const thirdSinceId = await mockStateService.getLastMentionId('test-agent');
+    const thirdSinceId = await mockStateService.getLastMentionId('test-avatar');
     expect(thirdSinceId).toBe('mention-200');
   });
 

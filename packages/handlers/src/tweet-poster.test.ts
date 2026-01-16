@@ -13,7 +13,7 @@ describe('Tweet Poster - Pure Logic Tests', () => {
     process.env.STATE_TABLE = 'test-state-table';
     process.env.ACTIVITY_TABLE = 'test-activity-table';
     process.env.MEDIA_BUCKET = 'test-media-bucket';
-    process.env.AGENT_ID = 'test-agent';
+    process.env.AVATAR_ID = 'test-avatar';
   });
 
   it('should define required environment variables', () => {
@@ -21,7 +21,7 @@ describe('Tweet Poster - Pure Logic Tests', () => {
       'STATE_TABLE',
       'ACTIVITY_TABLE',
       'MEDIA_BUCKET',
-      'AGENT_ID',
+      'AVATAR_ID',
     ];
     const optionalEnvVars = ['CDN_URL', 'TWEET_TEMPLATE'];
 
@@ -79,13 +79,13 @@ describe('Tweet Poster - Pure Logic Tests', () => {
   });
 
   describe('System prompt construction', () => {
-    it('should include agent persona in system prompt', () => {
-      const agentConfig = {
+    it('should include avatar persona in system prompt', () => {
+      const avatarConfig = {
         persona: 'A witty AI assistant',
       };
       const tweetTemplate = 'humor';
 
-      const systemPrompt = `${agentConfig.persona}
+      const systemPrompt = `${avatarConfig.persona}
 
 You are posting a tweet. Generate a single tweet that:
 - Is engaging and authentic to your personality
@@ -137,7 +137,7 @@ describe('Tweet Poster - Service Mock Integration', () => {
   describe('Tweet generation', () => {
     it('should generate tweet using LLM service', async () => {
       const response = await mockLLMService.generateResponse({
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         systemPrompt: 'Test prompt',
         messages: [{ role: 'user', content: 'Generate a tweet.' }],
         config: { temperature: 0.95 },
@@ -228,7 +228,7 @@ describe('Tweet Poster - Service Mock Integration', () => {
   describe('Activity logging', () => {
     it('should log response_sent event', async () => {
       await mockActivityService.log({
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         timestamp: Date.now(),
         eventType: 'response_sent',
         platform: 'twitter',
@@ -240,7 +240,7 @@ describe('Tweet Poster - Service Mock Integration', () => {
     });
 
     it('should log error on failure', async () => {
-      await mockActivityService.logError('test-agent', 'twitter', 'Service unavailable');
+      await mockActivityService.logError('test-avatar', 'twitter', 'Service unavailable');
 
       expect(mockActivityService.logError).toHaveBeenCalled();
     });
@@ -253,20 +253,20 @@ describe('Tweet Poster - Integration Scenarios', () => {
     process.env.ACTIVITY_TABLE = 'test-activity-table';
     process.env.MEDIA_BUCKET = 'test-media-bucket';
     process.env.CDN_URL = 'https://cdn.example.com';
-    process.env.AGENT_ID = 'test-agent';
+    process.env.AVATAR_ID = 'test-avatar';
   });
 
   it('E2E: Full scheduled tweet workflow', async () => {
     // Simulate complete scheduled tweet flow:
     // 1. Lambda triggered by EventBridge schedule
-    // 2. Fetch agent config and persona
+    // 2. Fetch avatar config and persona
     // 3. Generate tweet content via LLM
     // 4. Optionally generate image
     // 5. Post to Twitter
     // 6. Log activity
 
-    const agentConfig = {
-      id: 'test-agent',
+    const avatarConfig = {
+      id: 'test-avatar',
       persona: 'A friendly tech enthusiast who shares daily insights',
       llm: { provider: 'openrouter', model: 'anthropic/claude-3', temperature: 0.9, maxTokens: 280 },
       media: { image: { provider: 'replicate', model: 'flux' } },
@@ -287,7 +287,7 @@ describe('Tweet Poster - Integration Scenarios', () => {
     const tweetId = 'tweet-123456';
 
     // Verify workflow components
-    expect(agentConfig.persona).toContain('tech enthusiast');
+    expect(avatarConfig.persona).toContain('tech enthusiast');
     expect(generatedTweet.length).toBeLessThanOrEqual(280);
     expect(tweetId).toMatch(/^tweet-\d+$/);
     expect(Object.keys(secrets)).toContain('TWITTER_API_KEY');
@@ -354,7 +354,7 @@ describe('Tweet Poster - Integration Scenarios', () => {
     // 4. Attach media_id to tweet
 
     // Image is generated and stored in S3
-    const s3Key = 'agents/test-agent/media/image-123.png';
+    const s3Key = 'avatars/test-avatar/media/image-123.png';
     const cdnUrl = `https://cdn.example.com/${s3Key}`;
 
     // Simulate Twitter media upload response
@@ -362,7 +362,7 @@ describe('Tweet Poster - Integration Scenarios', () => {
 
     // Verify media upload flow components
     expect(cdnUrl).toMatch(/^https:\/\/cdn\.example\.com\//);
-    expect(s3Key).toContain('agents/test-agent/media/');
+    expect(s3Key).toContain('avatars/test-avatar/media/');
     expect(mediaId).toMatch(/^\d+$/);
 
     // Verify tweet includes media attachment

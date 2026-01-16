@@ -22,7 +22,7 @@ import {
   DEFAULT_LLM_PROVIDER,
   DEFAULT_LLM_TEMPERATURE,
   DEFAULT_LLM_MAX_TOKENS,
-  type AgentConfig,
+  type AvatarConfig,
   type SwarmResponse,
   type ResponseAction,
 } from '@swarm/core';
@@ -36,7 +36,7 @@ const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 const MEDIA_QUEUE_URL = process.env.MEDIA_QUEUE_URL;
 const STATE_TABLE = process.env.STATE_TABLE!;
 const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE!;
-const AGENT_ID = process.env.AGENT_ID!;
+const AVATAR_ID = process.env.AVATAR_ID!;
 const IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
 
 // Services
@@ -46,7 +46,7 @@ let secretsService: ReturnType<typeof createSecretsService>;
 let platformRegistry: PlatformRegistry;
 let outboundSender: ReturnType<typeof createOutboundSender>;
 let secrets: Record<string, string>;
-let agentConfig: AgentConfig;
+let avatarConfig: AvatarConfig;
 
 function getResponseKey(response: SwarmResponse, recordMessageId: string): string {
   const anchor = response.replyToMessageId ?? response.generatedAt ?? recordMessageId;
@@ -57,7 +57,7 @@ async function wasResponseHandled(responseKey: string): Promise<boolean> {
   const result = await dynamo.send(new GetCommand({
     TableName: STATE_TABLE,
     Key: {
-      pk: `AGENT#${AGENT_ID}`,
+      pk: `AVATAR#${AVATAR_ID}`,
       sk: `RESPONSE#${responseKey}`,
     },
   }));
@@ -71,7 +71,7 @@ async function markResponseHandled(responseKey: string): Promise<void> {
     await dynamo.send(new PutCommand({
       TableName: STATE_TABLE,
       Item: {
-        pk: `AGENT#${AGENT_ID}`,
+        pk: `AVATAR#${AVATAR_ID}`,
         sk: `RESPONSE#${responseKey}`,
         createdAt: now,
         ttl,
@@ -97,9 +97,9 @@ async function initialize(): Promise<void> {
   secretsService = createSecretsService();
 
   // Load config and secrets
-  agentConfig = await stateService.getAgentConfig(AGENT_ID) || {
-    id: AGENT_ID,
-    name: AGENT_ID,
+  avatarConfig = await stateService.getAvatarConfig(AVATAR_ID) || {
+    id: AVATAR_ID,
+    name: AVATAR_ID,
     version: '1.0.0',
     persona: '',
     platforms: {},
@@ -112,18 +112,18 @@ async function initialize(): Promise<void> {
   };
 
   secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${AGENT_ID}/secrets`
+    process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
   );
 
   // Initialize platform adapters
   platformRegistry = new PlatformRegistry();
 
-  if (agentConfig.platforms.telegram?.enabled && secrets.TELEGRAM_BOT_TOKEN) {
-    platformRegistry.register(new TelegramAdapter(agentConfig, secrets.TELEGRAM_BOT_TOKEN));
+  if (avatarConfig.platforms.telegram?.enabled && secrets.TELEGRAM_BOT_TOKEN) {
+    platformRegistry.register(new TelegramAdapter(avatarConfig, secrets.TELEGRAM_BOT_TOKEN));
   }
 
-  if (agentConfig.platforms.twitter?.enabled && secrets.TWITTER_API_KEY) {
-    platformRegistry.register(new TwitterAdapter(agentConfig, {
+  if (avatarConfig.platforms.twitter?.enabled && secrets.TWITTER_API_KEY) {
+    platformRegistry.register(new TwitterAdapter(avatarConfig, {
       appKey: secrets.TWITTER_API_KEY,
       appSecret: secrets.TWITTER_API_SECRET,
       accessToken: secrets.TWITTER_ACCESS_TOKEN,
@@ -131,18 +131,18 @@ async function initialize(): Promise<void> {
     }));
   }
 
-  if (agentConfig.platforms.web?.enabled) {
-    platformRegistry.register(new WebAdapter(agentConfig));
+  if (avatarConfig.platforms.web?.enabled) {
+    platformRegistry.register(new WebAdapter(avatarConfig));
   }
 
-  if (agentConfig.platforms.discord?.enabled) {
-    platformRegistry.register(new DiscordAdapter(agentConfig, {
+  if (avatarConfig.platforms.discord?.enabled) {
+    platformRegistry.register(new DiscordAdapter(avatarConfig, {
       botToken: secrets.DISCORD_BOT_TOKEN || secrets.discord_bot_token,
-      webhookUrl: agentConfig.platforms.discord.webhookUrl,
-      webhookId: agentConfig.platforms.discord.webhookId,
-      webhookToken: agentConfig.platforms.discord.webhookToken,
-      applicationId: agentConfig.platforms.discord.applicationId,
-      publicKey: agentConfig.platforms.discord.publicKey,
+      webhookUrl: avatarConfig.platforms.discord.webhookUrl,
+      webhookId: avatarConfig.platforms.discord.webhookId,
+      webhookToken: avatarConfig.platforms.discord.webhookToken,
+      applicationId: avatarConfig.platforms.discord.applicationId,
+      publicKey: avatarConfig.platforms.discord.publicKey,
     }));
   }
 
@@ -154,7 +154,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
   context: Context
 ) => {
   logger.setContext({
-    agentId: AGENT_ID,
+    avatarId: AVATAR_ID,
     requestId: context.awsRequestId,
   });
 
@@ -226,7 +226,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
               QueueUrl: MEDIA_QUEUE_URL,
               MessageBody: JSON.stringify({
                 jobId,
-                agentId: AGENT_ID,
+                avatarId: AVATAR_ID,
                 conversationId: response.conversationId,
                 action,
                 response,
@@ -274,12 +274,12 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       for (const text of sentMessages) {
         try {
           await stateService.addMessageToChannel(
-            AGENT_ID,
+            AVATAR_ID,
             response.conversationId,
             response.platform,
             {
               messageId: `bot_${randomUUID()}`,
-              sender: agentConfig.name,
+              sender: avatarConfig.name,
               isBot: true,
               content: text,
               timestamp: Date.now(),
@@ -310,7 +310,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       if (shouldMarkResponse) {
         try {
           await stateService.markResponseSent(
-            AGENT_ID,
+            AVATAR_ID,
             response.conversationId,
             `resp_${response.replyToMessageId || Date.now()}_${Date.now()}`
           );

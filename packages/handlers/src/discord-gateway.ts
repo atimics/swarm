@@ -12,7 +12,7 @@ import {
   createMessageEvaluator,
   logger,
   DEFAULT_LLM_MODEL,
-  type AgentConfig,
+  type AvatarConfig,
   type SwarmEnvelope,
 } from '@swarm/core';
 
@@ -28,7 +28,7 @@ const DEFAULT_INTENTS =
 const MESSAGE_QUEUE_URL = getRequiredEnv('MESSAGE_QUEUE_URL');
 const STATE_TABLE = getRequiredEnv('STATE_TABLE');
 const ACTIVITY_TABLE = getRequiredEnv('ACTIVITY_TABLE');
-const AGENT_ID = getRequiredEnv('AGENT_ID');
+const AVATAR_ID = getRequiredEnv('AVATAR_ID');
 
 function getRequiredEnv(name: string): string {
   const value = process.env[name];
@@ -59,7 +59,7 @@ let stateService: ReturnType<typeof createStateService>;
 let activityService: ReturnType<typeof createActivityService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let discordAdapter: DiscordAdapter;
-let agentConfig: AgentConfig;
+let avatarConfig: AvatarConfig;
 let evaluator: ReturnType<typeof createMessageEvaluator>;
 let botUserId: string | undefined;
 let botUsername: string | undefined;
@@ -71,9 +71,9 @@ async function initialize(): Promise<void> {
   activityService = createActivityService(ACTIVITY_TABLE);
   secretsService = createSecretsService();
 
-  agentConfig = await stateService.getAgentConfig(AGENT_ID) || {
-    id: AGENT_ID,
-    name: process.env.AGENT_NAME || AGENT_ID,
+  avatarConfig = await stateService.getAvatarConfig(AVATAR_ID) || {
+    id: AVATAR_ID,
+    name: process.env.AVATAR_NAME || AVATAR_ID,
     version: '1.0.0',
     persona: '',
     platforms: {
@@ -107,23 +107,23 @@ async function initialize(): Promise<void> {
   };
 
   const secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${AGENT_ID}/secrets`
+    process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
   );
 
-  discordAdapter = new DiscordAdapter(agentConfig, {
+  discordAdapter = new DiscordAdapter(avatarConfig, {
     botToken: secrets.DISCORD_BOT_TOKEN || secrets.discord_bot_token,
-    applicationId: agentConfig.platforms.discord?.applicationId,
-    publicKey: agentConfig.platforms.discord?.publicKey,
-    webhookUrl: agentConfig.platforms.discord?.webhookUrl,
-    webhookId: agentConfig.platforms.discord?.webhookId,
-    webhookToken: agentConfig.platforms.discord?.webhookToken,
+    applicationId: avatarConfig.platforms.discord?.applicationId,
+    publicKey: avatarConfig.platforms.discord?.publicKey,
+    webhookUrl: avatarConfig.platforms.discord?.webhookUrl,
+    webhookId: avatarConfig.platforms.discord?.webhookId,
+    webhookToken: avatarConfig.platforms.discord?.webhookToken,
   });
 
   updateEvaluator();
 }
 
 function updateEvaluator(): void {
-  evaluator = createMessageEvaluator(agentConfig, stateService, {
+  evaluator = createMessageEvaluator(avatarConfig, stateService, {
     botUsernames: botUsername ? [botUsername] : [],
     botUserIds: botUserId ? [botUserId] : [],
   });
@@ -131,14 +131,14 @@ function updateEvaluator(): void {
 
 async function handleEnvelope(envelope: SwarmEnvelope): Promise<void> {
   logger.setContext({
-    agentId: AGENT_ID,
+    avatarId: AVATAR_ID,
     platform: 'discord',
     messageId: envelope.messageId,
     conversationId: envelope.conversationId,
   });
 
   await activityService.logMessageReceived(
-    AGENT_ID,
+    AVATAR_ID,
     'discord',
     envelope.sender.displayName || envelope.sender.username || 'Unknown',
     envelope.content.text || '[message]'
@@ -164,7 +164,7 @@ async function handleEnvelope(envelope: SwarmEnvelope): Promise<void> {
   envelope.metadata.priority = evaluation.priority;
 
   await stateService.addMessageToChannel(
-    AGENT_ID,
+    AVATAR_ID,
     envelope.conversationId,
     'discord',
     {
@@ -383,7 +383,7 @@ async function startGateway(): Promise<void> {
   await initialize();
 
   const secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${AGENT_ID}/secrets`
+    process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
   );
   const botToken = secrets.DISCORD_BOT_TOKEN || secrets.discord_bot_token;
   if (!botToken) {
@@ -391,7 +391,7 @@ async function startGateway(): Promise<void> {
   }
 
   const intents = Number(process.env.DISCORD_GATEWAY_INTENTS)
-    || agentConfig.platforms.discord?.intents
+    || avatarConfig.platforms.discord?.intents
     || DEFAULT_INTENTS;
 
   const gateway = new DiscordGateway(`Bot ${botToken}`, intents);

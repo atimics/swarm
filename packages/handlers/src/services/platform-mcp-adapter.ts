@@ -7,15 +7,15 @@
  */
 import type { AllServices } from '@swarm/mcp-server';
 import type {
-  AgentConfig,
+  AvatarConfig,
   StateService,
   MediaService,
 } from '@swarm/core';
 import { createVoiceServices } from './voice.js';
 
 export interface PlatformServicesConfig {
-  agentId: string;
-  agentConfig: AgentConfig;
+  avatarId: string;
+  avatarConfig: AvatarConfig;
   stateService: StateService;
   mediaService?: MediaService;
   secrets: Record<string, string>;
@@ -29,14 +29,14 @@ export interface PlatformServicesConfig {
  * 
  * This is a lighter-weight adapter than admin-api's version since
  * platform handlers don't need all admin features (secrets management,
- * agent CRUD, etc.)
+ * avatar CRUD, etc.)
  */
 export function createPlatformMCPServices(config: PlatformServicesConfig): AllServices {
-  const { agentId, agentConfig, stateService, mediaService, wallets } = config;
+  const { avatarId, avatarConfig, stateService, mediaService, wallets } = config;
   const voiceServices = createVoiceServices({
-    agentId,
+    avatarId,
     secrets: config.secrets,
-    voiceConfig: agentConfig.voice,
+    voiceConfig: avatarConfig.voice,
     mediaBucket: config.mediaBucket,
     cdnUrl: config.cdnUrl,
   });
@@ -56,7 +56,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
           ? params.aspectRatio as typeof validRatios[number]
           : '1:1';
         const config = {
-          ...agentConfig.media.image,
+          ...avatarConfig.media.image,
           aspectRatio,
         };
         const result = await mediaService.generateImage(params.prompt, config);
@@ -64,10 +64,10 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
       },
 
       generateVideo: async (params: { prompt: string }) => {
-        if (!mediaService || !agentConfig.media.video) {
+        if (!mediaService || !avatarConfig.media.video) {
           throw new Error('Video generation not configured');
         }
-        const result = await mediaService.generateVideo(params.prompt, agentConfig.media.video);
+        const result = await mediaService.generateVideo(params.prompt, avatarConfig.media.video);
         return { jobId: result.s3Key || `video-${Date.now()}`, status: 'processing' };
       },
 
@@ -76,7 +76,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
           throw new Error('Media service not configured');
         }
         const stickerPrompt = `sticker style, ${params.prompt || 'cute character'}, white background, simple design`;
-        const result = await mediaService.generateImage(stickerPrompt, agentConfig.media.image);
+        const result = await mediaService.generateImage(stickerPrompt, avatarConfig.media.image);
         return { id: result.s3Key || 'sticker', url: result.url };
       },
 
@@ -141,7 +141,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
         throw new Error('Wallet creation not allowed from platform handlers');
       },
 
-      getBalance: async (_publicKey: string, _agentId: string, chain = 'solana') => ({
+      getBalance: async (_publicKey: string, _avatarId: string, chain = 'solana') => ({
         balance: 0,
         chain,
         solBalance: chain === 'solana' ? 0 : undefined,
@@ -157,10 +157,10 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     models: {
       listModels: async () => [],
       getConfig: async () => ({
-        model: agentConfig.llm.model,
-        provider: agentConfig.llm.provider,
-        temperature: agentConfig.llm.temperature,
-        maxTokens: agentConfig.llm.maxTokens,
+        model: avatarConfig.llm.model,
+        provider: avatarConfig.llm.provider,
+        temperature: avatarConfig.llm.temperature,
+        maxTokens: avatarConfig.llm.maxTokens,
       }),
       updateConfig: async () => {
         throw new Error('Model changes not allowed from platform handlers');
@@ -172,8 +172,8 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // =========================================================================
     profile: {
       getProfile: async () => ({
-        name: agentConfig.name,
-        persona: agentConfig.persona,
+        name: avatarConfig.name,
+        persona: avatarConfig.persona,
       }),
       updateProfile: async () => {
         throw new Error('Profile updates not allowed from platform handlers');
@@ -231,7 +231,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // =========================================================================
     memory: {
       remember: async (fact: string, about?: string, userId?: string) => {
-        await stateService.saveFact(agentId, {
+        await stateService.saveFact(avatarId, {
           fact,
           about,
           userId,
@@ -241,7 +241,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
       },
 
       recall: async (query: string, userId?: string) => {
-        const facts = await stateService.getFacts(agentId, query, userId);
+        const facts = await stateService.getFacts(avatarId, query, userId);
         return { facts };
       },
     },

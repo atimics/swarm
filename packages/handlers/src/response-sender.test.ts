@@ -69,7 +69,7 @@ describe('Response Sender - JSON Parse Error Handling', () => {
 
     it('should successfully parse valid JSON', async () => {
       const validBody = JSON.stringify({
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         platform: 'telegram',
         conversationId: '123',
         actions: [{ type: 'send_message', text: 'hello' }],
@@ -79,7 +79,7 @@ describe('Response Sender - JSON Parse Error Handling', () => {
 
       try {
         const parsed = JSON.parse(record.body);
-        expect(parsed.agentId).toBe('test-agent');
+        expect(parsed.avatarId).toBe('test-avatar');
       } catch {
         batchItemFailures.push({ itemIdentifier: record.messageId });
       }
@@ -239,20 +239,20 @@ describe('Response Sender - Media Handling', () => {
       const jobId = 'job-123';
       const action = { type: 'take_selfie', prompt: 'Beach sunset' };
       const response = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         conversationId: 'conv-456',
       };
 
       const mediaJob = {
         jobId,
-        agentId: response.agentId,
+        avatarId: response.avatarId,
         conversationId: response.conversationId,
         action,
         response,
       };
 
       expect(mediaJob.jobId).toBe('job-123');
-      expect(mediaJob.agentId).toBe('test-agent');
+      expect(mediaJob.avatarId).toBe('test-avatar');
       expect(mediaJob.action.type).toBe('take_selfie');
     });
 
@@ -435,11 +435,11 @@ describe('Response Sender - Pending Jobs', () => {
 describe('Response Sender - Channel State Updates', () => {
   it('should update channel state with bot messages', () => {
     const sentMessages = ['Hello!', 'Here is your image.'];
-    const agentName = 'Test Bot';
+    const avatarName = 'Test Bot';
 
     const channelUpdates = sentMessages.map(text => ({
       messageId: `bot_${Math.random().toString(36).slice(2)}`,
-      sender: agentName,
+      sender: avatarName,
       isBot: true,
       content: text,
       timestamp: Date.now(),
@@ -508,7 +508,7 @@ describe('Response Sender - Service Mock Integration', () => {
     };
 
     const response = {
-      agentId: 'test-agent',
+      avatarId: 'test-avatar',
       platform: 'telegram',
       conversationId: '12345',
       actions: [{ type: 'send_message', text: 'Hello!' }],
@@ -544,7 +544,7 @@ describe('Response Sender - Service Mock Integration', () => {
 
     const mediaJob = {
       jobId: 'job-123',
-      agentId: 'test-agent',
+      avatarId: 'test-avatar',
       conversationId: 'conv-456',
       action: { type: 'take_selfie', prompt: 'Beach sunset' },
     };

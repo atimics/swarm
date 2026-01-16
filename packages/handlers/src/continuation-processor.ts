@@ -2,10 +2,10 @@
  * Continuation Processor Handler
  *
  * Processes async job results and either:
- * 1. Re-triggers the agent loop for actionable events (completed/failed)
+ * 1. Re-triggers the avatar loop for actionable events (completed/failed)
  * 2. Sends progress updates directly to the user
  *
- * This enables agents to act on async results like:
+ * This enables avatars to act on async results like:
  * - Posting generated images to Twitter
  * - Summarizing research results
  * - Responding to code task completions
@@ -21,7 +21,7 @@ import type {
 } from '@swarm/core';
 import {
   formatContinuationAsSystemMessage,
-  shouldTriggerAgentLoop,
+  shouldTriggerAvatarLoop,
   isProgressUpdate,
 } from '@swarm/core';
 
@@ -62,10 +62,10 @@ async function getSecret(secretArn: string): Promise<string | null> {
   }
 }
 
-async function getTelegramToken(agentId: string): Promise<string | null> {
+async function getTelegramToken(avatarId: string): Promise<string | null> {
   const result = await dynamoClient.send(new GetCommand({
     TableName: ADMIN_TABLE,
-    Key: { pk: `AGENT#${agentId}`, sk: 'SECRET#telegram_bot_token#default' },
+    Key: { pk: `AVATAR#${avatarId}`, sk: 'SECRET#telegram_bot_token#default' },
   }));
   if (!result.Item?.secretArn) return null;
   return getSecret(result.Item.secretArn);
@@ -134,20 +134,20 @@ function formatProgressForUser(msg: ContinuationMessage): string {
 }
 
 /**
- * Store the continuation context for the agent to use in the next turn
+ * Store the continuation context for the avatar to use in the next turn
  * This adds the async result to the conversation history
  */
 async function storeContinuationContext(
-  agentId: string,
+  avatarId: string,
   conversationId: string,
   msg: ContinuationMessage
 ): Promise<void> {
   const key = {
-    pk: `AGENT#${agentId}`,
+    pk: `AVATAR#${avatarId}`,
     sk: `CONTINUATION#${conversationId}`,
   };
 
-  // Store as a pending context that will be injected into the next agent turn
+  // Store as a pending context that will be injected into the next avatar turn
   await dynamoClient.send(new UpdateCommand({
     TableName: ADMIN_TABLE,
     Key: key,
@@ -166,7 +166,7 @@ async function storeContinuationContext(
   }));
 
   logger.info('Stored continuation context', {
-    agentId,
+    avatarId,
     conversationId,
     messageType: msg.type,
   });
@@ -176,11 +176,11 @@ async function storeContinuationContext(
  * Get and clear pending continuation context for a conversation
  */
 export async function getPendingContinuationContext(
-  agentId: string,
+  avatarId: string,
   conversationId: string
 ): Promise<string[]> {
   const key = {
-    pk: `AGENT#${agentId}`,
+    pk: `AVATAR#${avatarId}`,
     sk: `CONTINUATION#${conversationId}`,
   };
 
@@ -213,7 +213,7 @@ export async function getPendingContinuationContext(
     return pending;
   } catch (error) {
     logger.error('Failed to get pending continuation context', error, {
-      agentId,
+      avatarId,
       conversationId,
     });
     return [];
@@ -221,20 +221,20 @@ export async function getPendingContinuationContext(
 }
 
 /**
- * Queue a message to trigger the agent loop
+ * Queue a message to trigger the avatar loop
  */
-async function triggerAgentLoop(
+async function triggerAvatarLoop(
   msg: ContinuationMessage,
   systemMessage: string
 ): Promise<void> {
   if (!MESSAGE_QUEUE_URL) {
-    logger.warn('MESSAGE_QUEUE_URL not configured, cannot trigger agent loop');
+    logger.warn('MESSAGE_QUEUE_URL not configured, cannot trigger avatar loop');
     return;
   }
 
-  // Create a synthetic "system" envelope that will trigger the agent
+  // Create a synthetic "system" envelope that will trigger the avatar
   const envelope = {
-    agentId: msg.agentId,
+    avatarId: msg.avatarId,
     platform: msg.platform,
     messageId: `continuation_${msg.jobId || Date.now()}`,
     conversationId: msg.conversationId,
@@ -271,8 +271,8 @@ async function triggerAgentLoop(
     MessageDeduplicationId: `cont_${msg.jobId || msg.timestamp}`,
   }));
 
-  logger.info('Triggered agent loop for continuation', {
-    agentId: msg.agentId,
+  logger.info('Triggered avatar loop for continuation', {
+    avatarId: msg.avatarId,
     conversationId: msg.conversationId,
     type: msg.type,
   });
@@ -282,19 +282,19 @@ async function triggerAgentLoop(
  * Process a continuation message
  */
 async function processMessage(msg: ContinuationMessage): Promise<void> {
-  const { agentId, platform, conversationId, replyToMessageId } = msg;
+  const { avatarId, platform, conversationId, replyToMessageId } = msg;
 
   logger.info('Processing continuation', {
     type: msg.type,
-    agentId,
+    avatarId,
     platform,
     conversationId,
   });
 
-  // Handle progress updates - send directly to user, don't trigger agent
+  // Handle progress updates - send directly to user, don't trigger avatar
   if (isProgressUpdate(msg)) {
     if (platform === 'telegram') {
-      const token = await getTelegramToken(agentId);
+      const token = await getTelegramToken(avatarId);
       if (token) {
         const chatId = conversationId.startsWith('telegram:')
           ? conversationId.replace('telegram:', '')
@@ -311,15 +311,15 @@ async function processMessage(msg: ContinuationMessage): Promise<void> {
     return;
   }
 
-  // Handle actionable events - trigger the agent loop
-  if (shouldTriggerAgentLoop(msg)) {
+  // Handle actionable events - trigger the avatar loop
+  if (shouldTriggerAvatarLoop(msg)) {
     const systemMessage = formatContinuationAsSystemMessage(msg);
 
-    // Store context for the agent to use
-    await storeContinuationContext(agentId, conversationId, msg);
+    // Store context for the avatar to use
+    await storeContinuationContext(avatarId, conversationId, msg);
 
-    // Trigger the agent loop
-    await triggerAgentLoop(msg, systemMessage);
+    // Trigger the avatar loop
+    await triggerAvatarLoop(msg, systemMessage);
   }
 }
 

@@ -11,7 +11,7 @@ import {
   createActivityService,
   createMessageEvaluator,
   logger,
-  type AgentConfig,
+  type AvatarConfig,
 } from '@swarm/core';
 
 const sqs = new SQSClient({});
@@ -20,14 +20,14 @@ const sqs = new SQSClient({});
 const MESSAGE_QUEUE_URL = process.env.MESSAGE_QUEUE_URL!;
 const STATE_TABLE = process.env.STATE_TABLE!;
 const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE!;
-const AGENT_ID = process.env.AGENT_ID!;
+const AVATAR_ID = process.env.AVATAR_ID!;
 
 // Lazy-initialized services
 let stateService: ReturnType<typeof createStateService>;
 let activityService: ReturnType<typeof createActivityService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let telegramAdapter: TelegramAdapter;
-let agentConfig: AgentConfig;
+let avatarConfig: AvatarConfig;
 
 /**
  * Initialize services (called once per Lambda cold start)
@@ -39,17 +39,17 @@ async function initialize(): Promise<void> {
   activityService = createActivityService(ACTIVITY_TABLE);
   secretsService = createSecretsService();
 
-  // Load agent config from DynamoDB or environment
-  agentConfig = await stateService.getAgentConfig(AGENT_ID) || {
-    id: AGENT_ID,
-    name: process.env.AGENT_NAME || AGENT_ID,
+  // Load avatar config from DynamoDB or environment
+  avatarConfig = await stateService.getAvatarConfig(AVATAR_ID) || {
+    id: AVATAR_ID,
+    name: process.env.AVATAR_NAME || AVATAR_ID,
     version: '1.0.0',
     persona: '',
     platforms: {
       telegram: {
         enabled: true,
         botUsername: process.env.TELEGRAM_BOT_USERNAME || '',
-        webhookPath: `/webhook/telegram/${AGENT_ID}`,
+        webhookPath: `/webhook/telegram/${AVATAR_ID}`,
       },
     },
     llm: {
@@ -75,10 +75,10 @@ async function initialize(): Promise<void> {
 
   // Get Telegram bot token
   const secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${AGENT_ID}/secrets`
+    process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
   );
 
-  telegramAdapter = new TelegramAdapter(agentConfig, secrets.TELEGRAM_BOT_TOKEN);
+  telegramAdapter = new TelegramAdapter(avatarConfig, secrets.TELEGRAM_BOT_TOKEN);
 }
 
 /**
@@ -90,7 +90,7 @@ export async function handler(
 ): Promise<APIGatewayProxyResult> {
   const startTime = Date.now();
   logger.setContext({
-    agentId: AGENT_ID,
+    avatarId: AVATAR_ID,
     platform: 'telegram',
     requestId: context.awsRequestId,
   });
@@ -139,7 +139,7 @@ export async function handler(
 
     // Log received message
     await activityService.logMessageReceived(
-      AGENT_ID,
+      AVATAR_ID,
       'telegram',
       envelope.sender.displayName || envelope.sender.username || 'Unknown',
       envelope.content.text || '[media]'
@@ -156,8 +156,8 @@ export async function handler(
     }
 
     // Evaluate if we should respond
-    const evaluator = createMessageEvaluator(agentConfig, stateService, {
-      botUsernames: [agentConfig.platforms.telegram?.botUsername || ''],
+    const evaluator = createMessageEvaluator(avatarConfig, stateService, {
+      botUsernames: [avatarConfig.platforms.telegram?.botUsername || ''],
     });
 
     const evaluation = await evaluator.evaluate(envelope);
@@ -174,7 +174,7 @@ export async function handler(
 
     // Add message to channel state
     await stateService.addMessageToChannel(
-      AGENT_ID,
+      AVATAR_ID,
       envelope.conversationId,
       'telegram',
       {
@@ -223,7 +223,7 @@ export async function handler(
     // Log error to activity feed
     try {
       await activityService.logError(
-        AGENT_ID,
+        AVATAR_ID,
         'telegram',
         error instanceof Error ? error.message : String(error)
       );

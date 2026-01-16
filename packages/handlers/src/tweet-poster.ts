@@ -13,7 +13,7 @@ import {
   logger,
   DEFAULT_LLM_MODEL,
   DEFAULT_LLM_PROVIDER,
-  type AgentConfig,
+  type AvatarConfig,
 } from '@swarm/core';
 
 // Environment variables
@@ -21,7 +21,7 @@ const STATE_TABLE = process.env.STATE_TABLE!;
 const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE!;
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET!;
 const CDN_URL = process.env.CDN_URL;
-const AGENT_ID = process.env.AGENT_ID!;
+const AVATAR_ID = process.env.AVATAR_ID!;
 const TWEET_TEMPLATE = process.env.TWEET_TEMPLATE || 'general';
 
 // Services
@@ -30,7 +30,7 @@ let activityService: ReturnType<typeof createActivityService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let twitterAdapter: TwitterAdapter;
 let secrets: Record<string, string>;
-let agentConfig: AgentConfig;
+let avatarConfig: AvatarConfig;
 
 async function initialize(): Promise<void> {
   if (stateService) return;
@@ -39,9 +39,9 @@ async function initialize(): Promise<void> {
   activityService = createActivityService(ACTIVITY_TABLE);
   secretsService = createSecretsService();
 
-  agentConfig = await stateService.getAgentConfig(AGENT_ID) || {
-    id: AGENT_ID,
-    name: AGENT_ID,
+  avatarConfig = await stateService.getAvatarConfig(AVATAR_ID) || {
+    id: AVATAR_ID,
+    name: AVATAR_ID,
     version: '1.0.0',
     persona: '',
     platforms: {
@@ -56,10 +56,10 @@ async function initialize(): Promise<void> {
   };
 
   secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${AGENT_ID}/secrets`
+    process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
   );
 
-  twitterAdapter = new TwitterAdapter(agentConfig, {
+  twitterAdapter = new TwitterAdapter(avatarConfig, {
     appKey: secrets.TWITTER_API_KEY,
     appSecret: secrets.TWITTER_API_SECRET,
     accessToken: secrets.TWITTER_ACCESS_TOKEN,
@@ -70,7 +70,7 @@ async function initialize(): Promise<void> {
 export const handler: ScheduledHandler = async (_event, context: Context) => {
   const startTime = Date.now();
   logger.setContext({
-    agentId: AGENT_ID,
+    avatarId: AVATAR_ID,
     platform: 'twitter',
     requestId: context.awsRequestId,
     template: TWEET_TEMPLATE,
@@ -91,9 +91,9 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
     });
 
     // Generate tweet content using LLM
-    const llmService = createLLMService(agentConfig.llm, secrets);
+    const llmService = createLLMService(avatarConfig.llm, secrets);
     
-    const systemPrompt = `${agentConfig.persona}
+    const systemPrompt = `${avatarConfig.persona}
 
 You are posting a tweet. Generate a single tweet that:
 - Is engaging and authentic to your personality
@@ -105,10 +105,10 @@ You are posting a tweet. Generate a single tweet that:
 Respond with ONLY the tweet text, nothing else.`;
 
     const response = await llmService.generateResponse({
-      agentId: AGENT_ID,
+      avatarId: AVATAR_ID,
       systemPrompt,
       messages: [{ role: 'user', content: 'Generate a tweet.' }],
-      config: { ...agentConfig.llm, temperature: 0.95 },
+      config: { ...avatarConfig.llm, temperature: 0.95 },
     });
 
     let tweetText = response.content.trim();
@@ -134,13 +134,13 @@ Respond with ONLY the tweet text, nothing else.`;
         const mediaService = createMediaService(secrets, MEDIA_BUCKET, CDN_URL);
         
         const imagePromptResponse = await llmService.generateResponse({
-          agentId: AGENT_ID,
+          avatarId: AVATAR_ID,
           systemPrompt: `Generate a short image prompt (under 100 chars) for an image to accompany this tweet: "${tweetText}"
           
 The image should be visually interesting and relate to the tweet content.
 Respond with ONLY the image prompt, nothing else.`,
           messages: [{ role: 'user', content: 'Generate image prompt.' }],
-          config: { ...agentConfig.llm, maxTokens: 100 },
+          config: { ...avatarConfig.llm, maxTokens: 100 },
         });
 
         const imagePrompt = imagePromptResponse.content.trim();
@@ -150,7 +150,7 @@ Respond with ONLY the image prompt, nothing else.`,
           prompt: imagePrompt,
         });
 
-        const media = await mediaService.generateImage(imagePrompt, agentConfig.media.image);
+        const media = await mediaService.generateImage(imagePrompt, avatarConfig.media.image);
         mediaUrl = media.url;
         
         logger.info('Image generated', {
@@ -183,7 +183,7 @@ Respond with ONLY the image prompt, nothing else.`,
 
     // Log activity
     await activityService.log({
-      agentId: AGENT_ID,
+      avatarId: AVATAR_ID,
       timestamp: Date.now(),
       eventType: 'response_sent',
       platform: 'twitter',
@@ -199,7 +199,7 @@ Respond with ONLY the image prompt, nothing else.`,
     });
     
     await activityService.logError(
-      AGENT_ID,
+      AVATAR_ID,
       'twitter',
       error instanceof Error ? error.message : String(error)
     );

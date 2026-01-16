@@ -15,7 +15,7 @@ import { z } from 'zod';
 // Schema matching the one in media-processor.ts
 const MediaQueueItemSchema = z.object({
   jobId: z.string(),
-  agentId: z.string(),
+  avatarId: z.string(),
   conversationId: z.string(),
   action: z.object({
     type: z.string(),
@@ -84,9 +84,9 @@ describe('Media Processor - JSON Parse Error Handling', () => {
   describe('Schema validation and poison pill prevention (BUG-004)', () => {
     it('should reject messages missing required fields', async () => {
       const invalidMessages = [
-        { jobId: '123' },  // Missing agentId, conversationId, etc.
-        { jobId: '123', agentId: 'test' },  // Missing conversationId
-        { jobId: '123', agentId: 'test', conversationId: 'conv' },  // Missing action, response
+        { jobId: '123' },  // Missing avatarId, conversationId, etc.
+        { jobId: '123', avatarId: 'test' },  // Missing conversationId
+        { jobId: '123', avatarId: 'test', conversationId: 'conv' },  // Missing action, response
       ];
 
       for (const msg of invalidMessages) {
@@ -98,7 +98,7 @@ describe('Media Processor - JSON Parse Error Handling', () => {
     it('should accept valid media queue items', async () => {
       const validMessage = {
         jobId: 'job-123',
-        agentId: 'agent-456',
+        avatarId: 'avatar-456',
         conversationId: 'conv-789',
         action: {
           type: 'take_selfie',
@@ -151,13 +151,13 @@ describe('Media Processor - JSON Parse Error Handling', () => {
     it('should process valid messages even when some fail', async () => {
       const records = [
         { messageId: 'valid-1', body: JSON.stringify({
-          jobId: 'j1', agentId: 'a1', conversationId: 'c1',
+          jobId: 'j1', avatarId: 'a1', conversationId: 'c1',
           action: { type: 'take_selfie' },
           response: { platform: 'telegram', conversationId: 'c1', actions: [] },
         })},
         { messageId: 'invalid-1', body: 'not json' },
         { messageId: 'valid-2', body: JSON.stringify({
-          jobId: 'j2', agentId: 'a2', conversationId: 'c2',
+          jobId: 'j2', avatarId: 'a2', conversationId: 'c2',
           action: { type: 'take_selfie' },
           response: { platform: 'telegram', conversationId: 'c2', actions: [] },
         })},

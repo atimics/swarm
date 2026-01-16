@@ -16,17 +16,20 @@ import {
   DEFAULT_LLM_PROVIDER,
   DEFAULT_LLM_TEMPERATURE,
   DEFAULT_LLM_MAX_TOKENS,
-  type AgentConfig,
+  type AvatarConfig,
   type ToolDefinition,
   type WebChatMessage,
   type ResponseAction,
+  type SwarmResponse,
 } from '@swarm/core';
 import { z } from 'zod';
 
 // Environment variables
 const STATE_TABLE = process.env.STATE_TABLE!;
 const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE!;
-const AGENT_ID = process.env.AGENT_ID!;
+const AVATAR_ID = process.env.AVATAR_ID!;
+const ADMIN_API_URL = process.env.ADMIN_API_URL; // Optional: for issue reporting
+const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY; // Optional: for issue reporting
 
 // Services
 let stateService: ReturnType<typeof createStateService>;
@@ -34,7 +37,58 @@ let activityService: ReturnType<typeof createActivityService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let webAdapter: WebAdapter;
 let secrets: Record<string, string>;
-let agentConfig: AgentConfig;
+let avatarConfig: AvatarConfig;
+
+/**
+ * Report an error to the auto-issues system via admin API
+ * Fails silently if admin API is not configured
+ */
+async function reportIssue(params: {
+  error: string;
+  subsystem: string;
+  category?: string;
+  context?: Record<string, unknown>;
+}): Promise<void> {
+  if (!ADMIN_API_URL || !INTERNAL_TEST_KEY) {
+    logger.warn('Issue reporting skipped - ADMIN_API_URL or INTERNAL_TEST_KEY not configured', {
+      event: 'issue_report_skipped',
+      error: params.error,
+      subsystem: params.subsystem,
+    });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${ADMIN_API_URL}/issues`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-test-key': INTERNAL_TEST_KEY,
+      },
+      body: JSON.stringify({
+        error: params.error,
+        subsystem: params.subsystem,
+        category: params.category,
+        avatarId: AVATAR_ID,
+        context: params.context,
+      }),
+      signal: AbortSignal.timeout(5000), // 5 second timeout
+    });
+
+    if (!response.ok) {
+      logger.warn('Failed to report issue to admin API', {
+        event: 'issue_report_failed',
+        status: response.status,
+      });
+    }
+  } catch (err) {
+    // Silently ignore - issue reporting should not affect main flow
+    logger.warn('Failed to report issue to admin API', {
+      event: 'issue_report_error',
+      error: err instanceof Error ? err.message : 'Unknown error',
+    });
+  }
+}
 
 async function initialize(): Promise<void> {
   if (stateService) return;
@@ -43,9 +97,9 @@ async function initialize(): Promise<void> {
   activityService = createActivityService(ACTIVITY_TABLE);
   secretsService = createSecretsService();
 
-  agentConfig = await stateService.getAgentConfig(AGENT_ID) || {
-    id: AGENT_ID,
-    name: AGENT_ID,
+  avatarConfig = await stateService.getAvatarConfig(AVATAR_ID) || {
+    id: AVATAR_ID,
+    name: AVATAR_ID,
     version: '1.0.0',
     persona: 'You are a helpful AI assistant.',
     platforms: {
@@ -64,10 +118,10 @@ async function initialize(): Promise<void> {
   };
 
   secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${AGENT_ID}/secrets`
+    process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
   );
 
-  webAdapter = new WebAdapter(agentConfig);
+  webAdapter = new WebAdapter(avatarConfig);
 }
 
 // Simple tool for web chat (direct response)
@@ -87,7 +141,7 @@ export async function handler(
   context: Context
 ): Promise<APIGatewayProxyResult> {
   logger.setContext({
-    agentId: AGENT_ID,
+    avatarId: AVATAR_ID,
     platform: 'web',
     requestId: context.awsRequestId,
   });
@@ -126,7 +180,7 @@ export async function handler(
     const message: WebChatMessage = JSON.parse(body.toString());
 
     // Token gating check
-    if (agentConfig.platforms.web?.tokenGated?.enabled) {
+    if (avatarConfig.platforms.web?.tokenGated?.enabled) {
       if (!message.wallet?.address) {
         return {
           statusCode: 401,
@@ -136,12 +190,12 @@ export async function handler(
       }
 
       // Verify token balance
-      if (agentConfig.solana?.enabled) {
-        const solanaService = createSolanaService(agentConfig.solana);
+      if (avatarConfig.solana?.enabled) {
+        const solanaService = createSolanaService(avatarConfig.solana);
         const hasBalance = await solanaService.verifyTokenHolder(
           message.wallet.address,
-          agentConfig.platforms.web.tokenGated.tokenMint,
-          agentConfig.platforms.web.tokenGated.minBalance
+          avatarConfig.platforms.web.tokenGated.tokenMint,
+          avatarConfig.platforms.web.tokenGated.minBalance
         );
 
         if (!hasBalance) {
@@ -150,7 +204,7 @@ export async function handler(
             headers: corsHeaders,
             body: JSON.stringify({ 
               error: 'Insufficient token balance',
-              required: agentConfig.platforms.web.tokenGated.minBalance,
+              required: avatarConfig.platforms.web.tokenGated.minBalance,
             }),
           };
         }
@@ -169,33 +223,73 @@ export async function handler(
 
     // Log received message
     await activityService.logMessageReceived(
-      AGENT_ID,
+      AVATAR_ID,
       'web',
       envelope.sender.displayName || 'Web User',
       envelope.content.text || ''
     );
 
-    // Generate response synchronously for web chat
-    const llmService = createLLMService(agentConfig.llm, secrets);
+    // Generate response synchronously for web chat with retry logic
+    const llmService = createLLMService(avatarConfig.llm, secrets);
     const generator = createResponseGenerator(
-      agentConfig,
+      avatarConfig,
       llmService,
       stateService,
       webTools,
-      agentConfig.persona
+      avatarConfig.persona
     );
 
-    const response = await generator.generate(envelope);
+    const MAX_RETRIES = 2;
+    const RETRY_DELAY_MS = 1000;
+    let responseText = '';
+    let lastResponse: SwarmResponse | null = null;
+    
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      lastResponse = await generator.generate(envelope);
 
-    // Extract text response
-    const messageAction = response.actions.find((a: ResponseAction) => a.type === 'send_message');
-    const responseText = messageAction && 'text' in messageAction 
-      ? messageAction.text 
-      : 'I apologize, but I was unable to generate a response.';
+      // Extract text response
+      const messageAction = lastResponse.actions.find((a: ResponseAction) => a.type === 'send_message');
+      responseText = messageAction && 'text' in messageAction ? messageAction.text : '';
+      
+      if (responseText) {
+        break; // Got a valid response, exit retry loop
+      }
+      
+      if (attempt < MAX_RETRIES) {
+        logger.warn('Empty LLM response, retrying', {
+          event: 'llm_retry',
+          attempt: attempt + 1,
+          maxRetries: MAX_RETRIES,
+        });
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+      }
+    }
+    
+    // Final fallback if all retries exhausted
+    if (!responseText) {
+      logger.error('LLM response empty after all retries', {
+        event: 'llm_empty_after_retries',
+        attempts: MAX_RETRIES + 1,
+      });
+      
+      // Report issue to auto-issues system
+      await reportIssue({
+        error: 'LLM returned empty response after all retries',
+        subsystem: 'llm',
+        category: 'llm_empty_response',
+        context: {
+          attempts: MAX_RETRIES + 1,
+          platform: 'web',
+          model: avatarConfig.llm.model,
+        },
+      });
+      
+      responseText = 'I apologize, but I was unable to generate a response. Please try again.';
+    }
 
     // Update channel state
     await stateService.addMessageToChannel(
-      AGENT_ID,
+      AVATAR_ID,
       envelope.conversationId,
       'web',
       {
@@ -208,12 +302,12 @@ export async function handler(
     );
 
     await stateService.addMessageToChannel(
-      AGENT_ID,
+      AVATAR_ID,
       envelope.conversationId,
       'web',
       {
         messageId: `bot_${Date.now()}`,
-        sender: agentConfig.name,
+        sender: avatarConfig.name,
         isBot: true,
         content: responseText,
         timestamp: Date.now(),
@@ -221,10 +315,12 @@ export async function handler(
     );
 
     // Log response
-    await activityService.logResponseSent(AGENT_ID, 'web', response.actions);
+    if (lastResponse) {
+      await activityService.logResponseSent(AVATAR_ID, 'web', lastResponse.actions);
+    }
 
     // Return response
-    const webResponse = webAdapter.createResponse(AGENT_ID, responseText);
+    const webResponse = webAdapter.createResponse(AVATAR_ID, responseText);
 
     return {
       statusCode: 200,

@@ -14,13 +14,13 @@ import {
   DEFAULT_LLM_PROVIDER,
   DEFAULT_LLM_TEMPERATURE,
   DEFAULT_LLM_MAX_TOKENS,
-  type AgentConfig,
+  type AvatarConfig,
 } from '@swarm/core';
 
 // Environment variables
 const STATE_TABLE = process.env.STATE_TABLE!;
 const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE!;
-const AGENT_ID = process.env.AGENT_ID!;
+const AVATAR_ID = process.env.AVATAR_ID!;
 const MESSAGE_QUEUE_URL = process.env.MESSAGE_QUEUE_URL!;
 
 // Services
@@ -30,7 +30,7 @@ let secretsService: ReturnType<typeof createSecretsService>;
 let sqsClient: SQSClient;
 let twitterAdapter: TwitterAdapter;
 let secrets: Record<string, string>;
-let agentConfig: AgentConfig;
+let avatarConfig: AvatarConfig;
 
 async function initialize(): Promise<void> {
   if (stateService) return;
@@ -40,9 +40,9 @@ async function initialize(): Promise<void> {
   secretsService = createSecretsService();
   sqsClient = new SQSClient({});
 
-  agentConfig = await stateService.getAgentConfig(AGENT_ID) || {
-    id: AGENT_ID,
-    name: AGENT_ID,
+  avatarConfig = await stateService.getAvatarConfig(AVATAR_ID) || {
+    id: AVATAR_ID,
+    name: AVATAR_ID,
     version: '1.0.0',
     persona: '',
     platforms: {
@@ -57,10 +57,10 @@ async function initialize(): Promise<void> {
   };
 
   secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${AGENT_ID}/secrets`
+    process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
   );
 
-  twitterAdapter = new TwitterAdapter(agentConfig, {
+  twitterAdapter = new TwitterAdapter(avatarConfig, {
     appKey: secrets.TWITTER_API_KEY,
     appSecret: secrets.TWITTER_API_SECRET,
     accessToken: secrets.TWITTER_ACCESS_TOKEN,
@@ -71,7 +71,7 @@ async function initialize(): Promise<void> {
 export const handler: ScheduledHandler = async (_event, context: Context) => {
   const startTime = Date.now();
   logger.setContext({
-    agentId: AGENT_ID,
+    avatarId: AVATAR_ID,
     platform: 'twitter',
     requestId: context.awsRequestId,
     handler: 'mention-poller',
@@ -100,7 +100,7 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
     });
 
     // Get the last processed mention ID from state
-    const sinceId = await stateService.getLastMentionId(AGENT_ID);
+    const sinceId = await stateService.getLastMentionId(AVATAR_ID);
 
     logger.info('Fetching mentions', {
       event: 'api_request',
@@ -132,7 +132,7 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
 
     for (const envelope of sortedMentions) {
       // Skip self-mentions (our own tweets)
-      if (envelope.sender.username === agentConfig.platforms.twitter?.username) {
+      if (envelope.sender.username === avatarConfig.platforms.twitter?.username) {
         logger.debug('Skipping self-mention', {
           event: 'mention_skipped',
           subsystem: 'twitter',
@@ -144,7 +144,7 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
 
       // Log the mention
       await activityService.logMessageReceived(
-        AGENT_ID,
+        AVATAR_ID,
         'twitter',
         envelope.sender.displayName || envelope.sender.username || 'Unknown',
         envelope.content.text || ''
@@ -173,7 +173,7 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
 
     // Update the last processed mention ID
     if (newestMentionId && newestMentionId !== sinceId) {
-      await stateService.setLastMentionId(AGENT_ID, newestMentionId);
+      await stateService.setLastMentionId(AVATAR_ID, newestMentionId);
       logger.info('Updated last mention ID', {
         event: 'state_updated',
         subsystem: 'twitter',
@@ -197,7 +197,7 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
     });
 
     await activityService.logError(
-      AGENT_ID,
+      AVATAR_ID,
       'twitter',
       error instanceof Error ? error.message : String(error)
     );

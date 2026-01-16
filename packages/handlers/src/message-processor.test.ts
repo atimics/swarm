@@ -15,7 +15,7 @@ import { z } from 'zod';
 // Schema matching MessageQueueItemSchema
 const MessageQueueItemSchema = z.object({
   envelope: z.object({
-    agentId: z.string(),
+    avatarId: z.string(),
     platform: z.string(),
     messageId: z.string(),
     conversationId: z.string(),
@@ -203,7 +203,7 @@ describe('Message Processor - Poison Pill Prevention', () => {
         messageId: 'valid-123',
         body: JSON.stringify({
           envelope: {
-            agentId: 'agent-1',
+            avatarId: 'avatar-1',
             platform: 'telegram',
             messageId: '456',
             conversationId: 'conv-789',
@@ -241,7 +241,7 @@ describe('Message Processor - Batch Processing', () => {
     const records = [
       { messageId: 'good-1', body: JSON.stringify({
         envelope: {
-          agentId: 'a1', platform: 'telegram', messageId: 'm1',
+          avatarId: 'a1', platform: 'telegram', messageId: 'm1',
           conversationId: 'c1', timestamp: Date.now(),
           sender: { id: 'u1', isBot: false },
           content: { text: 'Hi' },
@@ -252,7 +252,7 @@ describe('Message Processor - Batch Processing', () => {
       { messageId: 'bad-1', body: 'invalid' },
       { messageId: 'good-2', body: JSON.stringify({
         envelope: {
-          agentId: 'a2', platform: 'telegram', messageId: 'm2',
+          avatarId: 'a2', platform: 'telegram', messageId: 'm2',
           conversationId: 'c2', timestamp: Date.now(),
           sender: { id: 'u2', isBot: false },
           content: { text: 'Hello' },
@@ -463,7 +463,7 @@ describe('Message Processor - Tool Execution E2E', () => {
   describe('Response generation', () => {
     it('should queue response to SQS with correct structure', () => {
       const response = {
-        agentId: 'test-agent',
+        avatarId: 'test-avatar',
         platform: 'telegram',
         conversationId: 'chat-123',
         replyToMessageId: 'msg-456',
@@ -475,7 +475,7 @@ describe('Message Processor - Tool Execution E2E', () => {
         tokensUsed: 150,
       };
 
-      expect(response.agentId).toBe('test-agent');
+      expect(response.avatarId).toBe('test-avatar');
       expect(response.actions).toHaveLength(1);
       expect(response.actions[0].type).toBe('send_message');
     });

@@ -12,7 +12,7 @@ import {
   createMessageEvaluator,
   logger,
   DEFAULT_LLM_MODEL,
-  type AgentConfig,
+  type AvatarConfig,
 } from '@swarm/core';
 
 const sqs = new SQSClient({});
@@ -21,14 +21,14 @@ const sqs = new SQSClient({});
 const MESSAGE_QUEUE_URL = process.env.MESSAGE_QUEUE_URL!;
 const STATE_TABLE = process.env.STATE_TABLE!;
 const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE!;
-const AGENT_ID = process.env.AGENT_ID!;
+const AVATAR_ID = process.env.AVATAR_ID!;
 
 // Lazy-initialized services
 let stateService: ReturnType<typeof createStateService>;
 let activityService: ReturnType<typeof createActivityService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let discordAdapter: DiscordAdapter;
-let agentConfig: AgentConfig;
+let avatarConfig: AvatarConfig;
 
 async function initialize(): Promise<void> {
   if (stateService) return;
@@ -37,9 +37,9 @@ async function initialize(): Promise<void> {
   activityService = createActivityService(ACTIVITY_TABLE);
   secretsService = createSecretsService();
 
-  agentConfig = await stateService.getAgentConfig(AGENT_ID) || {
-    id: AGENT_ID,
-    name: process.env.AGENT_NAME || AGENT_ID,
+  avatarConfig = await stateService.getAvatarConfig(AVATAR_ID) || {
+    id: AVATAR_ID,
+    name: process.env.AVATAR_NAME || AVATAR_ID,
     version: '1.0.0',
     persona: '',
     platforms: {
@@ -72,16 +72,16 @@ async function initialize(): Promise<void> {
   };
 
   const secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${AGENT_ID}/secrets`
+    process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
   );
 
-  discordAdapter = new DiscordAdapter(agentConfig, {
+  discordAdapter = new DiscordAdapter(avatarConfig, {
     botToken: secrets.DISCORD_BOT_TOKEN || secrets.discord_bot_token,
-    applicationId: agentConfig.platforms.discord?.applicationId,
-    publicKey: agentConfig.platforms.discord?.publicKey,
-    webhookUrl: agentConfig.platforms.discord?.webhookUrl,
-    webhookId: agentConfig.platforms.discord?.webhookId,
-    webhookToken: agentConfig.platforms.discord?.webhookToken,
+    applicationId: avatarConfig.platforms.discord?.applicationId,
+    publicKey: avatarConfig.platforms.discord?.publicKey,
+    webhookUrl: avatarConfig.platforms.discord?.webhookUrl,
+    webhookId: avatarConfig.platforms.discord?.webhookId,
+    webhookToken: avatarConfig.platforms.discord?.webhookToken,
   });
 }
 
@@ -96,7 +96,7 @@ export async function handler(
 ): Promise<APIGatewayProxyResult> {
   const startTime = Date.now();
   logger.setContext({
-    agentId: AGENT_ID,
+    avatarId: AVATAR_ID,
     platform: 'discord',
     requestId: context.awsRequestId,
   });
@@ -155,7 +155,7 @@ export async function handler(
     }
 
     await activityService.logMessageReceived(
-      AGENT_ID,
+      AVATAR_ID,
       'discord',
       envelope.sender.displayName || envelope.sender.username || 'Unknown',
       envelope.content.text || '[interaction]'
@@ -178,7 +178,7 @@ export async function handler(
       };
     }
 
-    const evaluator = createMessageEvaluator(agentConfig, stateService, {
+    const evaluator = createMessageEvaluator(avatarConfig, stateService, {
       botUsernames: [],
     });
 
@@ -201,7 +201,7 @@ export async function handler(
     envelope.metadata.priority = evaluation.priority;
 
     await stateService.addMessageToChannel(
-      AGENT_ID,
+      AVATAR_ID,
       envelope.conversationId,
       'discord',
       {
@@ -246,7 +246,7 @@ export async function handler(
 
     try {
       await activityService.logError(
-        AGENT_ID,
+        AVATAR_ID,
         'discord',
         error instanceof Error ? error.message : String(error)
       );

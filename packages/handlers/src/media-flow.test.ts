@@ -11,21 +11,21 @@ describe('Media Pipeline Integration', () => {
   beforeEach(() => {
     process.env.RESPONSE_QUEUE_URL = 'https://sqs.test/responses';
     process.env.STATE_TABLE = 'test-table';
-    process.env.AGENT_ID = 'agent-1';
+    process.env.AVATAR_ID = 'avatar-1';
     process.env.MEDIA_BUCKET = 'test-bucket';
   });
 
   describe('Media Queue Item Schema Validation', () => {
     const MediaQueueItemSchema = z.object({
       jobId: z.string(),
-      agentId: z.string(),
+      avatarId: z.string(),
       conversationId: z.string(),
       action: z.object({
         type: z.string(),
         prompt: z.string().optional(),
       }).passthrough(),
       response: z.object({
-        agentId: z.string(),
+        avatarId: z.string(),
         platform: z.string(),
         conversationId: z.string(),
         actions: z.array(z.any()),
@@ -35,11 +35,11 @@ describe('Media Pipeline Integration', () => {
     it('should validate a correct media job item', () => {
       const item = {
         jobId: 'job-1',
-        agentId: 'agent-1',
+        avatarId: 'avatar-1',
         conversationId: 'chat-1',
         action: { type: 'take_selfie', prompt: 'a photo' },
         response: {
-          agentId: 'agent-1',
+          avatarId: 'avatar-1',
           platform: 'telegram',
           conversationId: 'chat-1',
           actions: [],
@@ -56,11 +56,11 @@ describe('Media Pipeline Integration', () => {
     it('should reject invalid media job item missing required fields', () => {
       const item = {
         jobId: 'job-1',
-        // missing agentId
+        // missing avatarId
         conversationId: 'chat-1',
         action: { type: 'take_selfie' },
         response: {
-          agentId: 'agent-1',
+          avatarId: 'avatar-1',
           platform: 'telegram',
           conversationId: 'chat-1',
           actions: [],
@@ -85,16 +85,16 @@ describe('Media Pipeline Integration', () => {
       expect(isVideoAction).toBe(true);
     });
 
-    it('should build image prompt with agent name prefix', () => {
+    it('should build image prompt with avatar name prefix', () => {
       const action = { prompt: 'beach sunset', style: 'artistic' };
-      const agent = { name: 'TestBot' };
+      const avatar = { name: 'TestBot' };
 
       let prompt = action.prompt;
       if (action.style) {
         prompt = `${prompt}, ${action.style} style`;
       }
-      if (agent.name) {
-        prompt = `${agent.name}: ${prompt}`;
+      if (avatar.name) {
+        prompt = `${avatar.name}: ${prompt}`;
       }
 
       expect(prompt).toBe('TestBot: beach sunset, artistic style');
@@ -157,7 +157,7 @@ describe('Media Pipeline Integration', () => {
       // Simulate processing a take_selfie action
       const action = { type: 'take_selfie', prompt: 'a photo' };
       const response = {
-        agentId: 'agent-1',
+        avatarId: 'avatar-1',
         platform: 'telegram',
         conversationId: 'chat-1',
         actions: [],
@@ -244,7 +244,7 @@ describe('Media Pipeline Integration', () => {
       const conversationId = 'conv-123';
       const jobId = 'job-456';
       const messageBody = {
-        agentId: 'agent-1',
+        avatarId: 'avatar-1',
         platform: 'telegram',
         conversationId,
         actions: [{ type: 'send_media', url: 'https://example.com/img.png' }],

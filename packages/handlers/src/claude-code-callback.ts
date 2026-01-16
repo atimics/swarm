@@ -2,7 +2,7 @@
  * Claude Code Callback Handler
  *
  * Processes callbacks from the Claude Code worker and sends responses to users.
- * This is a shared handler that routes responses to the appropriate agent.
+ * This is a shared handler that routes responses to the appropriate avatar.
  */
 import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -16,7 +16,7 @@ import {
   createSecretsService,
   logger,
   DEFAULT_LLM_MODEL,
-  type AgentConfig,
+  type AvatarConfig,
   type ResponseAction,
 } from '@swarm/core';
 
@@ -32,7 +32,7 @@ const STATE_TABLE = process.env.STATE_TABLE!;
 interface ClaudeCodeCallback {
   type: 'claude_code_callback';
   jobId: string;
-  agentId: string;
+  avatarId: string;
   conversationId?: string;
   replyToMessageId?: string;
   status: 'pending' | 'processing' | 'waiting_input' | 'completed' | 'failed';
@@ -45,38 +45,38 @@ interface ClaudeCodeCallback {
   };
 }
 
-// Cache for agent configs and secrets
-const agentCache = new Map<
+// Cache for avatar configs and secrets
+const avatarache = new Map<
   string,
   {
-    config: AgentConfig;
+    config: AvatarConfig;
     secrets: Record<string, string>;
     registry: PlatformRegistry;
   }
 >();
 
 /**
- * Load agent config and initialize platform adapters
+ * Load avatar config and initialize platform adapters
  */
-async function getAgentContext(agentId: string) {
-  if (agentCache.has(agentId)) {
-    return agentCache.get(agentId)!;
+async function getAvatarContext(avatarId: string) {
+  if (avatarache.has(avatarId)) {
+    return avatarache.get(avatarId)!;
   }
 
-  // Load agent config from DynamoDB
+  // Load avatar config from DynamoDB
   const configResult = await dynamo.send(
     new GetCommand({
       TableName: STATE_TABLE,
       Key: {
-        pk: `AGENT#${agentId}`,
+        pk: `AVATAR#${avatarId}`,
         sk: 'CONFIG',
       },
     })
   );
 
-  const config = (configResult.Item as AgentConfig) || {
-    id: agentId,
-    name: agentId,
+  const config = (configResult.Item as AvatarConfig) || {
+    id: avatarId,
+    name: avatarId,
     version: '1.0.0',
     persona: '',
     platforms: {},
@@ -102,7 +102,7 @@ async function getAgentContext(agentId: string) {
   // Load secrets
   const secretsService = createSecretsService();
   const secrets = await secretsService.getSecretJson<Record<string, string>>(
-    `swarm/${agentId}/secrets`
+    `swarm/${avatarId}/secrets`
   );
 
   // Initialize platform adapters
@@ -141,7 +141,7 @@ async function getAgentContext(agentId: string) {
   }
 
   const context = { config, secrets, registry };
-  agentCache.set(agentId, context);
+  avatarache.set(avatarId, context);
   return context;
 }
 
@@ -227,7 +227,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
 
       logger.info('Processing Claude Code callback', {
         jobId: callback.jobId,
-        agentId: callback.agentId,
+        avatarId: callback.avatarId,
         status: callback.status,
       });
 
@@ -242,16 +242,16 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
         continue;
       }
 
-      // Get agent context
-      const agentContext = await getAgentContext(callback.agentId);
+      // Get avatar context
+      const avatarContext = await getAvatarContext(callback.avatarId);
       const platform = detectPlatform(callback.conversationId);
 
       // Get platform adapter
-      const adapter = agentContext.registry.get(platform);
+      const adapter = avatarContext.registry.get(platform);
       if (!adapter) {
         logger.warn('No adapter for platform', {
           platform,
-          agentId: callback.agentId,
+          avatarId: callback.avatarId,
         });
         continue;
       }
