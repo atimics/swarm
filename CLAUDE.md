@@ -4,7 +4,7 @@ This document describes the development workflow, commit conventions, and GitHub
 
 ## Project Overview
 
-AWS Swarm is a multi-tenant social media agent platform that runs on AWS serverless infrastructure. Key components:
+AWS Swarm is a multi-tenant social media avatar platform that runs on AWS serverless infrastructure. Key components:
 
 - **Core** (`packages/core/`) - Shared types, adapters, processors, services
 - **Handlers** (`packages/handlers/`) - Lambda handlers for webhooks and processing
@@ -186,7 +186,7 @@ pnpm -r test
 |----------|---------|-------------|
 | `ci.yml` | Push/PR to main | Build, lint, test, CDK synth |
 | `deploy.yml` | Push to main, manual | Deploy infra and admin UI |
-| `deploy-agent.yml` | Manual | Deploy specific agent |
+| `deploy-avatar.yml` | Manual | Deploy specific avatar |
 
 ### Environments
 
@@ -230,19 +230,19 @@ main (protected)
 
 ## Common Tasks
 
-### Creating a New Agent
+### Creating a New Avatar
 
 ```bash
 # Via Admin UI
 1. Go to admin.rati.chat
-2. Chat: "Create a new agent called myagent"
+2. Chat: "Create a new avatar called myagent"
 3. Configure platforms and set secrets
 4. Deploy via GitHub Actions
 
 # Via CLI
-cp -r agents/.template agents/myagent
-# Edit agents/myagent/config.yaml
-# Edit agents/myagent/persona.md
+cp -r avatars/.template avatars/myagent
+# Edit avatars/myagent/config.yaml
+# Edit avatars/myagent/persona.md
 ```
 
 ### Deploying
@@ -267,7 +267,7 @@ To deploy manually via GitHub Actions:
 2. Click "Run workflow"
 3. Select branch and confirm
 
-### Adding a New Tool to Admin Agent
+### Adding a New Tool to Admin Avatar
 
 1. Add tool definition in `packages/admin-api/src/handlers/chat.ts`
 2. Implement tool execution in the switch statement
@@ -324,17 +324,17 @@ sam local invoke -e event.json
 
 The Telegram webhook handler implements multiple security layers:
 
-1. **Secret Token Verification** - Each agent has a unique `telegram_webhook_secret` stored in Secrets Manager. Telegram sends this in the `X-Telegram-Bot-Api-Secret-Token` header, which we verify using timing-safe comparison.
+1. **Secret Token Verification** - Each avatar has a unique `telegram_webhook_secret` stored in Secrets Manager. Telegram sends this in the `X-Telegram-Bot-Api-Secret-Token` header, which we verify using timing-safe comparison.
 
 2. **IP Verification** - Requests are checked against Telegram's official IP ranges (149.154.160.0/20, 91.108.4.0/22). This is a secondary check and can be disabled for proxied setups.
 
-3. **No Information Disclosure** - All error cases return 200 OK to prevent enumeration of valid agent IDs.
+3. **No Information Disclosure** - All error cases return 200 OK to prevent enumeration of valid avatar IDs.
 
 4. **Sanitized Logging** - Message content is never logged; only metadata (chat ID, message ID, text length) is recorded.
 
 ### Structured Logging
 
-Handlers emit structured JSON logs with fields like `level`, `subsystem`, `event`, `agentId`, and `requestId`. Avoid logging raw message content or secrets; log counts, lengths, and IDs instead.
+Handlers emit structured JSON logs with fields like `level`, `subsystem`, `event`, `avatarId`, and `requestId`. Avoid logging raw message content or secrets; log counts, lengths, and IDs instead.
 
 ## Resources
 

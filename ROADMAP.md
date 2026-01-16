@@ -19,7 +19,7 @@ Milestone M2: Multi-platform parity
 
 ## Far (9-18 months)
 Milestone M3: Persistent swarm platform
-- Multi-agent coordination and cross-agent policies.
+- Multi-avatar coordination and cross-avatar policies.
 - Durable memory tiers (ephemeral, durable, archival) with export and delete.
 - Marketplace-ready templates and persona packs.
 - SaaS reliability and cost optimization for scale.

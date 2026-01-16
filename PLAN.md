@@ -1,10 +1,10 @@
 # AWS Swarm Plan: Next Milestone (M1 Paid Telegram MVP)
 
-Goal: deliver a self-serve paid Telegram agent with enforced entitlements, opt-in
+Goal: deliver a self-serve paid Telegram avatar with enforced entitlements, opt-in
 memory, and a deploy or activate flow.
 
 ## Milestone definition
-- Create agent in admin UI, connect Telegram, purchase plan or apply entitlement,
+- Create avatar in admin UI, connect Telegram, purchase plan or apply entitlement,
   deploy or activate, verify via logs.
 - Free tier is stateless beyond request handling.
 - Paid tier enables durable memory within a retention policy.
@@ -21,7 +21,7 @@ memory, and a deploy or activate flow.
       voice tools).
 
 ### Memory opt-in and retention
-- [ ] Add memory configuration fields (enabled, retentionDays) to agent config.
+- [ ] Add memory configuration fields (enabled, retentionDays) to avatar config.
 - [ ] Default free tier to no durable memory writes.
 - [ ] Implement deletion and export endpoints for paid memory.
 - [ ] Enforce retention policy via TTL or scheduled cleanup.
@@ -33,11 +33,11 @@ memory, and a deploy or activate flow.
 
 ### Observability and reliability
 - [ ] Add shared logger helper with correlation IDs.
-- [ ] Propagate requestId and agentId across webhook, SQS, and handlers.
+- [ ] Propagate requestId and avatarId across webhook, SQS, and handlers.
 - [ ] Add basic CloudWatch dashboard and DLQ alarms.
 
 ### End-to-end validation
-- [ ] Add a staging Telegram canary agent and test script.
+- [ ] Add a staging Telegram canary avatar and test script.
 - [ ] Write a smoke test for message processor and response sender using mocks.
 - [ ] Document runbook for Telegram webhook failures and DLQ recovery.
 

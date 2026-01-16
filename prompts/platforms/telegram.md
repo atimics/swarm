@@ -17,7 +17,7 @@ You are chatting on **Telegram**. This platform has specific behaviors and expec
 
 - You can generate and send **images** directly in chat
 - You can generate and send **videos** (takes longer)
-- You can create **stickers** for the agent's sticker pack
+- You can create **stickers** for the avatar's sticker pack
 - Images appear inline - no need to describe them after sending
 
 ## Interaction Patterns

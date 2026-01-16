@@ -1,16 +1,16 @@
-# Agent Memory System - Research & Roadmap
+# Avatar Memory System - Research & Roadmap
 
-This document describes the memory system architecture for AWS Swarm agents, synthesizing learnings from prior experiments (cosyworld, kyro, mirquo) and outlining a roadmap for dynamic personality evolution.
+This document describes the memory system architecture for AWS Swarm avatars, synthesizing learnings from prior experiments (cosyworld, kyro, mirquo) and outlining a roadmap for dynamic personality evolution.
 
 ## Problem Statement
 
-Agents need persistent memory to:
+Avatars need persistent memory to:
 1. **Remember users** - Preferences, past interactions, relationship context
 2. **Learn from experience** - Recognize patterns, update behavior
 3. **Evolve personality** - Grow and adapt based on interactions
 4. **Maintain identity** - Consistent sense of self across conversations
 
-Without memory, every conversation starts from zero. The agent has no history, no growth, no relationships.
+Without memory, every conversation starts from zero. The avatar has no history, no growth, no relationships.
 
 ## Research Summary
 
@@ -34,7 +34,7 @@ Without memory, every conversation starts from zero. The agent has no history, n
 ### Kyro Approach
 - **Storage**: DynamoDB (channel-state table)
 - **Key Innovation**: Perspective-based summaries
-  - Summaries written from agent's POV ("I observed...", "I talked to...")
+  - Summaries written from avatar's POV ("I observed...", "I talked to...")
   - Compaction: 30+ messages → 2-4 sentence summary
 - **Learning**: Exponential cooldown for user management
   - Base: 5 minutes
@@ -56,7 +56,7 @@ Without memory, every conversation starts from zero. The agent has no history, n
 - **Attention**: Semantic interest space via embeddings
   - Builds centroid of all memory embeddings
   - Scores new content: relevance + novelty
-  - High scores = agent is curious
+  - High scores = avatar is curious
 
 ## Current Implementation (Phase 1)
 
@@ -65,7 +65,7 @@ Without memory, every conversation starts from zero. The agent has no history, n
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      DynamoDB                                │
-│  pk: MEMORY#{agentId}                                       │
+│  pk: MEMORY#{avatarId}                                       │
 │  sk: {tier}#{timestamp}#{id}                                │
 ├─────────────────────────────────────────────────────────────┤
 │  IMMEDIATE     │  RECENT        │  CORE                     │
@@ -79,10 +79,10 @@ Without memory, every conversation starts from zero. The agent has no history, n
 
 ```typescript
 interface AgentMemory {
-  pk: string;              // MEMORY#{agentId}
+  pk: string;              // MEMORY#{avatarId}
   sk: string;              // {tier}#{timestamp}#{id}
   id: string;
-  agentId: string;
+  avatarId: string;
   tier: 'immediate' | 'recent' | 'core';
   type: 'event' | 'fact' | 'learning' | 'pattern' | 'identity' | 'relationship' | 'preference';
   content: string;
@@ -105,7 +105,7 @@ interface AgentMemory {
 
 ### Prompt Injection
 
-When memory is enabled, agent system prompts include:
+When memory is enabled, avatar system prompts include:
 ```
 ## Who I Am
 - I am becoming more playful and curious
@@ -128,7 +128,7 @@ When memory is enabled, agent system prompts include:
 **Implementation**:
 1. **EventBridge Rule**: Trigger nightly at 3 AM UTC
 2. **Lambda Handler**: `consolidate-memories`
-3. **Per-Agent Process**:
+3. **Per-Avatar Process**:
    ```
    1. Promote old immediate → recent (summarize if needed)
    2. Apply decay: strength *= 0.95
@@ -140,9 +140,9 @@ When memory is enabled, agent system prompts include:
 **Key Functions**:
 ```typescript
 // Already implemented in memory.ts:
-applyDecay(agentId, tier, decayRate)
-promoteImmediateToRecent(agentId, maxImmediate)
-saveIdentitySnapshot(agentId, statement, triggeringMemories)
+applyDecay(avatarId, tier, decayRate)
+promoteImmediateToRecent(avatarId, maxImmediate)
+saveIdentitySnapshot(avatarId, statement, triggeringMemories)
 ```
 
 **New Infrastructure**:
@@ -151,7 +151,7 @@ saveIdentitySnapshot(agentId, statement, triggeringMemories)
 
 ### Phase 3: Identity Evolution (1-2 weeks)
 
-**Goal**: Agents generate "I am becoming..." statements
+**Goal**: Avatars generate "I am becoming..." statements
 
 **Implementation**:
 1. After consolidation, if 5+ recent memories exist:
@@ -163,7 +163,7 @@ saveIdentitySnapshot(agentId, statement, triggeringMemories)
 **Tracking Evolution**:
 ```typescript
 interface AgentIdentitySnapshot {
-  pk: string;              // IDENTITY#{agentId}
+  pk: string;              // IDENTITY#{avatarId}
   sk: string;              // SNAPSHOT#{timestamp}
   statement: string;       // "I am becoming more curious about users"
   previousStatement?: string;
@@ -190,18 +190,18 @@ interface AgentIdentitySnapshot {
 **Optimization**:
 - Cache embeddings in separate table for faster queries
 - Build centroid of all embeddings for "interest space"
-- Score novelty: how different is this from what agent knows?
+- Score novelty: how different is this from what avatar knows?
 
 ### Phase 5: Relationship Tracking (2-3 weeks)
 
-**Goal**: Agents remember specific users across interactions
+**Goal**: Avatars remember specific users across interactions
 
 **Schema**:
 ```typescript
 interface AgentRelationship {
-  pk: string;              // RELATIONSHIP#{agentId}
+  pk: string;              // RELATIONSHIP#{avatarId}
   sk: string;              // USER#{platform}#{userId}
-  agentId: string;
+  avatarId: string;
   userId: string;
   platform: string;
   username?: string;
@@ -236,7 +236,7 @@ interface AgentRelationship {
 
 ### Phase 6: Learning Extraction (3 weeks)
 
-**Goal**: Agents automatically extract learnings from experiences
+**Goal**: Avatars automatically extract learnings from experiences
 
 **Pattern Detection**:
 1. Cluster recent memories by theme
@@ -247,10 +247,10 @@ interface AgentRelationship {
 **Knowledge Graph** (from cosyworld):
 ```typescript
 interface KnowledgeTriple {
-  pk: string;              // KNOWLEDGE#{agentId}
+  pk: string;              // KNOWLEDGE#{avatarId}
   sk: string;              // TRIPLE#{timestamp}#{id}
-  agentId: string;
-  subject: string;         // The agent or entity
+  avatarId: string;
+  subject: string;         // The avatar or entity
   relation: string;        // 'knows', 'prefers', 'avoids'
   object: string;          // The fact
   confidence: number;      // How sure (0-1)
@@ -259,13 +259,13 @@ interface KnowledgeTriple {
 ```
 
 **Example Extractions**:
-- `(agent, knows, "cheetahs can run 70mph")`
-- `(agent, prefers, "short responses")`
+- `(avatar, knows, "cheetahs can run 70mph")`
+- `(avatar, prefers, "short responses")`
 - `(@user123, likes, "hunting metaphors")`
 
 ### Phase 7: Behavioral Adaptation (4 weeks)
 
-**Goal**: Agent behavior changes based on learned patterns
+**Goal**: Avatar behavior changes based on learned patterns
 
 **Adaptation Types**:
 1. **Response Style**: Adjust length, formality, emoji usage
@@ -287,14 +287,14 @@ Learning Extracted → Behavior Adjusted → Better Interactions
 
 ## Configuration
 
-### Enable Memory for an Agent
+### Enable Memory for an Avatar
 
 ```typescript
 // Via admin chat:
-"Enable memory for this agent"
+"Enable memory for this avatar"
 
 // Via API:
-await updateAgent(agentId, {
+await updateAgent(avatarId, {
   mcpConfig: {
     enabledToolsets: ['memory', ...existing],
     externalServers: []
@@ -320,9 +320,9 @@ const DEFAULT_CONFIG = {
 
 1. **Embedding Model**: OpenAI ada-002 vs open-source alternatives?
 2. **Consolidation Frequency**: Daily vs weekly vs on-demand?
-3. **Memory Export**: Should users be able to export agent memories?
+3. **Memory Export**: Should users be able to export avatar memories?
 4. **Privacy**: How to handle memories about users who request deletion?
-5. **Cross-Agent Memory**: Should agents share memories? (probably not)
+5. **Cross-Avatar Memory**: Should avatars share memories? (probably not)
 6. **Memory Tokens**: NFT-based memory ownership? (from kyro philosophy)
 
 ## Success Metrics
@@ -331,7 +331,7 @@ const DEFAULT_CONFIG = {
 |--------|--------|-------------|
 | Memory recall accuracy | >80% | Test queries against stored facts |
 | Identity consistency | Low drift | Compare weekly snapshots |
-| User recognition | >90% | Agent remembers returning users |
+| User recognition | >90% | Avatar remembers returning users |
 | Learning extraction | 1+ per week | Count new learnings |
 | Response personalization | Measurable | A/B test with/without memory |
 

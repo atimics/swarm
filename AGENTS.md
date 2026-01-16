@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 - `packages/` hosts the main modules: `core` (shared runtime), `handlers` (Lambda entrypoints), `admin-api`, `admin-ui`, and `infra` (CDK).
-- `agents/` contains per-agent configs like `agents/<agent-id>/config.yaml` and `agents/<agent-id>/persona.md`.
+- `avatars/` contains per-avatar configs like `avatars/<avatar-id>/config.yaml` and `avatars/<avatar-id>/persona.md`.
 - `scripts/` holds helper scripts (ex: `scripts/test-persona.mjs`).
 - Tests live alongside packages as `packages/**/*.test.ts`.
 
@@ -19,7 +19,7 @@
 - TypeScript, ES2022, ESM (`import ... from './file.js'`); `tsconfig.base.json` enforces strictness and no unused locals/params.
 - Use 2-space indentation and match the existing file style.
 - Prefer `camelCase` for variables/functions and `PascalCase` for types/classes.
-- Agent folder names should be kebab-case IDs that match runtime agent IDs.
+- Avatar folder names should be kebab-case IDs that match runtime avatar IDs.
 
 ## Testing Guidelines
 - Tests use Bun's built-in test runner (`bun test`) which is vitest-compatible.
@@ -40,7 +40,7 @@
 ## Logs & Debugging
 
 ### Consolidated Logs Endpoint
-Each agent has a logs endpoint: `GET /agents/{agentId}/logs`
+Each avatar has a logs endpoint: `GET /avatars/{avatarId}/logs`
 
 **Query Parameters:**
 | Parameter | Type | Description |
@@ -55,23 +55,23 @@ Each agent has a logs endpoint: `GET /agents/{agentId}/logs`
 
 **Example:**
 ```bash
-# Get last 30 minutes of ERROR logs for an agent
-curl "https://api.rati.chat/agents/my-agent/logs?level=ERROR&since=30m"
+# Get last 30 minutes of ERROR logs for an avatar
+curl "https://api.rati.chat/avatars/my-avatar/logs?level=ERROR&since=30m"
 
 # Search for specific text in last hour
-curl "https://api.rati.chat/agents/my-agent/logs?query=timeout&since=1h"
+curl "https://api.rati.chat/avatars/my-avatar/logs?query=timeout&since=1h"
 
 # Filter by subsystem (telegram, chat, llm)
-curl "https://api.rati.chat/agents/my-agent/logs?subsystem=telegram&since=1h"
+curl "https://api.rati.chat/avatars/my-avatar/logs?subsystem=telegram&since=1h"
 ```
 
 **Response:**
 ```json
 {
-  "agentId": "my-agent",
+  "avatarId": "my-avatar",
   "startTime": 1736531232000,
   "endTime": 1736533032000,
-  "logGroups": ["/aws/lambda/my-agent-webhook", "/aws/lambda/AdminApiChatHandler..."],
+  "logGroups": ["/aws/lambda/my-avatar-webhook", "/aws/lambda/AdminApiChatHandler..."],
   "filters": { "level": "ERROR", "limit": 200 },
   "events": [
     { "timestamp": "2026-01-10T19:07:12.531Z", "message": "...", "logGroup": "...", "logStream": "..." }
@@ -86,7 +86,7 @@ Handlers log structured JSON for queryability:
   "level": "INFO|WARN|ERROR",
   "subsystem": "telegram|chat|llm",
   "event": "request_received|channel_processed|validation_error|handler_error",
-  "agentId": "agent-id",
+  "avatarId": "avatar-id",
   "requestId": "aws-request-id",
   ...
 }
@@ -97,7 +97,7 @@ For testing API endpoints directly (bypassing Cloudflare Access):
 ```bash
 # Use the test script (requires AWS credentials)
 ./scripts/test-api.sh staging chat '{"message":"hello","history":[]}'
-./scripts/test-api.sh staging agents GET
+./scripts/test-api.sh staging avatars GET
 
 # Or manually with the internal test key from Lambda env:
 INTERNAL_TEST_KEY=$(aws lambda get-function-configuration \
@@ -127,14 +127,14 @@ aws logs filter-log-events \
   --filter-pattern "ERROR" \
   --limit 20
 
-# Search for structured logs by agentId
+# Search for structured logs by avatarId
 aws logs filter-log-events \
   --log-group-name "/aws/lambda/..." \
-  --filter-pattern '{ $.agentId = "my-agent" }' \
+  --filter-pattern '{ $.avatarId = "my-avatar" }' \
   --limit 20
 ```
 
 ### Common Issues
-- **400 on `/chat`**: Check Zod validation - request body must have `message` (string) and `history` (array). If sending `agent`, it needs at least `id`.
+- **400 on `/chat`**: Check Zod validation - request body must have `message` (string) and `history` (array). If sending `avatar`, it needs at least `id`.
 - **403 Forbidden**: Cloudflare Access JWT missing or invalid; check `CF-Access-JWT-Assertion` header
 - **DynamoDB reserved keywords**: Use expression attribute names for reserved words like `ttl` → `#ttl`

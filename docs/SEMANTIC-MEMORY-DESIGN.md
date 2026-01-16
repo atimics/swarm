@@ -8,9 +8,9 @@
 
 ## Executive Summary
 
-This document specifies the implementation of embedding-based semantic search for the AWS Swarm memory system. The current keyword-based search limits recall quality significantly—agents cannot find conceptually related memories unless exact terms match. Semantic search transforms agent intelligence by enabling meaning-based retrieval.
+This document specifies the implementation of embedding-based semantic search for the AWS Swarm memory system. The current keyword-based search limits recall quality significantly—avatars cannot find conceptually related memories unless exact terms match. Semantic search transforms avatar intelligence by enabling meaning-based retrieval.
 
-**Key Insight**: The hybrid scoring formula already exists in memory.ts and weights semantic similarity at 55%. This component is currently non-functional because no embeddings exist. Activating it delivers immediate, dramatic improvement to every agent's recall quality.
+**Key Insight**: The hybrid scoring formula already exists in memory.ts and weights semantic similarity at 55%. This component is currently non-functional because no embeddings exist. Activating it delivers immediate, dramatic improvement to every avatar's recall quality.
 
 ## Problem Statement
 
@@ -32,9 +32,9 @@ const result = await getDynamoClient().send(new QueryCommand({
 
 ### Impact
 
-Every agent conversation that uses `recall` is degraded:
-- Users ask about topics the agent "knows" but can't retrieve
-- Agents appear forgetful despite having relevant memories
+Every avatar conversation that uses `recall` is degraded:
+- Users ask about topics the avatar "knows" but can't retrieve
+- Avatars appear forgetful despite having relevant memories
 - Relationship context is lost when names are spelled differently
 - Core learnings don't surface for conceptually related queries
 
@@ -61,7 +61,7 @@ Every agent conversation that uses `recall` is degraded:
 │  recall(query) ──► EmbeddingService.embed(query)                     │
 │                           │                                           │
 │                           ▼                                           │
-│                    Query DynamoDB for candidates (by tier/agent)     │
+│                    Query DynamoDB for candidates (by tier/avatar)     │
 │                           │                                           │
 │                           ▼                                           │
 │                    Compute cosine similarity for each                 │
@@ -248,7 +248,7 @@ export interface AgentMemory {
   pk: string;
   sk: string;
   id: string;
-  agentId: string;
+  avatarId: string;
   tier: MemoryTier;
   type: MemoryType;
   content: string;
@@ -320,7 +320,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
  *           (0.05 × about_match_bonus)
  */
 export async function searchMemories(
-  agentId: string,
+  avatarId: string,
   query: string,
   limit: number = 10,
   options: {
@@ -328,7 +328,7 @@ export async function searchMemories(
     minSimilarity?: number;
   } = {}
 ): Promise<AgentMemory[]> {
-  const validAgentId = validateAgentId(agentId);
+  const validAgentId = validateAgentId(avatarId);
   const queryLower = query.toLowerCase().trim();
   const safeLimit = Math.min(limit, 50);
   const { semanticSearch = true, minSimilarity = 0.3 } = options;
@@ -429,7 +429,7 @@ Update `createMemory()`:
 
 ```typescript
 export async function createMemory(
-  agentId: string,
+  avatarId: string,
   params: {
     tier: MemoryTier;
     type: MemoryType;
@@ -443,7 +443,7 @@ export async function createMemory(
     sourceMemoryIds?: string[];
   }
 ): Promise<AgentMemory> {
-  const validAgentId = validateAgentId(agentId);
+  const validAgentId = validateAgentId(avatarId);
   const validContent = validateContent(params.content);
   const validThemes = validateThemes(params.themes);
   const validStrength = validateStrength(params.strength);
@@ -456,7 +456,7 @@ export async function createMemory(
     } catch (error) {
       logger.warn('Failed to generate embedding for memory', {
         event: 'embedding_generation_error',
-        agentId: validAgentId,
+        avatarId: validAgentId,
         error: error instanceof Error ? error.message : 'Unknown',
       });
       // Continue without embedding - graceful degradation
@@ -470,7 +470,7 @@ export async function createMemory(
     pk: `MEMORY#${validAgentId}`,
     sk: `${params.tier}#${now}#${id}`,
     id,
-    agentId: validAgentId,
+    avatarId: validAgentId,
     tier: params.tier,
     type: params.type,
     content: validContent,
@@ -494,7 +494,7 @@ export async function createMemory(
 
   logger.info('Memory created', {
     event: 'memory_created',
-    agentId: validAgentId,
+    avatarId: validAgentId,
     memoryId: id,
     tier: params.tier,
     type: params.type,
@@ -533,10 +533,10 @@ export interface MigrationResult {
 }
 
 /**
- * Backfill embeddings for an agent's memories
+ * Backfill embeddings for an avatar's memories
  */
 export async function backfillEmbeddings(
-  agentId: string,
+  avatarId: string,
   options: {
     batchSize?: number;
     dryRun?: boolean;
@@ -553,8 +553,8 @@ export async function backfillEmbeddings(
     skipped: 0,
   };
 
-  // Get all memories for the agent
-  const memories = await getMemories(agentId, { limit: 500 });
+  // Get all memories for the avatar
+  const memories = await getMemories(avatarId, { limit: 500 });
 
   // Filter to memories needing embeddings
   const needsEmbedding = memories.filter(m => {
@@ -566,7 +566,7 @@ export async function backfillEmbeddings(
 
   logger.info('Starting embedding backfill', {
     event: 'embedding_backfill_start',
-    agentId,
+    avatarId,
     totalMemories: memories.length,
     needsEmbedding: needsEmbedding.length,
     dryRun,
@@ -604,7 +604,7 @@ export async function backfillEmbeddings(
         result.failed++;
         logger.warn('Failed to backfill embedding', {
           event: 'embedding_backfill_error',
-          agentId,
+          avatarId,
           memoryId: memory.id,
           error: error instanceof Error ? error.message : 'Unknown',
         });
@@ -619,7 +619,7 @@ export async function backfillEmbeddings(
 
   logger.info('Embedding backfill complete', {
     event: 'embedding_backfill_complete',
-    agentId,
+    avatarId,
     ...result,
   });
 
@@ -627,16 +627,16 @@ export async function backfillEmbeddings(
 }
 
 /**
- * Check embedding coverage for an agent
+ * Check embedding coverage for an avatar
  */
-export async function getEmbeddingStats(agentId: string): Promise<{
+export async function getEmbeddingStats(avatarId: string): Promise<{
   total: number;
   withEmbedding: number;
   withoutEmbedding: number;
   outdatedEmbedding: number;
   coveragePercent: number;
 }> {
-  const memories = await getMemories(agentId, { limit: 500 });
+  const memories = await getMemories(avatarId, { limit: 500 });
 
   let withEmbedding = 0;
   let outdatedEmbedding = 0;
@@ -674,13 +674,13 @@ Add to chat handler for on-demand migration:
   name: 'backfill_embeddings',
   description: 'Generate embeddings for memories that lack them. Enables semantic search.',
   parameters: z.object({
-    agentId: z.string().optional().describe('Agent ID (defaults to current agent)'),
+    avatarId: z.string().optional().describe('Avatar ID (defaults to current avatar)'),
     dryRun: z.boolean().optional().describe('Preview what would be migrated'),
   }),
-  execute: async ({ agentId, dryRun }, context) => {
-    const targetAgent = agentId || context.agentId;
+  execute: async ({ avatarId, dryRun }, context) => {
+    const targetAgent = avatarId || context.avatarId;
     if (!targetAgent) {
-      return { error: 'No agent selected' };
+      return { error: 'No avatar selected' };
     }
 
     const stats = await getEmbeddingStats(targetAgent);
@@ -711,7 +711,7 @@ Add to chat handler for on-demand migration:
 | Average memory size | ~100 tokens |
 | Cost per 1000 memories | $0.002 |
 | Cost for 10K memories | $0.02 |
-| Monthly estimate (active agent) | ~$0.10 |
+| Monthly estimate (active avatar) | ~$0.10 |
 
 ### Storage Costs (DynamoDB)
 
@@ -723,7 +723,7 @@ Add to chat handler for on-demand migration:
 | DynamoDB storage cost | $0.25/GB/month |
 | Monthly for 10K memories | ~$0.02 |
 
-**Total marginal cost**: ~$0.12/month per active agent (negligible)
+**Total marginal cost**: ~$0.12/month per active avatar (negligible)
 
 ## Performance Considerations
 
@@ -738,9 +738,9 @@ The 100ms increase for search is acceptable for the quality improvement. For cre
 
 ### Scalability
 
-Current design retrieves 200 candidates then scores. For agents with 1000+ memories:
+Current design retrieves 200 candidates then scores. For avatars with 1000+ memories:
 
-**Phase 1 (this design)**: Adequate for most agents
+**Phase 1 (this design)**: Adequate for most avatars
 **Phase 2 (future)**: Add DynamoDB GSI on `embedding` for approximate nearest neighbor, or migrate to purpose-built vector store (Pinecone, Qdrant)
 
 ## Testing Plan
@@ -794,7 +794,7 @@ describe('searchMemories (semantic)', () => {
 
 ### Integration Tests
 
-1. Create agent with memory enabled
+1. Create avatar with memory enabled
 2. Remember 10 diverse facts
 3. Query with conceptually related terms
 4. Verify recall quality vs keyword-only baseline
@@ -810,10 +810,10 @@ describe('searchMemories (semantic)', () => {
 
 ### Phase 2: Gradual Activation (Week 2)
 
-1. Enable semantic search for new agents
+1. Enable semantic search for new avatars
 2. A/B test recall quality (log both keyword and semantic scores)
 3. Tune similarity threshold based on real data
-4. Enable for all agents
+4. Enable for all avatars
 
 ### Metrics to Track
 
@@ -839,7 +839,7 @@ describe('searchMemories (semantic)', () => {
 
 **Pros**: Purpose-built for vector search, scales infinitely
 **Cons**: New infrastructure, additional cost, data sync complexity
-**Verdict**: Overkill for current scale; revisit if agents exceed 10K memories
+**Verdict**: Overkill for current scale; revisit if avatars exceed 10K memories
 
 ### B. OpenSearch with k-NN
 
@@ -864,4 +864,4 @@ This design adds semantic memory search by:
 4. Providing migration tooling for existing memories
 5. Maintaining full backward compatibility (graceful degradation)
 
-The implementation is focused, cost-effective (~$0.12/agent/month), and delivers immediate value by activating the already-designed hybrid scoring formula.
+The implementation is focused, cost-effective (~$0.12/avatar/month), and delivers immediate value by activating the already-designed hybrid scoring formula.

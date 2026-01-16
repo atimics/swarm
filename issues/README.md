@@ -1,16 +1,16 @@
-# Issues + Agent Registry
+# Issues + Avatar Registry
 
-This folder tracks issues and agent assignments in JSON to support automated tooling.
+This folder tracks issues and avatar assignments in JSON to support automated tooling.
 
-## Agent Registry
-Agents must register before starting work.
+## Avatar Registry
+Avatars must register before starting work.
 
-File: `issues/agents.json`
+File: `issues/avatars.json`
 
 Entry format:
 ```json
 {
-  "codename": "agent-fox",
+  "codename": "avatar-fox",
   "role": "dev",
   "issueId": "ISSUE-0001",
   "status": "active",
@@ -31,7 +31,7 @@ Suggested format:
   "id": "ISSUE-0001",
   "title": "Tool tagging engine",
   "status": "open",
-  "owner": "agent-fox",
+  "owner": "avatar-fox",
   "tags": ["tools", "mcp"],
   "summary": "Add tag metadata and filtering rules",
   "acceptance": ["Tag filtering respects platform", "Toolsets cap at 3"],
