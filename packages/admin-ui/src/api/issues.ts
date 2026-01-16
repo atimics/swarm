@@ -1,12 +1,12 @@
 /**
- * Issues API - Agent-reported issues endpoint.
+ * Issues API - Avatar-reported issues endpoint.
  */
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
-export interface AgentIssue {
+export interface AvatarIssue {
   id: string;
   timestamp: number;
-  agentId: string;
+  avatarId: string;
   platform: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
   category: string;
@@ -17,9 +17,9 @@ export interface AgentIssue {
   logStream?: string;
 }
 
-export interface AgentIssuesResponse {
-  agentId: string;
-  issues: AgentIssue[];
+export interface AvatarIssuesResponse {
+  avatarId: string;
+  issues: AvatarIssue[];
 }
 
 export interface IssueQueryOptions {
@@ -28,17 +28,17 @@ export interface IssueQueryOptions {
   severity?: 'low' | 'medium' | 'high' | 'critical';
 }
 
-export async function fetchAgentIssues(
-  agentId: string,
+export async function fetchAvatarIssues(
+  avatarId: string,
   options: IssueQueryOptions = {}
-): Promise<AgentIssuesResponse> {
+): Promise<AvatarIssuesResponse> {
   const params = new URLSearchParams();
 
   if (options.limit) params.set('limit', String(options.limit));
   if (options.status) params.set('status', options.status);
   if (options.severity) params.set('severity', options.severity);
 
-  const url = `${API_BASE}/agents/${agentId}/issues${params.toString() ? `?${params}` : ''}`;
+  const url = `${API_BASE}/avatars/${avatarId}/issues${params.toString() ? `?${params}` : ''}`;
 
   const response = await fetch(url, {
     method: 'GET',

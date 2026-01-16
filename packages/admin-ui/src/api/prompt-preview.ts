@@ -31,7 +31,7 @@ export interface PromptPreviewResponse {
 }
 
 export interface PromptPreviewRequest {
-  agentId: string;
+  avatarId: string;
   message?: string;
   history?: Array<{
     role: 'user' | 'assistant' | 'system' | 'tool';

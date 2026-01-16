@@ -13,7 +13,7 @@ const generateId = () => crypto.randomUUID();
 // Default avatar colors
 const AVATAR_COLORS = [
   '#6366f1', // indigo
-  '#8b5cf6', // violet  
+  '#8b5cf6', // violet
   '#ec4899', // pink
   '#f43f5e', // rose
   '#f97316', // orange
@@ -27,10 +27,10 @@ const AVATAR_COLORS = [
 const getRandomColor = () => AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
 
 // Generate avatar URL (using DiceBear API)
-const generateAvatar = (seed: string) => 
+const generateAvatarImage = (seed: string) =>
   `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(seed)}`;
 
-interface Avatartate {
+interface AvatarState {
   avatars: Avatar[];
   chats: Record<string, ChatMessage[]>;
   activeAvatarId: string | null;
@@ -57,7 +57,7 @@ interface Avatartate {
   setError: (error: string | null) => void;
 }
 
-export const useAvatarStore = create<Avatartate>()(
+export const useAvatarStore = create<AvatarState>()(
   persist(
     (set, get) => ({
       avatars: [],
@@ -79,7 +79,7 @@ export const useAvatarStore = create<Avatartate>()(
             name: response.name,
             description: response.description,
             persona: response.persona,
-            avatar: response.profileImage?.url || generateAvatar(response.avatarId),
+            avatar: response.profileImage?.url || generateAvatarImage(response.avatarId),
             color: getRandomColor(),
             secrets: [],
             status: response.status,
@@ -141,13 +141,13 @@ export const useAvatarStore = create<Avatartate>()(
             const newChats = { ...state.chats };
             delete newChats[id];
 
-            const newAgents = state.avatars.filter((a) => a.id !== id);
+            const newAvatars = state.avatars.filter((a) => a.id !== id);
             const newActiveId = state.activeAvatarId === id
-              ? newAgents[0]?.id || null
+              ? newAvatars[0]?.id || null
               : state.activeAvatarId;
 
             return {
-              avatars: newAgents,
+              avatars: newAvatars,
               chats: newChats,
               activeAvatarId: newActiveId,
               isLoading: false,
@@ -177,7 +177,7 @@ export const useAvatarStore = create<Avatartate>()(
             name: r.name,
             description: r.description,
             persona: r.persona,
-            avatar: r.profileImage?.url || generateAvatar(r.avatarId),
+            avatar: r.profileImage?.url || generateAvatarImage(r.avatarId),
             color: getRandomColor(),
             secrets: [],
             status: r.status,
@@ -254,7 +254,7 @@ export const useAvatarStore = create<Avatartate>()(
         } catch (error) {
           console.error('Failed to clear chat on backend:', error);
         }
-        
+
         set((state) => ({
           chats: {
             ...state.chats,
@@ -271,7 +271,7 @@ export const useAvatarStore = create<Avatartate>()(
       syncChatHistory: async (avatarId) => {
         try {
           const history = await apiFetchChatHistory(avatarId);
-          
+
           if (history.length > 0) {
             // Convert backend history to ChatMessage format
             const messages: ChatMessage[] = history.map((msg, index) => ({
@@ -282,7 +282,7 @@ export const useAvatarStore = create<Avatartate>()(
               // Include media if present (for images to persist across refresh)
               media: msg.media,
             }));
-            
+
             set((state) => ({
               chats: {
                 ...state.chats,
@@ -309,7 +309,7 @@ export const useAvatarStore = create<Avatartate>()(
     }),
     {
       name: 'swarm-avatars',
-      version: 2,
+      version: 3,
       // Only persist avatar metadata and active selection
       // Chat history is synced from backend (source of truth for cross-device)
       partialize: (state) => ({
@@ -317,13 +317,6 @@ export const useAvatarStore = create<Avatartate>()(
         // Don't persist chats - always sync from backend
         activeAvatarId: state.activeAvatarId,
       }),
-      migrate: (persistedState) => {
-        const state = persistedState as Partial<Avatartate>;
-        return {
-          avatars: state.avatars || [],
-          activeAvatarId: state.activeAvatarId || null,
-        };
-      },
     }
   )
 );

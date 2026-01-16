@@ -26,7 +26,7 @@ const SECRET_TEMPLATES: { key: string; name: string; description: string }[] = [
 
 export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModalProps) {
   const { updateAvatar, deleteAvatar } = useAvatarStore();
-  
+
   const [name, setName] = useState(avatar.name);
   const [description, setDescription] = useState(avatar.description || '');
   const [persona, setPersona] = useState(avatar.persona || '');
@@ -155,7 +155,7 @@ export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModal
           {activeTab === 'general' && (
             <div className="space-y-4">
               <div>
-                <label htmlFor="avatarescription" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
+                <label htmlFor="avatarDescription" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
                   Description
                 </label>
                 <textarea
@@ -164,8 +164,8 @@ export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModal
                   placeholder="What does this avatar do?"
                   rows={3}
                   className="w-full px-4 py-3 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] placeholder-[var(--color-text-muted)] resize-none focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  name="avatarescription"
-                  id="avatarescription"
+                  name="avatarDescription"
+                  id="avatarDescription"
                   data-testid="avatar-description-input"
                   aria-label="Avatar Description"
                 />
@@ -176,7 +176,7 @@ export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModal
           {activeTab === 'persona' && (
             <div className="space-y-4">
               <div>
-                <label htmlFor="avatarersona" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
+                <label htmlFor="avatarPersona" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
                   System Persona
                 </label>
                 <p className="text-xs text-[var(--color-text-muted)] mb-2">
@@ -188,8 +188,8 @@ export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModal
                   placeholder={`You are a helpful AI assistant that specializes in...\n\nYou have expertise in:\n- Topic 1\n- Topic 2\n\nYour communication style is...`}
                   rows={12}
                   className="w-full px-4 py-3 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] placeholder-[var(--color-text-muted)] resize-none focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono text-sm"
-                  name="avatarersona"
-                  id="avatarersona"
+                  name="avatarPersona"
+                  id="avatarPersona"
                   data-testid="avatar-persona-input"
                   aria-label="System Persona"
                 />
@@ -238,7 +238,7 @@ export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModal
                 <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-3">
                   Add Secret
                 </label>
-                
+
                 {/* Quick Add Templates */}
                 {availableTemplates.length > 0 && (
                   <div className="mb-4">
@@ -317,3 +317,6 @@ export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModal
     </div>
   );
 }
+
+// Legacy alias
+

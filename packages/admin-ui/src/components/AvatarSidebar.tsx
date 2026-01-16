@@ -1,6 +1,6 @@
 /**
  * Avatar Sidebar - Discord-like avatar list with tiered access
- * 
+ *
  * Access Tiers:
  * - No wallet: Browse profiles only (read-only)
  * - Authenticated, no Orb: Browse, chat as ghost, no inhabit/create
@@ -103,19 +103,19 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
 
   // Determine access level
   const walletAddress = user?.walletAddress;
-  const inhabitedAvatarId = user?.inhabitedAvatarId;
+  const inhabitedAvatarId = user?.inhabitedAvatarId; // Still uses avatarId from backend
   const hasOrbs = (gateStatus?.nftsHeld || 0) > 0;
   const canCreate = gateStatus?.canCreate || false;
 
   // Filter avatars based on access level:
   // - If inhabiting with no orbs: only show inhabited avatar
   // - Otherwise: show all avatars
-  const filteredAgents = inhabitedAvatarId && !hasOrbs
+  const filteredAvatars = inhabitedAvatarId && !hasOrbs
     ? avatars.filter(a => a.id === inhabitedAvatarId)
     : avatars;
 
   // Sort avatars: inhabited first, then created by user, then others
-  const sortedAgents = [...filteredAgents].sort((a, b) => {
+  const sortedAvatars = [...filteredAvatars].sort((a, b) => {
     // Inhabited avatar always first
     if (a.id === inhabitedAvatarId) return -1;
     if (b.id === inhabitedAvatarId) return 1;
@@ -128,7 +128,7 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
     return a.name.localeCompare(b.name);
   });
 
-  const handleCreateAgent = async () => {
+  const handleCreateAvatar = async () => {
     try {
       await createAvatar();
     } catch (e) {
@@ -144,14 +144,14 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
 
   // Determine if create button should be shown (visible when authenticated, but may be disabled)
   const showCreateButton = isAuthenticated;
-  const canCreateAgent = canCreate;
-  
+  const canCreateAvatar = canCreate;
+
   // Get reason why creation is disabled (for tooltip)
   const getCreateDisabledReason = (): string | null => {
     if (!isAuthenticated) return 'Sign in to create avatars';
     if (canCreate) return null;
     if ((gateStatus?.availableSlots ?? 0) <= 0) {
-      return gateStatus?.nftsHeld === 0 
+      return gateStatus?.nftsHeld === 0
         ? 'You need an Orb NFT to create more avatars'
         : 'No available slots - all your Orbs are bound to avatars';
     }
@@ -172,10 +172,10 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
             <ThemeToggle />
             {showCreateButton && (
               <button
-                onClick={handleCreateAgent}
-                disabled={isLoading || !canCreateAgent}
+                onClick={handleCreateAvatar}
+                disabled={isLoading || !canCreateAvatar}
                 className={`w-8 h-8 flex items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors ${
-                  isLoading || !canCreateAgent ? 'opacity-50 cursor-not-allowed' : ''
+                  isLoading || !canCreateAvatar ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
                 title={createDisabledReason || `Create new avatar (${gateStatus?.availableSlots || 0} slots available)`}
                 data-testid="create-avatar-button"
@@ -223,11 +223,11 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
         {/* Prominent New Avatar Button */}
         {showCreateButton && (
           <button
-            onClick={handleCreateAgent}
-            disabled={isLoading || !canCreateAgent}
+            onClick={handleCreateAvatar}
+            disabled={isLoading || !canCreateAvatar}
             className={`w-full flex items-center gap-3 px-3 py-3 mb-2 rounded-lg border-2 border-dashed transition-all ${
-              isLoading || !canCreateAgent 
-                ? 'opacity-50 cursor-not-allowed border-gray-500/30 text-gray-500' 
+              isLoading || !canCreateAvatar
+                ? 'opacity-50 cursor-not-allowed border-gray-500/30 text-gray-500'
                 : 'border-brand-500/50 hover:border-brand-500 hover:bg-brand-500/10 text-brand-400 hover:text-brand-300'
             }`}
             data-testid="create-avatar-button"
@@ -239,7 +239,7 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
-            ) : !canCreateAgent ? (
+            ) : !canCreateAvatar ? (
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
@@ -259,9 +259,9 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
               </svg>
             )}
             <span className="font-medium">
-              {!canCreateAgent ? 'Get an Orb to Create' : 'Create Avatar'}
+              {!canCreateAvatar ? 'Get an Orb to Create' : 'Create Avatar'}
             </span>
-            {canCreateAgent && gateStatus?.availableSlots !== undefined && (
+            {canCreateAvatar && gateStatus?.availableSlots !== undefined && (
               <span className="ml-auto text-xs text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 rounded-full" aria-hidden="true">
                 {gateStatus.availableSlots === 1 && gateStatus.nftsHeld === 0
                   ? '1 free slot'
@@ -279,23 +279,23 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
             </svg>
             <p className="text-sm">Loading avatars...</p>
           </div>
-        ) : sortedAgents.length === 0 ? (
+        ) : sortedAvatars.length === 0 ? (
           <div className="text-center py-8 text-[var(--color-text-muted)]">
             <p className="text-sm">
-              {inhabitedAvatarId && !hasOrbs 
-                ? 'You need an Orb to view other avatars' 
+              {inhabitedAvatarId && !hasOrbs
+                ? 'You need an Orb to view other avatars'
                 : 'No avatars yet'}
             </p>
           </div>
         ) : (
           <>
             {/* Section: Your Avatar (if inhabiting) */}
-            {inhabitedAvatarId && sortedAgents.some(a => a.id === inhabitedAvatarId) && (
+            {inhabitedAvatarId && sortedAvatars.some(a => a.id === inhabitedAvatarId) && (
               <div className="mb-2">
                 <div className="px-2 py-1 text-xs font-medium text-brand-400 uppercase tracking-wider">
                   Your Avatar
                 </div>
-                {sortedAgents.filter(a => a.id === inhabitedAvatarId).map((avatar) => (
+                {sortedAvatars.filter(a => a.id === inhabitedAvatarId).map((avatar) => (
                   <AvatarListItem
                     key={avatar.id}
                     avatar={avatar}
@@ -305,16 +305,16 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
                 ))}
               </div>
             )}
-            
+
             {/* Section: Other Avatars (if has orbs or not inhabiting yet) */}
-            {(hasOrbs || !inhabitedAvatarId) && sortedAgents.filter(a => a.id !== inhabitedAvatarId).length > 0 && (
+            {(hasOrbs || !inhabitedAvatarId) && sortedAvatars.filter(a => a.id !== inhabitedAvatarId).length > 0 && (
               <div>
                 {inhabitedAvatarId && (
                   <div className="px-2 py-1 text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wider">
                     Other Avatars
                   </div>
                 )}
-                {sortedAgents.filter(a => a.id !== inhabitedAvatarId).map((avatar) => (
+                {sortedAvatars.filter(a => a.id !== inhabitedAvatarId).map((avatar) => (
                   <AvatarListItem
                     key={avatar.id}
                     avatar={avatar}
@@ -337,3 +337,4 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
 }
 
 export { AvatarDisplay };
+

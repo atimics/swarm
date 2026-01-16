@@ -1,10 +1,10 @@
 /**
- * Tool Prompt Components - Interactive UI for agent tools
- * These render inline with chat messages when the agent needs user input
+ * Tool Prompt Components - Interactive UI for avatar tools
+ * These render inline with chat messages when the avatar needs user input
  */
 import { useState, useRef, useEffect } from 'react';
 import type { ToolCall } from '../types';
-import { useActiveAgent } from '../store';
+import { useActiveAvatar } from '../store';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -112,7 +112,7 @@ export function SecretPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) 
  * Includes: enable/disable, credential input, test, status
  */
 export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
-  const activeAgent = useActiveAgent();
+  const activeAgent = useActiveAvatar();
   const [token, setToken] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -170,7 +170,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
     try {
       // Test the token by calling the appropriate validation endpoint
-      const response = await fetch(`${API_BASE}/agents/${activeAgent?.id}/validate-token`, {
+      const response = await fetch(`${API_BASE}/avatars/${activeAgent?.id}/validate-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -203,7 +203,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     setIsSubmitting(true);
     try {
       // Store the secret
-      const response = await fetch(`${API_BASE}/agents/${activeAgent.id}/secrets`, {
+      const response = await fetch(`${API_BASE}/avatars/${activeAgent.id}/secrets`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -233,7 +233,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const handleOAuth = () => {
     if (!activeAgent?.id) return;
     // Redirect to OAuth flow
-    window.location.href = `${API_BASE}/oauth/${args.integration}/start?agentId=${encodeURIComponent(activeAgent.id)}`;
+    window.location.href = `${API_BASE}/oauth/${args.integration}/start?avatarId=${encodeURIComponent(activeAgent.id)}`;
   };
 
   if (saved) {
@@ -503,7 +503,7 @@ export function UploadPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) 
         throw new Error(`Upload failed: ${response.status}`);
       }
 
-      // Notify the agent that upload completed
+      // Notify the avatar that upload completed
       await onSubmit(toolCall.id, {
         success: true,
         s3Key: args.s3Key,
@@ -898,7 +898,7 @@ export function PropertyAuthPrompt({ toolCall, onSubmit, disabled }: ToolPromptP
             <p className="text-sm text-amber-200/80 mt-1">{reason}</p>
           )}
           <p className="text-xs text-amber-300/60 mt-2">
-            This will allow the agent to search for property listings, comparables, and neighborhood data.
+            This will allow the avatar to search for property listings, comparables, and neighborhood data.
           </p>
         </div>
       </div>
@@ -927,7 +927,7 @@ export function PropertyAuthPrompt({ toolCall, onSubmit, disabled }: ToolPromptP
  * Twitter/X Connection Prompt
  */
 export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
-  const activeAgent = useActiveAgent();
+  const activeAgent = useActiveAvatar();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [started, setStarted] = useState(false);
 
@@ -938,7 +938,7 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
 
     setIsSubmitting(true);
     // Redirect to OAuth start endpoint - it will redirect to Twitter
-    const url = `${API_BASE}/oauth/twitter/start?agentId=${encodeURIComponent(activeAgent.id)}`;
+    const url = `${API_BASE}/oauth/twitter/start?avatarId=${encodeURIComponent(activeAgent.id)}`;
     window.location.href = url;
 
     try {
@@ -970,7 +970,7 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
         <div className="flex-1">
           <h4 className="font-medium text-[var(--color-text)]">Connect X/Twitter</h4>
           <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-            {args.message || 'Authorize this agent to post and manage tweets.'}
+            {args.message || 'Authorize this avatar to post and manage tweets.'}
           </p>
         </div>
       </div>
@@ -992,7 +992,7 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
 }
 
 /**
- * Feature Toggle Prompt - Toggle switch for enabling/disabling agent features
+ * Feature Toggle Prompt - Toggle switch for enabling/disabling avatar features
  */
 export function FeatureTogglePrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);

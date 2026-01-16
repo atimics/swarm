@@ -1,5 +1,6 @@
 /**
  * Avatars API - Backend calls for avatar CRUD operations
+ * Note: API paths remain as /avatars/* for backend compatibility
  */
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -193,3 +194,11 @@ export async function toggleFeature(
 
   return updateAvatar(avatarId, updates);
 }
+
+// Legacy aliases for backward compatibility (agent → avatar)
+export const createAgent = createAvatar;
+export const listAgents = listAvatars;
+export const getAgent = getAvatar;
+export const updateAgent = updateAvatar;
+export const deleteAgent = deleteAvatar;
+export type AgentResponse = AvatarResponse;

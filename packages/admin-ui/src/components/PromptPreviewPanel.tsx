@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { fetchPromptPreview, type PromptPreviewResponse, type ToolPreview } from '../api/prompt-preview';
-import { useActiveAgent, useActiveChat } from '../store';
+import { useActiveAvatar, useActiveChat } from '../store';
 
 interface PromptPreviewPanelProps {
   isOpen: boolean;
@@ -71,7 +71,7 @@ function ToolCard({ tool, isExpanded, onToggle }: {
 }
 
 export function PromptPreviewPanel({ isOpen, onClose }: PromptPreviewPanelProps) {
-  const activeAgent = useActiveAgent();
+  const activeAgent = useActiveAvatar();
   const messages = useActiveChat();
 
   const [preview, setPreview] = useState<PromptPreviewResponse | null>(null);
@@ -96,7 +96,7 @@ export function PromptPreviewPanel({ isOpen, onClose }: PromptPreviewPanelProps)
         }));
 
       const response = await fetchPromptPreview({
-        agentId: activeAgent.id,
+        avatarId: activeAgent.id,
         history,
       });
 

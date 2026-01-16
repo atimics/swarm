@@ -12,7 +12,7 @@ export interface WalletUser {
   walletAddress: string;
   displayName?: string;
   avatarUrl?: string;
-  inhabitedAgentId?: string;
+  inhabitedAvatarId?: string;
   createdAt?: number;
   sessionCount?: number;
 }
@@ -30,14 +30,14 @@ export interface NFTGateInfo {
 
 export interface GateStatus {
   nftsHeld: number;
-  agentsCreated: number;
+  avatarsCreated: number;
   availableSlots: number;
   canCreate: boolean;
   canAbandon: boolean;
 }
 
-export interface UnclaimedAgent {
-  agentId: string;
+export interface UnclaimedAvatar {
+  avatarId: string;
   name: string;
   description?: string;
   avatarUrl?: string;
@@ -46,9 +46,9 @@ export interface UnclaimedAgent {
 
 export interface InhabitationInfo {
   isGhost: boolean;
-  inhabitsAgent: boolean;
-  agentId?: string;
-  agentName?: string;
+  inhabitsAvatar: boolean;
+  avatarId?: string;
+  avatarName?: string;
   avatarUrl?: string;
   era?: number;
   gateStatus?: GateStatus;
@@ -57,8 +57,8 @@ export interface InhabitationInfo {
 export interface CanAbandonResult {
   canAbandon: boolean;
   gateStatus: GateStatus;
-  inhabitedAgent: {
-    agentId: string;
+  inhabitedAvatar: {
+    avatarId: string;
     name: string;
     avatarUrl?: string;
     currentEra: number;
@@ -68,14 +68,14 @@ export interface CanAbandonResult {
 export interface AbandonResult {
   success: boolean;
   error?: string;
-  agentId?: string;
-  agentName?: string;
+  avatarId?: string;
+  avatarName?: string;
   era?: number;
   lineageNftMint?: string;
   burnedMint?: string;
   lineageMetadata?: {
-    agentId: string;
-    agentName: string;
+    avatarId: string;
+    avatarName: string;
     era: number;
     isGenesis: boolean;
     abandonedAt: number;
@@ -104,11 +104,11 @@ interface WalletAuthState {
   clearError: () => void;
 
   // Inhabitation actions
-  fetchUnclaimedAgents: () => Promise<UnclaimedAgent[]>;
+  fetchUnclaimedAvatars: () => Promise<UnclaimedAvatar[]>;
   getInhabitationStatus: () => Promise<InhabitationInfo | null>;
-  inhabitAgent: (agentId: string) => Promise<{ success: boolean; error?: string; avatarUrl?: string }>;
+  inhabitAvatar: (avatarId: string) => Promise<{ success: boolean; error?: string; avatarUrl?: string }>;
   checkCanAbandon: () => Promise<CanAbandonResult | null>;
-  abandonAgent: (burnTxSignature: string) => Promise<AbandonResult>;
+  abandonAvatar: (burnTxSignature: string) => Promise<AbandonResult>;
 }
 
 export const useWalletAuth = create<WalletAuthState>()(
@@ -261,23 +261,23 @@ export const useWalletAuth = create<WalletAuthState>()(
       clearError: () => set({ error: null, nftGateError: false }),
 
       /**
-       * Fetch list of unclaimed agents available for inhabitation
+       * Fetch list of unclaimed avatars available for inhabitation
        */
-      fetchUnclaimedAgents: async () => {
+      fetchUnclaimedAvatars: async () => {
         try {
-          const response = await fetch(`${API_BASE}/auth/unclaimed-agents`, {
+          const response = await fetch(`${API_BASE}/auth/unclaimed-avatars`, {
             credentials: 'include',
           });
 
           if (!response.ok) {
-            console.error('[WalletAuth] Failed to fetch unclaimed agents');
+            console.error('[WalletAuth] Failed to fetch unclaimed avatars');
             return [];
           }
 
           const data = await response.json();
-          return data.agents || [];
+          return data.avatars || [];
         } catch (error) {
-          console.error('[WalletAuth] Fetch unclaimed agents error:', error);
+          console.error('[WalletAuth] Fetch unclaimed avatars error:', error);
           return [];
         }
       },
@@ -307,41 +307,41 @@ export const useWalletAuth = create<WalletAuthState>()(
       },
 
       /**
-       * Inhabit an unclaimed agent (FREE - no NFT required)
+       * Inhabit an unclaimed avatar (FREE - no NFT required)
        */
-      inhabitAgent: async (agentId: string) => {
+      inhabitAvatar: async (avatarId: string) => {
         try {
           const response = await fetch(`${API_BASE}/auth/inhabit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agentId }),
+            body: JSON.stringify({ avatarId }),
             credentials: 'include',
           });
 
           const data = await response.json();
 
           if (!response.ok) {
-            return { success: false, error: data.error || 'Failed to inhabit agent' };
+            return { success: false, error: data.error || 'Failed to inhabit avatar' };
           }
 
-          // Update user with new inhabited agent info
+          // Update user with new inhabited avatar info
           set((state) => ({
             user: state.user ? {
               ...state.user,
-              inhabitedAgentId: data.agentId,
+              inhabitedAvatarId: data.avatarId,
               avatarUrl: data.avatarUrl,
             } : null,
           }));
 
           return { success: true, avatarUrl: data.avatarUrl };
         } catch (error) {
-          console.error('[WalletAuth] Inhabit agent error:', error);
-          return { success: false, error: 'Failed to inhabit agent' };
+          console.error('[WalletAuth] Inhabit avatar error:', error);
+          return { success: false, error: 'Failed to inhabit avatar' };
         }
       },
 
       /**
-       * Check if user can abandon their current agent
+       * Check if user can abandon their current avatar
        * Requires holding at least 1 Gate NFT (which will be burned)
        */
       checkCanAbandon: async () => {
@@ -367,17 +367,17 @@ export const useWalletAuth = create<WalletAuthState>()(
       },
 
       /**
-       * Abandon the currently inhabited agent
+       * Abandon the currently inhabited avatar
        * REQUIRES burning a Gate NFT first - pass the burn transaction signature
        *
        * Flow:
        * 1. User burns Gate NFT via wallet (get signature)
        * 2. Call this function with the burn signature
        * 3. Backend verifies burn on-chain
-       * 4. Backend releases the agent
+       * 4. Backend releases the avatar
        * 5. Returns lineage metadata for optional NFT minting
        */
-      abandonAgent: async (burnTxSignature: string) => {
+      abandonAvatar: async (burnTxSignature: string) => {
         try {
           const response = await fetch(`${API_BASE}/auth/abandon`, {
             method: 'POST',
@@ -391,16 +391,16 @@ export const useWalletAuth = create<WalletAuthState>()(
           if (!response.ok) {
             return {
               success: false,
-              error: data.error || 'Failed to abandon agent',
+              error: data.error || 'Failed to abandon avatar',
               gateStatus: data.gateStatus,
             };
           }
 
-          // Clear inhabited agent from user
+          // Clear inhabited avatar from user
           set((state) => ({
             user: state.user ? {
               ...state.user,
-              inhabitedAgentId: undefined,
+              inhabitedAvatarId: undefined,
               avatarUrl: undefined,
             } : null,
             gateStatus: data.gateStatus || state.gateStatus,
@@ -408,15 +408,15 @@ export const useWalletAuth = create<WalletAuthState>()(
 
           return {
             success: true,
-            agentId: data.agentId,
-            agentName: data.agentName,
+            avatarId: data.avatarId,
+            avatarName: data.avatarName,
             era: data.era,
             lineageMetadata: data.lineageMetadata,
             gateStatus: data.gateStatus,
           };
         } catch (error) {
-          console.error('[WalletAuth] Abandon agent error:', error);
-          return { success: false, error: 'Failed to abandon agent' };
+          console.error('[WalletAuth] Abandon avatar error:', error);
+          return { success: false, error: 'Failed to abandon avatar' };
         }
       },
     }),

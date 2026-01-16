@@ -30,7 +30,7 @@ interface ChatResponse {
   }>;
   media?: MediaItem[];
   pendingJobs?: PendingJob[];
-  agentUpdates?: {
+  avatarUpdates?: {
     profileImageUrl?: string;
     name?: string;
   };
@@ -38,7 +38,7 @@ interface ChatResponse {
   error?: string;
 }
 
-interface AgentContext {
+interface AvatarContext {
   id: string;
   name: string;
   description?: string;
@@ -49,7 +49,7 @@ interface SenderContext {
   walletAddress?: string;
   displayName?: string;
   avatarUrl?: string;
-  inhabitedAgentId?: string;
+  inhabitedAvatarId?: string;
 }
 
 /**
@@ -58,7 +58,7 @@ interface SenderContext {
 export async function sendChatMessage(
   message: string,
   history: Array<{ role: string; content: string }>,
-  agent?: AgentContext,
+  avatar?: AvatarContext,
   sender?: SenderContext
 ): Promise<ChatResponse> {
   const response = await fetch(`${API_BASE}/chat`, {
@@ -74,19 +74,19 @@ export async function sendChatMessage(
         role: m.role,
         content: m.content,
       })),
-      // Pass agent context so the LLM knows which agent it IS
-      agent: agent ? {
-        id: agent.id,
-        name: agent.name,
-        description: agent.description,
-        persona: agent.persona,
+      // Pass avatar context so the LLM knows which avatar it IS
+      avatar: avatar ? {
+        id: avatar.id,
+        name: avatar.name,
+        description: avatar.description,
+        persona: avatar.persona,
       } : undefined,
       // Pass sender context for message attribution
       sender: sender ? {
         walletAddress: sender.walletAddress,
         displayName: sender.displayName,
         avatarUrl: sender.avatarUrl,
-        inhabitedAgentId: sender.inhabitedAgentId,
+        inhabitedAvatarId: sender.inhabitedAvatarId,
       } : undefined,
     }),
   });
@@ -103,11 +103,11 @@ export async function sendChatMessage(
  * Submit a tool call result (e.g., secret input)
  */
 export async function submitToolResult(
-  agentId: string,
+  avatarId: string,
   toolCallId: string,
   result: unknown
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}/agents/${agentId}/tools/${toolCallId}`, {
+  const response = await fetch(`${API_BASE}/avatars/${avatarId}/tools/${toolCallId}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -123,14 +123,14 @@ export async function submitToolResult(
 }
 
 /**
- * Save a secret for an agent
+ * Save a secret for an avatar
  */
-export async function saveAgentSecret(
-  agentId: string,
+export async function saveAvatarSecret(
+  avatarId: string,
   secretKey: string,
   secretValue: string
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}/agents/${agentId}/secrets`, {
+  const response = await fetch(`${API_BASE}/avatars/${avatarId}/secrets`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -168,9 +168,9 @@ export async function checkAuth(): Promise<{ authenticated: boolean; user?: stri
  * Fetch chat history from backend (for cross-device sync)
  */
 export async function fetchChatHistory(
-  agentId?: string
+  avatarId?: string
 ): Promise<Array<{ role: string; content: string; media?: MediaItem[] }>> {
-  const params = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
+  const params = avatarId ? `?avatarId=${encodeURIComponent(avatarId)}` : '';
   const response = await fetch(`${API_BASE}/chat${params}`, {
     method: 'GET',
     headers: {
@@ -191,8 +191,8 @@ export async function fetchChatHistory(
 /**
  * Clear chat history on the backend
  */
-export async function clearChatHistory(agentId?: string): Promise<void> {
-  const params = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
+export async function clearChatHistory(avatarId?: string): Promise<void> {
+  const params = avatarId ? `?avatarId=${encodeURIComponent(avatarId)}` : '';
   const response = await fetch(`${API_BASE}/chat${params}`, {
     method: 'DELETE',
     headers: {
@@ -246,10 +246,10 @@ export async function getJobStatus(jobId: string, signal?: AbortSignal): Promise
 }
 
 /**
- * Get all pending jobs for an agent
+ * Get all pending jobs for an avatar
  */
-export async function getPendingJobs(agentId: string): Promise<{ count: number; jobs: JobStatus[] }> {
-  const response = await fetch(`${API_BASE}/jobs?agentId=${encodeURIComponent(agentId)}`, {
+export async function getPendingJobs(avatarId: string): Promise<{ count: number; jobs: JobStatus[] }> {
+  const response = await fetch(`${API_BASE}/jobs?avatarId=${encodeURIComponent(avatarId)}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -337,12 +337,12 @@ export async function pollJobCompletion(
  */
 export async function transcribeAudio(
   audioBlob: Blob,
-  agentId?: string
+  avatarId?: string
 ): Promise<{ text: string; language?: string }> {
   const formData = new FormData();
   formData.append('audio', audioBlob, 'recording.webm');
-  if (agentId) {
-    formData.append('agentId', agentId);
+  if (avatarId) {
+    formData.append('avatarId', avatarId);
   }
 
   const response = await fetch(`${API_BASE}/transcribe`, {
@@ -358,3 +358,10 @@ export async function transcribeAudio(
 
   return response.json();
 }
+
+// =============================================================================
+// LEGACY API - Deprecated aliases for backwards compatibility
+// =============================================================================
+
+/** @deprecated Use saveAvatarSecret instead */
+export const saveAgentSecret = saveAvatarSecret;

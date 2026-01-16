@@ -2,10 +2,10 @@
  * IssueCard - Expandable issue display component for the logs panel
  */
 import { useMemo } from 'react';
-import type { AgentIssue } from '../api/issues';
+import type { AvatarIssue } from '../api/issues';
 
 interface IssueCardProps {
-  issue: AgentIssue;
+  issue: AvatarIssue;
   isExpanded: boolean;
   onToggle: () => void;
   isActive?: boolean;
@@ -15,7 +15,7 @@ function formatTimestamp(timestamp: number): string {
   return new Date(timestamp).toLocaleString();
 }
 
-function getSeverityColor(severity: AgentIssue['severity']): string {
+function getSeverityColor(severity: AvatarIssue['severity']): string {
   switch (severity) {
     case 'critical': return 'text-red-400 bg-red-500/20 border-red-500/40';
     case 'high': return 'text-orange-400 bg-orange-500/20 border-orange-500/40';
@@ -25,7 +25,7 @@ function getSeverityColor(severity: AgentIssue['severity']): string {
   }
 }
 
-function getSeverityBadgeColor(severity: AgentIssue['severity']): string {
+function getSeverityBadgeColor(severity: AvatarIssue['severity']): string {
   switch (severity) {
     case 'critical': return 'bg-red-500/30 text-red-300';
     case 'high': return 'bg-orange-500/30 text-orange-300';
@@ -135,7 +135,7 @@ export function IssueCard({ issue, isExpanded, onToggle, isActive }: IssueCardPr
 }
 
 interface IssueNavigationProps {
-  issues: AgentIssue[];
+  issues: AvatarIssue[];
   currentIndex: number;
   onNavigate: (index: number) => void;
 }

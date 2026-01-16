@@ -10,7 +10,7 @@ import { AvatarDisplay } from './AvatarSidebar';
 import { IssueCard, IssueNavigation } from './IssueCard';
 
 interface AvatarLogsPanelProps {
-  avatarId: string;
+  avatarId: string; // Still uses avatarId for API compatibility
   onMenuClick?: () => void;
   onBack?: () => void;
 }
@@ -66,7 +66,7 @@ function parseLogMessage(message: string): {
       // Not valid JSON
     }
   }
-  
+
   // Try to parse whole message as JSON
   try {
     const parsed = JSON.parse(message);
@@ -89,7 +89,7 @@ function parseLogMessage(message: string): {
   } catch {
     // Not JSON
   }
-  
+
   // Try to extract level from text like "INFO", "ERROR", etc.
   const levelMatch = message.match(/\b(ERROR|WARN|INFO|DEBUG)\b/i);
   return {
@@ -117,11 +117,11 @@ function getLevelColor(level?: string): string {
 function CompactJsonView({ json }: { json: Record<string, unknown> }) {
   const subsystem = typeof json.subsystem === 'string' ? json.subsystem : null;
   const event = typeof json.event === 'string' ? json.event : null;
-  
+
   if (!subsystem && !event) {
     return <span className="text-[var(--color-text-tertiary)] text-xs">—</span>;
   }
-  
+
   return (
     <div className="flex flex-wrap gap-1.5 text-xs">
       {subsystem && (
@@ -159,14 +159,14 @@ interface LogEntryProps {
 function LogEntry({ event, linkedIssue, isActiveIssue }: LogEntryProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const parsed = useMemo(() => parseLogMessage(event.message || ''), [event.message]);
-  
+
   // If this is an issue log entry and we have a linked issue, show special styling
   const isIssueEntry = parsed.isIssue && linkedIssue;
-  
+
   return (
-    <div 
+    <div
       className={`border rounded-lg overflow-hidden transition-all ${
-        isIssueEntry 
+        isIssueEntry
           ? `border-2 ${isActiveIssue ? 'border-yellow-400 ring-2 ring-yellow-400/30' : 'border-yellow-500/50'} bg-yellow-500/5`
           : 'border-[var(--color-border)] bg-[var(--color-bg-secondary)]/70'
       }`}
@@ -179,20 +179,20 @@ function LogEntry({ event, linkedIssue, isActiveIssue }: LogEntryProps) {
         className="w-full px-2 py-1.5 flex items-center gap-2 text-left hover:bg-[var(--color-bg-tertiary)]/50 transition-colors"
       >
         {/* Expand indicator */}
-        <svg 
+        <svg
           className={`w-3 h-3 text-[var(--color-text-muted)] flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-          fill="none" 
-          viewBox="0 0 24 24" 
+          fill="none"
+          viewBox="0 0 24 24"
           stroke="currentColor"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
-        
+
         {/* Level badge */}
         <span className={`text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 min-w-[45px] text-center ${getLevelColor(parsed.level)}`}>
           {parsed.level || '?'}
         </span>
-        
+
         {/* Subsystem + Event */}
         <div className="flex-1 min-w-0">
           {isIssueEntry && parsed.issueData ? (
@@ -219,11 +219,11 @@ function LogEntry({ event, linkedIssue, isActiveIssue }: LogEntryProps) {
         {/* Issue indicator icon */}
         {isIssueEntry && (
           <svg className="w-4 h-4 text-yellow-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         )}
-        
+
         {/* Timestamp - hidden on very small screens */}
         <span className="text-[10px] text-[var(--color-text-muted)] flex-shrink-0 hidden sm:block">
           {formatTimestamp(event.timestamp)}
@@ -233,15 +233,15 @@ function LogEntry({ event, linkedIssue, isActiveIssue }: LogEntryProps) {
       {/* Issue card when expanded and linked to an issue */}
       {isExpanded && linkedIssue && (
         <div className="border-t border-yellow-500/30 p-3 bg-yellow-500/5">
-          <IssueCard 
-            issue={linkedIssue} 
+          <IssueCard
+            issue={linkedIssue}
             isExpanded={true}
             onToggle={() => {}}
             isActive={isActiveIssue}
           />
         </div>
       )}
-      
+
       {/* Expanded details (for non-issue entries or to show raw log) */}
       {isExpanded && (
         <div className={`border-t px-3 py-2 space-y-2 ${linkedIssue ? 'border-yellow-500/30' : 'border-[var(--color-border)]'}`}>
@@ -258,7 +258,7 @@ function LogEntry({ event, linkedIssue, isActiveIssue }: LogEntryProps) {
               </span>
             )}
           </div>
-          
+
           {/* Full message */}
           <details className="group">
             <summary className="text-xs text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]">
@@ -275,7 +275,7 @@ function LogEntry({ event, linkedIssue, isActiveIssue }: LogEntryProps) {
 }
 
 export function AvatarLogsPanel({ avatarId, onMenuClick, onBack }: AvatarLogsPanelProps) {
-  const activeAgent = useActiveAvatar();
+  const activeAvatar = useActiveAvatar();
   const { setActiveAvatar } = useAvatarStore();
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -292,13 +292,13 @@ export function AvatarLogsPanel({ avatarId, onMenuClick, onBack }: AvatarLogsPan
     subsystem: '',
     query: '',
   });
-  
+
   // CloudWatch logs state (slow - fallback)
   const [logs, setLogs] = useState<AvatarLogEvent[]>([]);
   const [logGroups, setLogGroups] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Issue state (from CloudWatch - legacy)
   const [issues, setIssues] = useState<AvatarIssue[]>([]);
   const [currentIssueIndex, setCurrentIssueIndex] = useState(0);
@@ -337,11 +337,11 @@ export function AvatarLogsPanel({ avatarId, onMenuClick, onBack }: AvatarLogsPan
   // Find linked issue for a log event
   const findLinkedIssue = useCallback((event: AvatarLogEvent): AvatarIssue | undefined => {
     if (!event.timestamp) return undefined;
-    
+
     // Try exact match first
     const direct = issueByTimestamp.get(event.timestamp);
     if (direct) return direct;
-    
+
     // Check if the log message contains avatar_reported_issue
     const parsed = parseLogMessage(event.message || '');
     if (parsed.isIssue && parsed.json) {
@@ -395,7 +395,7 @@ export function AvatarLogsPanel({ avatarId, onMenuClick, onBack }: AvatarLogsPan
       setLogs(logsResponse.events || []);
       setLogGroups(logsResponse.logGroups || []);
       setIssues(issuesResponse.issues || []);
-      
+
       // Auto-expand the latest issue
       if (issuesResponse.issues?.length > 0) {
         setExpandedIssueId(issuesResponse.issues[0].id);
@@ -425,18 +425,18 @@ export function AvatarLogsPanel({ avatarId, onMenuClick, onBack }: AvatarLogsPan
   // Navigate to issue and scroll to corresponding log
   const handleIssueNavigate = useCallback((index: number) => {
     if (index < 0 || index >= issues.length) return;
-    
+
     const issue = issues[index];
     setCurrentIssueIndex(index);
     setExpandedIssueId(issue.id);
-    
+
     // Find and scroll to the log entry with this issue
     if (logsContainerRef.current) {
       const issueTimestamp = new Date(issue.timestamp).toISOString();
       const logElement = logsContainerRef.current.querySelector(
         `[data-is-issue="true"][data-log-timestamp="${issueTimestamp}"]`
       ) || logsContainerRef.current.querySelector('[data-is-issue="true"]');
-      
+
       if (logElement) {
         logElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
@@ -465,10 +465,10 @@ export function AvatarLogsPanel({ avatarId, onMenuClick, onBack }: AvatarLogsPan
                 <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
               </svg>
             </button>
-            {activeAgent && <AvatarDisplay avatar={activeAgent} size="md" />}
+            {activeAvatar && <AvatarDisplay avatar={activeAvatar} size="md" />}
             <div className="min-w-0">
               <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)] truncate">
-                {activeAgent?.name || avatarId} logs
+                {activeAvatar?.name || avatarId} logs
               </h1>
               <p className="text-xs text-[var(--color-text-tertiary)] truncate">
                 {activeTab === 'events' ? `${events.length} events` : `${logGroups.length} log group${logGroups.length === 1 ? '' : 's'}`}
@@ -608,7 +608,7 @@ export function AvatarLogsPanel({ avatarId, onMenuClick, onBack }: AvatarLogsPan
       {activeTab === 'events' && (
         <div className="flex-1 overflow-y-auto px-4 lg:px-6 py-4 space-y-3">
           {eventsLoading && (
-            <div className="text-[var(--color-text-tertiary)] text-sm">Loading events…</div>
+            <div className="text-[var(--color-text-tertiary)] text-sm">Loading events...</div>
           )}
           {eventsError && (
             <div className="text-sm text-red-400 bg-red-900/20 border border-red-900/40 rounded-lg px-3 py-2">
@@ -628,7 +628,7 @@ export function AvatarLogsPanel({ avatarId, onMenuClick, onBack }: AvatarLogsPan
       {activeTab === 'logs' && (
         <div ref={logsContainerRef} className="flex-1 overflow-y-auto px-4 lg:px-6 py-4 space-y-2">
           {isLoading && (
-            <div className="text-[var(--color-text-tertiary)] text-sm">Loading logs…</div>
+            <div className="text-[var(--color-text-tertiary)] text-sm">Loading logs...</div>
           )}
           {error && (
             <div className="text-sm text-red-400 bg-red-900/20 border border-red-900/40 rounded-lg px-3 py-2">
@@ -642,8 +642,8 @@ export function AvatarLogsPanel({ avatarId, onMenuClick, onBack }: AvatarLogsPan
             const linkedIssue = findLinkedIssue(event);
             const isActiveIssue = linkedIssue?.id === expandedIssueId;
             return (
-              <LogEntry 
-                key={`${event.logStream || 'stream'}-${index}`} 
+              <LogEntry
+                key={`${event.logStream || 'stream'}-${index}`}
                 event={event}
                 linkedIssue={linkedIssue}
                 isActiveIssue={isActiveIssue}
@@ -672,13 +672,13 @@ function EventCard({ event }: { event: AvatarEvent }) {
 /**
  * Issue event card
  */
-function IssueEventCard({ 
-  event, 
-  isExpanded, 
-  onToggle 
-}: { 
-  event: AvatarIssueEvent; 
-  isExpanded: boolean; 
+function IssueEventCard({
+  event,
+  isExpanded,
+  onToggle
+}: {
+  event: AvatarIssueEvent;
+  isExpanded: boolean;
   onToggle: () => void;
 }) {
   const severityColors: Record<string, string> = {
@@ -701,27 +701,27 @@ function IssueEventCard({
         onClick={onToggle}
         className="w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-[var(--color-bg-tertiary)]/50 transition-colors"
       >
-        <svg 
+        <svg
           className={`w-4 h-4 text-yellow-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-          fill="none" 
-          viewBox="0 0 24 24" 
+          fill="none"
+          viewBox="0 0 24 24"
           stroke="currentColor"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
-        
+
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium uppercase ${severityColors[event.severity]?.split(' ').slice(0, 2).join(' ')}`}>
           {event.severity}
         </span>
-        
+
         <span className={`text-xs px-2 py-0.5 rounded ${statusColors[event.status]}`}>
           {event.status}
         </span>
-        
+
         <span className="flex-1 text-sm font-medium text-[var(--color-text)] truncate">
           {event.title}
         </span>
-        
+
         <span className="text-xs text-[var(--color-text-muted)]">
           {new Date(event.timestamp).toLocaleString()}
         </span>
@@ -761,13 +761,13 @@ function IssueEventCard({
 /**
  * Feedback event card
  */
-function FeedbackEventCard({ 
-  event, 
-  isExpanded, 
-  onToggle 
-}: { 
-  event: AvatarFeedbackEvent; 
-  isExpanded: boolean; 
+function FeedbackEventCard({
+  event,
+  isExpanded,
+  onToggle
+}: {
+  event: AvatarFeedbackEvent;
+  isExpanded: boolean;
   onToggle: () => void;
 }) {
   const sentimentColors: Record<string, string> = {
@@ -789,19 +789,19 @@ function FeedbackEventCard({
         className="w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-[var(--color-bg-tertiary)]/50 transition-colors"
       >
         <span className="text-lg">{sentimentIcons[event.sentiment]}</span>
-        
+
         <span className={`text-xs px-2 py-0.5 rounded font-medium ${sentimentColors[event.sentiment]?.split(' ').slice(0, 2).join(' ')}`}>
           {event.sentiment}
         </span>
-        
+
         <span className="text-xs px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
           {event.feature}
         </span>
-        
+
         <span className="flex-1 text-sm text-[var(--color-text)] truncate">
           {event.feedback}
         </span>
-        
+
         <span className="text-xs text-[var(--color-text-muted)]">
           {new Date(event.timestamp).toLocaleString()}
         </span>
@@ -812,7 +812,7 @@ function FeedbackEventCard({
           <p className="text-sm text-[var(--color-text-secondary)]">{event.feedback}</p>
           <div className="flex gap-2 mt-2 text-xs text-[var(--color-text-tertiary)]">
             <span>Platform: {event.platform}</span>
-            <span>•</span>
+            <span>-</span>
             <span>Avatar: {event.avatarId}</span>
           </div>
         </div>
@@ -820,3 +820,5 @@ function FeedbackEventCard({
     </div>
   );
 }
+
+

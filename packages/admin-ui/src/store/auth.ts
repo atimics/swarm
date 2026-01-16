@@ -11,7 +11,7 @@ export interface UnifiedUser {
   walletAddress: string;
   displayName?: string;
   avatarUrl?: string;
-  inhabitedAgentId?: string;
+  inhabitedAvatarId?: string;
   email?: string; // Only for Crossmint users
 }
 
@@ -90,7 +90,7 @@ function normalizeWalletUser(user: WalletUser): UnifiedUser {
     walletAddress: user.walletAddress,
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
-    inhabitedAgentId: user.inhabitedAgentId,
+    inhabitedAvatarId: user.inhabitedAvatarId,
   };
 }
 
@@ -99,7 +99,7 @@ function normalizeCrossmintUser(user: CrossmintUser): UnifiedUser {
     walletAddress: user.walletAddress,
     displayName: user.displayName || user.email,
     avatarUrl: user.avatarUrl,
-    inhabitedAgentId: user.inhabitedAgentId,
+    inhabitedAvatarId: user.inhabitedAvatarId,
     email: user.email,
   };
 }

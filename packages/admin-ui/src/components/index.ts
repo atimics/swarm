@@ -1,11 +1,11 @@
 export { ChatMessage } from './ChatMessage';
 export { ChatInput } from './ChatInput';
 export { Header } from './Header';
-export { AgentSidebar, AgentAvatar } from './AgentSidebar';
-export { AgentConfigModal } from './AgentConfigModal';
+export { AvatarSidebar, AvatarDisplay } from './AvatarSidebar';
+export { AvatarConfigModal } from './AvatarConfigModal';
 export { ChatPanel } from './ChatPanel';
 export { ToolPrompt, SecretPrompt, ConfirmPrompt } from './ToolPrompts';
-export { AgentLogsPanel } from './AgentLogsPanel';
+export { AvatarLogsPanel } from './AvatarLogsPanel';
 export { IssueCard, IssueNavigation } from './IssueCard';
 export { ThemeToggle } from './ThemeToggle';
 export { WalletProvider } from './WalletProvider';

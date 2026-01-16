@@ -1,36 +1,36 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAgentStore } from './store';
+import { useAvatarStore } from './store';
 import { useWalletAuth } from './store/walletAuth';
 import { useAuth } from './store/auth';
-import { AgentSidebar, AgentLogsPanel, ChatPanel, LandingPage } from './components';
+import { AvatarSidebar, AvatarLogsPanel, ChatPanel, LandingPage } from './components';
 
-function getLogsAgentId(pathname: string): string | null {
-  const match = pathname.match(/^\/agents\/([^/]+)\/logs\/?$/);
+function getLogsAvatarId(pathname: string): string | null {
+  const match = pathname.match(/^\/avatars\/([^/]+)\/logs\/?$/);
   return match?.[1] || null;
 }
 
-function getInhabitAgentId(pathname: string): string | null {
+function getInhabitAvatarId(pathname: string): string | null {
   const match = pathname.match(/^\/inhabit\/([^/]+)\/?$/);
   return match?.[1] || null;
 }
 
 function App() {
-  const { agents, fetchAgents, activeAgentId, syncChatHistory, setActiveAgent, addMessage } = useAgentStore();
+  const { avatars, fetchAvatars, activeAvatarId, syncChatHistory, setActiveAvatar, addMessage } = useAvatarStore();
   const { checkAuth } = useWalletAuth();
   // Use unified auth to check both wallet and Crossmint authentication
   const { isAuthenticated } = useAuth();
   const [initialized, setInitialized] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [logsAgentId, setLogsAgentId] = useState<string | null>(
-    () => getLogsAgentId(window.location.pathname)
+  const [logsAvatarId, setLogsAvatarId] = useState<string | null>(
+    () => getLogsAvatarId(window.location.pathname)
   );
-  const [inhabitAgentId, setInhabitAgentId] = useState<string | null>(
-    () => getInhabitAgentId(window.location.pathname)
+  const [inhabitAvatarId, setInhabitAvatarId] = useState<string | null>(
+    () => getInhabitAvatarId(window.location.pathname)
   );
-  const [pendingInhabitPrompt, setPendingInhabitPrompt] = useState(Boolean(inhabitAgentId));
+  const [pendingInhabitPrompt, setPendingInhabitPrompt] = useState(Boolean(inhabitAvatarId));
 
-  const isLogsRoute = useMemo(() => Boolean(logsAgentId), [logsAgentId]);
+  const isLogsRoute = useMemo(() => Boolean(logsAvatarId), [logsAvatarId]);
 
   // Check auth status on mount (run once)
   useEffect(() => {
@@ -65,69 +65,69 @@ function App() {
     };
   }, [checkAuth, authChecked]);
 
-  // Fetch agents from backend once authenticated (run once when conditions are met)
+  // Fetch avatars from backend once authenticated (run once when conditions are met)
   useEffect(() => {
     if (initialized || !authChecked || !isAuthenticated) return;
     
     let mounted = true;
     
-    fetchAgents()
+    fetchAvatars()
       .catch(console.error)
       .finally(() => {
         if (mounted) setInitialized(true);
       });
     
     return () => { mounted = false; };
-  }, [authChecked, isAuthenticated, fetchAgents, initialized]);
+  }, [authChecked, isAuthenticated, fetchAvatars, initialized]);
 
-  // Sync chat history from backend when agent is selected
-  // ALWAYS sync on agent change to ensure cross-device consistency
+  // Sync chat history from backend when avatar is selected
+  // ALWAYS sync on avatar change to ensure cross-device consistency
   useEffect(() => {
-    if (activeAgentId && initialized && !isLogsRoute) {
+    if (activeAvatarId && initialized && !isLogsRoute) {
       const sync = async () => {
         // Always sync from backend - it's the source of truth for cross-device
-        await syncChatHistory(activeAgentId).catch(console.error);
+        await syncChatHistory(activeAvatarId).catch(console.error);
 
-        if (pendingInhabitPrompt && inhabitAgentId === activeAgentId) {
-          addMessage(activeAgentId, {
+        if (pendingInhabitPrompt && inhabitAvatarId === activeAvatarId) {
+          addMessage(activeAvatarId, {
             role: 'assistant',
             content: JSON.stringify({
-              action: 'inhabit_agent',
-              agentId: activeAgentId,
-              label: 'Inhabit this agent',
-              message: 'Tap to inhabit this agent with your wallet.',
+              action: 'inhabit_avatar',
+              avatarId: activeAvatarId,
+              label: 'Inhabit this avatar',
+              message: 'Tap to inhabit this avatar with your wallet.',
             }),
           });
           setPendingInhabitPrompt(false);
-          setInhabitAgentId(null);
+          setInhabitAvatarId(null);
         }
       };
 
       sync();
     }
   }, [
-    activeAgentId,
+    activeAvatarId,
     initialized,
     isLogsRoute,
     syncChatHistory,
     pendingInhabitPrompt,
-    inhabitAgentId,
+    inhabitAvatarId,
     addMessage,
   ]);
 
-  // Close sidebar when agent is selected on mobile
+  // Close sidebar when avatar is selected on mobile
   useEffect(() => {
-    if (activeAgentId) {
+    if (activeAvatarId) {
       setSidebarOpen(false);
     }
-  }, [activeAgentId]);
+  }, [activeAvatarId]);
 
   useEffect(() => {
     const handlePopState = () => {
-      setLogsAgentId(getLogsAgentId(window.location.pathname));
-      const nextInhabitAgentId = getInhabitAgentId(window.location.pathname);
-      setInhabitAgentId(nextInhabitAgentId);
-      setPendingInhabitPrompt(Boolean(nextInhabitAgentId));
+      setLogsAvatarId(getLogsAvatarId(window.location.pathname));
+      const nextInhabitAvatarId = getInhabitAvatarId(window.location.pathname);
+      setInhabitAvatarId(nextInhabitAvatarId);
+      setPendingInhabitPrompt(Boolean(nextInhabitAvatarId));
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -135,22 +135,22 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!initialized || !inhabitAgentId) return;
-    const hasAgent = agents.some((agent) => agent.id === inhabitAgentId);
-    if (hasAgent && activeAgentId !== inhabitAgentId) {
-      setActiveAgent(inhabitAgentId);
+    if (!initialized || !inhabitAvatarId) return;
+    const hasAvatar = avatars.some((avatar) => avatar.id === inhabitAvatarId);
+    if (hasAvatar && activeAvatarId !== inhabitAvatarId) {
+      setActiveAvatar(inhabitAvatarId);
     }
-  }, [agents, activeAgentId, inhabitAgentId, initialized, setActiveAgent]);
+  }, [avatars, activeAvatarId, inhabitAvatarId, initialized, setActiveAvatar]);
 
-  const openLogs = useCallback((agentId: string) => {
-    const nextPath = `/agents/${agentId}/logs`;
+  const openLogs = useCallback((avatarId: string) => {
+    const nextPath = `/avatars/${avatarId}/logs`;
     window.history.pushState({}, '', nextPath);
-    setLogsAgentId(agentId);
+    setLogsAvatarId(avatarId);
   }, []);
 
   const openChat = useCallback(() => {
     window.history.pushState({}, '', '/');
-    setLogsAgentId(null);
+    setLogsAvatarId(null);
   }, []);
 
   // Show loading state while checking auth (only use local authChecked state)
@@ -196,13 +196,13 @@ function App() {
         `}
           style={{ top: 'env(safe-area-inset-top, 0px)' }}
         >
-          <AgentSidebar onClose={() => setSidebarOpen(false)} />
+          <AvatarSidebar onClose={() => setSidebarOpen(false)} />
         </div>
 
         {/* Main Chat Area */}
-        {isLogsRoute && logsAgentId ? (
-          <AgentLogsPanel
-            agentId={logsAgentId}
+        {isLogsRoute && logsAvatarId ? (
+          <AvatarLogsPanel
+            avatarId={logsAvatarId}
             onMenuClick={() => setSidebarOpen(true)}
             onBack={openChat}
           />

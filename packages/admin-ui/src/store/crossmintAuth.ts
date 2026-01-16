@@ -13,12 +13,12 @@ export interface CrossmintUser {
   walletAddress: string;
   displayName?: string;
   avatarUrl?: string;
-  inhabitedAgentId?: string;
+  inhabitedAvatarId?: string;
 }
 
 export interface GateStatus {
   nftsHeld: number;
-  agentsCreated: number;
+  avatarsCreated: number;
   availableSlots: number;
   canCreate: boolean;
   canAbandon: boolean;
@@ -108,7 +108,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
                 walletAddress: data.user.walletAddress,
                 displayName: data.user.displayName || crossmintUser.email,
                 avatarUrl: data.user.avatarUrl,
-                inhabitedAgentId: data.user.inhabitedAgentId,
+                inhabitedAvatarId: data.user.inhabitedAvatarId,
               },
               gateStatus: data.gateStatus || null,
               isLoading: false,

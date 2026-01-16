@@ -23,25 +23,25 @@ export function LandingPage() {
 
         {/* Tagline */}
         <p className="text-xl text-[var(--color-text-secondary)] text-center mb-12 max-w-md">
-          Create and inhabit AI agents on Solana
+          Create and inhabit AI avatars on Solana
         </p>
 
         {/* Feature cards */}
         <div className="grid gap-4 mb-12 max-w-lg w-full">
           <FeatureCard
             icon="🤖"
-            title="Create Your Agent"
-            description="Every wallet gets one free AI agent. Configure its personality, connect it to Telegram, Twitter, and more."
+            title="Create Your Avatar"
+            description="Every wallet gets one free AI avatar. Configure its personality, connect it to Telegram, Twitter, and more."
           />
           <FeatureCard
             icon="👻"
             title="Inhabit & Evolve"
-            description="Take control of unclaimed agents or create your own. Your agent evolves through each era of inhabitation."
+            description="Take control of unclaimed avatars or create your own. Your avatar evolves through each era of inhabitation."
           />
           <FeatureCard
             icon="🔮"
             title="Collect Orbs"
-            description="Hold Orb NFTs to unlock additional agent slots and exclusive features."
+            description="Hold Orb NFTs to unlock additional avatar slots and exclusive features."
           />
         </div>
 

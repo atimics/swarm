@@ -13,7 +13,7 @@ interface ChatMessageProps {
 /**
  * Render avatar for message sender
  * - No sender or no wallet = ghost icon
- * - Has inhabitedAgentId = agent avatar
+ * - Has inhabitedAvatarId = avatar avatar
  * - Has walletAddress = wallet-based display
  */
 function SenderAvatar({ sender }: { sender?: MessageSender }) {
@@ -28,7 +28,7 @@ function SenderAvatar({ sender }: { sender?: MessageSender }) {
     );
   }
   
-  // Agent avatar if user inhabits an agent
+  // Avatar avatar if user inhabits an avatar
   if (sender.avatarUrl) {
     return (
       <img 
@@ -58,7 +58,7 @@ interface ParsedToolResult {
   audioUrl?: string;
   message?: string;
   action?: string;
-  agentId?: string;
+  avatarId?: string;
   label?: string;
   isInhabited?: boolean;
   // Wallet-specific fields
@@ -111,13 +111,13 @@ function processMessageContent(content: string): {
       'action' in parsed
     );
 
-    if (parsed.action === 'inhabit_agent' && typeof parsed.agentId === 'string') {
+    if (parsed.action === 'inhabit_avatar' && typeof parsed.avatarId === 'string') {
       return {
         type: 'inhabit',
         data: parsed,
-        action: 'inhabit_agent',
-        agentId: parsed.agentId,
-        label: typeof parsed.label === 'string' ? parsed.label : 'Inhabit this agent',
+        action: 'inhabit_avatar',
+        avatarId: parsed.avatarId,
+        label: typeof parsed.label === 'string' ? parsed.label : 'Inhabit this avatar',
         message: typeof parsed.message === 'string' ? parsed.message : undefined,
         isInhabited: typeof parsed.isInhabited === 'boolean' ? parsed.isInhabited : undefined,
       };
@@ -407,7 +407,7 @@ function getFailedJobs(pendingJobs?: ChatMessageType['pendingJobs']) {
 export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const hasPendingTools = message.toolCalls?.some(tc => tc.status === 'pending');
-  const { isAuthenticated, inhabitAgent } = useWalletAuth();
+  const { isAuthenticated, inhabitAvatar } = useWalletAuth();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [inhabitStates, setInhabitStates] = useState<Record<string, {
     status: 'idle' | 'loading' | 'success' | 'error';
@@ -485,13 +485,13 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
     return null;
   }
 
-  const handleInhabit = async (agentId: string) => {
+  const handleInhabit = async (avatarId: string) => {
     if (!isAuthenticated) {
       setInhabitStates((prev) => ({
         ...prev,
-        [agentId]: {
+        [avatarId]: {
           status: 'error',
-          error: 'Connect your wallet to inhabit this agent.',
+          error: 'Connect your wallet to inhabit this avatar.',
         },
       }));
       return;
@@ -499,15 +499,15 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
 
     setInhabitStates((prev) => ({
       ...prev,
-      [agentId]: { status: 'loading' },
+      [avatarId]: { status: 'loading' },
     }));
 
-    const result = await inhabitAgent(agentId);
+    const result = await inhabitAvatar(avatarId);
     setInhabitStates((prev) => ({
       ...prev,
-      [agentId]: result.success
+      [avatarId]: result.success
         ? { status: 'success' }
-        : { status: 'error', error: result.error || 'Failed to inhabit agent' },
+        : { status: 'error', error: result.error || 'Failed to inhabit avatar' },
     }));
   };
 
@@ -552,8 +552,8 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
             {actionResults.length > 0 && (
               <div className={`space-y-2 ${cleanedContent ? 'mt-3' : ''}`}>
                 {actionResults.map((result, idx) => {
-                  if (!result.agentId) return null;
-                  const state = inhabitStates[result.agentId]?.status || 'idle';
+                  if (!result.avatarId) return null;
+                  const state = inhabitStates[result.avatarId]?.status || 'idle';
                   const isBusy = state === 'loading';
                   const isComplete = state === 'success';
                   const isBlocked = result.isInhabited === true;
@@ -561,11 +561,11 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
                     ? 'Connect wallet to inhabit'
                     : isBlocked
                       ? 'Already inhabited'
-                      : result.label || 'Inhabit this agent';
+                      : result.label || 'Inhabit this avatar';
 
                   return (
                     <div
-                      key={`${result.agentId}-${idx}`}
+                      key={`${result.avatarId}-${idx}`}
                       className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-3 py-2"
                     >
                       {result.message && (
@@ -575,7 +575,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
                       )}
                       <button
                         type="button"
-                        onClick={() => handleInhabit(result.agentId!)}
+                        onClick={() => handleInhabit(result.avatarId!)}
                         disabled={!isAuthenticated || isBusy || isComplete || isBlocked}
                         className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${
                           !isAuthenticated || isBlocked
@@ -590,9 +590,9 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
                         )}
                         {isComplete ? 'Inhabited' : isBusy ? 'Inhabiting...' : buttonLabel}
                       </button>
-                      {state === 'error' && inhabitStates[result.agentId]?.error && (
+                      {state === 'error' && inhabitStates[result.avatarId]?.error && (
                         <div className="mt-1 text-xs text-red-400">
-                          {inhabitStates[result.agentId]?.error}
+                          {inhabitStates[result.avatarId]?.error}
                         </div>
                       )}
                     </div>

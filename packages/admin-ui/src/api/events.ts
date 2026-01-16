@@ -1,5 +1,5 @@
 /**
- * Agent Events API - Issues and feedback from DynamoDB (fast)
+ * Avatar Events API - Issues and feedback from DynamoDB (fast)
  */
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -8,11 +8,11 @@ export type IssueSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type IssueStatus = 'open' | 'acknowledged' | 'resolved' | 'wont_fix';
 export type FeedbackSentiment = 'positive' | 'negative' | 'neutral';
 
-export interface AgentIssueEvent {
+export interface AvatarIssueEvent {
   id: string;
   type: 'issue';
   timestamp: number;
-  agentId: string;
+  avatarId: string;
   platform: string;
   severity: IssueSeverity;
   category: string;
@@ -30,27 +30,27 @@ export interface AgentIssueEvent {
   resolvedBy?: string;
 }
 
-export interface AgentFeedbackEvent {
+export interface AvatarFeedbackEvent {
   id: string;
   type: 'feedback';
   timestamp: number;
-  agentId: string;
+  avatarId: string;
   platform: string;
   sentiment: FeedbackSentiment;
   feature: string;
   feedback: string;
 }
 
-export type AgentEvent = AgentIssueEvent | AgentFeedbackEvent;
+export type AvatarEvent = AvatarIssueEvent | AvatarFeedbackEvent;
 
-export interface AgentEventsResponse {
-  agentId: string;
-  events: AgentEvent[];
+export interface AvatarEventsResponse {
+  avatarId: string;
+  events: AvatarEvent[];
   count: number;
 }
 
 export interface EventCountsResponse {
-  agentId: string;
+  avatarId: string;
   openIssues: number;
   recentFeedback: {
     positive: number;
@@ -69,12 +69,12 @@ export interface ListEventsOptions {
 }
 
 /**
- * Fetch events for an agent (issues + feedback) from DynamoDB
+ * Fetch events for an avatar (issues + feedback) from DynamoDB
  */
-export async function fetchAgentEvents(
-  agentId: string,
+export async function fetchAvatarEvents(
+  avatarId: string,
   options: ListEventsOptions = {}
-): Promise<AgentEventsResponse> {
+): Promise<AvatarEventsResponse> {
   const params = new URLSearchParams();
 
   if (options.type) params.set('type', options.type);
@@ -84,7 +84,7 @@ export async function fetchAgentEvents(
   if (options.sentiment) params.set('sentiment', options.sentiment);
   if (options.status) params.set('status', options.status);
 
-  const url = `${API_BASE}/agents/${agentId}/events${params.toString() ? `?${params}` : ''}`;
+  const url = `${API_BASE}/avatars/${avatarId}/events${params.toString() ? `?${params}` : ''}`;
 
   const response = await fetch(url, {
     method: 'GET',
@@ -102,8 +102,8 @@ export async function fetchAgentEvents(
 /**
  * Fetch event counts for dashboard
  */
-export async function fetchEventCounts(agentId: string): Promise<EventCountsResponse> {
-  const response = await fetch(`${API_BASE}/agents/${agentId}/events/counts`, {
+export async function fetchEventCounts(avatarId: string): Promise<EventCountsResponse> {
+  const response = await fetch(`${API_BASE}/avatars/${avatarId}/events/counts`, {
     method: 'GET',
     credentials: 'include',
   });
@@ -120,11 +120,11 @@ export async function fetchEventCounts(agentId: string): Promise<EventCountsResp
  * Update an issue's status
  */
 export async function updateEventStatus(
-  agentId: string,
+  avatarId: string,
   eventId: string,
   status: IssueStatus
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}/agents/${agentId}/events/${eventId}`, {
+  const response = await fetch(`${API_BASE}/avatars/${avatarId}/events/${eventId}`, {
     method: 'PATCH',
     credentials: 'include',
     headers: {

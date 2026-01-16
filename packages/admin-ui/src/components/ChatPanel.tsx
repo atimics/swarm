@@ -1,42 +1,42 @@
 /**
- * Chat Panel - Main chat area for active agent
+ * Chat Panel - Main chat area for active avatar
  * 
  * Access modes:
- * - Admin mode: Full access to chat with tools (inhabited agent or created by user)
- * - Chat mode: Simple chat without admin tools (other agents)
+ * - Admin mode: Full access to chat with tools (inhabited avatar or created by user)
+ * - Chat mode: Simple chat without admin tools (other avatars)
  * - Browse mode: Read-only profile view (no wallet connected)
  */
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
-import { useAgentStore, useActiveAgent, useActiveChat, useWalletAuth } from '../store';
-import { sendChatMessage, saveAgentSecret, pollJobCompletion, updateAgent as updateAgentApi, transcribeAudio, type JobStatus } from '../api';
+import { useAvatarStore, useActiveAvatar, useActiveChat, useWalletAuth } from '../store';
+import { sendChatMessage, saveAvatarSecret, pollJobCompletion, updateAvatar as updateAvatarApi, transcribeAudio, type JobStatus } from '../api';
 import { ChatMessage as ChatMessageComponent } from './ChatMessage';
 import { ChatInput } from './ChatInput';
-import { AgentAvatar } from './AgentSidebar';
+import { AvatarDisplay } from './AvatarSidebar';
 import { PromptPreviewPanel } from './PromptPreviewPanel';
 
 // Track active polling jobs to avoid duplicate polling
-const activePollers = new Map<string, { controller: AbortController; agentId: string }>();
+const activePollers = new Map<string, { controller: AbortController; avatarId: string }>();
 
 interface ChatPanelProps {
   onMenuClick?: () => void;
-  onOpenLogs?: (agentId: string) => void;
+  onOpenLogs?: (avatarId: string) => void;
 }
 
 export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
-  const activeAgent = useActiveAgent();
+  const activeAvatar = useActiveAvatar();
   const messages = useActiveChat();
-  const { addMessage, updateMessage, removeMessage, clearChat, updateAgent, isLoading, setLoading, setError, createAgent } = useAgentStore();
+  const { addMessage, updateMessage, removeMessage, clearChat, updateAvatar, isLoading, setLoading, setError, createAvatar } = useAvatarStore();
   const { user: walletUser, isAuthenticated: isWalletAuthenticated, gateStatus } = useWalletAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
-  const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+  const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
   const [showHint, setShowHint] = useState(true);
 
   // Derive hasOrb from gateStatus
   const hasOrb = (gateStatus?.nftsHeld ?? 0) > 0;
 
-  // Determine access mode for this agent
+  // Determine access mode for this avatar
   // - 'browse': Not authenticated - read-only
   // - 'limited': Authenticated but no Orb - can chat with limits
   // - 'chat': Has Orb but not admin - full chat access
@@ -46,8 +46,8 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       return 'browse'; // Not authenticated - read-only
     }
     
-    const isInhabited = walletUser.inhabitedAgentId === activeAgent?.id;
-    const isCreator = activeAgent?.creatorWallet === walletUser.walletAddress;
+    const isInhabited = walletUser.inhabitedAvatarId === activeAvatar?.id;
+    const isCreator = activeAvatar?.creatorWallet === walletUser.walletAddress;
     
     if (isInhabited || isCreator) {
       return 'admin'; // Full admin access
@@ -58,48 +58,48 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
     }
     
     return 'chat'; // Can chat but no admin tools
-  }, [isWalletAuthenticated, walletUser, activeAgent, hasOrb]);
+  }, [isWalletAuthenticated, walletUser, activeAvatar, hasOrb]);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Cancel pollers when switching agents or unmounting
+  // Cancel pollers when switching avatars or unmounting
   useEffect(() => {
-    const currentAgentId = activeAgent?.id;
+    const currentAvatarId = activeAvatar?.id;
     return () => {
-      if (!currentAgentId) return;
+      if (!currentAvatarId) return;
       for (const [jobId, poller] of activePollers) {
-        if (poller.agentId === currentAgentId) {
+        if (poller.avatarId === currentAvatarId) {
           poller.controller.abort();
           activePollers.delete(jobId);
         }
       }
     };
-  }, [activeAgent?.id]);
+  }, [activeAvatar?.id]);
 
-  // Handle sending a message - creates agent first if needed
+  // Handle sending a message - creates avatar first if needed
   const handleSendMessage = useCallback(
     async (content: string) => {
       // Hide the hint when user starts chatting
       setShowHint(false);
       
-      // If no agent exists, create one first
-      let targetAgent = activeAgent;
-      if (!targetAgent) {
-        if (isCreatingAgent) return; // Already creating
-        setIsCreatingAgent(true);
+      // If no avatar exists, create one first
+      let targetAvatar = activeAvatar;
+      if (!targetAvatar) {
+        if (isCreatingAvatar) return; // Already creating
+        setIsCreatingAvatar(true);
         try {
-          targetAgent = await createAgent();
+          targetAvatar = await createAvatar();
         } catch (err) {
-          console.error('Failed to create agent:', err);
-          setError('Failed to create agent');
-          setIsCreatingAgent(false);
+          console.error('Failed to create avatar:', err);
+          setError('Failed to create avatar');
+          setIsCreatingAvatar(false);
           return;
         }
-        setIsCreatingAgent(false);
-        if (!targetAgent) return;
+        setIsCreatingAvatar(false);
+        if (!targetAvatar) return;
       }
       
       if (accessMode === 'browse') return; // Can't send in browse mode
@@ -109,14 +109,14 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         walletAddress: walletUser.walletAddress,
         displayName: walletUser.displayName,
         avatarUrl: walletUser.avatarUrl,
-        inhabitedAgentId: walletUser.inhabitedAgentId,
+        inhabitedAvatarId: walletUser.inhabitedAvatarId,
       } : undefined;
 
       // Add user message with sender info
-      addMessage(targetAgent.id, { role: 'user', content, sender });
+      addMessage(targetAvatar.id, { role: 'user', content, sender });
 
       // Add loading message
-      addMessage(targetAgent.id, {
+      addMessage(targetAvatar.id, {
         role: 'assistant',
         content: '',
         isLoading: true,
@@ -136,26 +136,26 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             content: m.content,
           }));
 
-        // Send to API with agent context and sender info
+        // Send to API with avatar context and sender info
         const response = await sendChatMessage(content, history, {
-          id: targetAgent.id,
-          name: targetAgent.name,
-          description: targetAgent.description,
-          persona: targetAgent.persona,
+          id: targetAvatar.id,
+          name: targetAvatar.name,
+          description: targetAvatar.description,
+          persona: targetAvatar.persona,
         }, sender);
 
-        // Update agent avatar if profile image was changed
-        if (response.agentUpdates?.profileImageUrl) {
-          updateAgent(targetAgent.id, { avatar: response.agentUpdates.profileImageUrl });
+        // Update avatar avatar if profile image was changed
+        if (response.avatarUpdates?.profileImageUrl) {
+          updateAvatar(targetAvatar.id, { avatar: response.avatarUpdates.profileImageUrl });
         }
         
-        // Update agent name if it was changed
-        if (response.agentUpdates?.name) {
-          updateAgent(targetAgent.id, { name: response.agentUpdates.name });
+        // Update avatar name if it was changed
+        if (response.avatarUpdates?.name) {
+          updateAvatar(targetAvatar.id, { name: response.avatarUpdates.name });
         }
 
         // Update the loading message with the response
-        const currentMessages = useAgentStore.getState().chats[targetAgent.id] || [];
+        const currentMessages = useAvatarStore.getState().chats[targetAvatar.id] || [];
         const loadingMessage = currentMessages.find((m) => m.isLoading);
         if (loadingMessage) {
           // Check if there's a pending tool call that needs user input
@@ -188,7 +188,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             purpose: j.purpose,
           }));
 
-          updateMessage(targetAgent.id, loadingMessage.id, {
+          updateMessage(targetAvatar.id, loadingMessage.id, {
             content: response.response,
             isLoading: false,
             // Only add tool calls that need user input (pendingToolCall)
@@ -209,9 +209,9 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             const jobId = pendingJob.jobId;
             if (!activePollers.has(jobId)) {
               const messageId = loadingMessage.id;
-              const agentIdForPolling = targetAgent.id;
+              const avatarIdForPolling = targetAvatar.id;
               const controller = new AbortController();
-              activePollers.set(jobId, { controller, agentId: agentIdForPolling });
+              activePollers.set(jobId, { controller, avatarId: avatarIdForPolling });
 
               // Poll in background - don't await
               pollJobCompletion(jobId, {
@@ -219,7 +219,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
                 maxIntervalMs: 12000,
                 signal: controller.signal,
                 onProgress: (status: JobStatus) => {
-                  const currentMsgs = useAgentStore.getState().chats[agentIdForPolling] || [];
+                  const currentMsgs = useAvatarStore.getState().chats[avatarIdForPolling] || [];
                   const msg = currentMsgs.find(m => m.id === messageId);
                   if (!msg) {
                     const poller = activePollers.get(jobId);
@@ -247,7 +247,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
                   if (status.status === 'completed' && mediaUrl) {
                     // Job completed - update status and add to toolCalls for image display
                     const existingToolCalls = msg.toolCalls || [];
-                    updateMessage(agentIdForPolling, messageId, {
+                    updateMessage(avatarIdForPolling, messageId, {
                       pendingJobs: updatedPendingJobs,
                       toolCalls: [
                         ...existingToolCalls,
@@ -269,16 +269,16 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
                     if (jobPurpose === 'profile_image') {
                       void (async () => {
                         try {
-                          const updated = await updateAgentApi(agentIdForPolling, {
+                          const updated = await updateAvatarApi(avatarIdForPolling, {
                             profileImage: {
                               url: mediaUrl,
                               updatedAt: Date.now(),
                             },
                           });
-                          updateAgent(agentIdForPolling, {
+                          updateAvatar(avatarIdForPolling, {
                             avatar: updated.profileImage?.url || mediaUrl,
                           });
-                          addMessage(agentIdForPolling, {
+                          addMessage(avatarIdForPolling, {
                             role: 'assistant',
                             content: '✅ Profile image updated.',
                           });
@@ -289,13 +289,13 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
                     }
                   } else if (status.status === 'failed') {
                     // Job failed - update status
-                    updateMessage(agentIdForPolling, messageId, {
+                    updateMessage(avatarIdForPolling, messageId, {
                       pendingJobs: updatedPendingJobs,
                     });
                     activePollers.delete(jobId);
                   } else {
                     // Job still processing - update status
-                    updateMessage(agentIdForPolling, messageId, {
+                    updateMessage(avatarIdForPolling, messageId, {
                       pendingJobs: updatedPendingJobs,
                     });
                   }
@@ -307,7 +307,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
                 }
                 console.error('Job polling failed:', err);
                 // Update job to failed state on error
-                const currentMsgs = useAgentStore.getState().chats[agentIdForPolling] || [];
+                const currentMsgs = useAvatarStore.getState().chats[avatarIdForPolling] || [];
                 const msg = currentMsgs.find(m => m.id === messageId);
                 if (msg) {
                   const updatedPendingJobs = (msg.pendingJobs || []).map(j => 
@@ -315,7 +315,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
                       ? { ...j, status: 'failed' as const, error: err.message }
                       : j
                   );
-                  updateMessage(agentIdForPolling, messageId, {
+                  updateMessage(avatarIdForPolling, messageId, {
                     pendingJobs: updatedPendingJobs,
                   });
                 }
@@ -325,43 +325,43 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
           }
         }
       } catch (error) {
-        const currentMessages = useAgentStore.getState().chats[targetAgent.id] || [];
+        const currentMessages = useAvatarStore.getState().chats[targetAvatar.id] || [];
         const loadingMessage = currentMessages.find((m) => m.isLoading);
         if (loadingMessage) {
-          removeMessage(targetAgent.id, loadingMessage.id);
+          removeMessage(targetAvatar.id, loadingMessage.id);
         }
 
         const errorMsg = error instanceof Error ? error.message : 'Failed to send message';
         setError(errorMsg);
-        addMessage(targetAgent.id, {
+        addMessage(targetAvatar.id, {
           role: 'assistant',
-          content: `❌ **Error:** ${errorMsg}\n\nPlease try again or check the agent configuration.`,
+          content: `❌ **Error:** ${errorMsg}\n\nPlease try again or check the avatar configuration.`,
         });
       } finally {
         setLoading(false);
       }
     },
-    [activeAgent, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAgent, isCreatingAgent, accessMode, isWalletAuthenticated, walletUser, updateAgent]
+    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isWalletAuthenticated, walletUser, updateAvatar]
   );
 
   // Handle audio message - transcribe and send as text
   const handleSendAudio = useCallback(
     async (audioBlob: Blob) => {
-      // Audio requires an existing agent for now
-      if (!activeAgent) {
-        // Create agent first, then handle audio
-        const newAgent = await createAgent();
-        if (!newAgent) return;
+      // Audio requires an existing avatar for now
+      if (!activeAvatar) {
+        // Create avatar first, then handle audio
+        const newAvatar = await createAvatar();
+        if (!newAvatar) return;
       }
       if (accessMode === 'browse') return;
 
-      const targetAgent = activeAgent || useAgentStore.getState().agents.find(a => a.id === useAgentStore.getState().activeAgentId);
-      if (!targetAgent) return;
+      const targetAvatar = activeAvatar || useAvatarStore.getState().avatars.find(a => a.id === useAvatarStore.getState().activeAvatarId);
+      if (!targetAvatar) return;
 
       setLoading(true);
       try {
         // Transcribe the audio
-        const result = await transcribeAudio(audioBlob, targetAgent.id);
+        const result = await transcribeAudio(audioBlob, targetAvatar.id);
         if (result.text) {
           // Send the transcribed text as a regular message
           handleSendMessage(`🎤 ${result.text}`);
@@ -372,18 +372,18 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         setLoading(false);
       }
     },
-    [activeAgent, accessMode, handleSendMessage, setLoading, setError]
+    [activeAvatar, accessMode, handleSendMessage, setLoading, setError]
   );
 
   // Handle tool submissions (secrets, confirmations, uploads, etc.)
   const handleToolSubmit = useCallback(
     async (toolCallId: string, result: unknown) => {
-      if (!activeAgent) return;
+      if (!activeAvatar) return;
 
       const resultObj = result as Record<string, unknown>;
       
       // Find the tool call to get its name
-      const currentMessages = useAgentStore.getState().chats[activeAgent.id] || [];
+      const currentMessages = useAvatarStore.getState().chats[activeAvatar.id] || [];
       let toolName: string | undefined;
       for (const msg of currentMessages) {
         const tc = msg.toolCalls?.find(tc => tc.id === toolCallId);
@@ -395,11 +395,11 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       
       // Update the tool call status in the message
       const updateToolCallStatus = () => {
-        const msgs = useAgentStore.getState().chats[activeAgent.id] || [];
+        const msgs = useAvatarStore.getState().chats[activeAvatar.id] || [];
         for (const msg of msgs) {
           const toolCall = msg.toolCalls?.find(tc => tc.id === toolCallId);
           if (toolCall) {
-            updateMessage(activeAgent.id, msg.id, {
+            updateMessage(activeAvatar.id, msg.id, {
               toolCalls: msg.toolCalls?.map(tc => 
                 tc.id === toolCallId 
                   ? { ...tc, status: 'completed' as const, result }
@@ -414,10 +414,10 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       // Handle secret submission
       if (resultObj.secretKey && resultObj.value) {
         try {
-          await saveAgentSecret(activeAgent.id, resultObj.secretKey as string, resultObj.value as string);
+          await saveAvatarSecret(activeAvatar.id, resultObj.secretKey as string, resultObj.value as string);
           updateToolCallStatus();
           
-          // Send a follow-up message to let the agent know the secret was stored
+          // Send a follow-up message to let the avatar know the secret was stored
           const followUpContent = `I've entered my ${(resultObj.secretKey as string).replace(/_/g, ' ')}.`;
           await handleSendMessage(followUpContent);
           
@@ -448,8 +448,8 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
 
           if (isCharacterReferenceUpload) {
             // For character reference, save directly via API
-            const { updateAgent: updateAgentApi } = await import('../api/agents');
-            await updateAgentApi(activeAgent.id, {
+            const { updateAvatar: updateAvatarApi } = await import('../api/avatars');
+            await updateAvatarApi(activeAvatar.id, {
               characterReference: {
                 url: resultObj.publicUrl as string,
                 s3Key: resultObj.s3Key as string,
@@ -459,14 +459,14 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             });
 
             // Add a simple confirmation message
-            addMessage(activeAgent.id, {
+            addMessage(activeAvatar.id, {
               role: 'assistant',
               content: '✅ Character reference updated. This will be used for consistent image and video generation.',
             });
           } else if (isProfileUpload) {
             // For profile images, save directly via API - don't rely on LLM
-            const { updateAgent: updateAgentApi } = await import('../api/agents');
-            await updateAgentApi(activeAgent.id, {
+            const { updateAvatar: updateAvatarApi } = await import('../api/avatars');
+            await updateAvatarApi(activeAvatar.id, {
               profileImage: {
                 url: resultObj.publicUrl as string,
                 s3Key: resultObj.s3Key as string,
@@ -475,10 +475,10 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             });
 
             // Update local state immediately
-            updateAgent(activeAgent.id, { avatar: resultObj.publicUrl as string });
+            updateAvatar(activeAvatar.id, { avatar: resultObj.publicUrl as string });
 
             // Add a simple confirmation message instead of asking LLM
-            addMessage(activeAgent.id, {
+            addMessage(activeAvatar.id, {
               role: 'assistant',
               content: '✅ Profile image updated.',
             });
@@ -499,9 +499,9 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       // Handle model selection updates
       if (typeof resultObj.selectedModel === 'string') {
         try {
-          const { getAgent, updateAgent: updateAgentApi } = await import('../api/agents');
-          const agent = await getAgent(activeAgent.id);
-          const currentConfig = agent.llmConfig || {
+          const { getAvatar, updateAvatar: updateAvatarApi } = await import('../api/avatars');
+          const avatar = await getAvatar(activeAvatar.id);
+          const currentConfig = avatar.llmConfig || {
             provider: 'openrouter',
             model: resultObj.selectedModel,
             temperature: 0.8,
@@ -509,14 +509,14 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             useGlobalKey: true,
           };
 
-          await updateAgentApi(activeAgent.id, {
+          await updateAvatarApi(activeAvatar.id, {
             llmConfig: {
               ...currentConfig,
               model: resultObj.selectedModel,
             },
           });
 
-          updateAgent(activeAgent.id, { model: resultObj.selectedModel });
+          updateAvatar(activeAvatar.id, { model: resultObj.selectedModel });
           updateToolCallStatus();
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : 'Failed to update model';
@@ -528,21 +528,21 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       // Handle feature toggle updates
       if (typeof resultObj.feature === 'string' && typeof resultObj.enabled === 'boolean') {
         try {
-          const { toggleFeature } = await import('../api/agents');
+          const { toggleFeature } = await import('../api/avatars');
           await toggleFeature(
-            activeAgent.id,
+            activeAvatar.id,
             resultObj.feature as 'media' | 'voice' | 'twitter' | 'telegram' | 'discord',
             resultObj.enabled
           );
           updateToolCallStatus();
 
-          // Send follow-up to let the agent know the toggle was completed
+          // Send follow-up to let the avatar know the toggle was completed
           const featureLabel = resultObj.feature.charAt(0).toUpperCase() + resultObj.feature.slice(1);
           const statusLabel = resultObj.enabled ? 'enabled' : 'disabled';
           await handleSendMessage(`I've ${statusLabel} ${featureLabel}.`);
 
           if (resultObj.feature === 'twitter' && resultObj.enabled) {
-            addMessage(activeAgent.id, {
+            addMessage(activeAvatar.id, {
               role: 'assistant',
               content: 'Please connect your X/Twitter account:',
               toolCalls: [{
@@ -550,7 +550,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
                 name: 'request_twitter_connection',
                 arguments: {
                   type: 'twitter_connect',
-                  message: 'Authorize this agent to post and manage tweets.',
+                  message: 'Authorize this avatar to post and manage tweets.',
                 },
                 status: 'pending',
               }],
@@ -574,11 +574,11 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       // Generic tool result - just update status
       updateToolCallStatus();
     },
-    [activeAgent, updateMessage, setError, handleSendMessage, addMessage, updateAgent]
+    [activeAvatar, updateMessage, setError, handleSendMessage, addMessage, updateAvatar]
   );
 
-  if (!activeAgent) {
-    // Show chat interface ready to create agent on first message
+  if (!activeAvatar) {
+    // Show chat interface ready to create avatar on first message
     return (
       <div className="flex-1 flex flex-col h-full bg-[var(--color-bg)]">
         {/* Minimal header with menu button */}
@@ -598,7 +598,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
               </svg>
             </div>
             <div className="min-w-0">
-              <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)]">New Agent</h1>
+              <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)]">New Avatar</h1>
               <p className="text-xs text-[var(--color-text-tertiary)]">Start chatting to create</p>
             </div>
           </div>
@@ -615,7 +615,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
               </svg>
             </div>
             <p className="text-lg lg:text-xl font-medium text-[var(--color-text-secondary)] mb-2">
-              Chat to create your first agent
+              Chat to create your first avatar
             </p>
             <p className="text-sm text-[var(--color-text-muted)]">
               Just say hello and we'll get started
@@ -629,8 +629,8 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             <ChatInput 
               onSend={handleSendMessage} 
               onSendAudio={handleSendAudio} 
-              disabled={isLoading || isCreatingAgent}
-              placeholder={isCreatingAgent ? "Creating your agent..." : "Say hello to create your agent..."}
+              disabled={isLoading || isCreatingAvatar}
+              placeholder={isCreatingAvatar ? "Creating your avatar..." : "Say hello to create your avatar..."}
             />
           </div>
         </div>
@@ -640,7 +640,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg)]">
-      {/* Agent Header */}
+      {/* Avatar Header */}
       <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 lg:px-6 py-3 lg:py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 lg:gap-4">
@@ -653,9 +653,9 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
                 <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
               </svg>
             </button>
-            <AgentAvatar agent={activeAgent} size="md" />
+            <AvatarDisplay avatar={activeAvatar} size="md" />
             <div className="min-w-0">
-              <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)] truncate">{activeAgent.name}</h1>
+              <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)] truncate">{activeAvatar.name}</h1>
               <p className="text-xs text-[var(--color-text-tertiary)] truncate hidden sm:block">
                 {accessMode === 'admin' && (
                   <span className="text-brand-400">Admin access</span>
@@ -687,7 +687,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
                   </svg>
                 </button>
                 <button
-                  onClick={() => clearChat(activeAgent.id)}
+                  onClick={() => clearChat(activeAvatar.id)}
                   className="px-2 lg:px-3 py-1.5 text-xs lg:text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors"
                 >
                   <span className="hidden sm:inline">Clear Chat</span>
@@ -700,7 +700,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
           </div>
           {onOpenLogs && (accessMode === 'admin' || accessMode === 'chat') && (
             <button
-              onClick={() => onOpenLogs(activeAgent.id)}
+              onClick={() => onOpenLogs(activeAvatar.id)}
               className="px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs font-medium transition-colors"
             >
               View logs
@@ -728,7 +728,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm px-3 lg:px-6 py-4">
           <div className="max-w-3xl mx-auto text-center">
             <p className="text-sm text-[var(--color-text-muted)]">
-              Connect your wallet to chat with this agent
+              Connect your wallet to chat with this avatar
             </p>
           </div>
         </div>
@@ -740,7 +740,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              <span>Limited mode • Get an Orb to unlock full access &amp; inhabit agents</span>
+              <span>Limited mode • Get an Orb to unlock full access &amp; inhabit avatars</span>
             </div>
           </div>
         </div>

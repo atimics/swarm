@@ -90,3 +90,9 @@ export interface AvatarChat {
   avatarId: string;
   messages: ChatMessage[];
 }
+
+// Legacy aliases for backward compatibility during the agent→avatar migration
+export type AgentSecret = AvatarSecret;
+export type AgentConfig = AvatarConfig;
+export type Agent = Avatar;
+export type AgentChat = AvatarChat;

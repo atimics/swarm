@@ -195,7 +195,7 @@ export function GhostAvatar({ className = '' }: { className?: string }) {
 }
 
 /**
- * User avatar (shows agent avatar if inhabited, ghost if not)
+ * User avatar (shows avatar avatar if inhabited, ghost if not)
  */
 export function UserAvatar({ 
   walletAddress,
@@ -221,7 +221,7 @@ export function UserAvatar({
     return <GhostAvatar className={className} />;
   }
 
-  // Has avatar URL (inhabited agent)
+  // Has avatar URL (inhabited avatar)
   if (avatarUrl) {
     return (
       <img

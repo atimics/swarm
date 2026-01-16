@@ -29,17 +29,17 @@ export const useChatStore = create<ChatState>((set) => ({
       role: 'assistant',
       content: `# Welcome to Swarm Admin! 🐝
 
-I'm here to help you set up and manage your social media agents. Here's what I can do:
+I'm here to help you set up and manage your social media avatars. Here's what I can do:
 
-**Create & Configure Agents**
-- Create new agents with custom names and personas
+**Create & Configure Avatars**
+- Create new avatars with custom names and personas
 - Configure platform integrations (Telegram, Twitter/X, Discord)
 - Set up LLM providers and models
 
 **Manage Secrets (Securely)**
 - Store API keys for platforms (Telegram, Twitter, Discord)
 - Configure AI provider keys (OpenRouter, Anthropic, OpenAI, Replicate)
-- Set global keys or per-agent keys for cost tracking
+- Set global keys or per-avatar keys for cost tracking
 - Note: I can *set* secrets but never *read* them back - this is by design!
 
 **Generate Crypto Wallets**
@@ -47,11 +47,11 @@ I'm here to help you set up and manage your social media agents. Here's what I c
 - Private keys are stored securely and never exposed
 
 **Deploy to AWS**
-- Deploy your configured agents to production
+- Deploy your configured avatars to production
 
 Try something like:
-- "Create a new agent called CryptoBot"
-- "Set up Telegram for my agent"
+- "Create a new avatar called CryptoBot"
+- "Set up Telegram for my avatar"
 - "Generate a Solana wallet for trading"`,
       timestamp: Date.now(),
     },

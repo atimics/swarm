@@ -1,10 +1,10 @@
 /**
- * Logs API - Consolidated agent logs endpoint.
+ * Logs API - Consolidated avatar logs endpoint.
  */
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 // CloudWatch log event format
-export interface AgentLogEvent {
+export interface AvatarLogEvent {
   timestamp?: string;
   message?: string;
   logGroup?: string;
@@ -15,7 +15,7 @@ export interface AgentLogEvent {
 export interface FastLogEntry {
   id: string;
   timestamp: number;
-  agentId: string;
+  avatarId: string;
   level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
   subsystem: string;
   event: string;
@@ -25,8 +25,8 @@ export interface FastLogEntry {
   platform?: string;
 }
 
-export interface AgentLogResponse {
-  agentId: string;
+export interface AvatarLogResponse {
+  avatarId: string;
   startTime?: number;
   endTime?: number;
   logGroups?: string[];
@@ -36,7 +36,7 @@ export interface AgentLogResponse {
     query?: string;
     limit: number;
   };
-  events?: AgentLogEvent[];
+  events?: AvatarLogEvent[];
   // Fast logs response
   logs?: FastLogEntry[];
   hasMore?: boolean;
@@ -54,10 +54,10 @@ export interface LogQueryOptions {
   fast?: boolean; // Use DynamoDB instead of CloudWatch
 }
 
-export async function fetchAgentLogs(
-  agentId: string,
+export async function fetchAvatarLogs(
+  avatarId: string,
   options: LogQueryOptions = {}
-): Promise<AgentLogResponse> {
+): Promise<AvatarLogResponse> {
   const params = new URLSearchParams();
 
   if (options.fast) params.set('fast', 'true');
@@ -69,7 +69,7 @@ export async function fetchAgentLogs(
   if (options.start) params.set('start', String(options.start));
   if (options.end) params.set('end', String(options.end));
 
-  const url = `${API_BASE}/agents/${agentId}/logs${params.toString() ? `?${params}` : ''}`;
+  const url = `${API_BASE}/avatars/${avatarId}/logs${params.toString() ? `?${params}` : ''}`;
 
   const response = await fetch(url, {
     method: 'GET',
