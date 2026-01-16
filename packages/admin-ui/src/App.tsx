@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgentStore } from './store';
 import { useWalletAuth } from './store/walletAuth';
+import { useAuth } from './store/auth';
 import { AgentSidebar, AgentLogsPanel, ChatPanel, LandingPage } from './components';
 
 function getLogsAgentId(pathname: string): string | null {
@@ -15,7 +16,9 @@ function getInhabitAgentId(pathname: string): string | null {
 
 function App() {
   const { agents, fetchAgents, activeAgentId, syncChatHistory, setActiveAgent, addMessage } = useAgentStore();
-  const { isAuthenticated, checkAuth } = useWalletAuth();
+  const { checkAuth } = useWalletAuth();
+  // Use unified auth to check both wallet and Crossmint authentication
+  const { isAuthenticated } = useAuth();
   const [initialized, setInitialized] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);

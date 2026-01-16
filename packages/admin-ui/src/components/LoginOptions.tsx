@@ -22,17 +22,19 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   const { login: crossmintLogin, user: crossmintUser, jwt, status } = useCrossmintAuthHook();
   const { wallet: crossmintWallet } = useCrossmintWallet();
 
-  // Check if Crossmint SDK is loading
+  // Extract wallet address upfront to ensure stable dependency
+  const walletAddress = crossmintWallet?.address;
+
+  // Check if Crossmint SDK is loading or waiting for wallet
   const crossmintIsLoading = status === 'in-progress';
-  const isLoading = walletAuth.isLoading || crossmintAuth.isLoading || crossmintIsLoading;
+  // Also consider "logged in but waiting for wallet" as loading state
+  const isWaitingForWallet = status === 'logged-in' && crossmintUser && !walletAddress;
+  const isLoading = walletAuth.isLoading || crossmintAuth.isLoading || crossmintIsLoading || isWaitingForWallet;
 
   // Track sync attempts to prevent infinite loops
   const syncAttemptedRef = useRef(false);
   const lastJwtRef = useRef<string | null>(null);
   const lastWalletAddressRef = useRef<string | null>(null);
-
-  // Extract wallet address upfront to ensure stable dependency
-  const walletAddress = crossmintWallet?.address;
 
   // When Crossmint auth completes with a wallet, sync with our backend
   useEffect(() => {
@@ -89,6 +91,26 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
 
   const handleCrossmintLogin = useCallback(async () => {
     crossmintAuth.clearError();
+    
+    // If Crossmint SDK already has user logged in but our backend sync hasn't happened,
+    // trigger the sync directly instead of calling login() which will error
+    if (status === 'logged-in' && jwt && crossmintUser && walletAddress && !crossmintAuth.isAuthenticated) {
+      console.log('[LoginOptions] SDK already logged in, triggering backend sync');
+      crossmintAuth.setLoading(true);
+      try {
+        await crossmintAuth.syncWithBackend(jwt, {
+          ...crossmintUser,
+          wallet: { address: walletAddress },
+        });
+      } catch (error) {
+        console.error('[LoginOptions] Backend sync error:', error);
+      } finally {
+        crossmintAuth.setLoading(false);
+      }
+      return;
+    }
+    
+    // Otherwise, initiate normal login flow
     crossmintAuth.setLoading(true);
     try {
       await crossmintLogin();
@@ -97,7 +119,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     } finally {
       crossmintAuth.setLoading(false);
     }
-  }, [crossmintLogin, crossmintAuth]);
+  }, [crossmintLogin, crossmintAuth, status, jwt, crossmintUser, walletAddress]);
 
   if (variant === 'compact') {
     return (
