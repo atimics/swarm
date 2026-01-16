@@ -268,7 +268,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
       {/* Content */}
       <div className="p-4 space-y-4">
-        {config.usesOAuth ? (
+        {'usesOAuth' in config && config.usesOAuth ? (
           // OAuth-based integration (Twitter)
           <div className="space-y-3">
             <p className="text-sm text-[var(--color-text-secondary)]">

@@ -1,18 +1,10 @@
 /**
  * Landing Page - Shown to unauthenticated users
- * Explains what the platform is and guides users to connect a Solana wallet
+ * Explains what the platform is and guides users to sign in
  */
-import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { useWalletAuth } from '../store/walletAuth';
+import { LoginOptions } from './LoginOptions';
 
 export function LandingPage() {
-  const { setVisible } = useWalletModal();
-  const { isLoading } = useWalletAuth();
-
-  const handleConnect = () => {
-    setVisible(true);
-  };
-
   return (
     <div className="min-h-[100dvh] bg-[var(--color-bg)] flex flex-col">
       {/* Safe area spacer for iOS */}
@@ -53,66 +45,8 @@ export function LandingPage() {
           />
         </div>
 
-        {/* Connect button */}
-        <button
-          onClick={handleConnect}
-          disabled={isLoading}
-          className="flex items-center gap-3 px-8 py-4 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white font-semibold text-lg transition-all shadow-lg shadow-brand-500/30 hover:shadow-brand-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isLoading ? (
-            <>
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              <span>Connecting...</span>
-            </>
-          ) : (
-            <>
-              <WalletIcon />
-              <span>Connect Wallet</span>
-            </>
-          )}
-        </button>
-
-        {/* Wallet help text */}
-        <p className="mt-6 text-sm text-[var(--color-text-muted)] text-center">
-          Don't have a wallet?{' '}
-          <a
-            href="https://phantom.app/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-brand-400 hover:text-brand-300 underline"
-          >
-            Download Phantom
-          </a>
-        </p>
-
-        {/* Additional wallet options */}
-        <div className="mt-4 flex flex-wrap justify-center gap-4 text-xs text-[var(--color-text-muted)]">
-          <span>Also works with:</span>
-          <a
-            href="https://solflare.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
-          >
-            Solflare
-          </a>
-          <a
-            href="https://backpack.app/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
-          >
-            Backpack
-          </a>
-          <a
-            href="https://glow.app/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
-          >
-            Glow
-          </a>
-        </div>
+        {/* Login options */}
+        <LoginOptions className="w-full max-w-sm" />
       </div>
 
       {/* Footer */}
@@ -147,10 +81,3 @@ function FeatureCard({ icon, title, description }: FeatureCardProps) {
   );
 }
 
-function WalletIcon() {
-  return (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
-    </svg>
-  );
-}

@@ -20,6 +20,7 @@ import {
 import { getGateStatus } from '../services/nft-gate.js';
 import { listUnclaimedAgents } from '../services/agents.js';
 import { prepareLineageMint } from '../services/lineage-nft.js';
+import { handleCrossmintAuth } from './crossmint-auth.js';
 
 // Internal test key for E2E tests - bypasses NFT gate requirements
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
@@ -688,6 +689,11 @@ export async function handleWalletAuth(
   // Handle preflight for all auth routes
   if (method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
+  }
+
+  // Route Crossmint auth to separate handler
+  if (path.startsWith('/auth/crossmint')) {
+    return handleCrossmintAuth(event);
   }
 
   // Route to appropriate handler

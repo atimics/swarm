@@ -31,6 +31,7 @@ const replicateApiKeyArn = app.node.tryGetContext('replicateApiKeyArn') || envCo
 const heliusApiKeyArn = app.node.tryGetContext('heliusApiKeyArn') || envConfig.heliusApiKeyArn;
 const webSearchApiKeyArn = app.node.tryGetContext('webSearchApiKeyArn') || envConfig.webSearchApiKeyArn;
 const webSearchProvider = app.node.tryGetContext('webSearchProvider') || envConfig.webSearchProvider;
+const crossmintApiKeyArn = app.node.tryGetContext('crossmintApiKeyArn') || envConfig.crossmintApiKeyArn;
 const galleryDomain = app.node.tryGetContext('galleryDomain') || envConfig.galleryDomain;
 const galleryCertificateArn = app.node.tryGetContext('galleryCertificateArn') || envConfig.galleryCertificateArn;
 const enableClaudeCode = app.node.tryGetContext('enableClaudeCode') ?? envConfig.enableClaudeCode ?? false;
@@ -58,6 +59,7 @@ new SwarmStack(app, `SwarmStack-${environment}`, {
   heliusApiKeyArn,
   webSearchApiKeyArn,
   webSearchProvider,
+  crossmintApiKeyArn,
   galleryDomain,
   galleryCertificateArn,
   enableClaudeCode,

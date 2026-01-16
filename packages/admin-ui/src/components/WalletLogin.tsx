@@ -1,11 +1,15 @@
 /**
  * Wallet Login Button
  * Handles Solana wallet connection and authentication
+ * Also supports Crossmint auth users in the authenticated display
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { useAuth as useCrossmintAuthHook } from '@crossmint/client-sdk-react-ui';
 import { useWalletAuth } from '../store/walletAuth';
+import { useCrossmintAuth } from '../store/crossmintAuth';
+import { useAuth } from '../store/auth';
 
 interface WalletLoginProps {
   className?: string;
@@ -14,16 +18,22 @@ interface WalletLoginProps {
 export function WalletLogin({ className = '' }: WalletLoginProps) {
   const { publicKey, connected, signMessage, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
-  const { 
-    isAuthenticated, 
-    isLoading, 
-    user, 
-    login, 
-    logout, 
-    checkAuth,
+  const walletAuth = useWalletAuth();
+  const crossmintAuth = useCrossmintAuth();
+  const { logout: crossmintLogout } = useCrossmintAuthHook();
+
+  // Use unified auth for display
+  const {
+    isAuthenticated,
+    isLoading,
+    user,
+    authProvider,
     error,
     clearError,
-  } = useWalletAuth();
+  } = useAuth();
+
+  // Destructure wallet-specific methods
+  const { login, logout: walletLogout, checkAuth } = walletAuth;
 
   // Track if we've attempted login for current wallet connection
   // Prevents infinite loop when login fails
@@ -48,7 +58,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
       if (isAuthenticated && user && user.walletAddress !== publicKeyStr) {
         console.log('[WalletLogin] Wallet changed, re-authenticating...');
         loginAttemptedRef.current = null;
-        logout().then(() => {
+        walletLogout().then(() => {
           // After logout, the next render will trigger login with new wallet
         });
         return;
@@ -68,7 +78,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     if (!connected) {
       loginAttemptedRef.current = null;
     }
-  }, [connected, publicKey, signMessage, isAuthenticated, isLoading, login, logout, user]);
+  }, [connected, publicKey, signMessage, isAuthenticated, isLoading, login, walletLogout, user]);
 
   // Handle connect button click
   const handleConnect = useCallback(() => {
@@ -77,12 +87,19 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     setVisible(true);
   }, [setVisible, clearError]);
 
-  // Handle disconnect/logout
+  // Handle disconnect/logout - works for both auth providers
   const handleDisconnect = useCallback(async () => {
     loginAttemptedRef.current = null;
-    await logout();
-    await disconnect();
-  }, [logout, disconnect]);
+    if (authProvider === 'crossmint') {
+      // Logout from Crossmint SDK and our backend
+      await crossmintAuth.logout();
+      await crossmintLogout();
+    } else {
+      // Logout from wallet auth
+      await walletLogout();
+      await disconnect();
+    }
+  }, [authProvider, crossmintAuth, crossmintLogout, walletLogout, disconnect]);
 
   // Format wallet address for display
   const formatAddress = (address: string) => {
@@ -104,21 +121,27 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
 
   // Authenticated state
   if (isAuthenticated && user) {
+    // For Crossmint users, show email; for wallet users, show address
+    const displayIdentifier = user.email || formatAddress(user.walletAddress);
+    const secondaryInfo = user.email
+      ? formatAddress(user.walletAddress) // Show truncated wallet for Crossmint users
+      : undefined; // Don't show wallet twice for wallet users
+
     return (
       <div className={`flex items-center gap-2 ${className}`}>
         {/* User avatar or ghost icon */}
         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-xs font-bold">
-          {user.displayName?.[0]?.toUpperCase() || '👻'}
+          {user.displayName?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || '👻'}
         </div>
-        
+
         {/* User info */}
         <div className="flex flex-col">
           <span className="text-xs font-medium text-[var(--color-text)]">
-            {user.displayName || formatAddress(user.walletAddress)}
+            {user.displayName || displayIdentifier}
           </span>
-          {user.displayName && (
+          {(user.displayName || secondaryInfo) && (
             <span className="text-xs text-[var(--color-text-muted)]">
-              {formatAddress(user.walletAddress)}
+              {user.displayName ? displayIdentifier : secondaryInfo}
             </span>
           )}
         </div>
@@ -127,7 +150,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
         <button
           onClick={handleDisconnect}
           className="p-1.5 rounded-lg hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
-          title="Disconnect wallet"
+          title={authProvider === 'crossmint' ? 'Sign out' : 'Disconnect wallet'}
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

@@ -1,0 +1,147 @@
+/**
+ * Crossmint Authentication Store
+ * Manages Crossmint email/social login and session sync with backend
+ */
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
+export interface CrossmintUser {
+  id: string;
+  email?: string;
+  walletAddress: string;
+  displayName?: string;
+  avatarUrl?: string;
+  inhabitedAgentId?: string;
+}
+
+export interface GateStatus {
+  nftsHeld: number;
+  agentsCreated: number;
+  availableSlots: number;
+  canCreate: boolean;
+  canAbandon: boolean;
+}
+
+interface CrossmintAuthState {
+  // Auth state
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  user: CrossmintUser | null;
+  error: string | null;
+
+  // Gate status (same as wallet auth)
+  gateStatus: GateStatus | null;
+
+  // Actions
+  syncWithBackend: (crossmintJwt: string, crossmintUser: {
+    id: string;
+    email?: string;
+    wallet?: { address: string };
+  }) => Promise<void>;
+  logout: () => Promise<void>;
+  clearError: () => void;
+  setLoading: (loading: boolean) => void;
+}
+
+export const useCrossmintAuth = create<CrossmintAuthState>()(
+  persist(
+    (set) => ({
+      isAuthenticated: false,
+      isLoading: false,
+      user: null,
+      error: null,
+      gateStatus: null,
+
+      /**
+       * Sync Crossmint auth with backend
+       * Creates/updates user record and session based on Crossmint wallet address
+       */
+      syncWithBackend: async (crossmintJwt, crossmintUser) => {
+        set({ isLoading: true, error: null });
+        try {
+          // Verify with our backend and create session
+          const response = await fetch(`${API_BASE}/auth/crossmint/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jwt: crossmintJwt,
+              userId: crossmintUser.id,
+              email: crossmintUser.email,
+              walletAddress: crossmintUser.wallet?.address,
+            }),
+            credentials: 'include',
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to verify with backend');
+          }
+
+          const data = await response.json();
+
+          if (data.success && data.user) {
+            set({
+              isAuthenticated: true,
+              user: {
+                id: crossmintUser.id,
+                email: crossmintUser.email,
+                walletAddress: data.user.walletAddress,
+                displayName: data.user.displayName || crossmintUser.email,
+                avatarUrl: data.user.avatarUrl,
+                inhabitedAgentId: data.user.inhabitedAgentId,
+              },
+              gateStatus: data.gateStatus || null,
+              isLoading: false,
+            });
+          } else {
+            throw new Error('Backend verification failed');
+          }
+        } catch (error) {
+          console.error('[CrossmintAuth] Sync error:', error);
+          set({
+            isAuthenticated: false,
+            user: null,
+            isLoading: false,
+            error: error instanceof Error ? error.message : 'Authentication failed',
+          });
+          throw error;
+        }
+      },
+
+      /**
+       * Logout from backend session
+       */
+      logout: async () => {
+        set({ isLoading: true });
+        try {
+          await fetch(`${API_BASE}/auth/logout`, {
+            method: 'POST',
+            credentials: 'include',
+          });
+        } catch (error) {
+          console.error('[CrossmintAuth] Logout error:', error);
+        } finally {
+          set({
+            isAuthenticated: false,
+            user: null,
+            gateStatus: null,
+            isLoading: false,
+            error: null,
+          });
+        }
+      },
+
+      clearError: () => set({ error: null }),
+      setLoading: (loading) => set({ isLoading: loading }),
+    }),
+    {
+      name: 'crossmint-auth',
+      partialize: (state) => ({
+        isAuthenticated: state.isAuthenticated,
+        user: state.user,
+      }),
+    }
+  )
+);

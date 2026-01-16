@@ -104,6 +104,11 @@ export interface SwarmStackProps extends cdk.StackProps {
   webSearchProvider?: string;
 
   /**
+   * Crossmint API key secret ARN (for server-side JWT verification)
+   */
+  crossmintApiKeyArn?: string;
+
+  /**
    * Anthropic API key secret ARN (for Claude Code worker)
    */
   anthropicApiKeyArn?: string;
@@ -154,6 +159,7 @@ export class SwarmStack extends cdk.Stack {
       heliusApiKeyArn,
       webSearchApiKeyArn,
       webSearchProvider,
+      crossmintApiKeyArn,
       galleryDomain,
       galleryCertificateArn,
       anthropicApiKeyArn,
@@ -185,6 +191,7 @@ export class SwarmStack extends cdk.Stack {
         heliusApiKeyArn,
         webSearchApiKeyArn,
         webSearchProvider,
+        crossmintApiKeyArn,
         environment,
         adminDomain,
         apiDomain,

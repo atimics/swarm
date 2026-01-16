@@ -74,6 +74,11 @@ export interface AdminApiConstructProps {
   webSearchProvider?: string;
 
   /**
+   * Crossmint API key secret ARN (for server-side JWT verification)
+   */
+  crossmintApiKeyArn?: string;
+
+  /**
    * Environment (development/production)
    */
   environment?: string;
@@ -229,6 +234,11 @@ export class AdminApiConstruct extends Construct {
 
     const webSearchApiKey = props.webSearchApiKeyArn
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'WebSearchApiKey', props.webSearchApiKeyArn)
+      : undefined;
+
+    // Secret for Crossmint API key (optional - for server-side JWT verification)
+    const crossmintApiKey = props.crossmintApiKeyArn
+      ? secretsmanager.Secret.fromSecretCompleteArn(this, 'CrossmintApiKey', props.crossmintApiKeyArn)
       : undefined;
 
     // Twitter App credentials for OAuth flow (needed by both Chat and Twitter OAuth handlers)
@@ -711,6 +721,8 @@ export class AdminApiConstruct extends Construct {
         // Helius for NFT gating - pass ARN for runtime fetch instead of inline value
         HELIUS_API_KEY_ARN: heliusApiKeySecret?.secretArn || '',
         HELIUS_API_KEY: props.heliusApiKey || '',
+        // Crossmint API key for JWT verification
+        CROSSMINT_API_KEY_ARN: crossmintApiKey?.secretArn || '',
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -723,6 +735,9 @@ export class AdminApiConstruct extends Construct {
     this.table.grantReadWriteData(walletAuthHandler);
     if (heliusApiKeySecret) {
       heliusApiKeySecret.grantRead(walletAuthHandler);
+    }
+    if (crossmintApiKey) {
+      crossmintApiKey.grantRead(walletAuthHandler);
     }
 
     const walletAuthIntegration = new integrations.HttpLambdaIntegration(
@@ -751,6 +766,50 @@ export class AdminApiConstruct extends Construct {
 
     this.api.addRoutes({
       path: '/auth/logout',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
+    // Crossmint auth route - for email/social login via Crossmint
+    this.api.addRoutes({
+      path: '/auth/crossmint/verify',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
+    // Inhabitation routes - for agent claiming/abandoning
+    this.api.addRoutes({
+      path: '/auth/unclaimed-agents',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/auth/gate-status',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/auth/inhabitation',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/auth/inhabit',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/auth/can-abandon',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/auth/abandon',
       methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
       integration: walletAuthIntegration,
     });
