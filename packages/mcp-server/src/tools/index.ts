@@ -9,7 +9,7 @@ export { createWalletTools, type WalletServices, type WalletInfo } from './walle
 export { createModelTools, type ModelServices, type ModelInfo } from './models.js';
 export { createProfileTools, type ProfileServices } from './profile.js';
 export { createSecretTools, type SecretServices, type SecretType, type SecretInfo } from './secrets.js';
-export { createAdminTools, type AdminToolServices, type ToggleableFeature } from './admin.js';
+export { createAdminTools, type AdminToolServices, type ToggleableFeature, type ConfigurableIntegration, CONFIGURABLE_INTEGRATIONS } from './admin.js';
 export { createJobTools, type JobServices, type JobInfo, type CreditServices as JobCreditServices, type CreditStatus, type EnergyStatus } from './jobs.js';
 export { createReferenceImageTools, type ReferenceImageServices, type ReferenceImage, type ReferenceImageCategory } from './reference.js';
 export { createDiagnosticsTools, type IssueSeverity, type IssueCategory, type DiagnosticsServices } from './diagnostics.js';

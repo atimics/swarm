@@ -107,6 +107,271 @@ export function SecretPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) 
 }
 
 /**
+ * Integration Configuration Prompt
+ * Shows a complete configuration panel for platform integrations (Telegram, Twitter, Discord)
+ * Includes: enable/disable, credential input, test, status
+ */
+export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
+  const activeAgent = useActiveAgent();
+  const [token, setToken] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testResult, setTestResult] = useState<{ botUsername?: string; error?: string } | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const args = toolCall.arguments as {
+    integration: 'telegram' | 'twitter' | 'discord';
+    reason?: string;
+  };
+
+  const integrationConfig = {
+    telegram: {
+      name: 'Telegram',
+      icon: '🤖',
+      color: 'blue',
+      tokenLabel: 'Bot Token',
+      tokenPlaceholder: 'Enter bot token from @BotFather',
+      helpText: 'Get a token from @BotFather on Telegram',
+      helpUrl: 'https://t.me/BotFather',
+      secretType: 'telegram_bot_token',
+    },
+    twitter: {
+      name: 'Twitter/X',
+      icon: '🐦',
+      color: 'sky',
+      tokenLabel: 'API Key',
+      tokenPlaceholder: 'Enter API key',
+      helpText: 'Uses OAuth - click Connect to authorize',
+      helpUrl: null,
+      secretType: 'twitter_api_key',
+      usesOAuth: true,
+    },
+    discord: {
+      name: 'Discord',
+      icon: '💬',
+      color: 'indigo',
+      tokenLabel: 'Bot Token',
+      tokenPlaceholder: 'Enter bot token from Discord Developer Portal',
+      helpText: 'Get a token from the Discord Developer Portal',
+      helpUrl: 'https://discord.com/developers/applications',
+      secretType: 'discord_bot_token',
+    },
+  };
+
+  const config = integrationConfig[args.integration];
+
+  const handleTest = async () => {
+    if (!token.trim() || isTesting) return;
+    
+    setIsTesting(true);
+    setStatus('testing');
+    setTestResult(null);
+
+    try {
+      // Test the token by calling the appropriate validation endpoint
+      const response = await fetch(`${API_BASE}/agents/${activeAgent?.id}/validate-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          type: config.secretType,
+          value: token.trim(),
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (result.valid) {
+        setStatus('success');
+        setTestResult({ botUsername: result.botInfo?.username });
+      } else {
+        setStatus('error');
+        setTestResult({ error: result.error || 'Invalid token' });
+      }
+    } catch {
+      setStatus('error');
+      setTestResult({ error: 'Failed to validate token' });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!token.trim() || isSubmitting || !activeAgent?.id) return;
+
+    setIsSubmitting(true);
+    try {
+      // Store the secret
+      const response = await fetch(`${API_BASE}/agents/${activeAgent.id}/secrets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          type: config.secretType,
+          name: config.tokenLabel,
+          value: token.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save');
+      }
+
+      // Submit the tool result
+      await onSubmit(toolCall.id, { 
+        configured: true, 
+        integration: args.integration,
+      });
+      setSaved(true);
+      setToken(''); // Clear sensitive data
+    } catch {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOAuth = () => {
+    if (!activeAgent?.id) return;
+    // Redirect to OAuth flow
+    window.location.href = `${API_BASE}/oauth/${args.integration}/start?agentId=${encodeURIComponent(activeAgent.id)}`;
+  };
+
+  if (saved) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+        <svg className="w-5 h-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+        <span className="text-green-300">
+          {config.name} configured successfully
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)]">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">{config.icon}</span>
+          <div>
+            <h4 className="font-medium text-[var(--color-text)]">
+              Configure {config.name}
+            </h4>
+            {args.reason && (
+              <p className="text-sm text-[var(--color-text-secondary)]">{args.reason}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="p-4 space-y-4">
+        {config.usesOAuth ? (
+          // OAuth-based integration (Twitter)
+          <div className="space-y-3">
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              Connect your {config.name} account to enable posting and interaction.
+            </p>
+            <button
+              onClick={handleOAuth}
+              disabled={disabled || !activeAgent?.id}
+              className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-[var(--color-bg-tertiary)] disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
+            >
+              Connect {config.name}
+            </button>
+          </div>
+        ) : (
+          // Token-based integration (Telegram, Discord)
+          <>
+            <div>
+              <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
+                {config.tokenLabel}
+              </label>
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => {
+                  setToken(e.target.value);
+                  setStatus('idle');
+                  setTestResult(null);
+                }}
+                placeholder={config.tokenPlaceholder}
+                className="w-full px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                disabled={disabled || isSubmitting}
+              />
+            </div>
+
+            {/* Help text */}
+            <p className="text-xs text-[var(--color-text-muted)]">
+              {config.helpText}
+              {config.helpUrl && (
+                <>
+                  {' · '}
+                  <a
+                    href={config.helpUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand-400 hover:text-brand-300"
+                  >
+                    Open →
+                  </a>
+                </>
+              )}
+            </p>
+
+            {/* Test Result */}
+            {status === 'success' && testResult && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg">
+                <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-sm text-green-300">
+                  Valid! {testResult.botUsername && `Connected to @${testResult.botUsername}`}
+                </span>
+              </div>
+            )}
+
+            {status === 'error' && testResult && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span className="text-sm text-red-300">{testResult.error}</span>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={handleTest}
+                disabled={!token.trim() || disabled || isTesting}
+                className="flex-1 px-4 py-2 bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] disabled:opacity-50 disabled:cursor-not-allowed text-[var(--color-text)] rounded-lg transition-colors"
+              >
+                {isTesting ? 'Testing...' : 'Test Connection'}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!token.trim() || disabled || isSubmitting || status !== 'success'}
+                className="flex-1 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-[var(--color-bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+              >
+                {isSubmitting ? 'Saving...' : 'Save & Enable'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Security note */}
+        <p className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
+          🔒 Credentials are encrypted and never shared with the AI
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Confirmation Prompt - For actions that need user approval
  */
 export function ConfirmPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
@@ -863,6 +1128,8 @@ export function ToolPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
     case 'request_twitter_connection':
     case 'twitter_request_integration':
       return <TwitterConnectPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+    case 'configure_integration':
+      return <IntegrationConfigPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
     default:
       // Unknown tool - show debug info
       return (

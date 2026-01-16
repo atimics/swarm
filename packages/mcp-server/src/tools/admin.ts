@@ -8,12 +8,52 @@ import type { TwitterServices } from './twitter.js';
 export const TOGGLEABLE_FEATURES = ['media', 'voice', 'twitter', 'telegram', 'discord'] as const;
 export type ToggleableFeature = typeof TOGGLEABLE_FEATURES[number];
 
+/**
+ * Supported integrations that can be configured via the configure_integration tool.
+ * Each integration shows an inline configuration panel with:
+ * - Enable/disable toggle
+ * - Required credentials input
+ * - Connection test
+ * - Status display
+ */
+export const CONFIGURABLE_INTEGRATIONS = ['telegram', 'twitter', 'discord'] as const;
+export type ConfigurableIntegration = typeof CONFIGURABLE_INTEGRATIONS[number];
+
 export interface AdminToolServices {
   twitter?: Pick<TwitterServices, 'getConnectionStatus'>;
 }
 
 export function createAdminTools(services: AdminToolServices) {
   return [
+    /**
+     * Unified integration configuration tool.
+     * Agent calls this with the integration name, UI shows a complete setup panel.
+     * Much simpler than having the agent walk through multi-step credential flows.
+     */
+    defineManualTool({
+      name: 'configure_integration',
+      description: `Show the configuration panel for a platform integration (Telegram, Twitter, Discord).
+The panel allows the user to:
+- Enable or disable the integration
+- Enter required credentials (bot tokens, API keys)
+- Test the connection
+- View current status
+
+Use this when:
+- Setting up a new integration
+- Resetting credentials (e.g., "reset my Telegram token")
+- Checking integration status
+- Troubleshooting connection issues
+
+The UI handles all the complexity - just call this tool with the integration name.`,
+      toolset: 'admin',
+      platforms: ['admin-ui'],
+      inputSchema: z.object({
+        integration: z.enum(CONFIGURABLE_INTEGRATIONS).describe('Which integration to configure'),
+        reason: z.string().optional().describe('Brief context for why configuration is needed'),
+      }),
+    }),
+
     defineManualTool({
       name: 'request_feature_toggle',
       description: 'Show the user a toggle switch to enable or disable a feature (media, voice, Twitter, Telegram, Discord).',
