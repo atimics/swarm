@@ -519,7 +519,7 @@ export async function recordLineageMint(
 /**
  * Get lineage history for an avatar
  */
-export async function getLineageHistory(_agentId: string): Promise<Array<{
+export async function getLineageHistory(_avatarId: string): Promise<Array<{
   era: number;
   walletAddress: string;
   nftMint: string;

@@ -813,7 +813,7 @@ export const claimAgent = inhabitAvatar;
 /**
  * @deprecated Use abandonAvatar with burnTxSignature instead
  */
-export async function releaseAgent(
+export async function releaseAvatar(
   walletAddress: string
 ): Promise<OwnershipResult> {
   // Use legacy abandon which doesn't require burn verification
@@ -827,7 +827,7 @@ export async function releaseAgent(
 }
 
 /** @deprecated Use abandonAvatar with burnTxSignature instead */
-export const releaseAvatar = releaseAgent;
+export const releaseAgent = releaseAvatar;
 
 /**
  * @deprecated Use getInhabitationInfo instead

@@ -263,7 +263,7 @@ describe('Channel State Service', () => {
         ],
       };
 
-      const currentAgentId = 'avatar-1';
+      const currentAvatarId = 'avatar-1';
 
       // Combine messages
       const allMessages: Array<{ timestamp: number; isBot: boolean; userName: string; text: string; avatarId?: string }> = [];
@@ -280,7 +280,7 @@ describe('Channel State Service', () => {
 
       // Add bot messages (excluding self)
       for (const msg of sharedHistory.messages) {
-        if (msg.avatarId === currentAgentId) continue;
+        if (msg.avatarId === currentAvatarId) continue;
         allMessages.push({
           timestamp: msg.timestamp,
           isBot: true,
@@ -317,8 +317,8 @@ describe('Channel State Service', () => {
         { messageId: 3, avatarId: 'avatar-1', botUsername: 'BotA', text: 'I said this too', timestamp: 3000 },
       ];
 
-      const currentAgentId = 'avatar-1';
-      const visibleMessages = sharedMessages.filter(m => m.avatarId !== currentAgentId);
+      const currentAvatarId = 'avatar-1';
+      const visibleMessages = sharedMessages.filter(m => m.avatarId !== currentAvatarId);
 
       expect(visibleMessages).toHaveLength(1);
       expect(visibleMessages[0].avatarId).toBe('avatar-2');

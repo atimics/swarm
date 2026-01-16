@@ -817,7 +817,7 @@ export async function recordBotMessage(
 export function buildCombinedConversationContext(
   state: ChannelStateRecord,
   sharedHistory: SharedChannelHistoryRecord | null,
-  currentAgentId: string,
+  currentAvatarId: string,
   maxTokens: number = 4000
 ): string {
   // Combine human messages and bot messages
@@ -845,7 +845,7 @@ export function buildCombinedConversationContext(
   if (sharedHistory) {
     for (const msg of sharedHistory.messages) {
       // Skip messages from self - avatar already knows what it said
-      if (msg.avatarId === currentAgentId) continue;
+      if (msg.avatarId === currentAvatarId) continue;
       
       allMessages.push({
         timestamp: msg.timestamp,

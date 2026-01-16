@@ -361,7 +361,7 @@ export async function getSolanaBalance(publicKeyStr: string, avatarId?: string, 
 /**
  * Get Ethereum wallet balance
  */
-export async function getEthereumBalance(address: string, _agentId?: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletBalance> {
+export async function getEthereumBalance(address: string, _avatarId?: string, deps: WalletServiceDeps = defaultDeps): Promise<WalletBalance> {
   const rpcUrl = deps.ethereumRpcUrl;
   const provider = new deps.ethereum.JsonRpcProvider(rpcUrl);
 
