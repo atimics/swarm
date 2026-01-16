@@ -25,6 +25,7 @@ import * as lineageNft from '../services/lineage-nft.js';
 import * as propertyResearch from '../services/property-research.js';
 import * as stickers from '../services/stickers.js';
 import * as agentEvents from '../services/agent-events.js';
+import * as memory from '../services/memory.js';
 import { createWebSearch } from '../services/web-search.js';
 import { createMcpAdminServices } from '../services/mcp-config.js';
 
@@ -799,6 +800,28 @@ export function createMCPServices(_agentId: string, session: UserSession): AllSe
     // Voice Services (optional)
     // =========================================================================
     voice: voiceServices,
+
+    // =========================================================================
+    // Memory Services
+    // =========================================================================
+    memory: {
+      remember: async (fact: string, about?: string, userId?: string) => {
+        const result = await memory.remember(agentId, fact, about, userId);
+        return { saved: result.saved };
+      },
+
+      recall: async (query: string, userId?: string) => {
+        const result = await memory.recall(agentId, query, userId);
+        return {
+          facts: result.facts.map(f => ({
+            fact: f.fact,
+            about: f.about,
+            userId,
+            timestamp: f.timestamp,
+          })),
+        };
+      },
+    },
 
     // =========================================================================
     // Telegram Services

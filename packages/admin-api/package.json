@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
     "test": "bun test",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "test:tools": "tsx src/test-tool-calling.ts --direct --aws",
+    "test:tools:verbose": "tsx src/test-tool-calling.ts --direct --aws --verbose"
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch-logs": "^3.966.0",
@@ -27,21 +29,22 @@
     "bs58": "^6.0.0",
     "ethers": "^6.16.0",
     "form-data": "^4.0.1",
+    "sharp": "^0.33.5",
     "tweetnacl": "^1.0.3",
     "twitter-api-v2": "^1.18.0",
     "uuid": "^13.0.0",
     "zod": "^3.25.76",
-    "zod-to-json-schema": "^3.25.1",
-    "sharp": "^0.33.5"
+    "zod-to-json-schema": "^3.25.1"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.145",
     "@types/node": "^22.0.0",
     "@types/uuid": "^11.0.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.0"
   },
   "optionalDependencies": {
-    "@img/sharp-linux-x64": "^0.33.5",
-    "@img/sharp-darwin-arm64": "^0.33.5"
+    "@img/sharp-darwin-arm64": "^0.33.5",
+    "@img/sharp-linux-x64": "^0.33.5"
   }
 }

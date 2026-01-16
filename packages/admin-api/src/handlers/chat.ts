@@ -673,7 +673,28 @@ async function processChat(
   const agentUpdates: { profileImageUrl?: string } = {};
   
   // Use custom system prompt if provided (for e.g. browser automation agents)
-  const systemPrompt = options?.customSystemPrompt || buildSystemPrompt(agent);
+  let systemPrompt = options?.customSystemPrompt || buildSystemPrompt(agent);
+
+  // Inject memory context if memory is enabled for this agent
+  if (agentId && agent?.enabledCategories?.includes('memory')) {
+    try {
+      const memoryContext = await memory.getMemoryContext(agentId);
+      if (memoryContext) {
+        systemPrompt += `\n\n${memoryContext}`;
+        logger.info('Memory context injected', {
+          event: 'memory_context_injected',
+          agentId,
+          contextLength: memoryContext.length,
+        });
+      }
+    } catch (err) {
+      logger.warn('Failed to get memory context', {
+        event: 'memory_context_error',
+        agentId,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  }
 
   // Auto-transcribe audio attachments
   let transcribedText = '';

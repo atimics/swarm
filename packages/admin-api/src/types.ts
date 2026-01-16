@@ -992,3 +992,101 @@ export interface PropertyResearchAuth {
   expiresAt: number;         // 24-hour grants by default
   ttl: number;
 }
+
+// ============================================================================
+// Memory System - Tiered Agent Memory for Personality Evolution
+// ============================================================================
+
+/**
+ * Memory tier determines storage duration and detail level
+ * - immediate: Last N interactions, full detail (short-term)
+ * - recent: Summarized memories with themes (medium-term)
+ * - core: Permanent learnings, patterns, identity (long-term)
+ */
+export type MemoryTier = 'immediate' | 'recent' | 'core';
+
+/**
+ * Memory type categorizes what kind of memory this is
+ */
+export type MemoryType =
+  | 'event'        // Something that happened (conversation, action)
+  | 'fact'         // A factual piece of information
+  | 'learning'     // Something the agent learned
+  | 'pattern'      // A behavioral pattern the agent noticed
+  | 'identity'     // Self-reflection about who the agent is becoming
+  | 'relationship' // Memory about a specific user or entity
+  | 'preference';  // User or agent preference
+
+/**
+ * A memory stored in the agent's memory system
+ * Key: pk=MEMORY#{agentId}, sk={tier}#{timestamp}#{id}
+ */
+export interface AgentMemory {
+  pk: string;
+  sk: string;
+  id: string;
+  agentId: string;
+  tier: MemoryTier;
+  type: MemoryType;
+  content: string;           // The memory content
+  about?: string;            // Who/what this is about (username, topic)
+  userId?: string;           // Associated user ID if applicable
+  themes?: string[];         // Tags for retrieval (e.g., 'hunting', 'philosophy')
+  strength: number;          // 0-1, how reinforced this memory is
+  embedding?: number[];      // Vector embedding for semantic search
+  metadata?: Record<string, unknown>; // Additional context
+  createdAt: number;
+  updatedAt: number;
+  consolidatedAt?: number;   // When this was last processed by consolidation
+  sourceMemoryIds?: string[]; // For summaries: IDs of memories that were consolidated
+}
+
+/**
+ * Configuration for memory consolidation
+ */
+export interface MemoryConsolidationConfig {
+  // Immediate tier
+  immediateMaxCount: number;     // Max memories before promotion (default: 10)
+  // Recent tier
+  recentMaxCount: number;        // Max memories before summarization (default: 50)
+  recentSummaryThreshold: number; // Memories to trigger summary (default: 10)
+  // Core tier
+  coreMaxCount: number;          // Max core memories (default: 100)
+  // Decay settings
+  decayRate: number;             // Strength multiplier per cycle (default: 0.95)
+  decayIntervalHours: number;    // Hours between decay cycles (default: 24)
+  pruneThreshold: number;        // Remove memories below this strength (default: 0.1)
+  // Reinforcement
+  reinforcementBoost: number;    // Strength boost when pattern repeats (default: 0.1)
+}
+
+/**
+ * Agent's consolidated identity snapshot
+ * Key: pk=IDENTITY#{agentId}, sk=SNAPSHOT#{timestamp}
+ */
+export interface AgentIdentitySnapshot {
+  pk: string;
+  sk: string;
+  agentId: string;
+  statement: string;         // "I am becoming..." statement
+  previousStatement?: string; // Previous identity for comparison
+  triggeringMemories: string[]; // Memory IDs that led to this
+  createdAt: number;
+}
+
+/**
+ * Memory query options
+ */
+export interface MemoryQueryOptions {
+  tier?: MemoryTier;
+  type?: MemoryType;
+  about?: string;
+  userId?: string;
+  themes?: string[];
+  minStrength?: number;
+  limit?: number;
+  semantic?: {
+    query: string;
+    threshold?: number;      // Minimum similarity (default: 0.5)
+  };
+}

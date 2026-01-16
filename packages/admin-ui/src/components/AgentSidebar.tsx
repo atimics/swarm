@@ -232,11 +232,11 @@ export function AgentSidebar({ className, onClose }: AgentSidebarProps) {
                 <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
               </svg>
             )}
-            <span className="font-medium">New Agent</span>
+            <span className="font-medium">Create Agent</span>
             {gateStatus?.availableSlots !== undefined && (
-              <span className="ml-auto text-xs text-[var(--color-text-muted)]">
+              <span className="ml-auto text-xs text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 rounded-full">
                 {gateStatus.availableSlots === 1 && gateStatus.nftsHeld === 0
-                  ? '1 free'
+                  ? '1 free slot'
                   : `${gateStatus.availableSlots} slot${gateStatus.availableSlots !== 1 ? 's' : ''}`}
               </span>
             )}
