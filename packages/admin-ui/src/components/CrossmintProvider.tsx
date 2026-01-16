@@ -1,11 +1,13 @@
 /**
  * Crossmint Auth Provider
  * Wraps the app with Crossmint authentication context for email/social login
+ * and embedded wallet creation
  */
 import { type ReactNode } from 'react';
 import {
   CrossmintProvider as CrossmintSDKProvider,
   CrossmintAuthProvider,
+  CrossmintWalletProvider,
 } from '@crossmint/client-sdk-react-ui';
 
 // Crossmint project ID from environment
@@ -27,7 +29,14 @@ export function CrossmintProvider({ children }: CrossmintProviderProps) {
       <CrossmintAuthProvider
         loginMethods={['email', 'google', 'twitter', 'farcaster', 'web3']}
       >
-        {children}
+        <CrossmintWalletProvider
+          createOnLogin={{
+            chain: 'solana',
+            signer: { type: 'email' },
+          }}
+        >
+          {children}
+        </CrossmintWalletProvider>
       </CrossmintAuthProvider>
     </CrossmintSDKProvider>
   );

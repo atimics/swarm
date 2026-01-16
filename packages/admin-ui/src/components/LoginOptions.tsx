@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { useAuth as useCrossmintAuthHook } from '@crossmint/client-sdk-react-ui';
+import { useAuth as useCrossmintAuthHook, useWallet as useCrossmintWallet } from '@crossmint/client-sdk-react-ui';
 import { useWalletAuth } from '../store/walletAuth';
 import { useCrossmintAuth } from '../store/crossmintAuth';
 
@@ -18,8 +18,9 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   const walletAuth = useWalletAuth();
   const crossmintAuth = useCrossmintAuth();
 
-  // Crossmint SDK hook - status can be 'logged-in', 'logged-out', or 'in-progress'
+  // Crossmint SDK hooks
   const { login: crossmintLogin, user: crossmintUser, jwt, status } = useCrossmintAuthHook();
+  const { wallet: crossmintWallet } = useCrossmintWallet();
 
   // Check if Crossmint SDK is loading
   const crossmintIsLoading = status === 'in-progress';
@@ -29,10 +30,11 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   const syncAttemptedRef = useRef(false);
   const lastJwtRef = useRef<string | null>(null);
 
-  // When Crossmint auth completes, sync with our backend
+  // When Crossmint auth completes with a wallet, sync with our backend
   useEffect(() => {
     const isLoggedIn = status === 'logged-in';
-    const hasWallet = !!crossmintUser?.wallet?.address;
+    const walletAddress = crossmintWallet?.address;
+    const hasWallet = !!walletAddress;
     const isNewJwt = jwt !== lastJwtRef.current;
 
     // Only sync if:
@@ -42,14 +44,18 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     if (isLoggedIn && crossmintUser && jwt && hasWallet && !crossmintAuth.isAuthenticated && (!syncAttemptedRef.current || isNewJwt)) {
       syncAttemptedRef.current = true;
       lastJwtRef.current = jwt;
-      crossmintAuth.syncWithBackend(jwt, crossmintUser).catch((error) => {
+      // Pass wallet address from the wallet hook
+      crossmintAuth.syncWithBackend(jwt, {
+        ...crossmintUser,
+        wallet: { address: walletAddress },
+      }).catch((error) => {
         console.error('[LoginOptions] Sync failed:', error);
         // Don't retry - syncAttemptedRef prevents further attempts
       });
     } else if (isLoggedIn && !hasWallet) {
-      console.warn('[LoginOptions] Crossmint user logged in but no wallet address available');
+      console.warn('[LoginOptions] Crossmint user logged in but wallet not yet created');
     }
-  }, [status, crossmintUser, jwt, crossmintAuth.isAuthenticated]);
+  }, [status, crossmintUser, crossmintWallet, jwt, crossmintAuth.isAuthenticated]);
 
   const handleWalletConnect = useCallback(() => {
     walletAuth.clearError();
