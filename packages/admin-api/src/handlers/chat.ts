@@ -34,6 +34,7 @@ import { createMCPServices } from '../services/mcp-adapter.js';
 import { isPauseForInputTool } from '../tools/index.js';
 import * as agents from '../services/agents.js';
 import * as voice from '../services/voice.js';
+import * as memory from '../services/memory.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
 const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
