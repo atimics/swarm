@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && NODE_OPTIONS='--max-old-space-size=4096' vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "lint": "eslint src/"

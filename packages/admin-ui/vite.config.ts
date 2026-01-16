@@ -15,13 +15,25 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: false, // Disable sourcemaps to reduce memory usage in CI
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-solana': ['@solana/web3.js', '@solana/wallet-adapter-base', '@solana/wallet-adapter-react', '@solana/wallet-adapter-react-ui', '@solana/wallet-adapter-wallets'],
-          'vendor-utils': ['zustand', 'react-markdown', 'bs58'],
+        manualChunks(id) {
+          // Split vendor chunks more aggressively to reduce memory pressure
+          if (id.includes('node_modules')) {
+            if (id.includes('@solana') || id.includes('solana')) {
+              return 'vendor-solana';
+            }
+            if (id.includes('@crossmint') || id.includes('crossmint')) {
+              return 'vendor-crossmint';
+            }
+            if (id.includes('react')) {
+              return 'vendor-react';
+            }
+            // Group remaining node_modules into a vendor chunk
+            return 'vendor';
+          }
         },
       },
     },
