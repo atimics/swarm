@@ -697,6 +697,7 @@ describe('Memory Service', () => {
         tier: 'immediate',
         type: 'fact',
         content: 'test',
+        skipEmbedding: true, // Skip embedding to ensure DynamoDB mock is hit directly
       })).rejects.toThrow('DynamoDB error');
     });
 

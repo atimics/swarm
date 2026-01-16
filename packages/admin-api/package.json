@@ -14,6 +14,7 @@
     "test:tools:verbose": "tsx src/test-tool-calling.ts --direct --aws --verbose"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.966.0",
     "@aws-sdk/client-cloudwatch-logs": "^3.966.0",
     "@aws-sdk/client-dynamodb": "^3.700.0",
     "@aws-sdk/client-kms": "^3.700.0",

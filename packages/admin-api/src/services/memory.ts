@@ -36,6 +36,11 @@ import type {
   MemoryConsolidationConfig,
   AgentIdentitySnapshot,
 } from '../types.js';
+import {
+  getEmbeddingService,
+  cosineSimilarity,
+  EMBEDDING_VERSION,
+} from './embedding.js';
 
 // ============================================================================
 // Configuration
@@ -165,6 +170,9 @@ function validateStrength(strength?: number): number {
 /**
  * Create a new memory
  *
+ * Automatically generates vector embeddings for semantic search unless
+ * an embedding is provided or generation fails (graceful degradation).
+ *
  * @param agentId - The agent's unique identifier
  * @param params - Memory creation parameters
  * @returns The created memory record
@@ -181,6 +189,7 @@ export async function createMemory(
     themes?: string[];
     strength?: number;
     embedding?: number[];
+    skipEmbedding?: boolean;
     metadata?: Record<string, unknown>;
     sourceMemoryIds?: string[];
   }
@@ -195,6 +204,28 @@ export async function createMemory(
   const id = randomUUID();
   const tier = params.tier;
 
+  // Generate embedding if not provided and not skipped
+  let embedding = params.embedding;
+  let embeddingModel: string | undefined;
+  let embeddingVersion: number | undefined;
+
+  if (!embedding && !params.skipEmbedding) {
+    try {
+      const embeddingService = getEmbeddingService();
+      embedding = await embeddingService.embed(validContent);
+      embeddingModel = embeddingService.modelId;
+      embeddingVersion = EMBEDDING_VERSION;
+    } catch (error) {
+      // Graceful degradation - continue without embedding
+      logger.warn('Failed to generate embedding for memory', {
+        event: 'embedding_generation_error',
+        agentId: validAgentId,
+        memoryId: id,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
   const memory: AgentMemory = {
     pk: `MEMORY#${validAgentId}`,
     sk: `${tier}#${now}#${id}`,
@@ -207,7 +238,9 @@ export async function createMemory(
     userId: params.userId?.trim().slice(0, 100),
     themes: validThemes,
     strength: validStrength,
-    embedding: params.embedding,
+    embedding,
+    embeddingModel,
+    embeddingVersion,
     metadata: params.metadata,
     createdAt: now,
     updatedAt: now,
@@ -227,6 +260,7 @@ export async function createMemory(
       tier,
       type: params.type,
       contentLength: validContent.length,
+      hasEmbedding: !!embedding,
     });
 
     return memory;
@@ -596,37 +630,56 @@ export async function recallAbout(
 }
 
 /**
- * Search memories by content with relevance scoring
+ * Search memories with semantic understanding
  *
- * Scoring factors:
- * - Exact match in 'about' field: +10
- * - Partial match in 'about' field: +5
- * - Match in content: +3
- * - Match in themes: +2
- * - Strength multiplier: score *= strength
- * - Tier multiplier: core=1.5x, recent=1.2x, immediate=1.0x
- * - Recency boost: newer memories score slightly higher
+ * Hybrid scoring formula (from cosyworld research):
+ *   score = (0.55 × semantic_similarity) +
+ *           (0.25 × recency_score) +
+ *           (0.15 × strength) +
+ *           (0.05 × about_match_bonus)
+ *
+ * Falls back to keyword-only search if embeddings unavailable.
  *
  * @param agentId - The agent's unique identifier
  * @param query - Search query string
  * @param limit - Maximum number of results
+ * @param options - Search options (semanticSearch, minSimilarity)
  * @returns Array of matching memories, sorted by relevance
  */
 export async function searchMemories(
   agentId: string,
   query: string,
-  limit: number = 10
+  limit: number = 10,
+  options: {
+    semanticSearch?: boolean;
+    minSimilarity?: number;
+  } = {}
 ): Promise<AgentMemory[]> {
   const validAgentId = validateAgentId(agentId);
   const queryLower = query.toLowerCase().trim();
   const safeLimit = Math.min(limit, 50);
+  const { semanticSearch = true, minSimilarity = 0.3 } = options;
 
   if (queryLower.length === 0) {
     return [];
   }
 
-  // Query memories - limit initial fetch to prevent scanning entire table
-  // In production, this should use embeddings or a search index
+  // Generate query embedding for semantic search
+  let queryEmbedding: number[] | null = null;
+  if (semanticSearch) {
+    try {
+      const embeddingService = getEmbeddingService();
+      queryEmbedding = await embeddingService.embed(query);
+    } catch (error) {
+      logger.warn('Failed to generate query embedding, falling back to keyword search', {
+        event: 'embedding_query_error',
+        agentId: validAgentId,
+        error: error instanceof Error ? error.message : 'Unknown',
+      });
+    }
+  }
+
+  // Fetch candidate memories
   const result = await getDynamoClient().send(new QueryCommand({
     TableName: ADMIN_TABLE,
     KeyConditionExpression: 'pk = :pk',
@@ -641,45 +694,73 @@ export async function searchMemories(
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
 
-  // Score memories by relevance
+  // Score memories with hybrid formula
   const scored = memories
     .map(m => {
-      let score = 0;
+      let semanticScore = 0;
+      let keywordScore = 0;
+
+      // Semantic similarity (if embeddings available)
+      if (queryEmbedding && m.embedding) {
+        semanticScore = cosineSimilarity(queryEmbedding, m.embedding);
+      }
+
+      // Keyword matching (fallback/boost)
       const contentLower = m.content.toLowerCase();
       const aboutLower = (m.about || '').toLowerCase();
 
-      // Exact match in about
-      if (aboutLower === queryLower) score += 10;
-      // Partial match in about
-      else if (aboutLower.includes(queryLower)) score += 5;
+      if (aboutLower === queryLower) keywordScore = 1.0;
+      else if (aboutLower.includes(queryLower)) keywordScore = 0.7;
+      else if (contentLower.includes(queryLower)) keywordScore = 0.5;
+      else if (m.themes?.some(t => t.toLowerCase().includes(queryLower))) keywordScore = 0.3;
 
-      // Match in content
-      if (contentLower.includes(queryLower)) score += 3;
+      // Determine primary relevance signal
+      const hasSemanticMatch = queryEmbedding && m.embedding && semanticScore >= minSimilarity;
+      const hasKeywordMatch = keywordScore > 0;
 
-      // Match in themes
-      if (m.themes?.some(t => t.toLowerCase().includes(queryLower))) score += 2;
+      // Skip if no relevance signal
+      if (!hasSemanticMatch && !hasKeywordMatch) {
+        return { memory: m, score: 0 };
+      }
 
-      // Skip if no matches
-      if (score === 0) return { memory: m, score: 0 };
-
-      // Boost by strength
-      score *= m.strength;
-
-      // Tier multiplier
-      if (m.tier === 'core') score *= 1.5;
-      else if (m.tier === 'recent') score *= 1.2;
-
-      // Recency boost (decay over 30 days)
+      // Recency score (exponential decay over 30 days)
       const ageMs = now - m.createdAt;
       const ageDays = ageMs / dayMs;
-      const recencyMultiplier = Math.exp(-ageDays / 30); // e^(-age/30)
-      score *= (0.7 + 0.3 * recencyMultiplier); // 70% base + 30% recency
+      const recencyScore = Math.exp(-ageDays / 30);
 
-      return { memory: m, score };
+      // About field exact match bonus
+      const aboutBonus = aboutLower === queryLower ? 1.0 :
+                         aboutLower.includes(queryLower) ? 0.5 : 0;
+
+      // Hybrid scoring formula
+      // If we have semantic embeddings, use them; otherwise fall back to keyword
+      const semanticComponent = hasSemanticMatch
+        ? semanticScore
+        : keywordScore; // Fall back to keyword if no embedding
+
+      const score = (0.55 * semanticComponent) +
+                    (0.25 * recencyScore) +
+                    (0.15 * m.strength) +
+                    (0.05 * aboutBonus);
+
+      // Tier multiplier
+      const tierMultiplier = m.tier === 'core' ? 1.3 :
+                             m.tier === 'recent' ? 1.1 : 1.0;
+
+      return { memory: m, score: score * tierMultiplier };
     })
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, safeLimit);
+
+  logger.info('Memory search completed', {
+    event: 'memory_search',
+    agentId: validAgentId,
+    query: query.slice(0, 50),
+    usedSemanticSearch: !!queryEmbedding,
+    candidateCount: memories.length,
+    resultCount: scored.length,
+  });
 
   return scored.map(({ memory }) => memory);
 }

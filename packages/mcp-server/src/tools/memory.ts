@@ -1,6 +1,6 @@
 /**
  * Memory Tools
- * 
+ *
  * Tools for remembering and recalling facts about users and conversations.
  * This enables agents to build persistent memory across interactions.
  */
@@ -19,6 +19,28 @@ export interface MemoryFact {
   about?: string;
   userId?: string;
   timestamp: number;
+  strength?: number;
+}
+
+/**
+ * Embedding statistics for an agent's memories
+ */
+export interface EmbeddingStats {
+  total: number;
+  withEmbedding: number;
+  withoutEmbedding: number;
+  outdatedEmbedding: number;
+  coveragePercent: number;
+}
+
+/**
+ * Result of backfilling embeddings
+ */
+export interface BackfillResult {
+  processed: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
 }
 
 /**
@@ -34,6 +56,16 @@ export interface MemoryServices {
    * Recall facts from memory
    */
   recall: (query: string, userId?: string) => Promise<{ facts: MemoryFact[] }>;
+
+  /**
+   * Get embedding statistics for an agent (optional)
+   */
+  getEmbeddingStats?: () => Promise<EmbeddingStats>;
+
+  /**
+   * Backfill embeddings for memories that lack them (optional)
+   */
+  backfillEmbeddings?: (options?: { dryRun?: boolean }) => Promise<BackfillResult>;
 }
 
 // ============================================================================

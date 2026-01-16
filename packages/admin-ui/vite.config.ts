@@ -26,27 +26,21 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false, // Disable sourcemaps to reduce memory usage in CI
-    chunkSizeWarningLimit: 1000,
+    chunkSizeWarningLimit: 2000, // Increase limit since we're combining chunks
     rollupOptions: {
       output: {
+        // Avoid manual chunking that creates circular dependencies
+        // Let Rollup handle the dependency graph automatically for Solana ecosystem
+        // Only split out truly independent chunks
         manualChunks(id) {
-          // Split vendor chunks to reduce memory pressure during build
           if (id.includes('node_modules')) {
-            // React ecosystem
-            if (id.includes('react')) {
-              return 'vendor-react';
+            // Core React (react, react-dom only - NOT react-based libraries)
+            if (id.includes('/react/') || id.includes('/react-dom/') || 
+                id.includes('/scheduler/')) {
+              return 'vendor-react-core';
             }
-            // Solana + Crossmint must stay together - they have circular deps
-            // Using a single chunk avoids TDZ (Temporal Dead Zone) errors
-            if (id.includes('@solana') || id.includes('solana') ||
-                id.includes('@crossmint') || id.includes('crossmint') ||
-                id.includes('bs58') || id.includes('buffer') ||
-                id.includes('borsh') || id.includes('bn.js') ||
-                id.includes('rpc-websockets') || id.includes('superstruct')) {
-              return 'vendor-web3';
-            }
-            // All other node_modules
-            return 'vendor';
+            // Everything else stays in default vendor chunk
+            // This avoids circular chunk issues between Solana <-> React adapters
           }
         },
       },

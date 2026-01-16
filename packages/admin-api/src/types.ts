@@ -1034,6 +1034,8 @@ export interface AgentMemory {
   themes?: string[];         // Tags for retrieval (e.g., 'hunting', 'philosophy')
   strength: number;          // 0-1, how reinforced this memory is
   embedding?: number[];      // Vector embedding for semantic search
+  embeddingModel?: string;   // Model used to generate embedding (e.g., 'amazon.titan-embed-text-v2:0')
+  embeddingVersion?: number; // Embedding version for re-embedding on model upgrades
   metadata?: Record<string, unknown>; // Additional context
   createdAt: number;
   updatedAt: number;
