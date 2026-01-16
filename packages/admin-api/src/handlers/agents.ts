@@ -108,6 +108,35 @@ export async function handler(
         };
       }
 
+      // Check for wallet session - use wallet-based creation with gating
+      const sessionToken = getWalletSessionFromCookie(event);
+      if (sessionToken) {
+        const walletSession = await getSessionWithUser(sessionToken);
+        if (walletSession?.walletAddress) {
+          // Wallet user: use gated creation
+          const result = await agentService.createAgentWithWallet(name, walletSession.walletAddress, description);
+          if (!result.success) {
+            const errorMessage = result.error === 'no_gate_slot'
+              ? 'No available agent slots. Hold an Orb NFT to create more agents.'
+              : result.error === 'name_taken'
+              ? 'An agent with this name already exists.'
+              : 'Failed to create agent.';
+            return {
+              statusCode: result.error === 'no_gate_slot' ? 403 : 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ error: errorMessage, gateStatus: result.gateStatus }),
+            };
+          }
+          logger.info(`[Agents] Created agent=${result.agent!.agentId} by wallet=${walletSession.walletAddress.slice(0, 8)}...`);
+          return {
+            statusCode: 201,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify(result.agent),
+          };
+        }
+      }
+
+      // Fallback: legacy email-based creation (CF Access admin)
       const agent = await agentService.createAgent(name, session, description);
 
       return {
@@ -132,14 +161,14 @@ export async function handler(
             agents = await agentService.listAgents();
             logger.info(`[Agents] Admin wallet=${walletSession.walletAddress.slice(0, 8)}... listed all ${agents.length} agents`);
           } else {
-            // Regular wallet user: show only their created agents
+            // Regular wallet user: show only agents they created OR inhabit
             agents = await agentService.listAgentsByWallet(walletSession.walletAddress);
             logger.info(`[Agents] Listed ${agents.length} agents for wallet=${walletSession.walletAddress.slice(0, 8)}...`);
           }
         } else {
           // Invalid/expired session - return empty list (they need to re-auth)
           agents = [];
-          logger.warn('[Agents] Invalid wallet session, returning empty agent list');
+          logger.warn(`[Agents] Invalid wallet session (token present but session not found), returning empty list`);
         }
       } else {
         // No wallet session (CF Access / internal test only) - return all agents

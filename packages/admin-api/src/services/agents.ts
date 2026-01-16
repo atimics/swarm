@@ -298,13 +298,16 @@ export async function listAgents(): Promise<AgentRecord[]> {
 }
 
 /**
- * List agents created by a specific wallet
- * Returns only agents where creatorWallet matches the given wallet address
+ * List agents owned by a specific wallet
+ * Returns agents where:
+ * - creatorWallet matches (agents the wallet created)
+ * - OR inhabitantWallet matches (agents the wallet inhabits)
+ * This ensures wallet users see all agents they have access to
  */
 export async function listAgentsByWallet(walletAddress: string): Promise<AgentRecord[]> {
   const result = await dynamoClient.send(new ScanCommand({
     TableName: ADMIN_TABLE,
-    FilterExpression: 'sk = :sk AND #status <> :deleted AND creatorWallet = :wallet',
+    FilterExpression: 'sk = :sk AND #status <> :deleted AND (creatorWallet = :wallet OR inhabitantWallet = :wallet)',
     ExpressionAttributeNames: {
       '#status': 'status',
     },

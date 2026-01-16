@@ -22,11 +22,11 @@ export default defineConfig({
         manualChunks(id) {
           // Split vendor chunks more aggressively to reduce memory pressure
           if (id.includes('node_modules')) {
-            if (id.includes('@solana') || id.includes('solana')) {
-              return 'vendor-solana';
-            }
-            if (id.includes('@crossmint') || id.includes('crossmint')) {
-              return 'vendor-crossmint';
+            // Group Solana and Crossmint together - Crossmint depends on @solana/web3.js
+            // Separating them breaks module initialization order (TDZ errors)
+            if (id.includes('@solana') || id.includes('solana') ||
+                id.includes('@crossmint') || id.includes('crossmint')) {
+              return 'vendor-web3';
             }
             if (id.includes('react')) {
               return 'vendor-react';
