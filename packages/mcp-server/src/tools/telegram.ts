@@ -10,7 +10,7 @@
  * and are rate-limited to once per week maximum.
  */
 import { z } from 'zod';
-import { defineTool, type ToolResult } from '../registry.js';
+import { defineTool, defineManualTool, type ToolResult } from '../registry.js';
 
 // ============================================================================
 // Service Interface
@@ -48,7 +48,17 @@ export interface ChatModificationProposal {
   rejectionCount: number;
 }
 
+export interface TelegramStatus {
+  configured: boolean;
+  botUsername?: string;
+  botName?: string;
+  webhookSet?: boolean;
+}
+
 export interface TelegramServices {
+  /** Get Telegram integration status */
+  getTelegramStatus?: (agentId: string) => Promise<TelegramStatus>;
+  
   /** Get user profile photos */
   getUserProfilePhotos: (agentId: string, userId: number, options?: {
     offset?: number;
@@ -128,6 +138,21 @@ export interface TelegramServices {
 // ============================================================================
 
 export const createTelegramTools = (services: TelegramServices) => [
+  // === Integration Setup ===
+  
+  /**
+   * Simple initialization tool that presents inline setup UI
+   * The agent just calls this, the UI handles the rest
+   */
+  defineManualTool({
+    name: 'initialize_telegram',
+    description: 'Set up or reset Telegram integration. Shows a simple inline setup interface for the user to enter their bot token from @BotFather.',
+    platforms: ['admin-ui'],
+    inputSchema: z.object({
+      reason: z.string().optional().describe('Why setup is needed (e.g., "reset token", "first time setup")'),
+    }),
+  }),
+
   // === User Profile Photos ===
   defineTool({
     name: 'get_user_profile_photos',
