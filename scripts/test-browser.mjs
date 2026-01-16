@@ -87,6 +87,10 @@ const INITIAL_WAIT = 500;      // Initial wait after action
 const MAX_WAIT = 8000;         // Max wait for page change (exponential backoff cap)
 const BACKOFF_MULTIPLIER = 1.5; // Exponential backoff multiplier
 
+// Early failure detection thresholds
+const MAX_EMPTY_PAGE_STEPS = 3;  // Abort after 3 consecutive steps with no elements
+const MAX_WAIT_ACTIONS = 4;      // Abort after 4 consecutive WAIT actions (unparseable responses)
+
 function getStackOutput(exportNameSuffix) {
   const stack = `SwarmStack-${ENV === 'production' ? 'prod' : ENV}`;
   const exportName = `swarm-${exportNameSuffix}-${ENV === 'production' ? 'prod' : ENV}`;
@@ -937,6 +941,10 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
   let success = false;
   let finalSummary = '';
   
+  // Early failure detection counters
+  let consecutiveEmptyPageSteps = 0;
+  let consecutiveWaitActions = 0;
+  
   try {
     console.log('📸 Loading application...');
     
@@ -1009,7 +1017,38 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
       
       // Extract available elements from the page
       const pageElements = await getPageElements(page);
+      const totalElements = pageElements.buttons.length + pageElements.links.length + pageElements.inputs.length;
       console.log(`📋 Found: ${pageElements.buttons.length} buttons, ${pageElements.links.length} links, ${pageElements.inputs.length} inputs`);
+      
+      // Early failure: detect empty page state
+      if (totalElements === 0) {
+        consecutiveEmptyPageSteps++;
+        console.log(`   ⚠️  Empty page detected (${consecutiveEmptyPageSteps}/${MAX_EMPTY_PAGE_STEPS} consecutive)`);
+        
+        if (consecutiveEmptyPageSteps >= MAX_EMPTY_PAGE_STEPS) {
+          const abortReason = `Page appears blank or not loaded after ${consecutiveEmptyPageSteps} consecutive steps with no interactive elements. This may indicate: authentication blocking the page, a JavaScript error preventing rendering, or the app failing to load.`;
+          console.log(`\n🛑 Early abort: ${abortReason}`);
+          history.push(`[AUTO-ABORT: ${abortReason}]`);
+          finalSummary = `ABORTED: ${abortReason}`;
+          
+          // Report to auto-issues
+          await reportError(apiUrl, testKey, {
+            error: `Browser test auto-aborted: empty page`,
+            subsystem: 'browser-test',
+            context: {
+              environment: ENV,
+              step,
+              adminUrl,
+              consecutiveEmptyPageSteps,
+              history: history.slice(-5),
+            },
+          }).catch(err => console.warn(`   ⚠️ Failed to report: ${err.message}`));
+          
+          break;
+        }
+      } else {
+        consecutiveEmptyPageSteps = 0; // Reset counter when we find elements
+      }
       
       console.log('🧠 Agent reasoning...');
       const response = await getNextAction(apiUrl, testKey, screenshotPath, history, goal, pageElements);
@@ -1018,6 +1057,35 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
       console.log(`📝 Observation: ${(action.observation || '').substring(0, 120)}...`);
       console.log(`💭 Reasoning: ${(action.reasoning || '').substring(0, 120)}...`);
       console.log(`⚡ Action: ${action.type}: ${action.params}`);
+      
+      // Early failure: detect consecutive unparseable/WAIT actions
+      if (action.type === 'WAIT' && action.params === 'Could not parse action') {
+        consecutiveWaitActions++;
+        console.log(`   ⚠️  Unparseable response (${consecutiveWaitActions}/${MAX_WAIT_ACTIONS} consecutive)`);
+        
+        if (consecutiveWaitActions >= MAX_WAIT_ACTIONS) {
+          const abortReason = `LLM returned ${consecutiveWaitActions} consecutive unparseable responses. The page may be stuck, blank, or the LLM cannot determine a valid action.`;
+          console.log(`\n🛑 Early abort: ${abortReason}`);
+          history.push(`[AUTO-ABORT: ${abortReason}]`);
+          finalSummary = `ABORTED: ${abortReason}`;
+          
+          await reportError(apiUrl, testKey, {
+            error: `Browser test auto-aborted: consecutive unparseable LLM responses`,
+            subsystem: 'browser-test',
+            context: {
+              environment: ENV,
+              step,
+              adminUrl,
+              consecutiveWaitActions,
+              history: history.slice(-5),
+            },
+          }).catch(err => console.warn(`   ⚠️ Failed to report: ${err.message}`));
+          
+          break;
+        }
+      } else {
+        consecutiveWaitActions = 0; // Reset counter on valid action
+      }
       
       const result = await executeAction(page, action);
       

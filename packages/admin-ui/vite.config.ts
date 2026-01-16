@@ -13,6 +13,16 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    // Pre-bundle Solana deps to avoid circular dependency issues
+    include: [
+      '@solana/web3.js',
+      '@solana/wallet-adapter-base',
+      '@solana/wallet-adapter-react',
+      '@solana/wallet-adapter-react-ui',
+      '@solana/wallet-adapter-wallets',
+    ],
+  },
   build: {
     outDir: 'dist',
     sourcemap: false, // Disable sourcemaps to reduce memory usage in CI
@@ -20,18 +30,22 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // Split vendor chunks more aggressively to reduce memory pressure
+          // Split vendor chunks to reduce memory pressure during build
           if (id.includes('node_modules')) {
-            // Group Solana and Crossmint together - Crossmint depends on @solana/web3.js
-            // Separating them breaks module initialization order (TDZ errors)
-            if (id.includes('@solana') || id.includes('solana') ||
-                id.includes('@crossmint') || id.includes('crossmint')) {
-              return 'vendor-web3';
-            }
+            // React ecosystem
             if (id.includes('react')) {
               return 'vendor-react';
             }
-            // Group remaining node_modules into a vendor chunk
+            // Solana + Crossmint must stay together - they have circular deps
+            // Using a single chunk avoids TDZ (Temporal Dead Zone) errors
+            if (id.includes('@solana') || id.includes('solana') ||
+                id.includes('@crossmint') || id.includes('crossmint') ||
+                id.includes('bs58') || id.includes('buffer') ||
+                id.includes('borsh') || id.includes('bn.js') ||
+                id.includes('rpc-websockets') || id.includes('superstruct')) {
+              return 'vendor-web3';
+            }
+            // All other node_modules
             return 'vendor';
           }
         },
