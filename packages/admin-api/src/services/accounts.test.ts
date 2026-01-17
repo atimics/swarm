@@ -9,7 +9,9 @@ import {
   type AccountsServiceDeps,
 } from './accounts.js';
 
-type DbItem = Record<string, any>;
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+
+type DbItem = Record<string, unknown>;
 
 function makeInMemoryDynamo() {
   const store = new Map<string, DbItem>();
@@ -22,26 +24,28 @@ function makeInMemoryDynamo() {
     return false;
   };
 
-  const send = async (cmd: any) => {
-    const input = cmd?.input ?? {};
+  const send: DynamoDBDocumentClient['send'] = async (cmd: unknown) => {
+    const command = cmd as { input?: Record<string, unknown>; constructor?: { name?: string } };
+    const input = command?.input ?? {};
 
     // Delete
-    if (input.Key && cmd?.constructor?.name === 'DeleteCommand') {
-      const { pk, sk } = input.Key;
+    if ((input as { Key?: { pk: string; sk: string } }).Key && command?.constructor?.name === 'DeleteCommand') {
+      const { pk, sk } = (input as { Key: { pk: string; sk: string } }).Key;
       store.delete(keyOf(pk, sk));
       return {};
     }
 
     // Get
-    if (input.Key) {
-      const { pk, sk } = input.Key;
+    if ((input as { Key?: { pk: string; sk: string } }).Key) {
+      const { pk, sk } = (input as { Key: { pk: string; sk: string } }).Key;
       return { Item: store.get(keyOf(pk, sk)) };
     }
 
     // Query
-    if (input.KeyConditionExpression) {
-      const pk = input.ExpressionAttributeValues[':pk'];
-      const prefix = input.ExpressionAttributeValues[':prefix'];
+    if ((input as { KeyConditionExpression?: unknown; ExpressionAttributeValues?: Record<string, unknown> }).KeyConditionExpression) {
+      const eavs = (input as { ExpressionAttributeValues: Record<string, unknown> }).ExpressionAttributeValues;
+      const pk = eavs[':pk'] as string;
+      const prefix = eavs[':prefix'] as string;
       const items: DbItem[] = [];
       for (const [key, item] of store.entries()) {
         const [itemPk, itemSk] = key.split('|');
@@ -53,15 +57,15 @@ function makeInMemoryDynamo() {
     }
 
     // Put
-    if (input.Item) {
-      const item = input.Item as DbItem;
+    if ((input as { Item?: DbItem }).Item) {
+      const item = (input as { Item: DbItem }).Item;
       const pk = item.pk as string;
       const sk = item.sk as string;
 
-      if (input.ConditionExpression === 'attribute_not_exists(pk)') {
+      if ((input as { ConditionExpression?: string }).ConditionExpression === 'attribute_not_exists(pk)') {
         if (hasPk(pk)) {
           const err = new Error('ConditionalCheckFailedException');
-          (err as any).name = 'ConditionalCheckFailedException';
+          (err as { name?: string }).name = 'ConditionalCheckFailedException';
           throw err;
         }
       }

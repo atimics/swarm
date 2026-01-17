@@ -16,7 +16,7 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 export type IdentityType = 'wallet' | 'crossmint';
 
 export interface AccountsServiceDeps {
-  dynamoClient: { send: (command: unknown) => Promise<unknown> };
+  dynamoClient: Pick<DynamoDBDocumentClient, 'send'>;
   tableName: string;
   now: () => number;
   uuid: () => string;

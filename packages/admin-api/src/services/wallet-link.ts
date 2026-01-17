@@ -22,7 +22,7 @@ const LINK_CHALLENGE_TTL_MINUTES = 5;
 const DOMAIN = process.env.AUTH_DOMAIN || 'admin.rati.chat';
 
 export interface WalletLinkDeps {
-  dynamoClient: { send: (command: unknown) => Promise<unknown> };
+  dynamoClient: Pick<DynamoDBDocumentClient, 'send'>;
   tableName: string;
   domain: string;
   now: () => number;

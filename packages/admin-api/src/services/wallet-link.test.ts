@@ -1,29 +1,31 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { createLinkWalletChallenge, verifyLinkWallet, type WalletLinkDeps } from './wallet-link.js';
 
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+
 type DbItem = Record<string, unknown>;
 
 function makeInMemoryDynamo() {
   const store = new Map<string, DbItem>();
   const keyOf = (pk: string, sk: string) => `${pk}|${sk}`;
 
-  const send = async (cmd: unknown) => {
-    const command = cmd as { input?: any; constructor?: { name?: string } };
+  const send: DynamoDBDocumentClient['send'] = async (cmd: unknown) => {
+    const command = cmd as { input?: Record<string, unknown>; constructor?: { name?: string } };
     const input = command?.input ?? {};
 
-    if (command?.constructor?.name === 'PutCommand' && input.Item) {
-      const item = input.Item as DbItem;
+    if (command?.constructor?.name === 'PutCommand' && (input as { Item?: DbItem }).Item) {
+      const item = (input as { Item: DbItem }).Item;
       store.set(keyOf(item.pk, item.sk), item);
       return {};
     }
 
-    if (command?.constructor?.name === 'GetCommand' && input.Key) {
-      const { pk, sk } = input.Key;
+    if (command?.constructor?.name === 'GetCommand' && (input as { Key?: { pk: string; sk: string } }).Key) {
+      const { pk, sk } = (input as { Key: { pk: string; sk: string } }).Key;
       return { Item: store.get(keyOf(pk, sk)) };
     }
 
-    if (command?.constructor?.name === 'DeleteCommand' && input.Key) {
-      const { pk, sk } = input.Key;
+    if (command?.constructor?.name === 'DeleteCommand' && (input as { Key?: { pk: string; sk: string } }).Key) {
+      const { pk, sk } = (input as { Key: { pk: string; sk: string } }).Key;
       store.delete(keyOf(pk, sk));
       return {};
     }
