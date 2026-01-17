@@ -188,7 +188,7 @@ export class TwitterAdapter extends PlatformAdapter {
           if (item.type === 'video') {
             mimeType = 'video/mp4';
           } else {
-            const contentType = response.headers.get('content-type');
+            const contentType = response.headers?.get?.('content-type') ?? null;
             if (contentType && !['application/octet-stream', 'binary/octet-stream'].includes(contentType)) {
               mimeType = contentType.split(';')[0];
             } else {

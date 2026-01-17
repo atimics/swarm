@@ -7,6 +7,21 @@ import { persist } from 'zustand/middleware';
 
 import { API_BASE } from '../api/apiBase';
 
+async function readErrorMessage(response: Response): Promise<string> {
+  // Prefer JSON { error } but tolerate HTML/text (e.g. Cloudflare, proxies).
+  try {
+    const data = (await response.json()) as { error?: string; message?: string };
+    return data.error || data.message || response.statusText || `Request failed (${response.status})`;
+  } catch {
+    try {
+      const text = await response.text();
+      return text || response.statusText || `Request failed (${response.status})`;
+    } catch {
+      return response.statusText || `Request failed (${response.status})`;
+    }
+  }
+}
+
 export interface CrossmintUser {
   id: string;
   email?: string;
@@ -105,8 +120,8 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
           });
 
           if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to verify with backend');
+            const message = await readErrorMessage(response);
+            throw new Error(message || 'Failed to verify with backend');
           }
 
           const data = await response.json();
