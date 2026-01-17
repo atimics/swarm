@@ -103,7 +103,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-output
-          path: .
+          # CI artifact stores paths relative to `packages/` (e.g. `admin-ui/dist`).
+          # Downloading into `packages/` restores to `packages/admin-ui/dist`.
+          path: packages
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -199,7 +201,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-output
-          path: .
+          # CI artifact stores paths relative to `packages/` (e.g. `admin-ui/dist`).
+          # Downloading into `packages/` restores to `packages/admin-ui/dist`.
+          path: packages
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -233,6 +237,7 @@ jobs:
         with:
           name: admin-ui-dist
           path: packages/admin-ui/dist
+          if-no-files-found: error
           retention-days: 1
 
   # Deploy Admin UI to S3 (after CDK creates/updates bucket)
