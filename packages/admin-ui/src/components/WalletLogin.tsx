@@ -423,43 +423,65 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
 
               <div className="px-4 py-3 space-y-3">
                 <div className="text-xs text-[var(--color-text-muted)]">
-                  Signed in with: <span className="text-[var(--color-text)] font-medium">{authProvider === 'crossmint' ? 'Email/Social (Crossmint)' : 'Wallet (SIWS)'}</span>
+                  Signed in via{' '}
+                  <span className="text-[var(--color-text)] font-medium">
+                    {authProvider === 'crossmint' ? 'Crossmint' : 'Wallet'}
+                  </span>
+                  <span className="text-[var(--color-text-muted)]">
+                    {authProvider === 'crossmint' ? ' (email/social)' : ' (SIWS)'}
+                  </span>
                 </div>
 
                 {authProvider === 'crossmint' && user.email && (
                   <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
-                    <div className="text-xs text-[var(--color-text-muted)]">Email</div>
-                    <div className="text-sm text-[var(--color-text)]">{user.email}</div>
-                    <div className="mt-2 text-xs text-[var(--color-text-muted)]">Embedded wallet</div>
-                    <div className="text-sm text-[var(--color-text)]">{formatAddress(user.walletAddress)}</div>
-                  </div>
-                )}
+                    <div className="text-xs font-medium text-[var(--color-text)]">Identity</div>
+                    <div className="mt-2 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="text-[var(--color-text-muted)]" aria-hidden="true">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                            <path d="M2.94 6.34A2 2 0 014.5 5.5h11a2 2 0 011.56.84L10 11.5 2.94 6.34z" />
+                            <path d="M18 8.12l-7.54 5.1a1 1 0 01-1.12 0L2 8.12V13.5a2 2 0 002 2h12a2 2 0 002-2V8.12z" />
+                          </svg>
+                        </div>
+                        <div className="text-sm text-[var(--color-text)]">{user.email}</div>
+                      </div>
 
-                {account?.accountId && (
-                  <div className="text-xs text-[var(--color-text-muted)]">
-                    Account ID: <span className="text-[var(--color-text)]">{account.accountId}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="text-[var(--color-text-muted)]" aria-hidden="true">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                            <path d="M10 2.5a7.5 7.5 0 00-7.5 7.5v2A3.5 3.5 0 006 15.5h1V8.75a3 3 0 116 0v6.75h1a3.5 3.5 0 003.5-3.5v-2A7.5 7.5 0 0010 2.5z" />
+                          </svg>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                          <div className="text-xs text-[var(--color-text-muted)]">Embedded</div>
+                          <div className="text-sm text-[var(--color-text)]">{formatAddress(user.walletAddress)}</div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 
                 <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-xs text-[var(--color-text-muted)]">Orbs / Gating</div>
-                      <div className="text-sm text-[var(--color-text)]">
-                        {gateStatus ? `${gateStatus.nftsHeld} Orbs • ${gateStatus.availableSlots} slots` : 'Unknown'}
+                      <div className="text-xs font-medium text-[var(--color-text)]">Orbs & Access</div>
+                      <div className="text-sm text-[var(--color-text)] mt-1">
+                        {gateStatus ? `Orbs: ${gateStatus.nftsHeld} • Slots: ${gateStatus.availableSlots}` : 'Unknown'}
                       </div>
                     </div>
                     {gateWallet && (
                       <div className="text-xs text-[var(--color-text-muted)]">
-                        Using: <span className="text-[var(--color-text)]">{formatAddress(gateWallet)}</span>
+                        Using <span className="text-[var(--color-text)]">{formatAddress(gateWallet)}</span>
                       </div>
                     )}
                   </div>
 
                   {sortedGateWallets.length > 0 && (
-                    <div className="mt-3">
-                      <div className="text-xs text-[var(--color-text-muted)] mb-1">Wallets</div>
-                      <div className="space-y-1">
+                    <details className="mt-3">
+                      <summary className="cursor-pointer select-none text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
+                        Wallet breakdown ({sortedGateWallets.length})
+                      </summary>
+                      <div className="mt-2 space-y-1">
                         {sortedGateWallets.map(([addr, st]) => (
                           <div key={addr} className="flex items-center justify-between text-xs">
                             <span className="text-[var(--color-text)]">{formatAddress(addr)}</span>
@@ -467,9 +489,29 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                           </div>
                         ))}
                       </div>
-                    </div>
+                    </details>
                   )}
                 </div>
+
+                {(account?.accountId || (authProvider === 'crossmint' && user.walletAddress)) && (
+                  <details className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
+                    <summary className="cursor-pointer select-none text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
+                      Advanced
+                    </summary>
+                    <div className="mt-2 space-y-2">
+                      {account?.accountId && (
+                        <div className="text-xs text-[var(--color-text-muted)]">
+                          Account ID: <span className="text-[var(--color-text)]">{account.accountId}</span>
+                        </div>
+                      )}
+                      {authProvider === 'crossmint' && user.walletAddress && (
+                        <div className="text-xs text-[var(--color-text-muted)]">
+                          Embedded wallet: <span className="text-[var(--color-text)]">{user.walletAddress}</span>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
 
                 {authProvider === 'crossmint' && (gateStatus?.nftsHeld || 0) === 0 && (
                   <div className="rounded-lg border border-brand-500/30 bg-brand-500/10 p-3">
