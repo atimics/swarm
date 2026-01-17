@@ -950,12 +950,11 @@ async function runAutonomousBrowserTest() {
   console.log(`🔑 Request interceptor added for API calls to ${apiUrlParsed.hostname}`);
   
   const avatarName = generateAgentName();
-  const goal = `Create a new AI avatar by clicking the create/add button (usually a + icon or "Create" button).
-After the avatar is created, send it a test message like "Hello" to verify it responds.
-The avatar name "${avatarName}" may be auto-generated - you don't need to fill in forms manually.
-Focus on: 1) Find and click the create button, 2) Verify the avatar appears, 3) Send a message.`;
+  const goal = `Create a new AI avatar and fully configure it.
+After creating the avatar, explore its capabilities - try giving it a name, personality, or profile picture.
+Verify the avatar responds to messages and any configuration changes are reflected in the UI.`;
 
-  console.log(`🎯 Goal: Create avatar "${avatarName}" and test conversation`);
+  console.log(`🎯 Goal: Create and configure avatar "${avatarName}"`);
   console.log();
   
   const history = [];
