@@ -313,6 +313,46 @@ jobs:
       - name: Run Browser Tests
         run: node scripts/test-browser.mjs staging
 
+      - name: Browser Test Summary
+        if: always()
+        run: |
+          echo "## Browser Visual Tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **UI:** ${{ needs.setup.outputs.admin_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **API:** ${{ needs.setup.outputs.api_url }}" >> $GITHUB_STEP_SUMMARY
+
+          RUN_DIR=$(ls -td test-screenshots/run-* 2>/dev/null | head -n 1 || true)
+          if [ -z "$RUN_DIR" ]; then
+            echo "- No run directory found under test-screenshots/" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          echo "- **Run:** \`$(basename "$RUN_DIR")\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artifact:** browser-screenshots" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "$RUN_DIR/history.json" ]; then
+            RESULT=$(node -e "const h=require('./' + process.argv[1] + '/history.json'); console.log(h.success ? '✅ SUCCESS' : (h.aborted ? '🛑 ABORTED' : '❌ FAILED'));" "$RUN_DIR")
+            STEPS=$(node -e "const h=require('./' + process.argv[1] + '/history.json'); console.log(h.steps ?? '');" "$RUN_DIR")
+            SUMMARY=$(node -e "const h=require('./' + process.argv[1] + '/history.json'); console.log(h.summary ?? '');" "$RUN_DIR")
+            echo "- **Result:** $RESULT" >> $GITHUB_STEP_SUMMARY
+            echo "- **Steps:** $STEPS" >> $GITHUB_STEP_SUMMARY
+            if [ -n "$SUMMARY" ]; then
+              echo "- **Summary:** $SUMMARY" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "- history.json not found (test may have crashed early)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f "$RUN_DIR/report.md" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details><summary>Report</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat "$RUN_DIR/report.md" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- report.md not found" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Upload Screenshots
         if: always()
         uses: actions/upload-artifact@v4
