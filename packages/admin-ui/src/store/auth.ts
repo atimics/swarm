@@ -34,23 +34,11 @@ export function useAuth(): UnifiedAuthState {
   const walletAuth = useWalletAuth();
   const crossmintAuth = useCrossmintAuth();
 
-  // Determine which auth is active (prefer wallet if both somehow authenticated)
+  // Determine which auth is active.
+  // Prefer Crossmint if both are authenticated, since walletAuth may reflect
+  // the backend session even when the user signed in via Crossmint.
   const walletActive = walletAuth.isAuthenticated && walletAuth.user;
   const crossmintActive = crossmintAuth.isAuthenticated && crossmintAuth.user;
-
-  // If wallet is authenticated, use wallet auth
-  if (walletActive) {
-    return {
-      isAuthenticated: true,
-      isLoading: walletAuth.isLoading,
-      user: normalizeWalletUser(walletAuth.user!),
-      authProvider: 'wallet',
-      gateStatus: walletAuth.gateStatus,
-      error: walletAuth.error,
-      logout: walletAuth.logout,
-      clearError: walletAuth.clearError,
-    };
-  }
 
   // If Crossmint is authenticated, use Crossmint auth
   if (crossmintActive) {
@@ -63,6 +51,20 @@ export function useAuth(): UnifiedAuthState {
       error: crossmintAuth.error,
       logout: crossmintAuth.logout,
       clearError: crossmintAuth.clearError,
+    };
+  }
+
+  // If wallet is authenticated, use wallet auth
+  if (walletActive) {
+    return {
+      isAuthenticated: true,
+      isLoading: walletAuth.isLoading,
+      user: normalizeWalletUser(walletAuth.user!),
+      authProvider: 'wallet',
+      gateStatus: walletAuth.gateStatus,
+      error: walletAuth.error,
+      logout: walletAuth.logout,
+      clearError: walletAuth.clearError,
     };
   }
 

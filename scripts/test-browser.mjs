@@ -885,12 +885,12 @@ async function runAutonomousBrowserTest() {
   const adminUrlParsed = new URL(adminUrl);
   
   // Create browser context with auth headers and cookies
-  // Use mobile viewport for smaller screenshots = fewer tokens
+  // Use desktop viewport so sidebar is always visible (no hamburger menu needed)
   const contextOptions = {
-    viewport: { width: 390, height: 844 }, // iPhone 14 Pro size
+    viewport: { width: 1280, height: 800 }, // Desktop size - sidebar visible at lg breakpoint
     deviceScaleFactor: 1, // No retina scaling needed for LLM
-    isMobile: true,
-    hasTouch: true,
+    isMobile: false,
+    hasTouch: false,
     extraHTTPHeaders: getCloudflareAccessHeaders(),
   };
   

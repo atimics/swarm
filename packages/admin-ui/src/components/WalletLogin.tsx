@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useAuth as useCrossmintAuthHook } from '@crossmint/client-sdk-react-ui';
+import bs58 from 'bs58';
 import { useWalletAuth } from '../store/walletAuth';
 import { useCrossmintAuth } from '../store/crossmintAuth';
 import { useAuth } from '../store/auth';
@@ -14,6 +15,8 @@ import { useAuth } from '../store/auth';
 interface WalletLoginProps {
   className?: string;
 }
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export function WalletLogin({ className = '' }: WalletLoginProps) {
   const { publicKey, connected, signMessage, disconnect } = useWallet();
@@ -42,6 +45,8 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   // If user is signed in via Crossmint and connects a different Phantom wallet,
   // we should not auto-switch accounts. Instead, prompt for an explicit choice.
   const [pendingWalletSwitch, setPendingWalletSwitch] = useState<string | null>(null);
+  const [linkingWallet, setLinkingWallet] = useState(false);
+  const [linkWalletError, setLinkWalletError] = useState<string | null>(null);
 
   // Check auth on mount
   useEffect(() => {
@@ -104,8 +109,66 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     setPendingWalletSwitch(null);
   }, [pendingWalletSwitch, crossmintAuth, crossmintLogout]);
 
+  const handleLinkConnectedWallet = useCallback(async () => {
+    if (!pendingWalletSwitch) return;
+    if (!signMessage || typeof signMessage !== 'function') {
+      setLinkWalletError('Connected wallet does not support message signing');
+      return;
+    }
+
+    setLinkingWallet(true);
+    setLinkWalletError(null);
+
+    try {
+      const challengeResponse = await fetch(`${API_BASE}/auth/link/wallet/challenge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ walletAddress: pendingWalletSwitch }),
+      });
+
+      if (!challengeResponse.ok) {
+        const err = await challengeResponse.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to create link challenge');
+      }
+
+      const { nonce, message } = await challengeResponse.json();
+
+      const messageBytes = new TextEncoder().encode(message);
+      const signatureBytes = await signMessage(messageBytes);
+      const signature = bs58.encode(signatureBytes);
+
+      const verifyResponse = await fetch(`${API_BASE}/auth/link/wallet/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          walletAddress: pendingWalletSwitch,
+          nonce,
+          signature,
+        }),
+      });
+
+      if (!verifyResponse.ok) {
+        const err = await verifyResponse.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to link wallet');
+      }
+
+      // Refresh backend-derived session state.
+      await checkAuth();
+
+      setPendingWalletSwitch(null);
+    } catch (err) {
+      console.error('[WalletLogin] Link wallet error:', err);
+      setLinkWalletError(err instanceof Error ? err.message : 'Failed to link wallet');
+    } finally {
+      setLinkingWallet(false);
+    }
+  }, [pendingWalletSwitch, signMessage, checkAuth]);
+
   const handleIgnoreConnectedWallet = useCallback(() => {
     setPendingWalletSwitch(null);
+    setLinkWalletError(null);
   }, []);
 
   // Handle connect button click
@@ -191,6 +254,14 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
               Wallet connected: {formatAddress(pendingWalletSwitch)}
             </span>
             <button
+              onClick={handleLinkConnectedWallet}
+              className="text-[11px] font-medium text-brand-400 hover:text-brand-300 disabled:opacity-50"
+              disabled={linkingWallet}
+              title="Link this wallet to your current account"
+            >
+              {linkingWallet ? 'Linking…' : 'Link'}
+            </button>
+            <button
               onClick={handleSwitchToConnectedWallet}
               className="text-[11px] font-medium text-brand-400 hover:text-brand-300"
               title="Switch to this wallet account"
@@ -204,6 +275,12 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
             >
               Ignore
             </button>
+
+            {linkWalletError && (
+              <span className="ml-2 text-[11px] text-red-400">
+                {linkWalletError}
+              </span>
+            )}
           </div>
         )}
       </div>
