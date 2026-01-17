@@ -100,7 +100,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
       console.log('[LoginOptions] ✅ Starting backend sync', { walletAddress });
       syncAttemptedRef.current = true;
       lastJwtRef.current = jwt;
-      lastWalletAddressRef.current = walletAddress;
+      lastWalletAddressRef.current = walletAddress ?? null;
       crossmintAuth.syncWithBackend(jwt, {
         ...crossmintUser,
         wallet: walletAddress ? { address: walletAddress } : undefined,
