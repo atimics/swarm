@@ -79,6 +79,86 @@ prompt_secret_value() {
         echo -e "Get it from: ${help_url}"
     fi
 
+    # Special case: make Twitter credentials easy to enter without manual JSON.
+    # Stored as JSON in Secrets Manager: {"consumer_key":"...","consumer_secret":"..."}
+    if [ "$scope" = "global" ] && [ "$name" = "twitter-app-credentials" ] && [ "$is_json" = "true" ]; then
+        local existing_json=""
+        local existing_consumer_key=""
+        local existing_consumer_secret=""
+
+        if [ "$mode" != "missing" ]; then
+            if aws secretsmanager get-secret-value --secret-id "$full_name" --query SecretString --output text &>/dev/null 2>&1; then
+                existing_json=$(aws secretsmanager get-secret-value --secret-id "$full_name" --query SecretString --output text 2>/dev/null || echo "")
+                if [ -n "$existing_json" ]; then
+                    existing_consumer_key=$(node -e "try{const o=JSON.parse(process.argv[1]);process.stdout.write(o.consumer_key||'')}catch(e){}" "$existing_json" 2>/dev/null || true)
+                    existing_consumer_secret=$(node -e "try{const o=JSON.parse(process.argv[1]);process.stdout.write(o.consumer_secret||'')}catch(e){}" "$existing_json" 2>/dev/null || true)
+                fi
+            fi
+        fi
+
+        if [ "$mode" = "missing" ]; then
+            echo -e "${YELLOW}Current status: Not set${NC}"
+        else
+            echo -e "${GREEN}Current status: Set${NC}"
+            read -p "Update this secret? [y/N]: " choice
+            case "$choice" in
+                [yY]|[yY][eE][sS])
+                    ;;
+                *)
+                    echo -e "${YELLOW}Skipped${NC}"
+                    echo ""
+                    return
+                    ;;
+            esac
+        fi
+
+        echo ""
+        if [ "$mode" = "missing" ]; then
+            read -sp "Enter Twitter consumer_key (press Enter to skip): " consumer_key
+            echo ""
+            read -sp "Enter Twitter consumer_secret (press Enter to skip): " consumer_secret
+            echo ""
+        else
+            read -sp "Enter Twitter consumer_key (press Enter to keep existing): " consumer_key
+            echo ""
+            read -sp "Enter Twitter consumer_secret (press Enter to keep existing): " consumer_secret
+            echo ""
+        fi
+
+        # For existing secrets, allow pressing Enter to keep current values.
+        if [ "$mode" != "missing" ]; then
+            [ -z "$consumer_key" ] && consumer_key="$existing_consumer_key"
+            [ -z "$consumer_secret" ] && consumer_secret="$existing_consumer_secret"
+        fi
+
+        if [ -z "$consumer_key" ] || [ -z "$consumer_secret" ]; then
+            echo -e "${YELLOW}Skipped (both consumer_key and consumer_secret are required)${NC}"
+            echo ""
+            return
+        fi
+
+        value=$(node -e "const ck=process.argv[1]; const cs=process.argv[2]; process.stdout.write(JSON.stringify({consumer_key: ck, consumer_secret: cs}));" "$consumer_key" "$consumer_secret")
+
+        if [ "$mode" = "missing" ]; then
+            aws secretsmanager create-secret \
+                --name "$full_name" \
+                --description "$description" \
+                --secret-string "$value" \
+                --output text > /dev/null
+            echo -e "${GREEN}✓ Secret created${NC}"
+            echo ""
+            return
+        fi
+
+        aws secretsmanager put-secret-value \
+            --secret-id "$full_name" \
+            --secret-string "$value" \
+            --output text > /dev/null
+        echo -e "${GREEN}✓ Secret updated${NC}"
+        echo ""
+        return
+    fi
+
     if [ "$mode" = "missing" ]; then
         echo -e "${YELLOW}Current status: Not set${NC}"
         echo ""
@@ -184,7 +264,7 @@ prompt_cdk_string_setting() {
     fi
 
     # Write via Node for portability + safe quoting.
-    node <<'NODE' "$CDK_JSON_PATH" "$ENV" "$key" "$value"
+    node - "$CDK_JSON_PATH" "$ENV" "$key" "$value" <<'NODE'
 const fs = require('fs');
 
 const [,, path, env, key, value] = process.argv;
@@ -239,7 +319,7 @@ ENV_SECRET_IS_MULTILINE=(false false false false false false true)
 ENV_SECRET_OPTIONAL=(0 0 1 1 1 1 1)
 
 GLOBAL_SECRET_NAMES=("twitter-app-credentials")
-GLOBAL_SECRET_DESCRIPTIONS=("Twitter/X OAuth app credentials (JSON)")
+GLOBAL_SECRET_DESCRIPTIONS=("Twitter/X OAuth app credentials")
 GLOBAL_SECRET_URLS=("https://developer.twitter.com/en/portal/dashboard")
 GLOBAL_SECRET_IS_JSON=("true")
 
@@ -256,9 +336,6 @@ for i in "${!ENV_SECRET_NAMES[@]}"; do
 done
 
 echo -e "${YELLOW}Global secrets${NC}"
-echo -e "${YELLOW}Twitter App Credentials require JSON format:${NC}"
-echo '{"consumer_key": "...", "consumer_secret": "..."}'
-echo ""
 for i in "${!GLOBAL_SECRET_NAMES[@]}"; do
     name="${GLOBAL_SECRET_NAMES[$i]}"
     full_name="${PREFIX}/global/${name}"
