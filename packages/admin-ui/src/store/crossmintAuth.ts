@@ -5,7 +5,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-const API_BASE = import.meta.env?.VITE_API_URL ?? process.env.VITE_API_URL ?? '';
+import { API_BASE } from '../api/apiBase';
 
 export interface CrossmintUser {
   id: string;

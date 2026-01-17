@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { resolveCrossmintWalletAddress, verifyCrossmintAuth, verifyCrossmintJwtForLink } from '../services/crossmint-auth.js';
 import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 import { getClearSessionCookies, getSessionFromCookie, getSetSessionCookies } from '../auth/session-cookie.js';
-import { getAccountSummary, getOrCreateAccountForWallet, linkCrossmintIdentityToAccount } from '../services/accounts.js';
+import { getAccountSummary, getOrCreateAccountForWallet, linkCrossmintIdentityToAccount, unlinkCrossmintIdentityFromAccount } from '../services/accounts.js';
 import { getAccountGateStatus } from '../services/account-gate.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 
@@ -23,6 +23,10 @@ const CrossmintVerifySchema = z.object({
 });
 
 const CrossmintLinkVerifySchema = CrossmintVerifySchema;
+
+const CrossmintDetachSchema = z.object({
+  crossmintUserId: z.string().min(1),
+});
 
 // Cookie helpers live in ../auth/session-cookie.ts
 
@@ -219,6 +223,63 @@ export async function handleLinkCrossmintVerify(
 }
 
 /**
+ * POST /auth/link/crossmint/detach
+ * Detach a Crossmint identity from the current account.
+ * Does NOT clear the current backend session cookie.
+ */
+export async function handleDetachCrossmint(
+  event: APIGatewayProxyEventV2
+): Promise<APIGatewayProxyResultV2> {
+  const cors = corsHeaders(event);
+
+  if (event.requestContext.http.method === 'OPTIONS') {
+    return { statusCode: 204, headers: cors };
+  }
+
+  try {
+    const sessionToken = getSessionFromCookie(event);
+    if (!sessionToken) {
+      return jsonResponse(401, { error: 'Not authenticated' }, cors, getClearSessionCookies());
+    }
+
+    const session = await getSessionWithUser(sessionToken);
+    if (!session) {
+      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
+    }
+
+    const body = JSON.parse(event.body || '{}');
+    const parsed = CrossmintDetachSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { error: 'Invalid request', details: parsed.error.issues }, cors);
+    }
+
+    const accountId = session.accountId || (await getOrCreateAccountForWallet(session.user.walletAddress));
+
+    const unlink = await unlinkCrossmintIdentityFromAccount({
+      accountId,
+      crossmintUserId: parsed.data.crossmintUserId,
+    });
+    if (!unlink.success) {
+      return jsonResponse(409, { error: unlink.error }, cors);
+    }
+
+    const account = await getAccountSummary(accountId);
+    const gate = await getAccountGateStatus(accountId);
+
+    return jsonResponse(200, {
+      success: true,
+      account,
+      gateStatus: gate.gateStatus,
+      gateWallet: gate.gateWallet,
+      gateStatusByWallet: gate.gateStatusByWallet,
+    }, cors);
+  } catch (error) {
+    console.error('[CrossmintAuth] Detach error:', error);
+    return jsonResponse(500, { error: 'Internal server error' }, cors);
+  }
+}
+
+/**
  * Main router for /auth/crossmint/* endpoints
  */
 export async function handleCrossmintAuth(
@@ -240,6 +301,10 @@ export async function handleCrossmintAuth(
 
   if (path === '/auth/link/crossmint/verify' && method === 'POST') {
     return handleLinkCrossmintVerify(event);
+  }
+
+  if (path === '/auth/link/crossmint/detach' && method === 'POST') {
+    return handleDetachCrossmint(event);
   }
 
   return jsonResponse(404, { error: 'Not found' }, cors);

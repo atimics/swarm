@@ -5,8 +5,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import bs58 from 'bs58';
-
-const API_BASE = import.meta.env?.VITE_API_URL ?? process.env.VITE_API_URL ?? '';
+import { API_BASE } from '../api/apiBase';
 
 export interface WalletUser {
   walletAddress: string;

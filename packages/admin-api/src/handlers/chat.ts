@@ -1292,6 +1292,24 @@ export async function handler(
     return { statusCode: 204, headers: corsHeaders };
   }
 
+  // Lightweight health/info endpoint for humans and uptime checks.
+  // Note: This runs before auth so opening https://api-*/ in a browser doesn't
+  // misleadingly show an admin-only error.
+  const path = event.rawPath || '/';
+  const method = event.requestContext.http.method;
+  if (method === 'GET' && (path === '/' || path === '/health' || path === '/healthz')) {
+    return {
+      statusCode: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ok: true,
+        service: 'swarm-admin-api',
+        path,
+        hint: 'Try GET /auth/me (cookie auth) or POST /auth/wallet/verify (login)',
+      }),
+    };
+  }
+
   try {
     // Authenticate the request
     const session = await authenticateRequest(event);
@@ -1308,8 +1326,6 @@ export async function handler(
         body: JSON.stringify({ error: 'Admin access required' }),
       };
     }
-
-    const method = event.requestContext.http.method;
 
     // GET /chat?avatarId=xxx - Retrieve chat history
     if (method === 'GET') {

@@ -143,7 +143,7 @@ function processMessageContent(content: string): {
         twitterConnected: parsed.connected === true,
         twitterUsername: typeof parsed.username === 'string' ? parsed.username : undefined,
         message: typeof parsed.message === 'string' ? parsed.message : 
-          parsed.connected ? `Connected as @${parsed.username}` : 'Twitter not connected',
+          parsed.connected ? `Connected as @${parsed.username}` : 'X not connected',
       };
     }
 
@@ -153,7 +153,7 @@ function processMessageContent(content: string): {
         type: 'twitter_status',
         data: parsed,
         twitterConnected: false,
-        message: typeof parsed.message === 'string' ? parsed.message : 'Twitter authorization pending',
+        message: typeof parsed.message === 'string' ? parsed.message : 'X authorization pending',
       };
     }
 

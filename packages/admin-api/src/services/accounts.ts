@@ -1,6 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -65,6 +66,10 @@ export interface AccountSummary {
 export type LinkIdentityResult =
   | { success: true }
   | { success: false; error: string; conflict?: { type: IdentityType; providerId: string; existingAccountId: string } };
+
+export type UnlinkIdentityResult =
+  | { success: true }
+  | { success: false; error: string };
 
 function identityPk(type: IdentityType, providerId: string): string {
   return `IDENTITY#${type}#${providerId}`;
@@ -328,4 +333,52 @@ export async function getAccountSummary(accountId: string, deps: AccountsService
     role: account.role,
     identities: identities.map(i => ({ type: i.identityType, providerId: i.providerId })),
   };
+}
+
+export async function unlinkCrossmintIdentityFromAccount(params: {
+  accountId: string;
+  crossmintUserId: string;
+}, deps: AccountsServiceDeps = getDefaultDeps()): Promise<UnlinkIdentityResult> {
+  const { accountId, crossmintUserId } = params;
+
+  const summary = await getAccountSummary(accountId, deps);
+  if (!summary) return { success: false, error: 'Account not found' };
+
+  const identities = summary.identities;
+  const isLinked = identities.some(i => i.type === 'crossmint' && i.providerId === crossmintUserId);
+  if (!isLinked) return { success: true };
+
+  if (identities.length <= 1) {
+    return { success: false, error: 'Cannot detach the only login method' };
+  }
+
+  // Ensure mapping belongs to this account before deleting.
+  const mappingResult = await deps.dynamoClient.send(
+    new GetCommand({
+      TableName: deps.tableName,
+      Key: { pk: identityPk('crossmint', crossmintUserId), sk: 'ACCOUNT' },
+    })
+  );
+  const mapping = mappingResult.Item as IdentityMappingRecord | undefined;
+  if (mapping && mapping.accountId !== accountId) {
+    return { success: false, error: 'Identity is linked to another account' };
+  }
+
+  // Remove from account partition (for listing)
+  await deps.dynamoClient.send(
+    new DeleteCommand({
+      TableName: deps.tableName,
+      Key: { pk: accountPk(accountId), sk: accountIdentitySk('crossmint', crossmintUserId) },
+    })
+  );
+
+  // Remove global identity mapping
+  await deps.dynamoClient.send(
+    new DeleteCommand({
+      TableName: deps.tableName,
+      Key: { pk: identityPk('crossmint', crossmintUserId), sk: 'ACCOUNT' },
+    })
+  );
+
+  return { success: true };
 }

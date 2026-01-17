@@ -930,6 +930,8 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
   const activeAgent = useActiveAvatar();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [started, setStarted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
 
   const args = toolCall.arguments as { message?: string };
 
@@ -937,13 +939,21 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
     if (!activeAgent?.id || disabled || isSubmitting) return;
 
     setIsSubmitting(true);
-    // Redirect to OAuth start endpoint - it will redirect to Twitter
+    setError(null);
+    // Open OAuth start endpoint in a new tab/window. This endpoint will redirect to X.
     const url = `${API_BASE}/oauth/twitter/start?avatarId=${encodeURIComponent(activeAgent.id)}`;
-    window.location.href = url;
+    setOauthUrl(url);
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      setIsSubmitting(false);
+      setError('Popup blocked. Allow popups, or open the link manually.');
+      return;
+    }
 
     try {
       await onSubmit(toolCall.id, { started: true });
       setStarted(true);
+      setIsSubmitting(false);
     } catch {
       setIsSubmitting(false);
     }
@@ -953,7 +963,7 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
     return (
       <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]">
         <span className="text-[var(--color-text-secondary)]">
-          Twitter connection started. Complete authorization in the new tab.
+          X connection started. Complete authorization in the new tab.
         </span>
       </div>
     );
@@ -987,6 +997,22 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
           {isSubmitting ? 'Opening...' : 'Connect X'}
         </button>
       </div>
+
+      {error && (
+        <div className="pt-2 text-xs text-red-400">
+          {error}{' '}
+          {oauthUrl && (
+            <a
+              className="underline hover:text-red-300"
+              href={oauthUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open link
+            </a>
+          )}
+        </div>
+      )}
     </div>
   );
 }

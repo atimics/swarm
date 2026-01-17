@@ -13,12 +13,23 @@ import { useCrossmintAuth } from '../store/crossmintAuth';
 import { useAuth } from '../store/auth';
 import { decideWalletConnectionDecision } from '../auth/wallet-connection';
 import { formatAddress as formatWalletAddress, getLinkedWalletDisplay } from '../auth/linked-wallets';
+import { API_BASE } from '../api/apiBase';
 
 interface WalletLoginProps {
   className?: string;
 }
 
-const API_BASE = import.meta.env?.VITE_API_URL ?? process.env.VITE_API_URL ?? '';
+function humanizeCrossmintLinkError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  // Browser fetch/network/CORS failures often surface as a generic TypeError message.
+  if (message === 'Failed to fetch' || /networkerror|load failed/i.test(message)) {
+    const apiHint = API_BASE ? ` (${API_BASE})` : '';
+    return `Couldn't reach the API${apiHint}. If you're on staging, you may need Cloudflare Access for the API subdomain — open the API URL in a new tab, then retry.`;
+  }
+
+  return message || 'Failed to link email/social';
+}
 
 export function WalletLogin({ className = '' }: WalletLoginProps) {
   const { publicKey, connected, signMessage, disconnect } = useWallet();
@@ -45,6 +56,9 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
 
   // Destructure wallet-specific methods
   const { login, logout: walletLogout, checkAuth } = walletAuth;
+
+  const [detachingCrossmint, setDetachingCrossmint] = useState(false);
+  const [detachCrossmintError, setDetachCrossmintError] = useState<string | null>(null);
 
   // Track if we've attempted login for current wallet connection
   // Prevents infinite loop when login fails
@@ -421,7 +435,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                 </button>
               </div>
 
-              <div className="px-4 py-3 space-y-3">
+              <div className="px-4 py-3 space-y-3 max-h-[80vh] overflow-y-auto">
                 <div className="text-xs text-[var(--color-text-muted)]">
                   Signed in via{' '}
                   <span className="text-[var(--color-text)] font-medium">
@@ -461,6 +475,57 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                   </div>
                 )}
 
+                {account?.identities?.some(i => i.type === 'crossmint') && (
+                  <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-medium text-[var(--color-text)]">Linked sign-ins</div>
+                        <div className="text-xs text-[var(--color-text-secondary)] mt-1">
+                          Email/social sign-in (Crossmint)
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const crossmintIds = (account?.identities ?? []).filter(i => i.type === 'crossmint').map(i => i.providerId);
+                          const crossmintUserId = crossmintIds[0];
+                          if (!crossmintUserId) return;
+
+                          setDetachCrossmintError(null);
+                          setDetachingCrossmint(true);
+                          try {
+                            const resp = await fetch(`${API_BASE}/auth/link/crossmint/detach`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              credentials: 'include',
+                              body: JSON.stringify({ crossmintUserId }),
+                            });
+                            const data = await resp.json().catch(() => ({}));
+                            if (!resp.ok) {
+                              throw new Error((data as { error?: string }).error || 'Failed to detach email/social sign-in');
+                            }
+
+                            // Refresh wallet-backed session data; unified auth may use this when Crossmint state is stale.
+                            await checkAuth();
+                          } catch (e) {
+                            setDetachCrossmintError(e instanceof Error ? e.message : String(e));
+                          } finally {
+                            setDetachingCrossmint(false);
+                          }
+                        }}
+                        disabled={detachingCrossmint}
+                        className="text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] disabled:opacity-50"
+                        title="Detach Crossmint email/social sign-in from this account"
+                      >
+                        {detachingCrossmint ? 'Detaching…' : 'Detach'}
+                      </button>
+                    </div>
+
+                    {detachCrossmintError && (
+                      <div className="mt-2 text-xs text-red-400">{detachCrossmintError}</div>
+                    )}
+                  </div>
+                )}
+
                 <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -494,11 +559,20 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                 </div>
 
                 {(account?.accountId || (authProvider === 'crossmint' && user.walletAddress)) && (
-                  <details className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
-                    <summary className="cursor-pointer select-none text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
+                  <details className="group">
+                    <summary className="cursor-pointer select-none text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] inline-flex items-center gap-1">
                       Advanced
+                      <svg
+                        className="w-3 h-3 transition-transform group-open:rotate-180"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
                     </summary>
-                    <div className="mt-2 space-y-2">
+                    <div className="mt-2 rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3 space-y-2">
                       {account?.accountId && (
                         <div className="text-xs text-[var(--color-text-muted)]">
                           Account ID: <span className="text-[var(--color-text)]">{account.accountId}</span>
@@ -552,7 +626,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                           } catch (e) {
                             console.error('[WalletLogin] Crossmint login for linking failed:', e);
                             setLinkingCrossmint(false);
-                            setLinkCrossmintError(e instanceof Error ? e.message : 'Failed to open Crossmint login');
+                            setLinkCrossmintError(humanizeCrossmintLinkError(e));
                           }
                         }}
                         disabled={linkingCrossmint}
