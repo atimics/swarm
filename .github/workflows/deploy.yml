@@ -71,11 +71,12 @@ jobs:
           CDK_ENV="${ENV/production/prod}"
           
           # Pre-compute resource names (deterministic from CDK)
+          # API is now served via CloudFront /api/* path (api-staging.rati.chat is deprecated)
           if [ "$CDK_ENV" = "staging" ]; then
-            API_URL="https://api-staging.rati.chat"
+            API_URL="https://admin-staging.rati.chat/api"
             ADMIN_URL="https://admin-staging.rati.chat"
           else
-            API_URL="https://api.rati.chat"
+            API_URL="https://admin.rati.chat/api"
             ADMIN_URL="https://admin.rati.chat"
           fi
           

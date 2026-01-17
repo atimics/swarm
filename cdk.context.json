@@ -1,0 +1,59 @@
+{
+  "vpc-provider:account=022118847419:filter.isDefault=true:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-50cd4a29",
+    "vpcCidrBlock": "172.31.0.0/16",
+    "ownerAccountId": "022118847419",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "Public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-eb3e2f8e",
+            "cidr": "172.31.0.0/20",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-9788c7ef"
+          },
+          {
+            "subnetId": "subnet-f7219bdb",
+            "cidr": "172.31.80.0/20",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-9788c7ef"
+          },
+          {
+            "subnetId": "subnet-f45220bc",
+            "cidr": "172.31.16.0/20",
+            "availabilityZone": "us-east-1c",
+            "routeTableId": "rtb-9788c7ef"
+          },
+          {
+            "subnetId": "subnet-6d16a437",
+            "cidr": "172.31.32.0/20",
+            "availabilityZone": "us-east-1d",
+            "routeTableId": "rtb-9788c7ef"
+          },
+          {
+            "subnetId": "subnet-7da89541",
+            "cidr": "172.31.64.0/20",
+            "availabilityZone": "us-east-1e",
+            "routeTableId": "rtb-9788c7ef"
+          },
+          {
+            "subnetId": "subnet-a5b939a9",
+            "cidr": "172.31.48.0/20",
+            "availabilityZone": "us-east-1f",
+            "routeTableId": "rtb-9788c7ef"
+          }
+        ]
+      }
+    ]
+  },
+  "adminDomain": "admin-staging.rati.chat",
+  "adminCertificateArn": "arn:aws:acm:us-east-1:022118847419:certificate/650197e7-b727-4f82-b892-35110c6484cc",
+  "cloudflareTeamDomain": "ratimics.cloudflareaccess.com",
+  "adminEmails": "hello@ratimics.com",
+  "privyAppId": "cmk602g84025hjp0cr6w0f6ef",
+  "privyAppSecretArn": "arn:aws:secretsmanager:us-east-1:022118847419:secret:swarm/staging/privy-app-secret-oFyvjH",
+  "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:us-east-1:022118847419:secret:swarm/staging/privy-jwt-verification-key-ExpprY"
+}

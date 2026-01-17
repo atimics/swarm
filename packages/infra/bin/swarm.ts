@@ -32,6 +32,9 @@ const heliusApiKeyArn = app.node.tryGetContext('heliusApiKeyArn') || envConfig.h
 const webSearchApiKeyArn = app.node.tryGetContext('webSearchApiKeyArn') || envConfig.webSearchApiKeyArn;
 const webSearchProvider = app.node.tryGetContext('webSearchProvider') || envConfig.webSearchProvider;
 const crossmintApiKeyArn = app.node.tryGetContext('crossmintApiKeyArn') || envConfig.crossmintApiKeyArn;
+const privyAppId = app.node.tryGetContext('privyAppId') || envConfig.privyAppId;
+const privyAppSecretArn = app.node.tryGetContext('privyAppSecretArn') || envConfig.privyAppSecretArn;
+const privyJwtVerificationKeyArn = app.node.tryGetContext('privyJwtVerificationKeyArn') || envConfig.privyJwtVerificationKeyArn;
 const galleryDomain = app.node.tryGetContext('galleryDomain') || envConfig.galleryDomain;
 const galleryCertificateArn = app.node.tryGetContext('galleryCertificateArn') || envConfig.galleryCertificateArn;
 const enableClaudeCode = app.node.tryGetContext('enableClaudeCode') ?? envConfig.enableClaudeCode ?? false;
@@ -60,6 +63,9 @@ new SwarmStack(app, `SwarmStack-${environment}`, {
   webSearchApiKeyArn,
   webSearchProvider,
   crossmintApiKeyArn,
+  privyAppId,
+  privyAppSecretArn,
+  privyJwtVerificationKeyArn,
   galleryDomain,
   galleryCertificateArn,
   enableClaudeCode,
