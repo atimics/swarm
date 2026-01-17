@@ -16,10 +16,72 @@ env:
   NODE_OPTIONS: '--max-old-space-size=4096'
 
 jobs:
-  build:
-    name: Build & Test
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
-    
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm -r run --if-present lint
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        env:
+          # Ensure admin-ui is built the same way it is deployed.
+          # On PRs from forks, these secrets may be empty (that's fine).
+          VITE_API_URL: /api
+          VITE_CROSSMINT_PROJECT_ID: ${{ secrets.VITE_CROSSMINT_PROJECT_ID }}
+          VITE_PRIVY_APP_ID: ${{ secrets.VITE_PRIVY_APP_ID }}
+        run: pnpm -r build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            packages/*/dist
+            packages/admin-ui/dist
+          retention-days: 7
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,29 +103,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint & Build
-        run: |
-          # Run lint in parallel with build (lint doesn't need build output)
-          pnpm -r run --if-present lint &
-          LINT_PID=$!
-          
-          # Build sequentially (respects workspace dependencies)
-          pnpm -r build
-          
-          # Wait for lint to complete
-          wait $LINT_PID
-
       - name: Test
         run: bun test --coverage
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-output
-          path: |
-            packages/*/dist
-            packages/admin-ui/dist
-          retention-days: 7
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

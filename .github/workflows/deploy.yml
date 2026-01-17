@@ -125,7 +125,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: packages/infra/cdk.out
-          key: cdk-${{ needs.setup.outputs.cdk_env }}-${{ hashFiles('packages/infra/**/*.ts', 'packages/*/src/**/*.ts') }}
+          key: cdk-${{ needs.setup.outputs.cdk_env }}-${{ hashFiles('pnpm-lock.yaml', 'packages/infra/package.json', 'packages/infra/**/*.ts', 'packages/*/src/**/*.ts') }}
           restore-keys: cdk-${{ needs.setup.outputs.cdk_env }}-
 
       - name: Install dependencies
@@ -194,19 +194,33 @@ jobs:
     environment: ${{ needs.setup.outputs.environment }}
 
     steps:
+      - name: Download CI build artifacts
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: .
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/checkout@v4
+        if: github.event_name != 'workflow_run'
 
       - uses: pnpm/action-setup@v4
+        if: github.event_name != 'workflow_run'
 
       - uses: actions/setup-node@v4
+        if: github.event_name != 'workflow_run'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
       - name: Install dependencies
+        if: github.event_name != 'workflow_run'
         run: pnpm install --frozen-lockfile
 
       - name: Build Admin UI
+        if: github.event_name != 'workflow_run'
         run: |
           cd packages/admin-ui
           VITE_API_URL=/api \
