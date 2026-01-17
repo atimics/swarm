@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { logger } from '@swarm/core';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getInhabitedAvatar } from '../services/avatar-ownership.js';
+import { getClearSessionCookies, getSessionFromCookie } from '../auth/session-cookie.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
@@ -61,42 +62,7 @@ const SendMessageSchema = z.object({
   replyToId: z.string().optional(),
 });
 
-// =============================================================================
-// Cookie / Session Helpers
-// =============================================================================
-
-const COOKIE_NAME = 'swarm_session';
-
-// Get domain for cookie (use parent domain if on a subdomain)
-function getCookieDomain(): string | undefined {
-  const authDomain = process.env.AUTH_DOMAIN; // e.g., 'admin.rati.chat' or 'admin-staging.rati.chat'
-  if (!authDomain) return undefined;
-  
-  // Extract parent domain (e.g., 'rati.chat' from 'admin-staging.rati.chat')
-  const parts = authDomain.split('.');
-  if (parts.length >= 2) {
-    // Return parent domain prefixed with dot for subdomain cookies
-    return '.' + parts.slice(-2).join('.');
-  }
-  return undefined;
-}
-
-function getSessionFromCookie(event: APIGatewayProxyEventV2): string | null {
-  const cookies = event.cookies || [];
-  for (const cookie of cookies) {
-    const [name, value] = cookie.split('=');
-    if (name === COOKIE_NAME && value) {
-      return value;
-    }
-  }
-  return null;
-}
-
-function clearSessionCookie(): string {
-  const domain = getCookieDomain();
-  const domainPart = domain ? `; Domain=${domain}` : '';
-  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0${domainPart}`;
-}
+// Cookie helpers live in ../auth/session-cookie.ts
 
 // =============================================================================
 // Response Helpers
@@ -105,7 +71,8 @@ function clearSessionCookie(): string {
 function jsonResponse(
   statusCode: number,
   body: unknown,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  cookies?: string[]
 ): APIGatewayProxyResultV2 {
   return {
     statusCode,
@@ -113,6 +80,7 @@ function jsonResponse(
       'Content-Type': 'application/json',
       ...headers,
     },
+    cookies,
     body: JSON.stringify(body),
   };
 }
@@ -250,10 +218,7 @@ export async function handleGetMessages(
 
     const session = await getSessionWithUser(sessionToken);
     if (!session) {
-      return jsonResponse(401, { error: 'Session expired' }, {
-        ...cors,
-        'Set-Cookie': clearSessionCookie(),
-      });
+      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
     }
 
     const channelId = event.queryStringParameters?.channelId;
@@ -298,10 +263,7 @@ export async function handleSendMessage(
 
     const session = await getSessionWithUser(sessionToken);
     if (!session) {
-      return jsonResponse(401, { error: 'Session expired' }, {
-        ...cors,
-        'Set-Cookie': clearSessionCookie(),
-      });
+      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
     }
 
     // Parse request
@@ -372,10 +334,7 @@ export async function handleGetIdentity(
 
     const session = await getSessionWithUser(sessionToken);
     if (!session) {
-      return jsonResponse(401, { error: 'Session expired' }, {
-        ...cors,
-        'Set-Cookie': clearSessionCookie(),
-      });
+      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
     }
 
     const sender = await buildSenderIdentity(session.user.walletAddress);

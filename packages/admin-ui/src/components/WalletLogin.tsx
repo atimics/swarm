@@ -3,7 +3,7 @@
  * Handles Solana wallet connection and authentication
  * Also supports Crossmint auth users in the authenticated display
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useAuth as useCrossmintAuthHook } from '@crossmint/client-sdk-react-ui';
@@ -39,6 +39,10 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   // Prevents infinite loop when login fails
   const loginAttemptedRef = useRef<string | null>(null);
 
+  // If user is signed in via Crossmint and connects a different Phantom wallet,
+  // we should not auto-switch accounts. Instead, prompt for an explicit choice.
+  const [pendingWalletSwitch, setPendingWalletSwitch] = useState<string | null>(null);
+
   // Check auth on mount
   useEffect(() => {
     checkAuth();
@@ -53,6 +57,13 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
 
     if (connected && publicKey && !isLoading) {
       const publicKeyStr = publicKey.toBase58();
+
+      // If Crossmint is the active auth provider and the connected wallet differs,
+      // do NOT auto-logout/auto-login (this caused confusing loops).
+      if (authProvider === 'crossmint' && isAuthenticated && user && user.walletAddress !== publicKeyStr) {
+        setPendingWalletSwitch(publicKeyStr);
+        return;
+      }
       
       // If authenticated but with different wallet, logout first
       if (isAuthenticated && user && user.walletAddress !== publicKeyStr) {
@@ -77,8 +88,25 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     // Reset attempt tracker when wallet disconnects
     if (!connected) {
       loginAttemptedRef.current = null;
+      setPendingWalletSwitch(null);
     }
-  }, [connected, publicKey, signMessage, isAuthenticated, isLoading, login, walletLogout, user]);
+  }, [connected, publicKey, signMessage, isAuthenticated, isLoading, login, walletLogout, user, authProvider]);
+
+  const handleSwitchToConnectedWallet = useCallback(async () => {
+    if (!pendingWalletSwitch) return;
+    loginAttemptedRef.current = null;
+
+    // Fully sign out of Crossmint (SDK + backend) to avoid split-brain sessions.
+    await crossmintAuth.logout();
+    await crossmintLogout();
+
+    // Trigger wallet login on next effect tick.
+    setPendingWalletSwitch(null);
+  }, [pendingWalletSwitch, crossmintAuth, crossmintLogout]);
+
+  const handleIgnoreConnectedWallet = useCallback(() => {
+    setPendingWalletSwitch(null);
+  }, []);
 
   // Handle connect button click
   const handleConnect = useCallback(() => {
@@ -156,6 +184,28 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
         </button>
+
+        {pendingWalletSwitch && authProvider === 'crossmint' && (
+          <div className="ml-2 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1">
+            <span className="text-[11px] text-[var(--color-text-secondary)]">
+              Wallet connected: {formatAddress(pendingWalletSwitch)}
+            </span>
+            <button
+              onClick={handleSwitchToConnectedWallet}
+              className="text-[11px] font-medium text-brand-400 hover:text-brand-300"
+              title="Switch to this wallet account"
+            >
+              Switch
+            </button>
+            <button
+              onClick={handleIgnoreConnectedWallet}
+              className="text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              title="Keep current sign-in"
+            >
+              Ignore
+            </button>
+          </div>
+        )}
       </div>
     );
   }

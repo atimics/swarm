@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { verifyCrossmintAuth } from '../services/crossmint-auth.js';
 import { getGateStatus } from '../services/nft-gate.js';
 import { getInhabitedAvatar } from '../services/avatar-ownership.js';
+import { getSetSessionCookies } from '../auth/session-cookie.js';
 
 // ============================================================================
 // Request Schemas
@@ -19,30 +20,7 @@ const CrossmintVerifySchema = z.object({
   walletAddress: z.string().min(32).max(44).optional(), // Solana address
 });
 
-// ============================================================================
-// Cookie Helpers
-// ============================================================================
-
-const COOKIE_NAME = 'swarm_session';
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'Strict' as const,
-  path: '/',
-  maxAge: 24 * 60 * 60, // 24 hours in seconds
-};
-
-function setSessionCookie(sessionToken: string): string {
-  const parts = [
-    `${COOKIE_NAME}=${sessionToken}`,
-    `HttpOnly`,
-    `Secure`,
-    `SameSite=${COOKIE_OPTIONS.sameSite}`,
-    `Path=${COOKIE_OPTIONS.path}`,
-    `Max-Age=${COOKIE_OPTIONS.maxAge}`,
-  ];
-  return parts.join('; ');
-}
+// Cookie helpers live in ../auth/session-cookie.ts
 
 // ============================================================================
 // Response Helpers
@@ -51,7 +29,8 @@ function setSessionCookie(sessionToken: string): string {
 function jsonResponse(
   statusCode: number,
   body: unknown,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  cookies?: string[]
 ): APIGatewayProxyResultV2 {
   return {
     statusCode,
@@ -59,6 +38,7 @@ function jsonResponse(
       'Content-Type': 'application/json',
       ...headers,
     },
+    cookies,
     body: JSON.stringify(body),
   };
 }
@@ -135,8 +115,8 @@ export async function handleCrossmintVerify(
     // Inhabitation is stored in the avatar ownership mapping; don't rely on user profile fields.
     const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
 
-    // Set session cookie
-    const cookie = setSessionCookie(result.session.sessionToken);
+    // Set session cookies (and clear any stale host-only cookie)
+    const cookies = getSetSessionCookies(result.session.sessionToken);
 
     return jsonResponse(200, {
       success: true,
@@ -153,10 +133,7 @@ export async function handleCrossmintVerify(
       },
       nftGate: result.nftGate,
       gateStatus,
-    }, {
-      ...cors,
-      'Set-Cookie': cookie,
-    });
+    }, cors, cookies);
   } catch (error) {
     console.error('[CrossmintAuth] Verify error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);

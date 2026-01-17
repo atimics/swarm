@@ -11,6 +11,11 @@ import {
   deleteSession,
 } from '../services/wallet-auth.js';
 import {
+  getClearSessionCookies,
+  getSessionFromCookie,
+  getSetSessionCookies,
+} from '../auth/session-cookie.js';
+import {
   inhabitAvatar,
   abandonAvatar,
   canAbandon,
@@ -74,66 +79,7 @@ const VerifyRequestSchema = z.object({
   nonce: z.string().min(1), // Challenge nonce
 });
 
-// ============================================================================
-// Cookie Helpers
-// ============================================================================
-
-const COOKIE_NAME = 'swarm_session';
-
-// Get domain for cookie (use parent domain if on a subdomain)
-function getCookieDomain(): string | undefined {
-  const authDomain = process.env.AUTH_DOMAIN; // e.g., 'admin.rati.chat' or 'admin-staging.rati.chat'
-  if (!authDomain) return undefined;
-  
-  // Extract parent domain (e.g., 'rati.chat' from 'admin-staging.rati.chat')
-  const parts = authDomain.split('.');
-  if (parts.length >= 2) {
-    // Return parent domain prefixed with dot for subdomain cookies
-    return '.' + parts.slice(-2).join('.');
-  }
-  return undefined;
-}
-
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'Lax' as const, // Lax allows cookie on same-site navigations and cross-site top-level GETs
-  path: '/',
-  maxAge: 24 * 60 * 60, // 24 hours in seconds
-};
-
-function setSessionCookie(sessionToken: string): string {
-  const domain = getCookieDomain();
-  const parts = [
-    `${COOKIE_NAME}=${sessionToken}`,
-    `HttpOnly`,
-    `Secure`,
-    `SameSite=${COOKIE_OPTIONS.sameSite}`,
-    `Path=${COOKIE_OPTIONS.path}`,
-    `Max-Age=${COOKIE_OPTIONS.maxAge}`,
-  ];
-  if (domain) {
-    parts.push(`Domain=${domain}`);
-  }
-  return parts.join('; ');
-}
-
-function clearSessionCookie(): string {
-  const domain = getCookieDomain();
-  const domainPart = domain ? `; Domain=${domain}` : '';
-  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0${domainPart}`;
-}
-
-function getSessionFromCookie(event: APIGatewayProxyEventV2): string | null {
-  const cookies = event.cookies || [];
-  for (const cookie of cookies) {
-    const [name, value] = cookie.split('=');
-    if (name === COOKIE_NAME && value) {
-      return value;
-    }
-  }
-  return null;
-}
+// Cookie helpers live in ../auth/session-cookie.ts
 
 // ============================================================================
 // Response Helpers
@@ -142,7 +88,8 @@ function getSessionFromCookie(event: APIGatewayProxyEventV2): string | null {
 function jsonResponse(
   statusCode: number,
   body: unknown,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  cookies?: string[]
 ): APIGatewayProxyResultV2 {
   return {
     statusCode,
@@ -150,6 +97,7 @@ function jsonResponse(
       'Content-Type': 'application/json',
       ...headers,
     },
+    cookies,
     body: JSON.stringify(body),
   };
 }
@@ -287,8 +235,8 @@ export async function handleVerify(
       console.log('[WalletAuth] Internal test key detected - bypassing NFT gate requirements');
     }
 
-    // Set session cookie
-    const cookie = setSessionCookie(result.session.sessionToken);
+    // Set session cookies (and clear any stale host-only cookie)
+    const cookies = getSetSessionCookies(result.session.sessionToken);
 
     // Inhabitation is stored in the avatar ownership mapping; don't rely on UserRecord.inhabitedAvatarId.
     const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
@@ -315,10 +263,7 @@ export async function handleVerify(
         canCreate: isTestBypass ? true : gateStatus.canCreate,
         canAbandon: isTestBypass ? true : gateStatus.canAbandon,
       },
-    }, {
-      ...cors,
-      'Set-Cookie': cookie,
-    });
+    }, cors, cookies);
   } catch (error) {
     console.error('[WalletAuth] Verify error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
@@ -354,8 +299,7 @@ export async function handleMe(
     if (!session) {
       return jsonResponse(200, { authenticated: false }, {
         ...cors,
-        'Set-Cookie': clearSessionCookie(),
-      });
+      }, getClearSessionCookies());
     }
 
     // Get gate status for the wallet
@@ -415,10 +359,7 @@ export async function handleLogout(
       await deleteSession(sessionToken);
     }
 
-    return jsonResponse(200, { success: true }, {
-      ...cors,
-      'Set-Cookie': clearSessionCookie(),
-    });
+    return jsonResponse(200, { success: true }, cors, getClearSessionCookies());
   } catch (error) {
     console.error('[WalletAuth] Logout error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
@@ -484,8 +425,7 @@ export async function handleGateStatus(
     if (!session) {
       return jsonResponse(401, { error: 'Session expired' }, {
         ...cors,
-        'Set-Cookie': clearSessionCookie(),
-      });
+      }, getClearSessionCookies());
     }
 
     const gateStatus = await getGateStatus(session.user.walletAddress);
@@ -521,8 +461,7 @@ export async function handleInhabitationStatus(
     if (!session) {
       return jsonResponse(401, { error: 'Session expired' }, {
         ...cors,
-        'Set-Cookie': clearSessionCookie(),
-      });
+      }, getClearSessionCookies());
     }
 
     const info = await getInhabitationInfo(session.user.walletAddress);
@@ -558,8 +497,7 @@ export async function handleInhabitAvatar(
     if (!session) {
       return jsonResponse(401, { error: 'Session expired' }, {
         ...cors,
-        'Set-Cookie': clearSessionCookie(),
-      });
+      }, getClearSessionCookies());
     }
 
     // Parse request
@@ -614,8 +552,7 @@ export async function handleCanAbandon(
     if (!session) {
       return jsonResponse(401, { error: 'Session expired' }, {
         ...cors,
-        'Set-Cookie': clearSessionCookie(),
-      });
+      }, getClearSessionCookies());
     }
 
     const result = await canAbandon(session.user.walletAddress);
@@ -672,8 +609,7 @@ export async function handleAbandonAvatar(
     if (!session) {
       return jsonResponse(401, { error: 'Session expired' }, {
         ...cors,
-        'Set-Cookie': clearSessionCookie(),
-      });
+      }, getClearSessionCookies());
     }
 
     const body = JSON.parse(event.body || '{}');

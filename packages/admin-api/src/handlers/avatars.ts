@@ -17,6 +17,7 @@ import * as avatarventsService from '../services/avatar-events.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { SecretType } from '../types.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
+import { getSessionFromCookie } from '../auth/session-cookie.js';
 
 // CORS headers - restricted to configured admin domain
 const allowedOrigin = process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:5173';
@@ -26,9 +27,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, CF-Access-JWT-Assertion',
   'Access-Control-Allow-Credentials': 'true',
 };
-
-// Cookie name for wallet session
-const WALLET_SESSION_COOKIE = 'swarm_session';
 
 // Admin wallets that can see all avatars (comma-separated list)
 const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || '').split(',').filter(Boolean);
@@ -56,19 +54,7 @@ function isAdminWallet(walletAddress: string): boolean {
   return ADMIN_WALLETS.includes(walletAddress);
 }
 
-/**
- * Extract wallet session token from cookies
- */
-function getWalletSessionFromCookie(event: APIGatewayProxyEventV2): string | null {
-  const cookies = event.cookies || [];
-  for (const cookie of cookies) {
-    const [name, value] = cookie.split('=');
-    if (name === WALLET_SESSION_COOKIE && value) {
-      return value;
-    }
-  }
-  return null;
-}
+// Cookie parsing is handled by ../auth/session-cookie.ts
 
 /**
  * Lambda handler for avatar management API
@@ -109,7 +95,7 @@ export async function handler(
       }
 
       // Check for wallet session - use wallet-based creation with gating
-      const sessionToken = getWalletSessionFromCookie(event);
+      const sessionToken = getSessionFromCookie(event);
       if (sessionToken) {
         const walletSession = await getSessionWithUser(sessionToken);
         if (walletSession?.walletAddress) {
@@ -149,7 +135,7 @@ export async function handler(
     // GET /avatars - List avatars (filtered by wallet unless admin)
     if (method === 'GET' && path === '/avatars') {
       // Check for wallet session to filter avatars by creator
-      const sessionToken = getWalletSessionFromCookie(event);
+      const sessionToken = getSessionFromCookie(event);
       let avatars: Awaited<ReturnType<typeof avatarService.listAvatars>>;
 
       if (sessionToken) {
