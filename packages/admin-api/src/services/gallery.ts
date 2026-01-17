@@ -91,19 +91,33 @@ export async function getGalleryItem(
   itemId: string
 ): Promise<GalleryItem | null> {
   // Need to query since we don't know the timestamp part of SK
-  const result = await dynamoClient.send(new QueryCommand({
-    TableName: ADMIN_TABLE,
-    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
-    FilterExpression: 'id = :id',
-    ExpressionAttributeValues: {
-      ':pk': `AVATAR#${avatarId}`,
-      ':sk': 'GALLERY#',
-      ':id': itemId,
-    },
-    Limit: 1,
-  }));
+  // Note: DynamoDB applies Limit BEFORE FilterExpression, so we must scan
+  // enough items to find the one we're looking for. We paginate if needed.
+  let lastEvaluatedKey: Record<string, unknown> | undefined;
 
-  return (result.Items?.[0] as GalleryItem) || null;
+  do {
+    const result = await dynamoClient.send(new QueryCommand({
+      TableName: ADMIN_TABLE,
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
+      FilterExpression: 'id = :id',
+      ExpressionAttributeValues: {
+        ':pk': `AVATAR#${avatarId}`,
+        ':sk': 'GALLERY#',
+        ':id': itemId,
+      },
+      ExclusiveStartKey: lastEvaluatedKey,
+      // Scan in batches; filter is applied after reading these items
+      Limit: 100,
+    }));
+
+    if (result.Items && result.Items.length > 0) {
+      return result.Items[0] as GalleryItem;
+    }
+
+    lastEvaluatedKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (lastEvaluatedKey);
+
+  return null;
 }
 
 /**
