@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Test an agent's persona by having a conversation with it
+ * Test an avatar's persona by having a conversation with it
  */
 import fs from 'fs';
 import path from 'path';
@@ -9,30 +9,30 @@ import readline from 'readline';
 import yaml from 'yaml';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const agentsPath = path.join(__dirname, '..', 'agents');
+const avatarsPath = path.join(__dirname, '..', 'avatars');
 
-const agentId = process.argv[2];
+const avatarId = process.argv[2];
 
-if (!agentId) {
-  console.error('Usage: pnpm test:persona <agent-id>');
-  console.error('\nAvailable agents:');
+if (!avatarId) {
+  console.error('Usage: pnpm test:persona <avatar-id>');
+  console.error('\nAvailable avatars:');
   
-  const agents = fs.readdirSync(agentsPath)
+  const avatars = fs.readdirSync(avatarsPath)
     .filter(f => {
-      const fullPath = path.join(agentsPath, f);
+      const fullPath = path.join(avatarsPath, f);
       return fs.statSync(fullPath).isDirectory() && !f.startsWith('.');
     });
   
-  agents.forEach(a => console.log(`  - ${a}`));
+  avatars.forEach(a => console.log(`  - ${a}`));
   process.exit(1);
 }
 
-const agentPath = path.join(agentsPath, agentId);
-const configPath = path.join(agentPath, 'config.yaml');
-const personaPath = path.join(agentPath, 'persona.md');
+const avatarPath = path.join(avatarsPath, avatarId);
+const configPath = path.join(avatarPath, 'config.yaml');
+const personaPath = path.join(avatarPath, 'persona.md');
 
 if (!fs.existsSync(configPath)) {
-  console.error(`Agent not found: ${agentId}`);
+  console.error(`Avatar not found: ${avatarId}`);
   console.error(`Expected config at: ${configPath}`);
   process.exit(1);
 }
@@ -42,7 +42,7 @@ const persona = fs.existsSync(personaPath)
   ? fs.readFileSync(personaPath, 'utf-8')
   : 'You are a helpful AI assistant.';
 
-console.log(`\n🤖 Testing agent: ${config.name || agentId}`);
+console.log(`\n🤖 Testing avatar: ${config.name || avatarId}`);
 console.log(`📝 Persona loaded (${persona.length} chars)`);
 console.log(`\nType messages to test the persona. Type 'exit' to quit.\n`);
 console.log('─'.repeat(60));
@@ -100,7 +100,7 @@ async function chat(userMessage) {
     const reply = data.choices?.[0]?.message?.content;
     if (reply) {
       messages.push({ role: 'assistant', content: reply });
-      console.log(`\n🤖 ${config.name || agentId}: ${reply}\n`);
+      console.log(`\n🤖 ${config.name || avatarId}: ${reply}\n`);
     }
   } catch (error) {
     console.error('\n❌ Error:', error.message);

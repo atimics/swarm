@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Autonomous Browser Agent E2E Test
+ * Autonomous Browser Avatar E2E Test
  * 
- * An LLM agent that explores the admin UI with minimal context,
- * discovers how to create an agent, and has a conversation.
+ * An LLM avatar that explores the admin UI with minimal context,
+ * discovers how to create an avatar, and has a conversation.
  * 
- * The agent receives only:
+ * The avatar receives only:
  * - A screenshot of the current page state
- * - A high-level goal ("explore this app and create a new AI agent")
+ * - A high-level goal ("explore this app and create a new AI avatar")
  * - Its own history of observations and actions
  * 
  * Authentication:
@@ -406,7 +406,7 @@ Links: ${pageElements.links.length > 0 ? pageElements.links.map(l => `"${l}"`).j
 Input fields: ${pageElements.inputs.length > 0 ? pageElements.inputs.map(i => `"${i}"`).join(', ') : '(none visible)'}
 `;
 
-  const systemPrompt = `You are an autonomous browser agent exploring a web application.
+  const systemPrompt = `You are an autonomous browser avatar exploring a web application.
 
 YOUR GOAL: ${goal}
 
@@ -415,10 +415,10 @@ ${elementsSection}
 AVAILABLE ACTIONS:
 - CLICK: text - Click a button/link using EXACT text from the lists above
 - TYPE: text - Type text into the currently focused input field  
-- FILL: placeholder | text - Fill an input field (e.g., "Enter agent name | MyAgent")
+- FILL: placeholder | text - Fill an input field (e.g., "Enter avatar name | MyAgent")
 - PRESS: key - Press a keyboard key (Enter, Tab, Escape)
 - SCROLL: down/up - Scroll the page
-- NAVIGATE: /path - Navigate to a URL path (e.g., "/agents/new")
+- NAVIGATE: /path - Navigate to a URL path (e.g., "/avatars/new")
 - DONE: summary - Task complete, provide summary
 - ABORT: reason - End test early due to blocking issue (auth wall, crash, wrong app, etc.)
 
@@ -431,13 +431,13 @@ WHEN TO USE ABORT:
 CRITICAL RULES:
 1. For CLICK: Copy the EXACT text from the "Buttons" or "Links" list above
 2. For FILL: Use a value from the "Input fields" list as the first part
-3. If no suitable button exists, try NAVIGATE to /agents/new or /agents
+3. If no suitable button exists, try NAVIGATE to /avatars/new or /avatars
 4. Don't invent button names - use only what's in the lists above
 
 RESPONSE FORMAT (use exactly this format on separate lines):
 OBSERVATION: [What you see on screen]
 REASONING: [Why you're taking this action]
-ACTION: [Exactly one action, e.g., CLICK: Create New Agent]
+ACTION: [Exactly one action, e.g., CLICK: Create New Avatar]
 
 HISTORY OF YOUR ACTIONS:
 ${history.length > 0 ? history.map((h, i) => `Step ${i + 1}: ${h}`).join('\n') : '(Starting fresh - explore the interface!)'}
@@ -734,9 +734,9 @@ function generateAgentName() {
 }
 
 /**
- * Generate a test report analyzing the browser agent's session
+ * Generate a test report analyzing the browser avatar's session
  */
-async function generateTestReport(apiUrl, testKey, screenshotsDir, history, goal, success, agentName, walletAddress) {
+async function generateTestReport(apiUrl, testKey, screenshotsDir, history, goal, success, avatarName, walletAddress) {
   // Get final screenshot for context
   const finalScreenshotPath = path.join(screenshotsDir, 'final.jpg');
   let imageData = null;
@@ -748,7 +748,7 @@ async function generateTestReport(apiUrl, testKey, screenshotsDir, history, goal
 
 The test goal was: ${goal}
 
-The agent took ${history.length} steps. ${success ? 'It completed successfully.' : 'It did NOT complete the task.'}
+The avatar took ${history.length} steps. ${success ? 'It completed successfully.' : 'It did NOT complete the task.'}
 
 Based on the action history and final screenshot, write a concise test report covering:
 
@@ -818,7 +818,7 @@ Be specific and actionable. Reference actual UI elements and behaviors observed.
 }
 
 async function runAutonomousBrowserTest() {
-  console.log('🤖 Autonomous Browser Agent E2E Test');
+  console.log('🤖 Autonomous Browser Avatar E2E Test');
   console.log('='.repeat(50));
   console.log(`Environment: ${ENV}`);
   console.log();
@@ -833,7 +833,7 @@ async function runAutonomousBrowserTest() {
   }
   
   if (!apiUrl || !testKey) {
-    console.error('❌ Could not get API credentials for LLM agent');
+    console.error('❌ Could not get API credentials for LLM avatar');
     console.error('   This test requires the chat API to reason about screenshots');
     process.exit(1);
   }
@@ -949,13 +949,13 @@ async function runAutonomousBrowserTest() {
   });
   console.log(`🔑 Request interceptor added for API calls to ${apiUrlParsed.hostname}`);
   
-  const agentName = generateAgentName();
-  const goal = `Create a new AI agent by clicking the create/add button (usually a + icon or "Create" button).
-After the agent is created, send it a test message like "Hello" to verify it responds.
-The agent name "${agentName}" may be auto-generated - you don't need to fill in forms manually.
-Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) Send a message.`;
+  const avatarName = generateAgentName();
+  const goal = `Create a new AI avatar by clicking the create/add button (usually a + icon or "Create" button).
+After the avatar is created, send it a test message like "Hello" to verify it responds.
+The avatar name "${avatarName}" may be auto-generated - you don't need to fill in forms manually.
+Focus on: 1) Find and click the create button, 2) Verify the avatar appears, 3) Send a message.`;
 
-  console.log(`🎯 Goal: Create agent "${agentName}" and test conversation`);
+  console.log(`🎯 Goal: Create avatar "${avatarName}" and test conversation`);
   console.log();
   
   const history = [];
@@ -1075,7 +1075,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
         consecutiveEmptyPageSteps = 0; // Reset counter when we find elements
       }
       
-      console.log('🧠 Agent reasoning...');
+      console.log('🧠 Avatar reasoning...');
       const response = await getNextAction(apiUrl, testKey, screenshotPath, history, goal, pageElements);
       const action = parseAction(response);
       
@@ -1083,20 +1083,20 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
       console.log(`💭 Reasoning: ${(action.reasoning || '').substring(0, 120)}...`);
       console.log(`⚡ Action: ${action.type}: ${action.params}`);
       
-      // Early failure: detect repeated actions (agent stuck in loop)
+      // Early failure: detect repeated actions (avatar stuck in loop)
       const actionKey = `${action.type}:${action.params}`;
       if (lastAction === actionKey) {
         sameActionCount++;
         console.log(`   ⚠️  Same action repeated (${sameActionCount}/${MAX_REPEATED_ACTIONS})`);
         
         if (sameActionCount >= MAX_REPEATED_ACTIONS) {
-          const abortReason = `Agent stuck: repeated "${action.type}: ${action.params}" ${sameActionCount} times. The action may not be working or the page is unresponsive.`;
+          const abortReason = `Avatar stuck: repeated "${action.type}: ${action.params}" ${sameActionCount} times. The action may not be working or the page is unresponsive.`;
           console.log(`\n🛑 Early abort: ${abortReason}`);
           history.push(`[AUTO-ABORT: ${abortReason}]`);
           finalSummary = `ABORTED: ${abortReason}`;
           
           await reportError(apiUrl, testKey, {
-            error: `Browser test auto-aborted: agent stuck in loop`,
+            error: `Browser test auto-aborted: avatar stuck in loop`,
             subsystem: 'browser-test',
             context: {
               environment: ENV,
@@ -1175,7 +1175,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
           break;
         }
       } else if (result.aborted) {
-        console.log(`🛑 Agent aborted test: ${result.reason}`);
+        console.log(`🛑 Avatar aborted test: ${result.reason}`);
         history.push(`ABORT: ${result.reason}`);
         finalSummary = `ABORTED: ${result.reason}`;
 
@@ -1194,7 +1194,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
 
         break; // Exit the while loop
       } else if (result.done) {
-        console.log(`✅ Agent completed: ${result.summary}`);
+        console.log(`✅ Avatar completed: ${result.summary}`);
         success = true;
         finalSummary = result.summary;
         history.push(`DONE: ${result.summary}`);
@@ -1262,7 +1262,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
     console.log(`   Reason: ${finalSummary.replace('ABORTED: ', '')}`);
   } else if (step >= MAX_STEPS) {
     console.log(`   Result: ⚠️  MAX STEPS REACHED`);
-    console.log('   The agent did not complete the task within the step limit.');
+    console.log('   The avatar did not complete the task within the step limit.');
 
     // Report max steps as a warning (might indicate UX issues)
     await reportWarning(apiUrl, testKey, {
@@ -1281,7 +1281,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
   
   // Generate AI-powered test report
   console.log('\n📝 Generating test report...');
-  const report = await generateTestReport(apiUrl, testKey, screenshotsDir, history, goal, success, agentName, walletAddress);
+  const report = await generateTestReport(apiUrl, testKey, screenshotsDir, history, goal, success, avatarName, walletAddress);
   
   // Determine result string for report
   const resultString = success ? 'SUCCESS' : wasAborted ? 'ABORTED' : step >= MAX_STEPS ? 'MAX STEPS' : 'FAILED';
@@ -1295,7 +1295,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
     
     // Save report to file
     const reportFile = path.join(screenshotsDir, 'report.md');
-    fs.writeFileSync(reportFile, `# Browser Test Report\n\n**Date:** ${new Date().toISOString()}\n**Signing Wallet:** \`${walletAddress}\`\n**Goal:** ${goal}\n**Agent Name:** ${agentName}\n**Steps:** ${step}\n**Result:** ${resultString}\n\n---\n\n${report}`);
+    fs.writeFileSync(reportFile, `# Browser Test Report\n\n**Date:** ${new Date().toISOString()}\n**Signing Wallet:** \`${walletAddress}\`\n**Goal:** ${goal}\n**Avatar Name:** ${avatarName}\n**Steps:** ${step}\n**Result:** ${resultString}\n\n---\n\n${report}`);
     console.log(`\n📄 Report saved to: ${reportFile}`);
   } else {
     console.log('⚠️  Could not generate report');
@@ -1309,7 +1309,7 @@ Focus on: 1) Find and click the create button, 2) Verify the agent appears, 3) S
   fs.writeFileSync(historyFile, JSON.stringify({
     walletAddress,
     goal,
-    agentName,
+    avatarName,
     steps: step,
     success,
     aborted: wasAborted,

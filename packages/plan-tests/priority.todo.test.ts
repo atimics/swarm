@@ -120,7 +120,7 @@ describe('Test coverage: response-sender handles media + pending jobs', () => {
 describe('Usage metering', () => {
   // Simulated credit bucket for testing
   interface CreditBucket {
-    agentId: string;
+    avatarId: string;
     toolName: string;
     credits: number;
     maxCredits: number;
@@ -135,10 +135,10 @@ describe('Usage metering', () => {
     post_tweet: { maxCredits: 10, creditsPerHour: 3, dailyLimit: 50 },
   };
 
-  function createBucket(agentId: string, toolName: string): CreditBucket {
+  function createBucket(avatarId: string, toolName: string): CreditBucket {
     const config = TOOL_CONFIG[toolName as keyof typeof TOOL_CONFIG];
     return {
-      agentId,
+      avatarId,
       toolName,
       credits: config.maxCredits,
       maxCredits: config.maxCredits,
@@ -179,7 +179,7 @@ describe('Usage metering', () => {
   }
 
   test('canUseTool denies when credits exhausted', () => {
-    const bucket = createBucket('agent-1', 'generate_image');
+    const bucket = createBucket('avatar-1', 'generate_image');
     bucket.credits = 0;
 
     const result = canUseTool(bucket);
@@ -189,7 +189,7 @@ describe('Usage metering', () => {
   });
 
   test('canUseTool denies when daily limit reached', () => {
-    const bucket = createBucket('agent-1', 'generate_video');
+    const bucket = createBucket('avatar-1', 'generate_video');
     bucket.dailyUsed = 10; // At limit
 
     const result = canUseTool(bucket);
@@ -199,7 +199,7 @@ describe('Usage metering', () => {
   });
 
   test('consumeCredit decrements and enforces limits', () => {
-    const bucket = createBucket('agent-1', 'post_tweet');
+    const bucket = createBucket('avatar-1', 'post_tweet');
     const initialCredits = bucket.credits;
 
     const consumed = consumeCredit(bucket);
@@ -210,7 +210,7 @@ describe('Usage metering', () => {
   });
 
   test('consumeCredit returns false when no credits', () => {
-    const bucket = createBucket('agent-1', 'generate_image');
+    const bucket = createBucket('avatar-1', 'generate_image');
     bucket.credits = 0;
 
     const consumed = consumeCredit(bucket);
@@ -220,7 +220,7 @@ describe('Usage metering', () => {
   });
 
   test('daily recharge restores tool credits', () => {
-    const bucket = createBucket('agent-1', 'generate_image');
+    const bucket = createBucket('avatar-1', 'generate_image');
     bucket.credits = 0;
     bucket.dailyUsed = 30;
 
@@ -231,7 +231,7 @@ describe('Usage metering', () => {
   });
 
   test('hourly refill adds credits up to max', () => {
-    const bucket = createBucket('agent-1', 'generate_image');
+    const bucket = createBucket('avatar-1', 'generate_image');
     bucket.credits = 1;
 
     refillCredits(bucket, 2); // 2 hours = 4 credits to add
@@ -296,10 +296,10 @@ describe('Logs API', () => {
   function buildFilterExpression(options: {
     level?: string;
     subsystem?: string;
-    agentId: string;
+    avatarId: string;
   }): string {
     const filters: string[] = [];
-    filters.push(`agentId = "${options.agentId}"`);
+    filters.push(`avatarId = "${options.avatarId}"`);
 
     if (options.level) {
       filters.push(`level = "${options.level.toUpperCase()}"`);
@@ -312,14 +312,14 @@ describe('Logs API', () => {
     return filters.join(' AND ');
   }
 
-  test('/agents/{id}/logs supports level/subsystem filters', () => {
+  test('/avatars/{id}/logs supports level/subsystem filters', () => {
     const filter = buildFilterExpression({
-      agentId: 'agent-123',
+      avatarId: 'avatar-123',
       level: 'error',
       subsystem: 'telegram',
     });
 
-    expect(filter).toContain('agentId = "agent-123"');
+    expect(filter).toContain('avatarId = "avatar-123"');
     expect(filter).toContain('level = "ERROR"');
     expect(filter).toContain('subsystem = "telegram"');
   });
@@ -384,14 +384,14 @@ describe('Voice features', () => {
     ['custom-1', { id: 'custom-1', name: 'Custom Voice', provider: 'elevenlabs', voiceId: 'xyz123' }],
   ]);
 
-  function getActiveVoiceProfile(agentId: string): VoiceProfile | null {
-    // Simulated: would fetch from agent config
+  function getActiveVoiceProfile(avatarId: string): VoiceProfile | null {
+    // Simulated: would fetch from avatar config
     return voiceProfiles.get('default') || null;
   }
 
-  function setActiveVoiceProfile(agentId: string, profileId: string): boolean {
+  function setActiveVoiceProfile(avatarId: string, profileId: string): boolean {
     if (!voiceProfiles.has(profileId)) return false;
-    // Would update agent config
+    // Would update avatar config
     return true;
   }
 
@@ -445,11 +445,11 @@ describe('Voice features', () => {
     expect(result.platform).toBe('telegram');
   });
 
-  test('setActiveVoiceProfile updates agent configuration', () => {
-    const updated = setActiveVoiceProfile('agent-1', 'custom-1');
+  test('setActiveVoiceProfile updates avatar configuration', () => {
+    const updated = setActiveVoiceProfile('avatar-1', 'custom-1');
     expect(updated).toBe(true);
 
-    const invalid = setActiveVoiceProfile('agent-1', 'non-existent');
+    const invalid = setActiveVoiceProfile('avatar-1', 'non-existent');
     expect(invalid).toBe(false);
   });
 });
@@ -461,7 +461,7 @@ describe('Voice features', () => {
 describe('Property research', () => {
   interface ResearchAuthorization {
     walletAddress: string;
-    agentId: string;
+    avatarId: string;
     grantedAt: number;
     revokedAt?: number;
   }
@@ -485,23 +485,23 @@ describe('Property research', () => {
   const authorizations: Map<string, ResearchAuthorization> = new Map();
   const researchQueue: Map<string, ResearchJob> = new Map();
 
-  function isAuthorized(walletAddress: string, agentId: string): boolean {
-    const key = `${walletAddress}:${agentId}`;
+  function isAuthorized(walletAddress: string, avatarId: string): boolean {
+    const key = `${walletAddress}:${avatarId}`;
     const auth = authorizations.get(key);
     return !!auth && !auth.revokedAt;
   }
 
-  function grantAuthorization(walletAddress: string, agentId: string): void {
-    const key = `${walletAddress}:${agentId}`;
+  function grantAuthorization(walletAddress: string, avatarId: string): void {
+    const key = `${walletAddress}:${avatarId}`;
     authorizations.set(key, {
       walletAddress,
-      agentId,
+      avatarId,
       grantedAt: Date.now(),
     });
   }
 
-  function revokeAuthorization(walletAddress: string, agentId: string): void {
-    const key = `${walletAddress}:${agentId}`;
+  function revokeAuthorization(walletAddress: string, avatarId: string): void {
+    const key = `${walletAddress}:${avatarId}`;
     const auth = authorizations.get(key);
     if (auth) {
       auth.revokedAt = Date.now();
@@ -547,12 +547,12 @@ describe('Property research', () => {
 
   test('authorization required before research tools run', () => {
     const wallet = 'wallet-123';
-    const agent = 'agent-1';
+    const avatar = 'avatar-1';
 
-    expect(isAuthorized(wallet, agent)).toBe(false);
+    expect(isAuthorized(wallet, avatar)).toBe(false);
 
-    grantAuthorization(wallet, agent);
-    expect(isAuthorized(wallet, agent)).toBe(true);
+    grantAuthorization(wallet, avatar);
+    expect(isAuthorized(wallet, avatar)).toBe(true);
   });
 
   test('research_property returns a report with sections', () => {
@@ -579,22 +579,22 @@ describe('Property research', () => {
 
   test('grant/revoke authorization recorded per wallet', () => {
     const wallet = 'wallet-456';
-    const agent = 'agent-2';
+    const avatar = 'avatar-2';
 
-    grantAuthorization(wallet, agent);
-    expect(isAuthorized(wallet, agent)).toBe(true);
+    grantAuthorization(wallet, avatar);
+    expect(isAuthorized(wallet, avatar)).toBe(true);
 
-    revokeAuthorization(wallet, agent);
-    expect(isAuthorized(wallet, agent)).toBe(false);
+    revokeAuthorization(wallet, avatar);
+    expect(isAuthorized(wallet, avatar)).toBe(false);
   });
 });
 
 // ============================================================================
-// Agent Templates
+// Avatar Templates
 // ============================================================================
 
-describe('Agent templates', () => {
-  interface AgentTemplate {
+describe('Avatar templates', () => {
+  interface AvatarTemplate {
     id: string;
     name: string;
     description: string;
@@ -607,14 +607,14 @@ describe('Agent templates', () => {
     createdBy: string;
   }
 
-  const templates: Map<string, AgentTemplate> = new Map();
+  const templates: Map<string, AvatarTemplate> = new Map();
   let templateCounter = 0;
 
-  function exportTemplate(agentId: string, name: string, createdBy: string): AgentTemplate {
-    const template: AgentTemplate = {
+  function exportTemplate(avatarId: string, name: string, createdBy: string): AvatarTemplate {
+    const template: AvatarTemplate = {
       id: `template-${Date.now()}-${++templateCounter}`,
       name,
-      description: `Template exported from ${agentId}`,
+      description: `Template exported from ${avatarId}`,
       config: {
         platforms: ['telegram', 'twitter'],
         model: 'anthropic/claude-sonnet-4',
@@ -627,23 +627,23 @@ describe('Agent templates', () => {
     return template;
   }
 
-  function importTemplate(templateId: string, newAgentId: string): { agentId: string; fromTemplate: string } | null {
+  function importTemplate(templateId: string, newAvatarId: string): { avatarId: string; fromTemplate: string } | null {
     const template = templates.get(templateId);
     if (!template) return null;
 
-    // Would create new agent with template config
+    // Would create new avatar with template config
     return {
-      agentId: newAgentId,
+      avatarId: newAvatarId,
       fromTemplate: templateId,
     };
   }
 
-  function listTemplates(): AgentTemplate[] {
+  function listTemplates(): AvatarTemplate[] {
     return Array.from(templates.values());
   }
 
   test('export returns template metadata + config', () => {
-    const template = exportTemplate('agent-1', 'My Template', 'user@example.com');
+    const template = exportTemplate('avatar-1', 'My Template', 'user@example.com');
 
     expect(template.id).toBeDefined();
     expect(template.name).toBe('My Template');
@@ -652,25 +652,25 @@ describe('Agent templates', () => {
     expect(template.createdBy).toBe('user@example.com');
   });
 
-  test('import creates an agent from template', () => {
-    const template = exportTemplate('agent-source', 'Source Template', 'admin@example.com');
-    const result = importTemplate(template.id, 'agent-new');
+  test('import creates an avatar from template', () => {
+    const template = exportTemplate('avatar-source', 'Source Template', 'admin@example.com');
+    const result = importTemplate(template.id, 'avatar-new');
 
     expect(result).not.toBeNull();
-    expect(result!.agentId).toBe('agent-new');
+    expect(result!.avatarId).toBe('avatar-new');
     expect(result!.fromTemplate).toBe(template.id);
   });
 
   test('import returns null for non-existent template', () => {
-    const result = importTemplate('non-existent-template', 'agent-new');
+    const result = importTemplate('non-existent-template', 'avatar-new');
     expect(result).toBeNull();
   });
 
   test('list templates returns stored entries', () => {
     // Clear and add fresh templates
     templates.clear();
-    exportTemplate('agent-1', 'Template 1', 'user1@example.com');
-    exportTemplate('agent-2', 'Template 2', 'user2@example.com');
+    exportTemplate('avatar-1', 'Template 1', 'user1@example.com');
+    exportTemplate('avatar-2', 'Template 2', 'user2@example.com');
 
     const list = listTemplates();
 
@@ -793,8 +793,8 @@ describe('Twitter OAuth handler', () => {
   ): RouteResult {
     // GET /oauth/twitter/start
     if (method === 'GET' && path === '/oauth/twitter/start') {
-      if (!params.agentId) {
-        return { statusCode: 400, body: { error: 'Missing agentId' } };
+      if (!params.avatarId) {
+        return { statusCode: 400, body: { error: 'Missing avatarId' } };
       }
       return { statusCode: 302, redirect: 'https://api.twitter.com/oauth/authorize?...' };
     }
@@ -807,28 +807,28 @@ describe('Twitter OAuth handler', () => {
       return { statusCode: 302, redirect: '/success' };
     }
 
-    // GET /oauth/twitter/status/{agentId}
+    // GET /oauth/twitter/status/{avatarId}
     if (method === 'GET' && path.startsWith('/oauth/twitter/status/')) {
-      const agentId = path.split('/').pop();
-      if (!agentId) {
-        return { statusCode: 400, body: { error: 'Missing agentId' } };
+      const avatarId = path.split('/').pop();
+      if (!avatarId) {
+        return { statusCode: 400, body: { error: 'Missing avatarId' } };
       }
       return {
         statusCode: 200,
         body: {
           connected: true,
           username: 'testuser',
-          agentId,
+          avatarId,
         },
       };
     }
 
-    // DELETE /oauth/twitter/{agentId}
+    // DELETE /oauth/twitter/{avatarId}
     if (method === 'DELETE' && path.match(/^\/oauth\/twitter\/[\w-]+$/)) {
-      const agentId = path.split('/').pop();
+      const avatarId = path.split('/').pop();
       return {
         statusCode: 200,
-        body: { disconnected: true, agentId },
+        body: { disconnected: true, avatarId },
       };
     }
 
@@ -836,17 +836,17 @@ describe('Twitter OAuth handler', () => {
   }
 
   test('start route returns redirect (302)', () => {
-    const result = handleTwitterOAuthRoute('GET', '/oauth/twitter/start', { agentId: 'agent-1' });
+    const result = handleTwitterOAuthRoute('GET', '/oauth/twitter/start', { avatarId: 'avatar-1' });
 
     expect(result.statusCode).toBe(302);
     expect(result.redirect).toContain('twitter.com');
   });
 
-  test('start route requires agentId', () => {
+  test('start route requires avatarId', () => {
     const result = handleTwitterOAuthRoute('GET', '/oauth/twitter/start', {});
 
     expect(result.statusCode).toBe(400);
-    expect(result.body?.error).toContain('agentId');
+    expect(result.body?.error).toContain('avatarId');
   });
 
   test('callback route handles OAuth params', () => {
@@ -867,15 +867,15 @@ describe('Twitter OAuth handler', () => {
   });
 
   test('status route returns connection info (200)', () => {
-    const result = handleTwitterOAuthRoute('GET', '/oauth/twitter/status/agent-1', {});
+    const result = handleTwitterOAuthRoute('GET', '/oauth/twitter/status/avatar-1', {});
 
     expect(result.statusCode).toBe(200);
     expect(result.body?.connected).toBeDefined();
-    expect(result.body?.agentId).toBe('agent-1');
+    expect(result.body?.avatarId).toBe('avatar-1');
   });
 
   test('disconnect route removes connection (200)', () => {
-    const result = handleTwitterOAuthRoute('DELETE', '/oauth/twitter/agent-1', {});
+    const result = handleTwitterOAuthRoute('DELETE', '/oauth/twitter/avatar-1', {});
 
     expect(result.statusCode).toBe(200);
     expect(result.body?.disconnected).toBe(true);
