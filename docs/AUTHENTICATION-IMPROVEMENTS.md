@@ -25,6 +25,10 @@ This document describes the current authentication architecture in AWS Swarm (Ad
 - Make “Orb/NFT gating” evaluate against the **union of linked wallets** (account-level), eliminating confusion when assets are in a different wallet.
 - Finalize a production auth posture that does not depend on Cloudflare Access while retaining admin-only controls via roles/permissions.
 
+**What’s implemented (P2 posture, incremental)**
+- Admin API auth no longer “falls back” to `Origin`/`Referer` checks when no token is present; requests must authenticate via Cloudflare Access token or first-party `swarm_session`.
+- When using session-cookie auth for admin endpoints, admin determination can be configured via `ADMIN_EMAILS` and/or `ADMIN_WALLETS`.
+
 ---
 
 ## Current Architecture (Relevant Pieces)
@@ -113,6 +117,23 @@ Implemented in:
 Implemented in:
 - `packages/admin-ui/src/store/crossmintAuth.ts` (adds `resetLocal()`)
 - `packages/admin-ui/src/App.tsx` (clears local Crossmint auth if backend unauthenticated)
+
+---
+
+## Implemented Improvements (P2)
+
+### E) Production auth: remove origin/referer fallback
+**Change:** admin auth no longer permits “admin-by-Origin” or “admin-by-Referer” when no token is present.
+
+Implemented in:
+- `packages/admin-api/src/auth/cloudflare-access.ts`
+
+Test coverage:
+- `packages/admin-api/src/auth/cloudflare-access.test.ts`
+
+Configuration:
+- `ADMIN_EMAILS` (comma-separated)
+- `ADMIN_WALLETS` (comma-separated base58 wallet addresses)
 
 ---
 

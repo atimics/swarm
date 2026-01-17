@@ -5,7 +5,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env?.VITE_API_URL ?? process.env.VITE_API_URL ?? '';
 
 export interface CrossmintUser {
   id: string;
@@ -29,14 +29,6 @@ export interface GateStatus {
   canCreate: boolean;
   canAbandon: boolean;
   ownedNFTs?: Array<{ id: string; name: string; image?: string }>;
-}
-
-export interface GateStatus {
-  nftsHeld: number;
-  avatarsCreated: number;
-  availableSlots: number;
-  canCreate: boolean;
-  canAbandon: boolean;
 }
 
 interface CrossmintAuthState {
