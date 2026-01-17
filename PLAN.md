@@ -11,6 +11,19 @@ memory, and a deploy or activate flow.
 - Runtime enforces tool and usage limits per plan.
 
 ## Task list
+
+### Authentication and onboarding (wallet + Crossmint)
+Reference spec: `docs/AUTHENTICATION-IMPROVEMENTS.md`
+
+- [x] Standardize `swarm_session` cookie semantics across wallet + Crossmint (consistent attributes; clear host-only + Domain variants).
+- [x] Make backend session the source of truth on UI bootstrap (clear persisted provider state if `/auth/me` is unauthenticated).
+- [x] Avoid implicit identity switching in UI (prompt “Switch vs Ignore” when Crossmint-authenticated and a different wallet connects).
+- [ ] Introduce `Account` + `Identity` model so accounts can link multiple wallets and Crossmint identity.
+- [ ] Add explicit “Link vs Switch” API endpoints (challenge/verify link; switch account) and wire minimal UI to link/unlink.
+- [ ] Make Orb/NFT gating account-level (evaluate across linked wallets; surface “link the wallet that holds Orbs” guidance).
+- [ ] Decide/implement production auth posture (no Cloudflare Access dependency; explicit admin roles/permissions for protected operations).
+- [ ] Convert `packages/plan-tests/authentication-signup.todo.test.ts` items into real tests as features ship.
+
 ### Billing and entitlements
 - [ ] Decide billing provider and plan model (Stripe or manual entitlements) and
       document it in `ROADMAP.md` and `README.md`.

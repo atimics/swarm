@@ -7,6 +7,7 @@ Milestone M1: Paid Telegram MVP
 - Billing and entitlements with runtime enforcement.
 - Memory opt-in and retention defaults (stateless free tier).
 - Deploy or activate from admin UI and API.
+- Authentication improvements (wallet + Crossmint): cookie/session consistency, backend-session bootstrap, explicit identity linking (Account + Identity), and account-level gating.
 - Structured logging with correlation IDs and basic dashboards.
 - End-to-end Telegram canary and operational runbook.
 
