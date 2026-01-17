@@ -211,6 +211,10 @@ async function verifyCrossmintJwt(jwt: string): Promise<boolean> {
   }
 }
 
+export async function verifyCrossmintJwtForLink(jwt: string): Promise<boolean> {
+  return verifyCrossmintJwt(jwt);
+}
+
 // ============================================================================
 // Wallet Address Resolution
 // ============================================================================
@@ -245,6 +249,14 @@ async function getCrossmintWallet(userId: string): Promise<string | null> {
     console.error('[CrossmintAuth] Wallet fetch error:', error);
     return null;
   }
+}
+
+export async function resolveCrossmintWalletAddress(params: {
+  userId: string;
+  walletAddress?: string;
+}): Promise<string | null> {
+  if (params.walletAddress) return params.walletAddress;
+  return getCrossmintWallet(params.userId);
 }
 
 // ============================================================================

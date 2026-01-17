@@ -12,6 +12,7 @@ import {
 } from '../services/wallet-auth.js';
 import { getAccountSummary, getOrCreateAccountForWallet } from '../services/accounts.js';
 import { createLinkWalletChallenge, verifyLinkWallet } from '../services/wallet-link.js';
+import { getAccountGateStatus } from '../services/account-gate.js';
 import {
   getClearSessionCookies,
   getSessionFromCookie,
@@ -51,6 +52,9 @@ export interface WalletAuthHandlerDeps {
   nftGate: {
     getGateStatus: typeof getGateStatus;
   };
+  accountGate?: {
+    getAccountGateStatus: typeof getAccountGateStatus;
+  };
   accounts?: {
     getOrCreateAccountForWallet: typeof getOrCreateAccountForWallet;
     getAccountSummary: typeof getAccountSummary;
@@ -67,6 +71,9 @@ function getDefaultDeps(): WalletAuthHandlerDeps {
     },
     nftGate: {
       getGateStatus,
+    },
+    accountGate: {
+      getAccountGateStatus,
     },
     accounts: {
       getOrCreateAccountForWallet,
@@ -246,8 +253,9 @@ export async function handleVerify(
     }
 
     // Get gate status for the wallet (for access control on frontend)
-    const { getGateStatus } = await import('../services/nft-gate.js');
-    const gateStatus = await getGateStatus(result.user.walletAddress);
+    const gate = await getAccountGateStatus(
+      result.session.accountId || (await getOrCreateAccountForWallet(result.user.walletAddress))
+    );
 
     // Bypass NFT gate for internal test key (E2E testing)
     const isTestBypass = hasInternalTestKey(event);
@@ -280,13 +288,25 @@ export async function handleVerify(
       nftGate: result.nftGate,
       // Include gate status for access control
       // Test bypass grants full access
-      gateStatus: {
-        nftsHeld: isTestBypass ? 999 : gateStatus.nftsHeld,
-        avatarsCreated: gateStatus.avatarsCreated,
-        availableSlots: isTestBypass ? 999 : gateStatus.availableSlots,
-        canCreate: isTestBypass ? true : gateStatus.canCreate,
-        canAbandon: isTestBypass ? true : gateStatus.canAbandon,
-      },
+      gateStatus: gate.gateStatus
+        ? {
+            nftsHeld: isTestBypass ? 999 : gate.gateStatus.nftsHeld,
+            avatarsCreated: gate.gateStatus.avatarsCreated,
+            availableSlots: isTestBypass ? 999 : gate.gateStatus.availableSlots,
+            canCreate: isTestBypass ? true : gate.gateStatus.canCreate,
+            canAbandon: isTestBypass ? true : gate.gateStatus.canAbandon,
+            ownedNFTs: gate.gateStatus.ownedNFTs,
+          }
+        : {
+            nftsHeld: isTestBypass ? 999 : 0,
+            avatarsCreated: 0,
+            availableSlots: isTestBypass ? 999 : 0,
+            canCreate: isTestBypass,
+            canAbandon: isTestBypass,
+            ownedNFTs: [],
+          },
+      gateWallet: gate.gateWallet,
+      gateStatusByWallet: gate.gateStatusByWallet,
     }, cors, cookies);
   } catch (error) {
     console.error('[WalletAuth] Verify error:', error);
@@ -326,9 +346,6 @@ export async function handleMe(
       }, getClearSessionCookies());
     }
 
-    // Get gate status for the wallet
-    const gateStatus = await resolvedDeps.nftGate.getGateStatus(session.user.walletAddress);
-
     const accountId = session.accountId ||
       (resolvedDeps.accounts
         ? await resolvedDeps.accounts.getOrCreateAccountForWallet(session.user.walletAddress)
@@ -336,6 +353,10 @@ export async function handleMe(
     const account = accountId && resolvedDeps.accounts
       ? await resolvedDeps.accounts.getAccountSummary(accountId)
       : null;
+
+    const gate = accountId && resolvedDeps.accountGate
+      ? await resolvedDeps.accountGate.getAccountGateStatus(accountId)
+      : { gateStatus: null, gateWallet: null, gateStatusByWallet: {} };
 
     // Inhabitation is stored in the avatar ownership mapping; don't rely on UserRecord.inhabitedAvatarId.
     const inhabitedAvatar = await resolvedDeps.avatarOwnership.getInhabitedAvatar(
@@ -357,13 +378,25 @@ export async function handleMe(
         sessionCount: session.user.sessionCount,
       },
       // Test bypass grants full access
-      gateStatus: {
-        nftsHeld: isTestBypass ? 999 : gateStatus.nftsHeld,
-        avatarsCreated: gateStatus.avatarsCreated,
-        availableSlots: isTestBypass ? 999 : gateStatus.availableSlots,
-        canCreate: isTestBypass ? true : gateStatus.canCreate,
-        canAbandon: isTestBypass ? true : gateStatus.canAbandon,
-      },
+      gateStatus: gate.gateStatus
+        ? {
+            nftsHeld: isTestBypass ? 999 : gate.gateStatus.nftsHeld,
+            avatarsCreated: gate.gateStatus.avatarsCreated,
+            availableSlots: isTestBypass ? 999 : gate.gateStatus.availableSlots,
+            canCreate: isTestBypass ? true : gate.gateStatus.canCreate,
+            canAbandon: isTestBypass ? true : gate.gateStatus.canAbandon,
+            ownedNFTs: gate.gateStatus.ownedNFTs,
+          }
+        : {
+            nftsHeld: isTestBypass ? 999 : 0,
+            avatarsCreated: 0,
+            availableSlots: isTestBypass ? 999 : 0,
+            canCreate: isTestBypass,
+            canAbandon: isTestBypass,
+            ownedNFTs: [],
+          },
+      gateWallet: gate.gateWallet,
+      gateStatusByWallet: gate.gateStatusByWallet,
     }, cors);
   } catch (error) {
     console.error('[WalletAuth] Me error:', error);

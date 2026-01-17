@@ -46,6 +46,10 @@ export interface AccountSummary {
   identities: Array<{ type: IdentityType; providerId: string }>;
 }
 
+export type LinkIdentityResult =
+  | { success: true }
+  | { success: false; error: string; conflict?: { type: IdentityType; providerId: string; existingAccountId: string } };
+
 function identityPk(type: IdentityType, providerId: string): string {
   return `IDENTITY#${type}#${providerId}`;
 }
@@ -222,6 +226,60 @@ export async function getOrCreateAccountForCrossmint(params: {
   }
 
   return account.accountId;
+}
+
+/**
+ * Link a Crossmint identity to an existing account (without creating a new session).
+ *
+ * This is used when a user is signed in via wallet and wants to add email/social (Crossmint)
+ * as an additional login method for the same account.
+ */
+export async function linkCrossmintIdentityToAccount(params: {
+  accountId: string;
+  crossmintUserId: string;
+  walletAddress?: string;
+}): Promise<LinkIdentityResult> {
+  const { accountId, crossmintUserId, walletAddress } = params;
+
+  const crossmintLink = await ensureIdentityLinkedToAccount({
+    accountId,
+    type: 'crossmint',
+    providerId: crossmintUserId,
+  });
+
+  if (crossmintLink.conflict && crossmintLink.existingAccountId) {
+    return {
+      success: false,
+      error: 'Crossmint identity is already linked to another account',
+      conflict: {
+        type: 'crossmint',
+        providerId: crossmintUserId,
+        existingAccountId: crossmintLink.existingAccountId,
+      },
+    };
+  }
+
+  if (walletAddress) {
+    const walletLink = await ensureIdentityLinkedToAccount({
+      accountId,
+      type: 'wallet',
+      providerId: walletAddress,
+    });
+
+    if (walletLink.conflict && walletLink.existingAccountId) {
+      return {
+        success: false,
+        error: 'Wallet is already linked to another account',
+        conflict: {
+          type: 'wallet',
+          providerId: walletAddress,
+          existingAccountId: walletLink.existingAccountId,
+        },
+      };
+    }
+  }
+
+  return { success: true };
 }
 
 export async function getAccountSummary(accountId: string): Promise<AccountSummary | null> {

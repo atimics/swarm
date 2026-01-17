@@ -231,7 +231,7 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
                 : 'border-brand-500/50 hover:border-brand-500 hover:bg-brand-500/10 text-brand-400 hover:text-brand-300'
             }`}
             data-testid="create-avatar-button"
-            aria-label={createDisabledReason || `Create new avatar${gateStatus?.availableSlots !== undefined ? ` (${gateStatus.availableSlots} slot${gateStatus.availableSlots !== 1 ? 's' : ''} available)` : ''}`}
+            aria-label={createDisabledReason || 'Create new avatar'}
             title={createDisabledReason || undefined}
           >
             {isLoading ? (

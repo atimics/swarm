@@ -40,6 +40,7 @@ export interface GateStatus {
   availableSlots: number;
   canCreate: boolean;
   canAbandon: boolean;
+  ownedNFTs?: Array<{ id: string; name: string; image?: string }>;
 }
 
 export interface UnclaimedAvatar {
@@ -103,6 +104,8 @@ interface WalletAuthState {
   nftGateError: boolean;
   nftGateInfo: NFTGateInfo | null;
   gateStatus: GateStatus | null;
+  gateWallet: string | null;
+  gateStatusByWallet: Record<string, GateStatus> | null;
 
   // Actions
   checkAuth: () => Promise<void>;
@@ -129,6 +132,8 @@ export const useWalletAuth = create<WalletAuthState>()(
       nftGateError: false,
       nftGateInfo: null,
       gateStatus: null,
+      gateWallet: null,
+      gateStatusByWallet: null,
 
       /**
        * Check if user is already authenticated (from cookie)
@@ -152,6 +157,8 @@ export const useWalletAuth = create<WalletAuthState>()(
               user: data.user,
               account: data.account || null,
               gateStatus: data.gateStatus || null,
+              gateWallet: data.gateWallet || null,
+              gateStatusByWallet: data.gateStatusByWallet || null,
               isLoading: false,
             });
           } else {
@@ -160,6 +167,8 @@ export const useWalletAuth = create<WalletAuthState>()(
               user: null,
               account: null,
               gateStatus: null,
+              gateWallet: null,
+              gateStatusByWallet: null,
               isLoading: false,
             });
           }
@@ -170,6 +179,8 @@ export const useWalletAuth = create<WalletAuthState>()(
             user: null,
             account: null,
             gateStatus: null,
+            gateWallet: null,
+            gateStatusByWallet: null,
             isLoading: false,
           });
         }
@@ -231,6 +242,8 @@ export const useWalletAuth = create<WalletAuthState>()(
               nftGateError: false,
               nftGateInfo: data.nftGate || null,
               gateStatus: data.gateStatus || null,
+              gateWallet: data.gateWallet || null,
+              gateStatusByWallet: data.gateStatusByWallet || null,
             });
           } else {
             throw new Error('Authentication failed');
@@ -243,6 +256,8 @@ export const useWalletAuth = create<WalletAuthState>()(
             account: null,
             isLoading: false,
             error: error instanceof Error ? error.message : 'Login failed',
+            gateWallet: null,
+            gateStatusByWallet: null,
           });
           throw error;
         }
@@ -266,6 +281,8 @@ export const useWalletAuth = create<WalletAuthState>()(
             user: null,
             account: null,
             gateStatus: null,
+            gateWallet: null,
+            gateStatusByWallet: null,
             isLoading: false,
             error: null,
           });

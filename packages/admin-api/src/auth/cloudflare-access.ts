@@ -5,6 +5,8 @@
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import type { CloudflareAccessClaims, UserSession } from '../types.js';
 import * as nodeCrypto from 'crypto';
+import { getSessionFromCookie } from './session-cookie.js';
+import { getSessionWithUser } from '../services/wallet-auth.js';
 
 // Cloudflare Access public keys endpoint
 const CF_ACCESS_CERTS_URL = process.env.CF_ACCESS_CERTS_URL;
@@ -13,6 +15,7 @@ const CF_ACCESS_AUD = process.env.CF_ACCESS_AUD;
 
 // Admin emails that have full access
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').filter(Boolean);
+const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || '').split(',').filter(Boolean);
 
 interface CloudflareJWK {
   kid: string;
@@ -168,44 +171,29 @@ export async function authenticateRequest(
     event.headers['CF-Access-JWT-Assertion'] ||
     event.headers['authorization']?.replace('Bearer ', '');
 
-  // If no token, check if we should allow (UI is already protected by Cloudflare Access)
-  // Only allow exact origin matches from configured ALLOWED_ORIGINS
+  // If no Cloudflare token, use first-party session cookie auth.
   if (!token) {
-    const origin = event.headers['origin'] || event.headers['Origin'] || '';
-    const referer = event.headers['referer'] || event.headers['Referer'] || '';
-    const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean);
-
-    console.log('Auth debug:', { 
-      origin, 
-      referer,
-      allowedOrigins, 
-      hasToken: !!token,
-      headers: Object.keys(event.headers)
-    });
-
-    // SECURITY: Use exact match only, not includes() which can be bypassed
-    const isAllowedOrigin = allowedOrigins.some(allowed => {
-      // Normalize both to remove trailing slashes
-      const normalizedAllowed = allowed.replace(/\/$/, '');
-      const normalizedOrigin = origin.replace(/\/$/, '');
-      return normalizedOrigin === normalizedAllowed;
-    });
-
-    // Also check referer as fallback (some browsers don't send origin on same-site)
-    const isAllowedReferer = !isAllowedOrigin && referer && allowedOrigins.some(allowed => {
-      return referer.startsWith(allowed);
-    });
-
-    if (isAllowedOrigin || isAllowedReferer) {
-      return {
-        email: ADMIN_EMAILS[0] || 'admin@example.com',
-        userId: 'admin-ui-user',
-        isAdmin: true,
-        accessToken: '',
-      };
+    const sessionToken = getSessionFromCookie(event);
+    if (!sessionToken) {
+      throw new Error('No authentication token provided');
     }
 
-    throw new Error('No authentication token provided');
+    const session = await getSessionWithUser(sessionToken);
+    if (!session) {
+      throw new Error('Session expired');
+    }
+
+    const email = (session.user as { email?: string }).email || '';
+    const isAdmin =
+      (email && ADMIN_EMAILS.includes(email)) ||
+      ADMIN_WALLETS.includes(session.walletAddress);
+
+    return {
+      email: email || session.walletAddress,
+      userId: session.walletAddress,
+      isAdmin,
+      accessToken: '',
+    };
   }
 
   // Verify the token

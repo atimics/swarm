@@ -4,11 +4,12 @@
  */
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { z } from 'zod';
-import { verifyCrossmintAuth } from '../services/crossmint-auth.js';
-import { getGateStatus } from '../services/nft-gate.js';
+import { resolveCrossmintWalletAddress, verifyCrossmintAuth, verifyCrossmintJwtForLink } from '../services/crossmint-auth.js';
 import { getInhabitedAvatar } from '../services/avatar-ownership.js';
-import { getSetSessionCookies } from '../auth/session-cookie.js';
-import { getAccountSummary, getOrCreateAccountForWallet } from '../services/accounts.js';
+import { getClearSessionCookies, getSessionFromCookie, getSetSessionCookies } from '../auth/session-cookie.js';
+import { getAccountSummary, getOrCreateAccountForWallet, linkCrossmintIdentityToAccount } from '../services/accounts.js';
+import { getAccountGateStatus } from '../services/account-gate.js';
+import { getSessionWithUser } from '../services/wallet-auth.js';
 
 // ============================================================================
 // Request Schemas
@@ -20,6 +21,8 @@ const CrossmintVerifySchema = z.object({
   email: z.string().email().optional(),
   walletAddress: z.string().min(32).max(44).optional(), // Solana address
 });
+
+const CrossmintLinkVerifySchema = CrossmintVerifySchema;
 
 // Cookie helpers live in ../auth/session-cookie.ts
 
@@ -110,14 +113,13 @@ export async function handleCrossmintVerify(
       }, cors);
     }
 
-    // Get gate status for the wallet
-    const gateStatus = await getGateStatus(result.user.walletAddress);
-
     // Inhabitation is stored in the avatar ownership mapping; don't rely on user profile fields.
     const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
 
     const accountId = result.session.accountId || (await getOrCreateAccountForWallet(result.user.walletAddress));
     const account = await getAccountSummary(accountId);
+
+    const gate = await getAccountGateStatus(accountId);
 
     // Set session cookies (and clear any stale host-only cookie)
     const cookies = getSetSessionCookies(result.session.sessionToken);
@@ -137,10 +139,81 @@ export async function handleCrossmintVerify(
         inhabitedAvatarId: inhabitedAvatar?.avatarId,
       },
       nftGate: result.nftGate,
-      gateStatus,
+      gateStatus: gate.gateStatus,
+      gateWallet: gate.gateWallet,
+      gateStatusByWallet: gate.gateStatusByWallet,
     }, cors, cookies);
   } catch (error) {
     console.error('[CrossmintAuth] Verify error:', error);
+    return jsonResponse(500, { error: 'Internal server error' }, cors);
+  }
+}
+
+/**
+ * POST /auth/link/crossmint/verify
+ * Verify a Crossmint JWT and link the Crossmint identity to the current account.
+ * Does NOT create a new backend session or set cookies.
+ */
+export async function handleLinkCrossmintVerify(
+  event: APIGatewayProxyEventV2
+): Promise<APIGatewayProxyResultV2> {
+  const cors = corsHeaders(event);
+
+  if (event.requestContext.http.method === 'OPTIONS') {
+    return { statusCode: 204, headers: cors };
+  }
+
+  try {
+    const sessionToken = getSessionFromCookie(event);
+    if (!sessionToken) {
+      return jsonResponse(401, { error: 'Not authenticated' }, cors, getClearSessionCookies());
+    }
+
+    const session = await getSessionWithUser(sessionToken);
+    if (!session) {
+      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
+    }
+
+    const body = JSON.parse(event.body || '{}');
+    const parsed = CrossmintLinkVerifySchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { error: 'Invalid request', details: parsed.error.issues }, cors);
+    }
+
+    const jwtOk = await verifyCrossmintJwtForLink(parsed.data.jwt);
+    if (!jwtOk) {
+      return jsonResponse(401, { error: 'Invalid authentication token' }, cors);
+    }
+
+    const crossmintWallet = await resolveCrossmintWalletAddress({
+      userId: parsed.data.userId,
+      walletAddress: parsed.data.walletAddress,
+    });
+
+    const accountId = session.accountId || (await getOrCreateAccountForWallet(session.user.walletAddress));
+
+    const linkResult = await linkCrossmintIdentityToAccount({
+      accountId,
+      crossmintUserId: parsed.data.userId,
+      walletAddress: crossmintWallet ?? undefined,
+    });
+
+    if (!linkResult.success) {
+      return jsonResponse(409, { error: linkResult.error, conflict: linkResult.conflict }, cors);
+    }
+
+    const account = await getAccountSummary(accountId);
+    const gate = await getAccountGateStatus(accountId);
+
+    return jsonResponse(200, {
+      success: true,
+      account,
+      gateStatus: gate.gateStatus,
+      gateWallet: gate.gateWallet,
+      gateStatusByWallet: gate.gateStatusByWallet,
+    }, cors);
+  } catch (error) {
+    console.error('[CrossmintAuth] Link verify error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }
 }
@@ -163,6 +236,10 @@ export async function handleCrossmintAuth(
   // Route to appropriate handler
   if (path === '/auth/crossmint/verify' && method === 'POST') {
     return handleCrossmintVerify(event);
+  }
+
+  if (path === '/auth/link/crossmint/verify' && method === 'POST') {
+    return handleLinkCrossmintVerify(event);
   }
 
   return jsonResponse(404, { error: 'Not found' }, cors);

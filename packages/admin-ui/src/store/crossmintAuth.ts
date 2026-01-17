@@ -28,6 +28,15 @@ export interface GateStatus {
   availableSlots: number;
   canCreate: boolean;
   canAbandon: boolean;
+  ownedNFTs?: Array<{ id: string; name: string; image?: string }>;
+}
+
+export interface GateStatus {
+  nftsHeld: number;
+  avatarsCreated: number;
+  availableSlots: number;
+  canCreate: boolean;
+  canAbandon: boolean;
 }
 
 interface CrossmintAuthState {
@@ -36,6 +45,8 @@ interface CrossmintAuthState {
   isLoading: boolean;
   user: CrossmintUser | null;
   account: AccountSummary | null;
+  gateWallet: string | null;
+  gateStatusByWallet: Record<string, GateStatus> | null;
   error: string | null;
 
   // Gate status (same as wallet auth)
@@ -60,6 +71,8 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
       isLoading: false,
       user: null,
       account: null,
+      gateWallet: null,
+      gateStatusByWallet: null,
       error: null,
       gateStatus: null,
 
@@ -120,6 +133,8 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
                 inhabitedAvatarId: data.user.inhabitedAvatarId,
               },
               account: data.account || null,
+              gateWallet: data.gateWallet || null,
+              gateStatusByWallet: data.gateStatusByWallet || null,
               gateStatus: data.gateStatus || null,
               isLoading: false,
             });
@@ -132,6 +147,8 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
             isAuthenticated: false,
             user: null,
             account: null,
+            gateWallet: null,
+            gateStatusByWallet: null,
             isLoading: false,
             error: error instanceof Error ? error.message : 'Authentication failed',
           });
@@ -156,6 +173,8 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
             isAuthenticated: false,
             user: null,
             account: null,
+            gateWallet: null,
+            gateStatusByWallet: null,
             gateStatus: null,
             isLoading: false,
             error: null,
@@ -168,6 +187,8 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
           isAuthenticated: false,
           user: null,
           account: null,
+          gateWallet: null,
+          gateStatusByWallet: null,
           gateStatus: null,
           isLoading: false,
           error: null,

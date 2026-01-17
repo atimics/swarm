@@ -21,6 +21,8 @@ export interface UnifiedAuthState {
   user: UnifiedUser | null;
   authProvider: AuthProvider;
   gateStatus: GateStatus | null;
+  gateWallet: string | null;
+  gateStatusByWallet: Record<string, GateStatus> | null;
   account: {
     accountId: string;
     role: 'user' | 'admin';
@@ -49,6 +51,8 @@ export function useAuth(): UnifiedAuthState {
   // If Crossmint is authenticated, use Crossmint auth
   if (crossmintActive) {
     const account = crossmintAuth.account || walletAuth.account || null;
+    const gateWallet = crossmintAuth.gateWallet || walletAuth.gateWallet || null;
+    const gateStatusByWallet = crossmintAuth.gateStatusByWallet || walletAuth.gateStatusByWallet || null;
     const linkedWallets =
       account?.identities
         ?.filter(i => i.type === 'wallet')
@@ -60,6 +64,8 @@ export function useAuth(): UnifiedAuthState {
       user: normalizeCrossmintUser(crossmintAuth.user!),
       authProvider: 'crossmint',
       gateStatus: crossmintAuth.gateStatus,
+      gateWallet,
+      gateStatusByWallet,
       account,
       linkedWallets,
       error: crossmintAuth.error,
@@ -71,6 +77,8 @@ export function useAuth(): UnifiedAuthState {
   // If wallet is authenticated, use wallet auth
   if (walletActive) {
     const account = walletAuth.account || null;
+    const gateWallet = walletAuth.gateWallet || null;
+    const gateStatusByWallet = walletAuth.gateStatusByWallet || null;
     const linkedWallets =
       account?.identities
         ?.filter(i => i.type === 'wallet')
@@ -82,6 +90,8 @@ export function useAuth(): UnifiedAuthState {
       user: normalizeWalletUser(walletAuth.user!),
       authProvider: 'wallet',
       gateStatus: walletAuth.gateStatus,
+      gateWallet,
+      gateStatusByWallet,
       account,
       linkedWallets,
       error: walletAuth.error,
@@ -97,6 +107,8 @@ export function useAuth(): UnifiedAuthState {
     user: null,
     authProvider: null,
     gateStatus: null,
+    gateWallet: null,
+    gateStatusByWallet: null,
     account: null,
     linkedWallets: [],
     error: walletAuth.error || crossmintAuth.error,

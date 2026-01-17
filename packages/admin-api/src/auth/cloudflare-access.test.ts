@@ -1,0 +1,56 @@
+import { describe, it, expect } from 'bun:test';
+import type { APIGatewayProxyEventV2 } from 'aws-lambda';
+
+import { authenticateRequest } from './cloudflare-access.js';
+
+function makeEvent(partial: Partial<APIGatewayProxyEventV2>): APIGatewayProxyEventV2 {
+  return {
+    version: '2.0',
+    routeKey: 'GET /test',
+    rawPath: '/test',
+    rawQueryString: '',
+    headers: {},
+    requestContext: {} as APIGatewayProxyEventV2['requestContext'],
+    isBase64Encoded: false,
+    ...partial,
+  } as APIGatewayProxyEventV2;
+}
+
+describe('cloudflare-access auth', () => {
+  it('does not allow origin/referer fallback when no token is provided', async () => {
+    const prevAllowedOrigins = process.env.ALLOWED_ORIGINS;
+    try {
+      process.env.ALLOWED_ORIGINS = 'https://admin.rati.chat';
+
+      const event = makeEvent({
+        headers: {
+          origin: 'https://admin.rati.chat',
+          referer: 'https://admin.rati.chat/',
+        },
+      });
+
+      await expect(authenticateRequest(event)).rejects.toThrow('No authentication token provided');
+    } finally {
+      process.env.ALLOWED_ORIGINS = prevAllowedOrigins;
+    }
+  });
+
+  it('allows INTERNAL_TEST_KEY bypass (for local/internal testing)', async () => {
+    const prevInternalTestKey = process.env.INTERNAL_TEST_KEY;
+    try {
+      process.env.INTERNAL_TEST_KEY = 'test-key';
+
+      const event = makeEvent({
+        headers: {
+          'x-internal-test-key': 'test-key',
+        },
+      });
+
+      const session = await authenticateRequest(event);
+      expect(session.isAdmin).toBe(true);
+      expect(session.userId).toBe('internal-test-user');
+    } finally {
+      process.env.INTERNAL_TEST_KEY = prevInternalTestKey;
+    }
+  });
+});

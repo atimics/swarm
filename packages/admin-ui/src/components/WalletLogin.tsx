@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { useAuth as useCrossmintAuthHook } from '@crossmint/client-sdk-react-ui';
+import { useAuth as useCrossmintAuthHook, useWallet as useCrossmintWallet } from '@crossmint/client-sdk-react-ui';
 import bs58 from 'bs58';
 import { useWalletAuth } from '../store/walletAuth';
 import { useCrossmintAuth } from '../store/crossmintAuth';
@@ -23,7 +23,8 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   const { setVisible } = useWalletModal();
   const walletAuth = useWalletAuth();
   const crossmintAuth = useCrossmintAuth();
-  const { logout: crossmintLogout } = useCrossmintAuthHook();
+  const { login: crossmintLogin, logout: crossmintLogout, user: crossmintUser, jwt: crossmintJwt, status: crossmintStatus } = useCrossmintAuthHook();
+  const { wallet: crossmintWallet } = useCrossmintWallet();
 
   // Use unified auth for display
   const {
@@ -31,6 +32,10 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     isLoading,
     user,
     authProvider,
+    gateStatus,
+    gateWallet,
+    gateStatusByWallet,
+    account,
     linkedWallets,
     error,
     clearError,
@@ -49,6 +54,9 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   const [linkingWallet, setLinkingWallet] = useState(false);
   const [linkWalletError, setLinkWalletError] = useState<string | null>(null);
   const [switchingWallet, setSwitchingWallet] = useState(false);
+  const [showAccount, setShowAccount] = useState(false);
+  const [linkingCrossmint, setLinkingCrossmint] = useState(false);
+  const [linkCrossmintError, setLinkCrossmintError] = useState<string | null>(null);
 
   // Check auth on mount
   useEffect(() => {
@@ -190,6 +198,56 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     setLinkWalletError(null);
   }, []);
 
+  // Link Crossmint identity to an existing wallet account (without switching sessions)
+  useEffect(() => {
+    if (!linkingCrossmint) return;
+    if (crossmintStatus !== 'logged-in') return;
+    if (!crossmintJwt || !crossmintUser?.id) return;
+
+    const walletAddress = crossmintWallet?.address;
+    if (!walletAddress) return;
+
+    let cancelled = false;
+    const doLink = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/auth/link/crossmint/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            jwt: crossmintJwt,
+            userId: crossmintUser.id,
+            email: crossmintUser.email,
+            walletAddress,
+          }),
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.error || 'Failed to link email/social');
+        }
+
+        await walletAuth.checkAuth();
+        await crossmintLogout();
+        if (!cancelled) {
+          setLinkingCrossmint(false);
+          setLinkCrossmintError(null);
+        }
+      } catch (e) {
+        console.error('[WalletLogin] Link Crossmint error:', e);
+        if (!cancelled) {
+          setLinkingCrossmint(false);
+          setLinkCrossmintError(e instanceof Error ? e.message : 'Failed to link email/social');
+        }
+      }
+    };
+
+    doLink();
+    return () => {
+      cancelled = true;
+    };
+  }, [linkingCrossmint, crossmintStatus, crossmintJwt, crossmintUser, crossmintWallet, walletAuth, crossmintLogout]);
+
   // Handle connect button click
   const handleConnect = useCallback(() => {
     loginAttemptedRef.current = null; // Allow fresh attempt
@@ -218,6 +276,9 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   const formatAddress = (address: string) => {
     return `${address.slice(0, 4)}...${address.slice(-4)}`;
   };
+
+  const sortedGateWallets = Object.entries(gateStatusByWallet || {})
+    .sort((a, b) => (b[1]?.nftsHeld || 0) - (a[1]?.nftsHeld || 0));
 
   // Loading state
   if (isLoading) {
@@ -272,6 +333,22 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
           )}
         </div>
 
+        {/* Account button */}
+        <button
+          onClick={() => {
+            setShowAccount(true);
+            setLinkCrossmintError(null);
+          }}
+          className="p-1.5 rounded-lg hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+          title="Account"
+          aria-label="Account"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5a7.5 7.5 0 017.5 7.5v2.25a3 3 0 01-3 3H7.5a3 3 0 01-3-3V12A7.5 7.5 0 0112 4.5z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 20.25h4.5" />
+          </svg>
+        </button>
+
         {/* Disconnect button */}
         <button
           onClick={handleDisconnect}
@@ -317,6 +394,135 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                 {linkWalletError}
               </span>
             )}
+          </div>
+        )}
+
+        {showAccount && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div
+              className="absolute inset-0 bg-black/60"
+              onClick={() => setShowAccount(false)}
+              aria-hidden="true"
+            />
+            <div className="relative w-[min(520px,92vw)] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-xl">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
+                <div className="text-sm font-semibold text-[var(--color-text)]">Account</div>
+                <button
+                  onClick={() => setShowAccount(false)}
+                  className="p-1.5 rounded-lg hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                  aria-label="Close"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="px-4 py-3 space-y-3">
+                <div className="text-xs text-[var(--color-text-muted)]">
+                  Signed in with: <span className="text-[var(--color-text)] font-medium">{authProvider === 'crossmint' ? 'Email/Social (Crossmint)' : 'Wallet (SIWS)'}</span>
+                </div>
+
+                {authProvider === 'crossmint' && user.email && (
+                  <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
+                    <div className="text-xs text-[var(--color-text-muted)]">Email</div>
+                    <div className="text-sm text-[var(--color-text)]">{user.email}</div>
+                    <div className="mt-2 text-xs text-[var(--color-text-muted)]">Embedded wallet</div>
+                    <div className="text-sm text-[var(--color-text)]">{formatAddress(user.walletAddress)}</div>
+                  </div>
+                )}
+
+                {account?.accountId && (
+                  <div className="text-xs text-[var(--color-text-muted)]">
+                    Account ID: <span className="text-[var(--color-text)]">{account.accountId}</span>
+                  </div>
+                )}
+
+                <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs text-[var(--color-text-muted)]">Orbs / Gating</div>
+                      <div className="text-sm text-[var(--color-text)]">
+                        {gateStatus ? `${gateStatus.nftsHeld} Orbs • ${gateStatus.availableSlots} slots` : 'Unknown'}
+                      </div>
+                    </div>
+                    {gateWallet && (
+                      <div className="text-xs text-[var(--color-text-muted)]">
+                        Using: <span className="text-[var(--color-text)]">{formatAddress(gateWallet)}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {sortedGateWallets.length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-xs text-[var(--color-text-muted)] mb-1">Wallets</div>
+                      <div className="space-y-1">
+                        {sortedGateWallets.map(([addr, st]) => (
+                          <div key={addr} className="flex items-center justify-between text-xs">
+                            <span className="text-[var(--color-text)]">{formatAddress(addr)}</span>
+                            <span className="text-[var(--color-text-muted)]">{st.nftsHeld} Orbs • {st.availableSlots} slots</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {authProvider === 'crossmint' && (gateStatus?.nftsHeld || 0) === 0 && (
+                  <div className="rounded-lg border border-brand-500/30 bg-brand-500/10 p-3">
+                    <div className="text-sm font-medium text-[var(--color-text)]">Limited mode</div>
+                    <div className="text-xs text-[var(--color-text-secondary)] mt-1">
+                      Your embedded wallet has no Orbs. To unlock Orb-gated features, connect your existing wallet that holds Orbs and choose <span className="font-medium">Link</span>.
+                    </div>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        onClick={handleConnect}
+                        className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium"
+                      >
+                        Connect wallet to link
+                      </button>
+                      <button
+                        onClick={() => setShowAccount(false)}
+                        className="px-3 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text)] text-xs"
+                      >
+                        Got it
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {authProvider === 'wallet' && (
+                  <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
+                    <div className="text-sm font-medium text-[var(--color-text)]">Link email/social</div>
+                    <div className="text-xs text-[var(--color-text-secondary)] mt-1">
+                      Add Crossmint (email/social) as another way to sign in to this same account.
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          setLinkCrossmintError(null);
+                          setLinkingCrossmint(true);
+                          try {
+                            await crossmintLogin();
+                          } catch (e) {
+                            console.error('[WalletLogin] Crossmint login for linking failed:', e);
+                            setLinkingCrossmint(false);
+                            setLinkCrossmintError(e instanceof Error ? e.message : 'Failed to open Crossmint login');
+                          }
+                        }}
+                        disabled={linkingCrossmint}
+                        className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
+                      >
+                        {linkingCrossmint ? 'Linking…' : 'Link email/social'}
+                      </button>
+                      {linkCrossmintError && (
+                        <span className="text-xs text-red-400">{linkCrossmintError}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>
