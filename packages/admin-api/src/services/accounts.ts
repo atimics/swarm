@@ -13,7 +13,15 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
-export type IdentityType = 'wallet' | 'crossmint';
+export type IdentityType = 'wallet' | 'crossmint' | 'privy';
+
+export type GetOrCreateAccountForPrivyResult =
+  | { success: true; accountId: string }
+  | {
+      success: false;
+      error: string;
+      conflict: { type: 'wallet' | 'privy'; providerId: string; existingAccountId: string };
+    };
 
 export interface AccountsServiceDeps {
   dynamoClient: Pick<DynamoDBDocumentClient, 'send'>;
@@ -245,6 +253,108 @@ export async function getOrCreateAccountForCrossmint(params: {
   return account.accountId;
 }
 
+export async function getOrCreateAccountForPrivy(params: {
+  privyUserId: string;
+  walletAddress?: string;
+}, deps: AccountsServiceDeps = getDefaultDeps()): Promise<GetOrCreateAccountForPrivyResult> {
+  const { privyUserId, walletAddress } = params;
+
+  const accountForWallet = walletAddress
+    ? await getAccountIdForIdentity('wallet', walletAddress, deps)
+    : null;
+  const accountForPrivy = await getAccountIdForIdentity('privy', privyUserId, deps);
+
+  // If both already exist but disagree, don't pick one silently.
+  if (accountForWallet && accountForPrivy && accountForWallet !== accountForPrivy) {
+    return {
+      success: false,
+      error: 'Privy identity is already linked to another account',
+      conflict: {
+        type: 'privy',
+        providerId: privyUserId,
+        existingAccountId: accountForPrivy,
+      },
+    };
+  }
+
+  // Prefer existing wallet identity if present: this merges Privy into the wallet-owned account.
+  if (accountForWallet) {
+    const privyLink = await ensureIdentityLinkedToAccount({
+      accountId: accountForWallet,
+      type: 'privy',
+      providerId: privyUserId,
+    }, deps);
+
+    if (privyLink.conflict && privyLink.existingAccountId) {
+      return {
+        success: false,
+        error: 'Privy identity is already linked to another account',
+        conflict: {
+          type: 'privy',
+          providerId: privyUserId,
+          existingAccountId: privyLink.existingAccountId,
+        },
+      };
+    }
+
+    return { success: true, accountId: accountForWallet };
+  }
+
+  if (accountForPrivy) {
+    if (walletAddress) {
+      const walletLink = await ensureIdentityLinkedToAccount({
+        accountId: accountForPrivy,
+        type: 'wallet',
+        providerId: walletAddress,
+      }, deps);
+
+      if (walletLink.conflict && walletLink.existingAccountId) {
+        return {
+          success: false,
+          error: 'Wallet is already linked to another account',
+          conflict: {
+            type: 'wallet',
+            providerId: walletAddress,
+            existingAccountId: walletLink.existingAccountId,
+          },
+        };
+      }
+    }
+
+    return { success: true, accountId: accountForPrivy };
+  }
+
+  const account = await createAccount(deps);
+
+  await ensureIdentityLinkedToAccount({
+    accountId: account.accountId,
+    type: 'privy',
+    providerId: privyUserId,
+  }, deps);
+
+  if (walletAddress) {
+    const walletLink = await ensureIdentityLinkedToAccount({
+      accountId: account.accountId,
+      type: 'wallet',
+      providerId: walletAddress,
+    }, deps);
+
+    if (walletLink.conflict && walletLink.existingAccountId) {
+      return {
+        success: false,
+        error: 'Wallet is already linked to another account',
+        conflict: {
+          type: 'wallet',
+          providerId: walletAddress,
+          existingAccountId: walletLink.existingAccountId,
+        },
+      };
+    }
+  }
+
+  return { success: true, accountId: account.accountId };
+}
+
 /**
  * Link a Crossmint identity to an existing account (without creating a new session).
  *
@@ -272,6 +382,57 @@ export async function linkCrossmintIdentityToAccount(params: {
         type: 'crossmint',
         providerId: crossmintUserId,
         existingAccountId: crossmintLink.existingAccountId,
+      },
+    };
+  }
+
+  if (walletAddress) {
+    const walletLink = await ensureIdentityLinkedToAccount({
+      accountId,
+      type: 'wallet',
+      providerId: walletAddress,
+    }, deps);
+
+    if (walletLink.conflict && walletLink.existingAccountId) {
+      return {
+        success: false,
+        error: 'Wallet is already linked to another account',
+        conflict: {
+          type: 'wallet',
+          providerId: walletAddress,
+          existingAccountId: walletLink.existingAccountId,
+        },
+      };
+    }
+  }
+
+  return { success: true };
+}
+
+/**
+ * Link a Privy identity to an existing account (without creating a new session).
+ */
+export async function linkPrivyIdentityToAccount(params: {
+  accountId: string;
+  privyUserId: string;
+  walletAddress?: string;
+}, deps: AccountsServiceDeps = getDefaultDeps()): Promise<LinkIdentityResult> {
+  const { accountId, privyUserId, walletAddress } = params;
+
+  const privyLink = await ensureIdentityLinkedToAccount({
+    accountId,
+    type: 'privy',
+    providerId: privyUserId,
+  }, deps);
+
+  if (privyLink.conflict && privyLink.existingAccountId) {
+    return {
+      success: false,
+      error: 'Privy identity is already linked to another account',
+      conflict: {
+        type: 'privy',
+        providerId: privyUserId,
+        existingAccountId: privyLink.existingAccountId,
       },
     };
   }

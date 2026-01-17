@@ -30,6 +30,7 @@ import { getGateStatus } from '../services/nft-gate.js';
 import { listUnclaimedAvatars } from '../services/avatars.js';
 import { prepareLineageMint } from '../services/lineage-nft.js';
 import { handleCrossmintAuth } from './crossmint-auth.js';
+import { handlePrivyAuth } from './privy-auth.js';
 
 // Internal test key for E2E tests - bypasses NFT gate requirements
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
@@ -854,6 +855,11 @@ export async function handleWalletAuth(
   // Route Crossmint auth to separate handler
   if (path.startsWith('/auth/crossmint')) {
     return handleCrossmintAuth(event);
+  }
+
+  // Route Privy auth to separate handler
+  if (path.startsWith('/auth/privy') || path.startsWith('/auth/link/privy')) {
+    return handlePrivyAuth(event);
   }
 
   // Route to appropriate handler

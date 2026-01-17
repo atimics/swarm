@@ -79,6 +79,21 @@ export interface AdminApiConstructProps {
   crossmintApiKeyArn?: string;
 
   /**
+   * Privy App ID (non-secret)
+   */
+  privyAppId?: string;
+
+  /**
+   * Privy App Secret ARN (required to fetch Privy users server-side)
+   */
+  privyAppSecretArn?: string;
+
+  /**
+   * Privy JWT verification key ARN (required to verify Privy access tokens)
+   */
+  privyJwtVerificationKeyArn?: string;
+
+  /**
    * Environment (development/production)
    */
   environment?: string;
@@ -239,6 +254,15 @@ export class AdminApiConstruct extends Construct {
     // Secret for Crossmint API key (optional - for server-side JWT verification)
     const crossmintApiKey = props.crossmintApiKeyArn
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'CrossmintApiKey', props.crossmintApiKeyArn)
+      : undefined;
+
+    // Secrets for Privy (optional - required if Privy auth endpoints are enabled)
+    const privyAppSecret = props.privyAppSecretArn
+      ? secretsmanager.Secret.fromSecretCompleteArn(this, 'PrivyAppSecret', props.privyAppSecretArn)
+      : undefined;
+
+    const privyJwtVerificationKey = props.privyJwtVerificationKeyArn
+      ? secretsmanager.Secret.fromSecretCompleteArn(this, 'PrivyJwtVerificationKey', props.privyJwtVerificationKeyArn)
       : undefined;
 
     // Twitter App credentials for OAuth flow (needed by both Chat and Twitter OAuth handlers)
@@ -723,6 +747,10 @@ export class AdminApiConstruct extends Construct {
         HELIUS_API_KEY: props.heliusApiKey || '',
         // Crossmint API key for JWT verification
         CROSSMINT_API_KEY_ARN: crossmintApiKey?.secretArn || '',
+        // Privy configuration
+        PRIVY_APP_ID: props.privyAppId || '',
+        PRIVY_APP_SECRET_ARN: privyAppSecret?.secretArn || '',
+        PRIVY_JWT_VERIFICATION_KEY_ARN: privyJwtVerificationKey?.secretArn || '',
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -738,6 +766,12 @@ export class AdminApiConstruct extends Construct {
     }
     if (crossmintApiKey) {
       crossmintApiKey.grantRead(walletAuthHandler);
+    }
+    if (privyAppSecret) {
+      privyAppSecret.grantRead(walletAuthHandler);
+    }
+    if (privyJwtVerificationKey) {
+      privyJwtVerificationKey.grantRead(walletAuthHandler);
     }
 
     const walletAuthIntegration = new integrations.HttpLambdaIntegration(
@@ -786,6 +820,19 @@ export class AdminApiConstruct extends Construct {
     // Crossmint auth route - for email/social login via Crossmint
     this.api.addRoutes({
       path: '/auth/crossmint/verify',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
+    // Privy auth routes - for email/social login via Privy
+    this.api.addRoutes({
+      path: '/auth/privy/verify',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/auth/link/privy/verify',
       methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
       integration: walletAuthIntegration,
     });

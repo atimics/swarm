@@ -127,25 +127,25 @@ function generateSessionToken(): string {
 }
 
 function pickSolanaWalletAddressFromPrivyUser(user: PrivyUser): string | null {
-  const solanaWallets = (user.linked_accounts ?? []).filter(
-    (a): a is { type: 'wallet'; chain_type: 'solana'; address: string; wallet_client?: string } =>
-      typeof (a as any)?.type === 'string' &&
-      (a as any).type === 'wallet' &&
-      (a as any).chain_type === 'solana' &&
-      typeof (a as any).address === 'string'
-  );
+  const linkedAccounts = (user.linked_accounts ?? []) as unknown[];
+  const solanaWallets = linkedAccounts.filter((a) => {
+    const account = a as any;
+    return account?.type === 'wallet' && account?.chain_type === 'solana' && typeof account?.address === 'string';
+  }) as Array<{ address: string; wallet_client?: string }>;
 
   if (solanaWallets.length === 0) return null;
 
-  const embedded = solanaWallets.find((w) => (w as any).wallet_client === 'privy');
-  return (embedded ?? solanaWallets[0]).address;
+  const embedded = solanaWallets.find((w) => w.wallet_client === 'privy');
+  return (embedded ?? solanaWallets[0])?.address ?? null;
 }
 
 function pickEmailFromPrivyUser(user: PrivyUser): string | undefined {
-  const email = (user.linked_accounts ?? []).find(
-    (a): a is { type: 'email'; address: string } =>
-      typeof (a as any)?.type === 'string' && (a as any).type === 'email' && typeof (a as any).address === 'string'
-  );
+  const linkedAccounts = (user.linked_accounts ?? []) as unknown[];
+  const email = linkedAccounts.find((a) => {
+    const account = a as any;
+    return account?.type === 'email' && typeof account?.address === 'string';
+  }) as { address?: string } | undefined;
+
   return email?.address;
 }
 

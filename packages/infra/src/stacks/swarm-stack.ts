@@ -109,6 +109,21 @@ export interface SwarmStackProps extends cdk.StackProps {
   crossmintApiKeyArn?: string;
 
   /**
+   * Privy App ID (non-secret)
+   */
+  privyAppId?: string;
+
+  /**
+   * Privy App Secret ARN (required for server-side user lookup)
+   */
+  privyAppSecretArn?: string;
+
+  /**
+   * Privy JWT verification key ARN (required for access token verification)
+   */
+  privyJwtVerificationKeyArn?: string;
+
+  /**
    * Anthropic API key secret ARN (for Claude Code worker)
    */
   anthropicApiKeyArn?: string;
@@ -160,6 +175,9 @@ export class SwarmStack extends cdk.Stack {
       webSearchApiKeyArn,
       webSearchProvider,
       crossmintApiKeyArn,
+      privyAppId,
+      privyAppSecretArn,
+      privyJwtVerificationKeyArn,
       galleryDomain,
       galleryCertificateArn,
       anthropicApiKeyArn,
@@ -192,6 +210,9 @@ export class SwarmStack extends cdk.Stack {
         webSearchApiKeyArn,
         webSearchProvider,
         crossmintApiKeyArn,
+        privyAppId,
+        privyAppSecretArn,
+        privyJwtVerificationKeyArn,
         environment,
         adminDomain,
         apiDomain,
