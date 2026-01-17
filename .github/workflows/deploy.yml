@@ -156,6 +156,22 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: deploy-cdk-${{ needs.setup.outputs.environment }}
 
+      - name: Download CDK context from S3
+        working-directory: packages/infra
+        env:
+          CDK_CONTEXT_BUCKET: ${{ secrets.SWARM_CDK_CONTEXT_BUCKET }}
+        run: |
+          if [ -z "$CDK_CONTEXT_BUCKET" ]; then
+            echo "Missing SWARM_CDK_CONTEXT_BUCKET GitHub secret (required for CDK deploy)." >&2
+            exit 1
+          fi
+
+          ENV="${{ needs.setup.outputs.cdk_env }}"
+          KEY="swarm/cdk-context/${ENV}/cdk.context.json"
+
+          echo "Downloading s3://${CDK_CONTEXT_BUCKET}/${KEY} -> cdk.context.json"
+          aws s3 cp "s3://${CDK_CONTEXT_BUCKET}/${KEY}" "cdk.context.json" --only-show-errors
+
       - name: CDK Deploy
         working-directory: packages/infra
         run: |
@@ -195,6 +211,7 @@ jobs:
           cd packages/admin-ui
           VITE_API_URL=/api \
           VITE_CROSSMINT_PROJECT_ID=${{ secrets.VITE_CROSSMINT_PROJECT_ID }} \
+          VITE_PRIVY_APP_ID=${{ secrets.VITE_PRIVY_APP_ID }} \
           pnpm build
 
       - name: Upload build artifact
