@@ -309,9 +309,13 @@ jobs:
           fi
 
       - name: Run Telegram E2E
+        env:
+          SWARM_ADMIN_API_URL: ${{ needs.setup.outputs.api_url }}
         run: ./scripts/test-e2e.sh telegram "$E2E_TELEGRAM_AGENT_ID" "ci-telegram-${GITHUB_RUN_ID}" staging
 
       - name: Run Web E2E
+        env:
+          SWARM_ADMIN_API_URL: ${{ needs.setup.outputs.api_url }}
         run: ./scripts/test-e2e.sh web "$E2E_WEB_AGENT_ID" "ci-web-${GITHUB_RUN_ID}" staging
 
   browser:

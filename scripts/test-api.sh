@@ -8,39 +8,74 @@
 #   ./scripts/test-api.sh dev chat '{"message":"hi","history":[],"agent":{"id":"my-agent"}}'
 #
 
-set -e
+set -euo pipefail
 
 ENV=${1:-staging}
 ENDPOINT=${2:-chat}
 BODY=${3:-'{}'}
 METHOD=${4:-POST}
 
-# Get the API URL.
-# Prefer the raw API Gateway endpoint (bypasses custom domains / Cloudflare).
-STACK_NAME="SwarmStack-$ENV"
+# Optional override for environments where AWS discovery isn't available (e.g. CI)
+# Example:
+#   SWARM_ADMIN_API_URL="https://xxxx.execute-api.us-east-1.amazonaws.com" ./scripts/test-api.sh staging chat '{"message":"hi","history":[]}'
+SWARM_ADMIN_API_URL=${SWARM_ADMIN_API_URL:-${API_URL:-}}
+SWARM_INTERNAL_TEST_KEY=${SWARM_INTERNAL_TEST_KEY:-${INTERNAL_TEST_KEY:-}}
 
-API_ID=$(aws cloudformation describe-stack-resources \
-  --stack-name "$STACK_NAME" \
-  --query "StackResources[?ResourceType=='AWS::ApiGatewayV2::Api' && contains(LogicalResourceId, 'AdminApi')].PhysicalResourceId | [0]" \
-  --output text 2>/dev/null || true)
+STACK_NAME=${STACK_NAME:-"SwarmStack-$ENV"}
 
-if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
-  API_URL=$(aws apigatewayv2 get-api \
-    --api-id "$API_ID" \
-    --query "ApiEndpoint" \
-    --output text 2>/dev/null || true)
+function _warn() {
+  echo "[test-api] $1" >&2
+}
+
+function _has_aws_creds() {
+  aws sts get-caller-identity --output json >/dev/null 2>&1
+}
+
+API_URL=""
+
+# If provided explicitly, trust the override.
+if [ -n "$SWARM_ADMIN_API_URL" ]; then
+  API_URL="$SWARM_ADMIN_API_URL"
 fi
 
-# Fallback: CloudFormation export (may be a custom domain)
-if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
+# Get the API URL.
+# Prefer the raw API Gateway endpoint (bypasses custom domains / Cloudflare).
+if [ -z "$API_URL" ]; then
+  if ! _has_aws_creds; then
+    _warn "AWS credentials not available; cannot auto-discover API URL."
+    _warn "Set SWARM_ADMIN_API_URL (or API_URL) to the Admin API base URL."
+  fi
+fi
+
+AWS_REGION_EFFECTIVE=${AWS_REGION:-${AWS_DEFAULT_REGION:-""}}
+if [ -z "$API_URL" ] && [ -z "$AWS_REGION_EFFECTIVE" ]; then
+  _warn "AWS region not set; set AWS_REGION (or AWS_DEFAULT_REGION) for discovery."
+fi
+
+if [ -z "$API_URL" ] && _has_aws_creds && [ -n "$AWS_REGION_EFFECTIVE" ]; then
+  API_ID=$(aws cloudformation describe-stack-resources \
+    --stack-name "$STACK_NAME" \
+    --query "StackResources[?ResourceType=='AWS::ApiGatewayV2::Api' && contains(LogicalResourceId, 'AdminApi')].PhysicalResourceId | [0]" \
+    --output text 2>/dev/null || true)
+
+  if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
+    API_URL=$(aws apigatewayv2 get-api \
+      --api-id "$API_ID" \
+      --query "ApiEndpoint" \
+      --output text 2>/dev/null || true)
+  fi
+fi
+
+if [ -z "$API_URL" ] && _has_aws_creds && [ -n "$AWS_REGION_EFFECTIVE" ]; then
+  # Fallback: CloudFormation output export (may be a custom domain)
   API_URL=$(aws cloudformation describe-stacks \
     --stack-name "$STACK_NAME" \
     --query "Stacks[0].Outputs[?ExportName=='swarm-admin-api-url-${ENV}'].OutputValue | [0]" \
     --output text 2>/dev/null || true)
 fi
 
-# Last resort: legacy name-matching on APIGW list
-if [ -z "$API_URL" ] || [ "$API_URL" = "None" ] || [ "$API_URL" = "null" ]; then
+if [ -z "$API_URL" ] && _has_aws_creds && [ -n "$AWS_REGION_EFFECTIVE" ]; then
+  # Last resort: legacy name-matching on APIGW list
   API_URL=$(aws apigatewayv2 get-apis --output json 2>/dev/null | \
     jq -r ".Items[] | select(.Name | contains(\"$ENV\")) | select(.Name | contains(\"Admin\")) | .ApiEndpoint" | head -1)
 fi
@@ -48,22 +83,41 @@ fi
 if [ -z "$API_URL" ] || [ "$API_URL" = "None" ] || [ "$API_URL" = "null" ]; then
   echo "Error: Could not find API URL for environment: $ENV"
   echo "Hint: Ensure stack '$STACK_NAME' is deployed and includes an Admin API (AWS::ApiGatewayV2::Api)."
+  if ! _has_aws_creds; then
+    echo "Hint: AWS credentials are not available in this environment."
+  fi
+  if [ -z "$AWS_REGION_EFFECTIVE" ]; then
+    echo "Hint: AWS region not set (AWS_REGION/AWS_DEFAULT_REGION)."
+  fi
+  echo "Hint: You can bypass discovery by setting SWARM_ADMIN_API_URL=https://..."
   exit 1
 fi
 
 # Get the internal test key from Lambda environment
 # Use CloudFormation to find the function name (more reliable and requires fewer permissions)
-FUNCTION_NAME=$(aws cloudformation describe-stack-resources \
-  --stack-name "$STACK_NAME" \
-  --query "StackResources[?ResourceType=='AWS::Lambda::Function' && contains(LogicalResourceId, 'ChatHandler')].PhysicalResourceId" \
-  --output text 2>/dev/null | head -1)
+if [ -n "$SWARM_INTERNAL_TEST_KEY" ]; then
+  INTERNAL_TEST_KEY="$SWARM_INTERNAL_TEST_KEY"
+else
+  if ! _has_aws_creds; then
+    echo "Error: AWS credentials not available to fetch INTERNAL_TEST_KEY from Lambda."
+    echo "Hint: Provide SWARM_INTERNAL_TEST_KEY to bypass Lambda lookup, or configure AWS credentials."
+    exit 1
+  fi
 
-if [ -z "$FUNCTION_NAME" ]; then
-  echo "Error: Could not find ChatHandler Lambda in stack: $STACK_NAME"
-  exit 1
+  # Get the internal test key from Lambda environment
+  # Use CloudFormation to find the function name (more reliable and requires fewer permissions)
+  FUNCTION_NAME=$(aws cloudformation describe-stack-resources \
+    --stack-name "$STACK_NAME" \
+    --query "StackResources[?ResourceType=='AWS::Lambda::Function' && contains(LogicalResourceId, 'ChatHandler')].PhysicalResourceId" \
+    --output text 2>/dev/null | head -1)
+
+  if [ -z "$FUNCTION_NAME" ]; then
+    echo "Error: Could not find ChatHandler Lambda in stack: $STACK_NAME"
+    exit 1
+  fi
+
+  INTERNAL_TEST_KEY=$(aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --query "Environment.Variables.INTERNAL_TEST_KEY" --output text)
 fi
-
-INTERNAL_TEST_KEY=$(aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --query "Environment.Variables.INTERNAL_TEST_KEY" --output text)
 
 if [ -z "$INTERNAL_TEST_KEY" ] || [ "$INTERNAL_TEST_KEY" == "None" ]; then
   echo "Error: INTERNAL_TEST_KEY not set for $FUNCTION_NAME"
