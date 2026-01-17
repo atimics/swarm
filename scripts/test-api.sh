@@ -16,22 +16,38 @@ BODY=${3:-'{}'}
 METHOD=${4:-POST}
 
 # Get the API URL.
-# Prefer CloudFormation exports (stable), fall back to APIGW name matching (legacy).
+# Prefer the raw API Gateway endpoint (bypasses custom domains / Cloudflare).
 STACK_NAME="SwarmStack-$ENV"
 
-API_URL=$(aws cloudformation describe-stacks \
+API_ID=$(aws cloudformation describe-stack-resources \
   --stack-name "$STACK_NAME" \
-  --query "Stacks[0].Outputs[?ExportName=='swarm-admin-api-url-${ENV}'].OutputValue | [0]" \
+  --query "StackResources[?ResourceType=='AWS::ApiGatewayV2::Api' && contains(LogicalResourceId, 'AdminApi')].PhysicalResourceId | [0]" \
   --output text 2>/dev/null || true)
 
+if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
+  API_URL=$(aws apigatewayv2 get-api \
+    --api-id "$API_ID" \
+    --query "ApiEndpoint" \
+    --output text 2>/dev/null || true)
+fi
+
+# Fallback: CloudFormation export (may be a custom domain)
 if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
+  API_URL=$(aws cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
+    --query "Stacks[0].Outputs[?ExportName=='swarm-admin-api-url-${ENV}'].OutputValue | [0]" \
+    --output text 2>/dev/null || true)
+fi
+
+# Last resort: legacy name-matching on APIGW list
+if [ -z "$API_URL" ] || [ "$API_URL" = "None" ] || [ "$API_URL" = "null" ]; then
   API_URL=$(aws apigatewayv2 get-apis --output json 2>/dev/null | \
     jq -r ".Items[] | select(.Name | contains(\"$ENV\")) | select(.Name | contains(\"Admin\")) | .ApiEndpoint" | head -1)
 fi
 
-if [ -z "$API_URL" ] || [ "$API_URL" = "null" ]; then
+if [ -z "$API_URL" ] || [ "$API_URL" = "None" ] || [ "$API_URL" = "null" ]; then
   echo "Error: Could not find API URL for environment: $ENV"
-  echo "Hint: Ensure stack '$STACK_NAME' is deployed and exports 'swarm-admin-api-url-$ENV'."
+  echo "Hint: Ensure stack '$STACK_NAME' is deployed and includes an Admin API (AWS::ApiGatewayV2::Api)."
   exit 1
 fi
 
