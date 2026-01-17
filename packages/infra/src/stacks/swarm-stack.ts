@@ -212,7 +212,9 @@ export class SwarmStack extends cdk.Stack {
         privyJwtVerificationKeyArn,
         environment,
         adminDomain,
-        // No apiDomain - API is accessed through admin UI CloudFront /api/* path
+        // Use adminDomain for API callbacks - API is served via CloudFront /api/* path
+        // No apiCertificateArn means no API Gateway custom domain is created
+        apiDomain: adminDomain,
         stateTable: this.shared.stateTable,
         // Media infrastructure for image/video generation
         mediaBucket: this.shared.mediaBucket,
