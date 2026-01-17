@@ -15,6 +15,22 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 export type IdentityType = 'wallet' | 'crossmint';
 
+export interface AccountsServiceDeps {
+  dynamoClient: { send: (command: unknown) => Promise<unknown> };
+  tableName: string;
+  now: () => number;
+  uuid: () => string;
+}
+
+function getDefaultDeps(): AccountsServiceDeps {
+  return {
+    dynamoClient,
+    tableName: ADMIN_TABLE,
+    now: () => Date.now(),
+    uuid: () => randomUUID(),
+  };
+}
+
 export interface AccountRecord {
   pk: string; // ACCOUNT#<accountId>
   sk: 'PROFILE';
@@ -64,11 +80,12 @@ function accountIdentitySk(type: IdentityType, providerId: string): string {
 
 export async function getAccountIdForIdentity(
   type: IdentityType,
-  providerId: string
+  providerId: string,
+  deps: AccountsServiceDeps = getDefaultDeps()
 ): Promise<string | null> {
-  const result = await dynamoClient.send(
+  const result = await deps.dynamoClient.send(
     new GetCommand({
-      TableName: ADMIN_TABLE,
+      TableName: deps.tableName,
       Key: { pk: identityPk(type, providerId), sk: 'ACCOUNT' },
     })
   );
@@ -77,9 +94,9 @@ export async function getAccountIdForIdentity(
   return mapping?.accountId ?? null;
 }
 
-async function createAccount(): Promise<AccountRecord> {
-  const now = Date.now();
-  const accountId = randomUUID();
+async function createAccount(deps: AccountsServiceDeps): Promise<AccountRecord> {
+  const now = deps.now();
+  const accountId = deps.uuid();
   const record: AccountRecord = {
     pk: accountPk(accountId),
     sk: 'PROFILE',
@@ -88,9 +105,9 @@ async function createAccount(): Promise<AccountRecord> {
     createdAt: now,
   };
 
-  await dynamoClient.send(
+  await deps.dynamoClient.send(
     new PutCommand({
-      TableName: ADMIN_TABLE,
+      TableName: deps.tableName,
       Item: record,
       ConditionExpression: 'attribute_not_exists(pk)',
     })
@@ -103,21 +120,21 @@ export async function ensureIdentityLinkedToAccount(params: {
   accountId: string;
   type: IdentityType;
   providerId: string;
-}): Promise<{ linked: boolean; conflict: boolean; existingAccountId?: string }> {
+}, deps: AccountsServiceDeps = getDefaultDeps()): Promise<{ linked: boolean; conflict: boolean; existingAccountId?: string }> {
   const { accountId, type, providerId } = params;
 
-  const existingAccountId = await getAccountIdForIdentity(type, providerId);
+  const existingAccountId = await getAccountIdForIdentity(type, providerId, deps);
   if (existingAccountId && existingAccountId !== accountId) {
     return { linked: false, conflict: true, existingAccountId };
   }
 
-  const now = Date.now();
+  const now = deps.now();
 
   if (!existingAccountId) {
     try {
-      await dynamoClient.send(
+      await deps.dynamoClient.send(
         new PutCommand({
-          TableName: ADMIN_TABLE,
+          TableName: deps.tableName,
           Item: {
             pk: identityPk(type, providerId),
             sk: 'ACCOUNT',
@@ -131,7 +148,7 @@ export async function ensureIdentityLinkedToAccount(params: {
       );
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'ConditionalCheckFailedException') {
-        const winner = await getAccountIdForIdentity(type, providerId);
+        const winner = await getAccountIdForIdentity(type, providerId, deps);
         if (winner && winner !== accountId) {
           return { linked: false, conflict: true, existingAccountId: winner };
         }
@@ -143,9 +160,9 @@ export async function ensureIdentityLinkedToAccount(params: {
   }
 
   // Idempotently attach identity under the account partition for listing.
-  await dynamoClient.send(
+  await deps.dynamoClient.send(
     new PutCommand({
-      TableName: ADMIN_TABLE,
+      TableName: deps.tableName,
       Item: {
         pk: accountPk(accountId),
         sk: accountIdentitySk(type, providerId),
@@ -159,17 +176,17 @@ export async function ensureIdentityLinkedToAccount(params: {
   return { linked: true, conflict: false };
 }
 
-export async function getOrCreateAccountForWallet(walletAddress: string): Promise<string> {
-  const existing = await getAccountIdForIdentity('wallet', walletAddress);
+export async function getOrCreateAccountForWallet(walletAddress: string, deps: AccountsServiceDeps = getDefaultDeps()): Promise<string> {
+  const existing = await getAccountIdForIdentity('wallet', walletAddress, deps);
   if (existing) return existing;
 
-  const account = await createAccount();
+  const account = await createAccount(deps);
 
   const linkResult = await ensureIdentityLinkedToAccount({
     accountId: account.accountId,
     type: 'wallet',
     providerId: walletAddress,
-  });
+  }, deps);
 
   if (linkResult.conflict && linkResult.existingAccountId) {
     return linkResult.existingAccountId;
@@ -181,48 +198,48 @@ export async function getOrCreateAccountForWallet(walletAddress: string): Promis
 export async function getOrCreateAccountForCrossmint(params: {
   crossmintUserId: string;
   walletAddress?: string;
-}): Promise<string> {
+}, deps: AccountsServiceDeps = getDefaultDeps()): Promise<string> {
   const { crossmintUserId, walletAddress } = params;
 
   // Prefer existing wallet identity if present: this auto-merges Crossmint identity into the wallet-owned account.
   if (walletAddress) {
-    const accountForWallet = await getAccountIdForIdentity('wallet', walletAddress);
+    const accountForWallet = await getAccountIdForIdentity('wallet', walletAddress, deps);
     if (accountForWallet) {
       await ensureIdentityLinkedToAccount({
         accountId: accountForWallet,
         type: 'crossmint',
         providerId: crossmintUserId,
-      });
+      }, deps);
       return accountForWallet;
     }
   }
 
-  const accountForCrossmint = await getAccountIdForIdentity('crossmint', crossmintUserId);
+  const accountForCrossmint = await getAccountIdForIdentity('crossmint', crossmintUserId, deps);
   if (accountForCrossmint) {
     if (walletAddress) {
       await ensureIdentityLinkedToAccount({
         accountId: accountForCrossmint,
         type: 'wallet',
         providerId: walletAddress,
-      });
+      }, deps);
     }
     return accountForCrossmint;
   }
 
-  const account = await createAccount();
+  const account = await createAccount(deps);
 
   await ensureIdentityLinkedToAccount({
     accountId: account.accountId,
     type: 'crossmint',
     providerId: crossmintUserId,
-  });
+  }, deps);
 
   if (walletAddress) {
     await ensureIdentityLinkedToAccount({
       accountId: account.accountId,
       type: 'wallet',
       providerId: walletAddress,
-    });
+    }, deps);
   }
 
   return account.accountId;
@@ -238,14 +255,14 @@ export async function linkCrossmintIdentityToAccount(params: {
   accountId: string;
   crossmintUserId: string;
   walletAddress?: string;
-}): Promise<LinkIdentityResult> {
+}, deps: AccountsServiceDeps = getDefaultDeps()): Promise<LinkIdentityResult> {
   const { accountId, crossmintUserId, walletAddress } = params;
 
   const crossmintLink = await ensureIdentityLinkedToAccount({
     accountId,
     type: 'crossmint',
     providerId: crossmintUserId,
-  });
+  }, deps);
 
   if (crossmintLink.conflict && crossmintLink.existingAccountId) {
     return {
@@ -264,7 +281,7 @@ export async function linkCrossmintIdentityToAccount(params: {
       accountId,
       type: 'wallet',
       providerId: walletAddress,
-    });
+    }, deps);
 
     if (walletLink.conflict && walletLink.existingAccountId) {
       return {
@@ -282,10 +299,10 @@ export async function linkCrossmintIdentityToAccount(params: {
   return { success: true };
 }
 
-export async function getAccountSummary(accountId: string): Promise<AccountSummary | null> {
-  const accountResult = await dynamoClient.send(
+export async function getAccountSummary(accountId: string, deps: AccountsServiceDeps = getDefaultDeps()): Promise<AccountSummary | null> {
+  const accountResult = await deps.dynamoClient.send(
     new GetCommand({
-      TableName: ADMIN_TABLE,
+      TableName: deps.tableName,
       Key: { pk: accountPk(accountId), sk: 'PROFILE' },
     })
   );
@@ -293,9 +310,9 @@ export async function getAccountSummary(accountId: string): Promise<AccountSumma
   const account = accountResult.Item as AccountRecord | undefined;
   if (!account) return null;
 
-  const identitiesResult = await dynamoClient.send(
+  const identitiesResult = await deps.dynamoClient.send(
     new QueryCommand({
-      TableName: ADMIN_TABLE,
+      TableName: deps.tableName,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
       ExpressionAttributeValues: {
         ':pk': accountPk(accountId),

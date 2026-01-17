@@ -11,12 +11,14 @@ import bs58 from 'bs58';
 import { useWalletAuth } from '../store/walletAuth';
 import { useCrossmintAuth } from '../store/crossmintAuth';
 import { useAuth } from '../store/auth';
+import { decideWalletConnectionDecision } from '../auth/wallet-connection';
+import { formatAddress as formatWalletAddress, getLinkedWalletDisplay } from '../auth/linked-wallets';
 
 interface WalletLoginProps {
   className?: string;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env?.VITE_API_URL ?? process.env.VITE_API_URL ?? '';
 
 export function WalletLogin({ className = '' }: WalletLoginProps) {
   const { publicKey, connected, signMessage, disconnect } = useWallet();
@@ -65,45 +67,48 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
 
   // When wallet connects or changes, trigger login flow
   useEffect(() => {
-    // Check if signMessage is available (not all wallets/states have it)
-    if (!signMessage || typeof signMessage !== 'function') {
+    const publicKeyStr = publicKey ? publicKey.toBase58() : null;
+    const hasSignMessage = !!signMessage && typeof signMessage === 'function';
+
+    const decision = decideWalletConnectionDecision({
+      connected,
+      publicKeyStr,
+      hasSignMessage,
+      isLoading,
+      isAuthenticated,
+      authProvider,
+      currentUserWalletAddress: user?.walletAddress ?? null,
+      loginAttemptedWallet: loginAttemptedRef.current,
+    });
+
+    if (decision.type === 'reset') {
+      loginAttemptedRef.current = null;
+      setPendingWalletSwitch(null);
       return;
     }
 
-    if (connected && publicKey && !isLoading) {
-      const publicKeyStr = publicKey.toBase58();
-
-      // If Crossmint is the active auth provider and the connected wallet differs,
-      // do NOT auto-logout/auto-login (this caused confusing loops).
-      if (authProvider === 'crossmint' && isAuthenticated && user && user.walletAddress !== publicKeyStr) {
-        setPendingWalletSwitch(publicKeyStr);
-        return;
-      }
-      
-      // If authenticated but with different wallet, logout first
-      if (isAuthenticated && user && user.walletAddress !== publicKeyStr) {
-        console.log('[WalletLogin] Wallet changed, re-authenticating...');
-        loginAttemptedRef.current = null;
-        walletLogout().then(() => {
-          // After logout, the next render will trigger login with new wallet
-        });
-        return;
-      }
-      
-      // Only attempt login if we haven't already tried for this wallet
-      if (!isAuthenticated && loginAttemptedRef.current !== publicKeyStr) {
-        loginAttemptedRef.current = publicKeyStr;
-        login(signMessage, publicKeyStr).catch((err) => {
-          console.error('Login failed:', err);
-          // Keep loginAttemptedRef set to prevent retry loop
-        });
-      }
+    if (decision.type === 'promptSwitch') {
+      setPendingWalletSwitch(decision.walletAddress);
+      return;
     }
-    
-    // Reset attempt tracker when wallet disconnects
-    if (!connected) {
+
+    if (decision.type === 'logoutAndReauth') {
+      console.log('[WalletLogin] Wallet changed, re-authenticating...');
       loginAttemptedRef.current = null;
-      setPendingWalletSwitch(null);
+      walletLogout().then(() => {
+        // After logout, the next render will trigger login with new wallet
+      });
+      return;
+    }
+
+    if (decision.type === 'attemptLogin') {
+      if (!hasSignMessage || !signMessage || typeof signMessage !== 'function') return;
+
+      loginAttemptedRef.current = decision.walletAddress;
+      login(signMessage, decision.walletAddress).catch((err) => {
+        console.error('Login failed:', err);
+        // Keep loginAttemptedRef set to prevent retry loop
+      });
     }
   }, [connected, publicKey, signMessage, isAuthenticated, isLoading, login, walletLogout, user, authProvider]);
 
@@ -273,9 +278,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   }, [crossmintAuth, crossmintLogout, walletLogout, disconnect]);
 
   // Format wallet address for display
-  const formatAddress = (address: string) => {
-    return `${address.slice(0, 4)}...${address.slice(-4)}`;
-  };
+  const formatAddress = formatWalletAddress;
 
   const sortedGateWallets = Object.entries(gateStatusByWallet || {})
     .sort((a, b) => (b[1]?.nftsHeld || 0) - (a[1]?.nftsHeld || 0));
@@ -301,11 +304,11 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
       ? formatAddress(user.walletAddress) // Show truncated wallet for Crossmint users
       : undefined; // Don't show wallet twice for wallet users
 
-    const linkedWalletLabels = linkedWallets
-      .filter(w => w !== user.walletAddress)
-      .slice(0, 2)
-      .map(formatAddress);
-    const linkedWalletOverflow = Math.max(0, linkedWallets.filter(w => w !== user.walletAddress).length - linkedWalletLabels.length);
+    const { labels: linkedWalletLabels, overflow: linkedWalletOverflow } = getLinkedWalletDisplay({
+      linkedWallets,
+      primaryWallet: user.walletAddress,
+      maxLabels: 2,
+    });
 
     return (
       <div className={`flex items-center gap-2 ${className}`}>

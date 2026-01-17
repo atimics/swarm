@@ -1589,6 +1589,12 @@ export function createTelegramMCPServices(avatarId: string): AllServices {
 function createPropertyServices(_avatarId: string, _session: UserSession): PropertyServices {
   const webSearch = createWebSearch();
 
+  const isPropertyResearchStatus = (
+    value: string
+  ): value is 'queued' | 'researching' | 'completed' | 'failed' => {
+    return value === 'queued' || value === 'researching' || value === 'completed' || value === 'failed';
+  };
+
   return {
     // Authorization
     checkAuth: async (avatarId: string, walletAddress: string) => {
@@ -1612,11 +1618,9 @@ function createPropertyServices(_avatarId: string, _session: UserSession): Prope
       return propertyResearch.getJob(jobId);
     },
 
-    getJobsForAvatar: async (
-      avatarId: string,
-      statusFilter?: string
-    ) => {
-      return propertyResearch.getJobsForAvatar(avatarId, statusFilter as any);
+    getJobsForAvatar: async (avatarId: string, statusFilter?: string) => {
+      const parsedStatus = statusFilter && isPropertyResearchStatus(statusFilter) ? statusFilter : undefined;
+      return propertyResearch.getJobsForAvatar(avatarId, parsedStatus);
     },
 
     deleteJob: async (jobId: string) => {

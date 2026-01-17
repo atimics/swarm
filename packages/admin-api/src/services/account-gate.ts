@@ -7,14 +7,22 @@ export interface AccountGateStatusResult {
   gateStatusByWallet: Record<string, GateStatus>;
 }
 
+export interface AccountGateDeps {
+  getAccountSummary: typeof getAccountSummary;
+  getGateStatus: typeof getGateStatus;
+}
+
 /**
  * Compute gate status at the account level.
  *
  * Current implementation selects the "best" linked wallet (max availableSlots, then nftsHeld)
  * and returns its GateStatus as the account-level status.
  */
-export async function getAccountGateStatus(accountId: string): Promise<AccountGateStatusResult> {
-  const account = await getAccountSummary(accountId);
+export async function getAccountGateStatus(
+  accountId: string,
+  deps: AccountGateDeps = { getAccountSummary, getGateStatus }
+): Promise<AccountGateStatusResult> {
+  const account = await deps.getAccountSummary(accountId);
   const walletAddresses =
     account?.identities
       .filter((i) => i.type === 'wallet')
@@ -34,7 +42,7 @@ export async function getAccountGateStatus(accountId: string): Promise<AccountGa
   const statuses = await Promise.all(
     uniqueWallets.map(async (walletAddress) => ({
       walletAddress,
-      gateStatus: await getGateStatus(walletAddress),
+      gateStatus: await deps.getGateStatus(walletAddress),
     }))
   );
 
