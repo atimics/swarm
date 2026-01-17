@@ -310,13 +310,13 @@ jobs:
           fi
 
       - name: Run Telegram E2E
-        # Note: Don't set SWARM_ADMIN_API_URL here - webhooks need raw API Gateway
+        # Note: Don't set SWARM_ADMIN_API_URL here - all API tests need raw API Gateway
         # to bypass Cloudflare Access (which protects the CloudFront domain)
         run: ./scripts/test-e2e.sh telegram "$E2E_TELEGRAM_AGENT_ID" "ci-telegram-${GITHUB_RUN_ID}" staging
 
       - name: Run Web E2E
-        env:
-          SWARM_ADMIN_API_URL: ${{ needs.setup.outputs.api_url }}
+        # Note: Don't set SWARM_ADMIN_API_URL here - all API tests need raw API Gateway
+        # to bypass Cloudflare Access (which protects the CloudFront domain)
         run: ./scripts/test-e2e.sh web "$E2E_WEB_AGENT_ID" "ci-web-${GITHUB_RUN_ID}" staging
 
   browser:
