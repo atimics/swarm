@@ -14,8 +14,22 @@ interface PrivyProviderProps {
 
 export function PrivyProvider({ children }: PrivyProviderProps) {
   if (!PRIVY_APP_ID) {
-    console.warn('[Privy] No app id configured - Privy auth disabled');
-    return <>{children}</>;
+    console.error('[Privy] Missing VITE_PRIVY_APP_ID');
+    return (
+      <div className="min-h-screen bg-[#0b0614] text-white flex items-center justify-center p-6">
+        <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-6">
+          <h1 className="text-xl font-semibold">Privy is not configured</h1>
+          <p className="mt-3 text-sm text-white/70">
+            This app requires a Privy App ID to enable sign-in. Set{' '}
+            <span className="font-mono text-white/90">VITE_PRIVY_APP_ID</span> and restart the dev server
+            (or rebuild the deployed UI).
+          </p>
+          <pre className="mt-4 overflow-x-auto rounded-xl bg-black/40 p-4 text-xs text-white/80">
+VITE_PRIVY_APP_ID=your_privy_app_id
+          </pre>
+        </div>
+      </div>
+    );
   }
 
   return (
