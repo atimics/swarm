@@ -52,3 +52,4 @@ coverage/
 secrets.json
 *.pem
 *.key
+proxim8_nfts.db
