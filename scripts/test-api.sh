@@ -15,17 +15,28 @@ ENDPOINT=${2:-chat}
 BODY=${3:-'{}'}
 METHOD=${4:-POST}
 
-# Get the API Gateway URL
-API_URL=$(aws apigatewayv2 get-apis --output json | jq -r ".Items[] | select(.Name | contains(\"$ENV\")) | select(.Name | contains(\"Admin\")) | .ApiEndpoint")
+# Get the API URL.
+# Prefer CloudFormation exports (stable), fall back to APIGW name matching (legacy).
+STACK_NAME="SwarmStack-$ENV"
 
-if [ -z "$API_URL" ]; then
-  echo "Error: Could not find API Gateway for environment: $ENV"
+API_URL=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?ExportName=='swarm-admin-api-url-${ENV}'].OutputValue | [0]" \
+  --output text 2>/dev/null || true)
+
+if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
+  API_URL=$(aws apigatewayv2 get-apis --output json 2>/dev/null | \
+    jq -r ".Items[] | select(.Name | contains(\"$ENV\")) | select(.Name | contains(\"Admin\")) | .ApiEndpoint" | head -1)
+fi
+
+if [ -z "$API_URL" ] || [ "$API_URL" = "null" ]; then
+  echo "Error: Could not find API URL for environment: $ENV"
+  echo "Hint: Ensure stack '$STACK_NAME' is deployed and exports 'swarm-admin-api-url-$ENV'."
   exit 1
 fi
 
 # Get the internal test key from Lambda environment
 # Use CloudFormation to find the function name (more reliable and requires fewer permissions)
-STACK_NAME="SwarmStack-$ENV"
 FUNCTION_NAME=$(aws cloudformation describe-stack-resources \
   --stack-name "$STACK_NAME" \
   --query "StackResources[?ResourceType=='AWS::Lambda::Function' && contains(LogicalResourceId, 'ChatHandler')].PhysicalResourceId" \
