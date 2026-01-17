@@ -31,6 +31,22 @@ function humanizeCrossmintLinkError(error: unknown): string {
   return message || 'Failed to link email/social';
 }
 
+function humanizeWalletLinkError(error: unknown): string {
+  const anyErr = error as { name?: string; message?: string };
+  const name = typeof anyErr?.name === 'string' ? anyErr.name : '';
+  const message = typeof anyErr?.message === 'string' ? anyErr.message : String(error);
+
+  if (name.includes('Wallet') && /unexpected error/i.test(message)) {
+    return 'Phantom returned an unexpected error while signing. Try: unlock Phantom, approve the signature prompt, then disconnect/reconnect the wallet. If it persists, restart Chrome.';
+  }
+
+  if (name.includes('Wallet') && /user rejected|rejected/i.test(message)) {
+    return 'Signature was cancelled in Phantom.';
+  }
+
+  return message || 'Failed to link wallet';
+}
+
 export function WalletLogin({ className = '' }: WalletLoginProps) {
   const { publicKey, connected, signMessage, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
@@ -56,9 +72,6 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
 
   // Destructure wallet-specific methods
   const { login, logout: walletLogout, checkAuth } = walletAuth;
-
-  const [detachingCrossmint, setDetachingCrossmint] = useState(false);
-  const [detachCrossmintError, setDetachCrossmintError] = useState<string | null>(null);
 
   // Track if we've attempted login for current wallet connection
   // Prevents infinite loop when login fails
@@ -206,7 +219,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
       setPendingWalletSwitch(null);
     } catch (err) {
       console.error('[WalletLogin] Link wallet error:', err);
-      setLinkWalletError(err instanceof Error ? err.message : 'Failed to link wallet');
+      setLinkWalletError(humanizeWalletLinkError(err));
     } finally {
       setLinkingWallet(false);
     }
@@ -475,57 +488,6 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                   </div>
                 )}
 
-                {account?.identities?.some(i => i.type === 'crossmint') && (
-                  <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-xs font-medium text-[var(--color-text)]">Linked sign-ins</div>
-                        <div className="text-xs text-[var(--color-text-secondary)] mt-1">
-                          Email/social sign-in (Crossmint)
-                        </div>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          const crossmintIds = (account?.identities ?? []).filter(i => i.type === 'crossmint').map(i => i.providerId);
-                          const crossmintUserId = crossmintIds[0];
-                          if (!crossmintUserId) return;
-
-                          setDetachCrossmintError(null);
-                          setDetachingCrossmint(true);
-                          try {
-                            const resp = await fetch(`${API_BASE}/auth/link/crossmint/detach`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              credentials: 'include',
-                              body: JSON.stringify({ crossmintUserId }),
-                            });
-                            const data = await resp.json().catch(() => ({}));
-                            if (!resp.ok) {
-                              throw new Error((data as { error?: string }).error || 'Failed to detach email/social sign-in');
-                            }
-
-                            // Refresh wallet-backed session data; unified auth may use this when Crossmint state is stale.
-                            await checkAuth();
-                          } catch (e) {
-                            setDetachCrossmintError(e instanceof Error ? e.message : String(e));
-                          } finally {
-                            setDetachingCrossmint(false);
-                          }
-                        }}
-                        disabled={detachingCrossmint}
-                        className="text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] disabled:opacity-50"
-                        title="Detach Crossmint email/social sign-in from this account"
-                      >
-                        {detachingCrossmint ? 'Detaching…' : 'Detach'}
-                      </button>
-                    </div>
-
-                    {detachCrossmintError && (
-                      <div className="mt-2 text-xs text-red-400">{detachCrossmintError}</div>
-                    )}
-                  </div>
-                )}
-
                 <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -591,9 +553,33 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                   <div className="rounded-lg border border-brand-500/30 bg-brand-500/10 p-3">
                     <div className="text-sm font-medium text-[var(--color-text)]">Limited mode</div>
                     <div className="text-xs text-[var(--color-text-secondary)] mt-1">
-                      Your embedded wallet has no Orbs. To unlock Orb-gated features, connect your existing wallet that holds Orbs and choose <span className="font-medium">Link</span>.
+                      Your embedded wallet has no Orbs. Mint <span className="font-medium">(limited supply)</span>, buy an Orb, or connect a wallet that already holds Orbs and choose <span className="font-medium">Link</span>.
                     </div>
                     <div className="mt-2 flex gap-2">
+                      <a
+                        href="https://www.launchmynft.io/collections/8e55demQ2mUvLDYFvq7D28UartGaK9F9NacQod15eChH/mdMATMxEwub25fM2Ak4o"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text)] text-xs"
+                      >
+                        Mint (limited supply)
+                      </a>
+                      <a
+                        href="https://magiceden.io/marketplace/open_rati_nft_mint"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text)] text-xs"
+                      >
+                        Buy on Magic Eden
+                      </a>
+                      <a
+                        href="https://www.tensor.trade/trade/open_rati_nft_mint"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text)] text-xs"
+                      >
+                        Buy on Tensor
+                      </a>
                       <button
                         onClick={handleConnect}
                         className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium"

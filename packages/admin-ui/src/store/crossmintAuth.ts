@@ -48,7 +48,7 @@ interface CrossmintAuthState {
   syncWithBackend: (crossmintJwt: string, crossmintUser: {
     id: string;
     email?: string;
-    wallet?: { address: string };
+    wallet?: { address?: string };
   }) => Promise<void>;
   logout: () => Promise<void>;
   resetLocal: () => void;
@@ -73,11 +73,9 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
        * Creates/updates user record and session based on Crossmint wallet address
        */
       syncWithBackend: async (crossmintJwt, crossmintUser) => {
-        // Guard: Require wallet address
-        if (!crossmintUser.wallet?.address) {
-          console.warn('[CrossmintAuth] Cannot sync: wallet address not available');
-          set({ isLoading: false, error: 'Wallet address not available. Please ensure your wallet is set up in Crossmint.' });
-          return; // Don't throw - prevents retry loops
+        const walletAddress = crossmintUser.wallet?.address;
+        if (!walletAddress) {
+          console.warn('[CrossmintAuth] Wallet address not available yet; attempting backend verify without it');
         }
 
         // Guard: Don't sync if already syncing or authenticated
@@ -86,7 +84,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
           console.debug('[CrossmintAuth] Sync already in progress, skipping');
           return;
         }
-        if (state.isAuthenticated && state.user?.walletAddress === crossmintUser.wallet.address) {
+        if (walletAddress && state.isAuthenticated && state.user?.walletAddress === walletAddress) {
           console.debug('[CrossmintAuth] Already authenticated with this wallet');
           return;
         }
@@ -101,7 +99,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
               jwt: crossmintJwt,
               userId: crossmintUser.id,
               email: crossmintUser.email,
-              walletAddress: crossmintUser.wallet.address,
+              walletAddress,
             }),
             credentials: 'include',
           });

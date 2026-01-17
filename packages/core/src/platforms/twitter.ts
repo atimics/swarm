@@ -176,17 +176,34 @@ export class TwitterAdapter extends PlatformAdapter {
     // Handle media upload
     if (media && media.length > 0) {
       const mediaIds: string[] = [];
-      
+
       for (const item of media) {
         try {
           // Download the media and upload to Twitter
           const response = await fetch(item.url);
           const buffer = Buffer.from(await response.arrayBuffer());
-          
+
+          // Detect MIME type from Content-Type header or URL
+          let mimeType = 'image/png';
+          if (item.type === 'video') {
+            mimeType = 'video/mp4';
+          } else {
+            const contentType = response.headers.get('content-type');
+            if (contentType && !['application/octet-stream', 'binary/octet-stream'].includes(contentType)) {
+              mimeType = contentType.split(';')[0];
+            } else {
+              // Infer from URL extension
+              const urlLower = item.url.toLowerCase();
+              if (urlLower.includes('.webp')) mimeType = 'image/webp';
+              else if (urlLower.includes('.jpg') || urlLower.includes('.jpeg')) mimeType = 'image/jpeg';
+              else if (urlLower.includes('.gif')) mimeType = 'image/gif';
+            }
+          }
+
           const mediaId = await this.client.v1.uploadMedia(buffer, {
-            mimeType: item.type === 'video' ? 'video/mp4' : 'image/png',
+            mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'video/mp4',
           });
-          
+
           mediaIds.push(mediaId);
         } catch (error) {
           console.error('Failed to upload media to Twitter:', error);
@@ -252,14 +269,35 @@ export class TwitterAdapter extends PlatformAdapter {
 
     if (media && media.length > 0) {
       const mediaIds: string[] = [];
-      
+
       for (const item of media.slice(0, 4)) {
-        const response = await fetch(item.url);
-        const buffer = Buffer.from(await response.arrayBuffer());
-        const mediaId = await this.client.v1.uploadMedia(buffer, {
-          mimeType: item.type === 'video' ? 'video/mp4' : 'image/png',
-        });
-        mediaIds.push(mediaId);
+        try {
+          const response = await fetch(item.url);
+          const buffer = Buffer.from(await response.arrayBuffer());
+
+          // Detect MIME type from Content-Type header or URL
+          let mimeType = 'image/png';
+          if (item.type === 'video') {
+            mimeType = 'video/mp4';
+          } else {
+            const contentType = response.headers.get('content-type');
+            if (contentType && !['application/octet-stream', 'binary/octet-stream'].includes(contentType)) {
+              mimeType = contentType.split(';')[0];
+            } else {
+              const urlLower = item.url.toLowerCase();
+              if (urlLower.includes('.webp')) mimeType = 'image/webp';
+              else if (urlLower.includes('.jpg') || urlLower.includes('.jpeg')) mimeType = 'image/jpeg';
+              else if (urlLower.includes('.gif')) mimeType = 'image/gif';
+            }
+          }
+
+          const mediaId = await this.client.v1.uploadMedia(buffer, {
+            mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'video/mp4',
+          });
+          mediaIds.push(mediaId);
+        } catch (error) {
+          console.error('Failed to upload media to Twitter:', error);
+        }
       }
 
       if (mediaIds.length > 0) {
