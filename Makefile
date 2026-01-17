@@ -17,6 +17,10 @@ help:
 	@echo ""
 	@echo "  make secrets      - Setup AWS Secrets Manager (staging)"
 	@echo "  make secrets-prod - Setup AWS Secrets Manager (production)"
+	@echo "  make cdkctx-pull   - Download infra context from S3 (staging)"
+	@echo "  make cdkctx-push   - Upload infra context to S3 (staging)"
+	@echo "  make cdkctx-pull-prod - Download infra context from S3 (production)"
+	@echo "  make cdkctx-push-prod - Upload infra context to S3 (production)"
 	@echo "  make gh-secrets   - Manage GitHub repository secrets (CI/CD)"
 	@echo ""
 	@echo "  make deploy       - Deploy to staging (via GitHub Actions)"
@@ -54,6 +58,19 @@ secrets:
 
 secrets-prod:
 	./scripts/setup-secrets.sh prod
+
+# CDK context sync (requires SWARM_CDK_CONTEXT_BUCKET)
+cdkctx-pull:
+	./scripts/sync-cdk-context.sh staging pull
+
+cdkctx-push:
+	./scripts/sync-cdk-context.sh staging push
+
+cdkctx-pull-prod:
+	./scripts/sync-cdk-context.sh prod pull
+
+cdkctx-push-prod:
+	./scripts/sync-cdk-context.sh prod push
 
 # GitHub Secrets (CI/CD)
 gh-secrets:

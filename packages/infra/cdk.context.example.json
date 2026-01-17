@@ -1,0 +1,42 @@
+{
+  "environments": {
+    "staging": {
+      "adminDomain": "admin-staging.example.com",
+      "adminCertificateArn": "arn:aws:acm:...",
+      "cloudflareTeamDomain": "your-cloudflare-team",
+      "adminEmails": "you@example.com",
+      "adminWallets": "",
+      "galleryDomain": "media-staging.example.com",
+      "galleryCertificateArn": "arn:aws:acm:...",
+
+      "openRouterApiKeyArn": "arn:aws:secretsmanager:...",
+      "heliusApiKeyArn": "arn:aws:secretsmanager:...",
+      "replicateApiKeyArn": "arn:aws:secretsmanager:...",
+      "webSearchApiKeyArn": "arn:aws:secretsmanager:...",
+      "crossmintApiKeyArn": "arn:aws:secretsmanager:...",
+
+      "privyAppId": "cmk...",
+      "privyAppSecretArn": "arn:aws:secretsmanager:...",
+      "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:..."
+    },
+    "prod": {
+      "adminDomain": "admin.example.com",
+      "adminCertificateArn": "arn:aws:acm:...",
+      "cloudflareTeamDomain": "your-cloudflare-team",
+      "adminEmails": "you@example.com",
+      "adminWallets": "",
+      "galleryDomain": "media.example.com",
+      "galleryCertificateArn": "arn:aws:acm:...",
+
+      "openRouterApiKeyArn": "arn:aws:secretsmanager:...",
+      "heliusApiKeyArn": "arn:aws:secretsmanager:...",
+      "replicateApiKeyArn": "arn:aws:secretsmanager:...",
+      "webSearchApiKeyArn": "arn:aws:secretsmanager:...",
+      "crossmintApiKeyArn": "arn:aws:secretsmanager:...",
+
+      "privyAppId": "cmk...",
+      "privyAppSecretArn": "arn:aws:secretsmanager:...",
+      "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:..."
+    }
+  }
+}

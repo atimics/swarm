@@ -19,6 +19,11 @@ dist/
 cdk.out/
 .cdk.staging/
 
+# CDK context/private config (keep local or sync via S3)
+packages/infra/cdk.context.json
+packages/infra/cdk.context.local.json
+
+
 # Environment
 .env
 .env.local

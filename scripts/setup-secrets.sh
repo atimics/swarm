@@ -20,10 +20,11 @@ NC='\033[0m' # No Color
 ENV="${1:-staging}"
 PREFIX="swarm"
 
-# CDK config (used for prompting settings + writing secret ARNs)
-CDK_JSON="packages/infra/cdk.json"
+# CDK context/private config (used for prompting settings + writing secret ARNs)
+# Keep this out of git; see packages/infra/cdk.context.example.json
+CDK_CONTEXT_JSON="packages/infra/cdk.context.json"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CDK_JSON_PATH="${SCRIPT_DIR}/../${CDK_JSON}"
+CDK_CONTEXT_JSON_PATH="${SCRIPT_DIR}/../${CDK_CONTEXT_JSON}"
 
 echo -e "${BLUE}"
 echo "╔════════════════════════════════════════════════════════════════╗"
@@ -235,7 +236,7 @@ prompt_cdk_string_setting() {
     local mode="$4" # missing|existing
 
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BLUE}CDK Setting: context.environments.${ENV}.${key}${NC}"
+    echo -e "${BLUE}CDK Setting: environments.${ENV}.${key}${NC}"
     echo -e "Description: ${description}"
     if [ -n "$help_url" ]; then
         echo -e "Get it from: ${help_url}"
@@ -263,22 +264,25 @@ prompt_cdk_string_setting() {
         return
     fi
 
+    if [ ! -f "$CDK_CONTEXT_JSON_PATH" ]; then
+        echo "{}" > "$CDK_CONTEXT_JSON_PATH"
+    fi
+
     # Write via Node for portability + safe quoting.
-    node - "$CDK_JSON_PATH" "$ENV" "$key" "$value" <<'NODE'
+    node - "$CDK_CONTEXT_JSON_PATH" "$ENV" "$key" "$value" <<'NODE'
 const fs = require('fs');
 
 const [,, path, env, key, value] = process.argv;
 const config = JSON.parse(fs.readFileSync(path, 'utf8'));
 
-if (!config.context) config.context = {};
-if (!config.context.environments) config.context.environments = {};
-if (!config.context.environments[env]) config.context.environments[env] = {};
+if (!config.environments) config.environments = {};
+if (!config.environments[env]) config.environments[env] = {};
 
-config.context.environments[env][key] = value;
+config.environments[env][key] = value;
 fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
 NODE
 
-    echo -e "${GREEN}✓ Updated ${CDK_JSON} (${key})${NC}"
+    echo -e "${GREEN}✓ Updated ${CDK_CONTEXT_JSON} (${key})${NC}"
     echo ""
 }
 
@@ -347,15 +351,19 @@ done
 echo -e "${BLUE}=== Step 2: Request UNSET CDK settings ===${NC}"
 echo ""
 
-if [ -f "$CDK_JSON_PATH" ]; then
+if [ ! -f "$CDK_CONTEXT_JSON_PATH" ]; then
+    echo "{}" > "$CDK_CONTEXT_JSON_PATH"
+fi
+
+if [ -f "$CDK_CONTEXT_JSON_PATH" ]; then
     existing_privy_app_id=""
     if command -v jq &>/dev/null; then
-        existing_privy_app_id=$(jq -r ".context.environments.${ENV}.privyAppId // \"\"" "$CDK_JSON_PATH")
+        existing_privy_app_id=$(jq -r ".environments.${ENV}.privyAppId // \"\"" "$CDK_CONTEXT_JSON_PATH")
     else
         existing_privy_app_id=$(node -e "
 const fs = require('fs');
-const cfg = JSON.parse(fs.readFileSync('${CDK_JSON_PATH}','utf8'));
-console.log((cfg.context && cfg.context.environments && cfg.context.environments['${ENV}'] && cfg.context.environments['${ENV}'].privyAppId) || '');
+const cfg = JSON.parse(fs.readFileSync('${CDK_CONTEXT_JSON_PATH}','utf8'));
+console.log((cfg.environments && cfg.environments['${ENV}'] && cfg.environments['${ENV}'].privyAppId) || '');
 ")
     fi
 
@@ -367,7 +375,7 @@ console.log((cfg.context && cfg.context.environments && cfg.context.environments
             "missing"
     fi
 else
-    echo -e "${YELLOW}Warning: ${CDK_JSON} not found; will skip CDK setting prompts.${NC}"
+    echo -e "${YELLOW}Warning: ${CDK_CONTEXT_JSON} not found; will skip CDK setting prompts.${NC}"
     echo ""
 fi
 
@@ -395,15 +403,19 @@ done
 echo -e "${BLUE}=== Step 4: Request ALREADY-SET CDK settings (optional updates) ===${NC}"
 echo ""
 
-if [ -f "$CDK_JSON_PATH" ]; then
+if [ ! -f "$CDK_CONTEXT_JSON_PATH" ]; then
+    echo "{}" > "$CDK_CONTEXT_JSON_PATH"
+fi
+
+if [ -f "$CDK_CONTEXT_JSON_PATH" ]; then
     existing_privy_app_id=""
     if command -v jq &>/dev/null; then
-        existing_privy_app_id=$(jq -r ".context.environments.${ENV}.privyAppId // \"\"" "$CDK_JSON_PATH")
+        existing_privy_app_id=$(jq -r ".environments.${ENV}.privyAppId // \"\"" "$CDK_CONTEXT_JSON_PATH")
     else
         existing_privy_app_id=$(node -e "
 const fs = require('fs');
-const cfg = JSON.parse(fs.readFileSync('${CDK_JSON_PATH}','utf8'));
-console.log((cfg.context && cfg.context.environments && cfg.context.environments['${ENV}'] && cfg.context.environments['${ENV}'].privyAppId) || '');
+const cfg = JSON.parse(fs.readFileSync('${CDK_CONTEXT_JSON_PATH}','utf8'));
+console.log((cfg.environments && cfg.environments['${ENV}'] && cfg.environments['${ENV}'].privyAppId) || '');
 ")
     fi
 
@@ -451,7 +463,11 @@ echo ""
 echo -e "${BLUE}=== Updating CDK Configuration ===${NC}"
 echo ""
 
-if [ -f "$CDK_JSON_PATH" ]; then
+if [ ! -f "$CDK_CONTEXT_JSON_PATH" ]; then
+    echo "{}" > "$CDK_CONTEXT_JSON_PATH"
+fi
+
+if [ -f "$CDK_CONTEXT_JSON_PATH" ]; then
     # Get ARNs for each secret
     OPENROUTER_ARN=""
     HELIUS_ARN=""
@@ -484,54 +500,49 @@ if [ -f "$CDK_JSON_PATH" ]; then
         TWITTER_ARN=$(aws secretsmanager describe-secret --secret-id "$full_name" --query ARN --output text)
     fi
 
-    # Update cdk.json using jq if available, otherwise use node
-    if command -v jq &>/dev/null; then
-        # Build jq update expression
-        JQ_EXPR=".context.environments.${ENV}"
-        [ -n "$OPENROUTER_ARN" ] && JQ_EXPR="${JQ_EXPR} | .openRouterApiKeyArn = \"${OPENROUTER_ARN}\""
-        [ -n "$HELIUS_ARN" ] && JQ_EXPR="${JQ_EXPR} | .heliusApiKeyArn = \"${HELIUS_ARN}\""
-        [ -n "$REPLICATE_ARN" ] && JQ_EXPR="${JQ_EXPR} | .replicateApiKeyArn = \"${REPLICATE_ARN}\""
-        [ -n "$WEBSEARCH_ARN" ] && JQ_EXPR="${JQ_EXPR} | .webSearchApiKeyArn = \"${WEBSEARCH_ARN}\""
-        [ -n "$CROSSMINT_ARN" ] && JQ_EXPR="${JQ_EXPR} | .crossmintApiKeyArn = \"${CROSSMINT_ARN}\""
-        [ -n "$PRIVY_APP_SECRET_ARN" ] && JQ_EXPR="${JQ_EXPR} | .privyAppSecretArn = \"${PRIVY_APP_SECRET_ARN}\""
-        [ -n "$PRIVY_JWT_VERIFICATION_KEY_ARN" ] && JQ_EXPR="${JQ_EXPR} | .privyJwtVerificationKeyArn = \"${PRIVY_JWT_VERIFICATION_KEY_ARN}\""
-
-        # Apply updates
-        jq "(.context.environments.${ENV}) |= (${JQ_EXPR} | .)" "$CDK_JSON_PATH" > "${CDK_JSON_PATH}.tmp" && mv "${CDK_JSON_PATH}.tmp" "$CDK_JSON_PATH"
-        echo -e "${GREEN}✓ Updated ${CDK_JSON} with secret ARNs for ${ENV}${NC}"
-    else
-        # Use node/tsx as fallback
-        node -e "
+    # Merge ARNs into cdk.context.json (keeps private config out of git)
+    node - "$CDK_CONTEXT_JSON_PATH" "$ENV" \
+        "$OPENROUTER_ARN" "$HELIUS_ARN" "$REPLICATE_ARN" "$WEBSEARCH_ARN" "$CROSSMINT_ARN" \
+        "$PRIVY_APP_SECRET_ARN" "$PRIVY_JWT_VERIFICATION_KEY_ARN" \
+        "$TWITTER_ARN" <<'NODE'
 const fs = require('fs');
-const path = '${CDK_JSON_PATH}';
-const config = JSON.parse(fs.readFileSync(path, 'utf8'));
-const env = '${ENV}';
 
-if (!config.context.environments[env]) {
-    config.context.environments[env] = {};
-}
+const [,, path, env,
+  openRouterApiKeyArn,
+  heliusApiKeyArn,
+  replicateApiKeyArn,
+  webSearchApiKeyArn,
+  crossmintApiKeyArn,
+  privyAppSecretArn,
+  privyJwtVerificationKeyArn,
+  twitterAppCredentialsArn,
+] = process.argv;
+
+const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+if (!config.environments) config.environments = {};
+if (!config.environments[env]) config.environments[env] = {};
 
 const updates = {
-    openRouterApiKeyArn: '${OPENROUTER_ARN}' || undefined,
-    heliusApiKeyArn: '${HELIUS_ARN}' || undefined,
-    replicateApiKeyArn: '${REPLICATE_ARN}' || undefined,
-    webSearchApiKeyArn: '${WEBSEARCH_ARN}' || undefined,
-    crossmintApiKeyArn: '${CROSSMINT_ARN}' || undefined,
-    privyAppSecretArn: '${PRIVY_APP_SECRET_ARN}' || undefined,
-    privyJwtVerificationKeyArn: '${PRIVY_JWT_VERIFICATION_KEY_ARN}' || undefined,
+  openRouterApiKeyArn,
+  heliusApiKeyArn,
+  replicateApiKeyArn,
+  webSearchApiKeyArn,
+  crossmintApiKeyArn,
+  privyAppSecretArn,
+  privyJwtVerificationKeyArn,
+  twitterAppCredentialsArn,
 };
 
-Object.entries(updates).forEach(([key, value]) => {
-    if (value) config.context.environments[env][key] = value;
-});
+for (const [k, v] of Object.entries(updates)) {
+  if (v && v.trim()) config.environments[env][k] = v;
+}
 
 fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
-console.log('Updated ${CDK_JSON} with secret ARNs for ${ENV}');
-"
-        echo -e "${GREEN}✓ Updated ${CDK_JSON} with secret ARNs for ${ENV}${NC}"
-    fi
+NODE
+
+    echo -e "${GREEN}✓ Updated ${CDK_CONTEXT_JSON} with secret ARNs for ${ENV}${NC}"
 else
-    echo -e "${YELLOW}Warning: ${CDK_JSON} not found, skipping automatic update${NC}"
+    echo -e "${YELLOW}Warning: ${CDK_CONTEXT_JSON} not found, skipping automatic update${NC}"
     echo "Please manually copy the ARNs above to your CDK configuration"
 fi
 
