@@ -770,6 +770,19 @@ export class AdminApiConstruct extends Construct {
       integration: walletAuthIntegration,
     });
 
+    // Wallet-link routes - link additional wallet identities to the current account
+    this.api.addRoutes({
+      path: '/auth/link/wallet/challenge',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/auth/link/wallet/verify',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: walletAuthIntegration,
+    });
+
     // Crossmint auth route - for email/social login via Crossmint
     this.api.addRoutes({
       path: '/auth/crossmint/verify',
