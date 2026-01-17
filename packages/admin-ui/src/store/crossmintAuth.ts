@@ -41,6 +41,7 @@ interface CrossmintAuthState {
     wallet?: { address: string };
   }) => Promise<void>;
   logout: () => Promise<void>;
+  resetLocal: () => void;
   clearError: () => void;
   setLoading: (loading: boolean) => void;
 }
@@ -149,6 +150,16 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
             error: null,
           });
         }
+      },
+
+      resetLocal: () => {
+        set({
+          isAuthenticated: false,
+          user: null,
+          gateStatus: null,
+          isLoading: false,
+          error: null,
+        });
       },
 
       clearError: () => set({ error: null }),

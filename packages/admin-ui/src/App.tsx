@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAvatarStore } from './store';
 import { useWalletAuth } from './store/walletAuth';
 import { useAuth } from './store/auth';
+import { useCrossmintAuth } from './store/crossmintAuth';
 import { AvatarSidebar, AvatarLogsPanel, ChatPanel, LandingPage } from './components';
 
 function getLogsAvatarId(pathname: string): string | null {
@@ -41,8 +42,17 @@ function App() {
     const doAuthCheck = async () => {
       try {
         await checkAuth();
+
+        // Source of truth is backend session (/auth/me). If it says unauthenticated,
+        // ensure persisted Crossmint auth state cannot "resurrect" the UI.
+        const walletState = useWalletAuth.getState();
+        if (!walletState.isAuthenticated) {
+          useCrossmintAuth.getState().resetLocal();
+        }
       } catch (e) {
         console.error('[App] Auth check failed:', e);
+        // On error, prefer safety: clear Crossmint local auth state.
+        useCrossmintAuth.getState().resetLocal();
       }
       if (mounted) {
         setAuthChecked(true);
