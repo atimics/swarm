@@ -20,6 +20,11 @@ NC='\033[0m' # No Color
 ENV="${1:-staging}"
 PREFIX="swarm"
 
+# CDK config (used for prompting settings + writing secret ARNs)
+CDK_JSON="packages/infra/cdk.json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CDK_JSON_PATH="${SCRIPT_DIR}/../${CDK_JSON}"
+
 echo -e "${BLUE}"
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║           AWS Secrets Manager Setup for Swarm                  ║"
@@ -42,184 +47,285 @@ echo -e "${GREEN}Region: ${REGION}${NC}"
 echo ""
 
 # Function to create or update a secret
-create_secret() {
-    local name="$1"
-    local description="$2"
-    local help_url="$3"
-    local is_json="${4:-false}"
+secret_exists() {
+    local full_name="$1"
+    aws secretsmanager describe-secret --secret-id "$full_name" &>/dev/null
+}
 
-    local full_name="${PREFIX}/${ENV}/${name}"
+prompt_secret_value() {
+    local scope="$1" # env|global
+    local name="$2"
+    local description="$3"
+    local help_url="$4"
+    local is_json="${5:-false}"
+    local mode="$6" # missing|existing
+
+    local full_name=""
+    if [ "$scope" = "global" ]; then
+        full_name="${PREFIX}/global/${name}"
+    else
+        full_name="${PREFIX}/${ENV}/${name}"
+    fi
 
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BLUE}Secret: ${full_name}${NC}"
+    if [ "$scope" = "global" ]; then
+        echo -e "${BLUE}Secret: ${full_name} (GLOBAL)${NC}"
+    else
+        echo -e "${BLUE}Secret: ${full_name}${NC}"
+    fi
     echo -e "Description: ${description}"
     if [ -n "$help_url" ]; then
         echo -e "Get it from: ${help_url}"
     fi
-    echo ""
 
-    # Check if secret exists
-    if aws secretsmanager describe-secret --secret-id "$full_name" &>/dev/null; then
-        echo -e "${GREEN}✓ Secret exists${NC}"
-        read -p "Update this secret? [y/N/skip]: " choice
-    else
-        echo -e "${YELLOW}○ Secret does not exist${NC}"
-        read -p "Create this secret? [y/N/skip]: " choice
+    if [ "$mode" = "missing" ]; then
+        echo -e "${YELLOW}Current status: Not set${NC}"
+        echo ""
+        if [ "$is_json" = "true" ]; then
+            echo "Enter JSON value (paste and press Enter, then Ctrl+D)."
+            value=$(cat)
+        else
+            read -sp "Enter value (or press Enter to skip): " value
+            echo ""
+        fi
+
+        if [ -z "$value" ]; then
+            echo -e "${YELLOW}Skipped${NC}"
+            echo ""
+            return
+        fi
+
+        aws secretsmanager create-secret \
+            --name "$full_name" \
+            --description "$description" \
+            --secret-string "$value" \
+            --output text > /dev/null
+        echo -e "${GREEN}✓ Secret created${NC}"
+        echo ""
+        return
     fi
+
+    echo -e "${GREEN}Current status: Set${NC}"
+    read -p "Update this secret? [y/N]: " choice
 
     case "$choice" in
         [yY]|[yY][eE][sS])
+            echo ""
             if [ "$is_json" = "true" ]; then
-                echo "Enter JSON value (paste and press Enter, then Ctrl+D):"
+                echo "Enter JSON value (paste and press Enter, then Ctrl+D)."
                 value=$(cat)
             else
-                read -sp "Enter secret value: " value
+                read -sp "Enter new value (or press Enter to skip): " value
                 echo ""
             fi
 
             if [ -z "$value" ]; then
-                echo -e "${YELLOW}Skipped (empty value)${NC}"
+                echo -e "${YELLOW}Skipped${NC}"
+                echo ""
                 return
             fi
 
-            # Create or update
-            if aws secretsmanager describe-secret --secret-id "$full_name" &>/dev/null; then
-                aws secretsmanager put-secret-value \
-                    --secret-id "$full_name" \
-                    --secret-string "$value" \
-                    --output text > /dev/null
-                echo -e "${GREEN}✓ Secret updated${NC}"
-            else
-                aws secretsmanager create-secret \
-                    --name "$full_name" \
-                    --description "$description" \
-                    --secret-string "$value" \
-                    --output text > /dev/null
-                echo -e "${GREEN}✓ Secret created${NC}"
-            fi
-            ;;
-        [sS]|[sS][kK][iI][pP])
-            echo -e "${YELLOW}Skipped${NC}"
+            aws secretsmanager put-secret-value \
+                --secret-id "$full_name" \
+                --secret-string "$value" \
+                --output text > /dev/null
+            echo -e "${GREEN}✓ Secret updated${NC}"
             ;;
         *)
             echo -e "${YELLOW}Skipped${NC}"
             ;;
     esac
+
     echo ""
 }
 
-# Function for global secrets (not environment-specific)
-create_global_secret() {
-    local name="$1"
+prompt_cdk_string_setting() {
+    local key="$1"
     local description="$2"
     local help_url="$3"
-    local is_json="${4:-false}"
-
-    local full_name="${PREFIX}/global/${name}"
+    local mode="$4" # missing|existing
 
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BLUE}Secret: ${full_name} (GLOBAL)${NC}"
+    echo -e "${BLUE}CDK Setting: context.environments.${ENV}.${key}${NC}"
     echo -e "Description: ${description}"
     if [ -n "$help_url" ]; then
         echo -e "Get it from: ${help_url}"
     fi
-    echo ""
 
-    # Check if secret exists
-    if aws secretsmanager describe-secret --secret-id "$full_name" &>/dev/null; then
-        echo -e "${GREEN}✓ Secret exists${NC}"
-        read -p "Update this secret? [y/N/skip]: " choice
-    else
-        echo -e "${YELLOW}○ Secret does not exist${NC}"
-        read -p "Create this secret? [y/N/skip]: " choice
+    if [ "$mode" = "existing" ]; then
+        read -p "Update this value? [y/N]: " choice
+        case "$choice" in
+            [yY]|[yY][eE][sS])
+                ;;
+            *)
+                echo -e "${YELLOW}Skipped${NC}"
+                echo ""
+                return
+                ;;
+        esac
     fi
 
-    case "$choice" in
-        [yY]|[yY][eE][sS])
-            if [ "$is_json" = "true" ]; then
-                echo "Enter JSON value (paste and press Enter, then Ctrl+D):"
-                value=$(cat)
-            else
-                read -sp "Enter secret value: " value
-                echo ""
-            fi
+    echo ""
+    read -p "Enter value (or press Enter to skip): " value
 
-            if [ -z "$value" ]; then
-                echo -e "${YELLOW}Skipped (empty value)${NC}"
-                return
-            fi
+    if [ -z "$value" ]; then
+        echo -e "${YELLOW}Skipped${NC}"
+        echo ""
+        return
+    fi
 
-            # Create or update
-            if aws secretsmanager describe-secret --secret-id "$full_name" &>/dev/null; then
-                aws secretsmanager put-secret-value \
-                    --secret-id "$full_name" \
-                    --secret-string "$value" \
-                    --output text > /dev/null
-                echo -e "${GREEN}✓ Secret updated${NC}"
-            else
-                aws secretsmanager create-secret \
-                    --name "$full_name" \
-                    --description "$description" \
-                    --secret-string "$value" \
-                    --output text > /dev/null
-                echo -e "${GREEN}✓ Secret created${NC}"
-            fi
-            ;;
-        *)
-            echo -e "${YELLOW}Skipped${NC}"
-            ;;
-    esac
+    # Write via Node for portability + safe quoting.
+    node <<'NODE' "$CDK_JSON_PATH" "$ENV" "$key" "$value"
+const fs = require('fs');
+
+const [,, path, env, key, value] = process.argv;
+const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+
+if (!config.context) config.context = {};
+if (!config.context.environments) config.context.environments = {};
+if (!config.context.environments[env]) config.context.environments[env] = {};
+
+config.context.environments[env][key] = value;
+fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+NODE
+
+    echo -e "${GREEN}✓ Updated ${CDK_JSON} (${key})${NC}"
     echo ""
 }
 
-echo -e "${BLUE}=== Required Secrets ===${NC}"
-echo ""
+ENV_SECRET_NAMES=(
+    "openrouter-api-key"
+    "helius-api-key"
+    "replicate-api-key"
+    "web-search-api-key"
+    "crossmint-api-key"
+    "privy-app-secret"
+    "privy-jwt-verification-key"
+)
 
-# OpenRouter API Key (Required)
-create_secret \
-    "openrouter-api-key" \
-    "OpenRouter API key for LLM access (Claude, GPT, etc.)" \
+ENV_SECRET_DESCRIPTIONS=(
+    "OpenRouter API key for LLM access (Claude, GPT, etc.)"
+    "Helius API key for Solana RPC and NFT queries"
+    "Replicate API key for AI image/video generation"
+    "SerpAPI key for web search functionality"
+    "Crossmint server API key for JWT verification"
+    "Privy app secret (server-side API access)"
+    "Privy JWT verification key (verify access tokens server-side)"
+)
+
+ENV_SECRET_URLS=(
     "https://openrouter.ai/keys"
-
-# Helius API Key (Required for NFT gating)
-create_secret \
-    "helius-api-key" \
-    "Helius API key for Solana RPC and NFT queries" \
     "https://dev.helius.xyz/dashboard/app"
-
-echo -e "${BLUE}=== Optional Secrets ===${NC}"
-echo ""
-
-# Replicate API Key (Optional - for image generation)
-create_secret \
-    "replicate-api-key" \
-    "Replicate API key for AI image/video generation" \
     "https://replicate.com/account/api-tokens"
-
-# Web Search API Key (Optional)
-create_secret \
-    "web-search-api-key" \
-    "SerpAPI key for web search functionality" \
     "https://serpapi.com/manage-api-key"
-
-# Crossmint API Key (Optional - for server-side JWT verification)
-create_secret \
-    "crossmint-api-key" \
-    "Crossmint server API key for JWT verification" \
     "https://console.crossmint.com"
+    "https://dashboard.privy.io"
+    "https://dashboard.privy.io"
+)
 
-echo -e "${BLUE}=== Global Secrets (shared across environments) ===${NC}"
+# 0 = required, 1 = optional
+ENV_SECRET_OPTIONAL=(0 0 1 1 1 1 1)
+
+GLOBAL_SECRET_NAMES=("twitter-app-credentials")
+GLOBAL_SECRET_DESCRIPTIONS=("Twitter/X OAuth app credentials (JSON)")
+GLOBAL_SECRET_URLS=("https://developer.twitter.com/en/portal/dashboard")
+GLOBAL_SECRET_IS_JSON=("true")
+
+echo -e "${BLUE}=== Step 1: Request UNSET secrets ===${NC}"
 echo ""
 
-# Twitter App Credentials (Global - JSON format)
+echo -e "${YELLOW}Environment secrets (${ENV})${NC}"
+for i in "${!ENV_SECRET_NAMES[@]}"; do
+    name="${ENV_SECRET_NAMES[$i]}"
+    full_name="${PREFIX}/${ENV}/${name}"
+    if ! secret_exists "$full_name"; then
+        prompt_secret_value "env" "$name" "${ENV_SECRET_DESCRIPTIONS[$i]}" "${ENV_SECRET_URLS[$i]}" "false" "missing"
+    fi
+done
+
+echo -e "${YELLOW}Global secrets${NC}"
 echo -e "${YELLOW}Twitter App Credentials require JSON format:${NC}"
 echo '{"consumer_key": "...", "consumer_secret": "..."}'
 echo ""
-create_global_secret \
-    "twitter-app-credentials" \
-    "Twitter/X OAuth app credentials (JSON)" \
-    "https://developer.twitter.com/en/portal/dashboard" \
-    "true"
+for i in "${!GLOBAL_SECRET_NAMES[@]}"; do
+    name="${GLOBAL_SECRET_NAMES[$i]}"
+    full_name="${PREFIX}/global/${name}"
+    if ! secret_exists "$full_name"; then
+        prompt_secret_value "global" "$name" "${GLOBAL_SECRET_DESCRIPTIONS[$i]}" "${GLOBAL_SECRET_URLS[$i]}" "${GLOBAL_SECRET_IS_JSON[$i]}" "missing"
+    fi
+done
+
+echo -e "${BLUE}=== Step 2: Request UNSET CDK settings ===${NC}"
+echo ""
+
+if [ -f "$CDK_JSON_PATH" ]; then
+    existing_privy_app_id=""
+    if command -v jq &>/dev/null; then
+        existing_privy_app_id=$(jq -r ".context.environments.${ENV}.privyAppId // \"\"" "$CDK_JSON_PATH")
+    else
+        existing_privy_app_id=$(node -e "
+const fs = require('fs');
+const cfg = JSON.parse(fs.readFileSync('${CDK_JSON_PATH}','utf8'));
+console.log((cfg.context && cfg.context.environments && cfg.context.environments['${ENV}'] && cfg.context.environments['${ENV}'].privyAppId) || '');
+")
+    fi
+
+    if [ -z "$existing_privy_app_id" ]; then
+        prompt_cdk_string_setting \
+            "privyAppId" \
+            "Privy App ID (non-secret, required for Privy auth endpoints)" \
+            "https://dashboard.privy.io" \
+            "missing"
+    fi
+else
+    echo -e "${YELLOW}Warning: ${CDK_JSON} not found; will skip CDK setting prompts.${NC}"
+    echo ""
+fi
+
+echo -e "${BLUE}=== Step 3: Request ALREADY-SET secrets (optional updates) ===${NC}"
+echo ""
+
+echo -e "${YELLOW}Environment secrets (${ENV})${NC}"
+for i in "${!ENV_SECRET_NAMES[@]}"; do
+    name="${ENV_SECRET_NAMES[$i]}"
+    full_name="${PREFIX}/${ENV}/${name}"
+    if secret_exists "$full_name"; then
+        prompt_secret_value "env" "$name" "${ENV_SECRET_DESCRIPTIONS[$i]}" "${ENV_SECRET_URLS[$i]}" "false" "existing"
+    fi
+done
+
+echo -e "${YELLOW}Global secrets${NC}"
+for i in "${!GLOBAL_SECRET_NAMES[@]}"; do
+    name="${GLOBAL_SECRET_NAMES[$i]}"
+    full_name="${PREFIX}/global/${name}"
+    if secret_exists "$full_name"; then
+        prompt_secret_value "global" "$name" "${GLOBAL_SECRET_DESCRIPTIONS[$i]}" "${GLOBAL_SECRET_URLS[$i]}" "${GLOBAL_SECRET_IS_JSON[$i]}" "existing"
+    fi
+done
+
+echo -e "${BLUE}=== Step 4: Request ALREADY-SET CDK settings (optional updates) ===${NC}"
+echo ""
+
+if [ -f "$CDK_JSON_PATH" ]; then
+    existing_privy_app_id=""
+    if command -v jq &>/dev/null; then
+        existing_privy_app_id=$(jq -r ".context.environments.${ENV}.privyAppId // \"\"" "$CDK_JSON_PATH")
+    else
+        existing_privy_app_id=$(node -e "
+const fs = require('fs');
+const cfg = JSON.parse(fs.readFileSync('${CDK_JSON_PATH}','utf8'));
+console.log((cfg.context && cfg.context.environments && cfg.context.environments['${ENV}'] && cfg.context.environments['${ENV}'].privyAppId) || '');
+")
+    fi
+
+    if [ -n "$existing_privy_app_id" ]; then
+        prompt_cdk_string_setting \
+            "privyAppId" \
+            "Privy App ID (non-secret, required for Privy auth endpoints)" \
+            "https://dashboard.privy.io" \
+            "existing"
+    fi
+fi
 
 echo -e "${BLUE}"
 echo "╔════════════════════════════════════════════════════════════════╗"
@@ -232,7 +338,7 @@ echo ""
 
 # List created secrets
 echo -e "${GREEN}Environment secrets (${ENV}):${NC}"
-for secret in openrouter-api-key helius-api-key replicate-api-key web-search-api-key crossmint-api-key; do
+for secret in openrouter-api-key helius-api-key replicate-api-key web-search-api-key crossmint-api-key privy-app-secret privy-jwt-verification-key; do
     full_name="${PREFIX}/${ENV}/${secret}"
     if aws secretsmanager describe-secret --secret-id "$full_name" &>/dev/null 2>&1; then
         arn=$(aws secretsmanager describe-secret --secret-id "$full_name" --query ARN --output text)
@@ -256,11 +362,6 @@ echo ""
 echo -e "${BLUE}=== Updating CDK Configuration ===${NC}"
 echo ""
 
-# Path to cdk.json
-CDK_JSON="packages/infra/cdk.json"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CDK_JSON_PATH="${SCRIPT_DIR}/../${CDK_JSON}"
-
 if [ -f "$CDK_JSON_PATH" ]; then
     # Get ARNs for each secret
     OPENROUTER_ARN=""
@@ -268,9 +369,11 @@ if [ -f "$CDK_JSON_PATH" ]; then
     REPLICATE_ARN=""
     WEBSEARCH_ARN=""
     CROSSMINT_ARN=""
+    PRIVY_APP_SECRET_ARN=""
+    PRIVY_JWT_VERIFICATION_KEY_ARN=""
     TWITTER_ARN=""
 
-    for secret in openrouter-api-key helius-api-key replicate-api-key web-search-api-key crossmint-api-key; do
+    for secret in openrouter-api-key helius-api-key replicate-api-key web-search-api-key crossmint-api-key privy-app-secret privy-jwt-verification-key; do
         full_name="${PREFIX}/${ENV}/${secret}"
         if aws secretsmanager describe-secret --secret-id "$full_name" &>/dev/null 2>&1; then
             arn=$(aws secretsmanager describe-secret --secret-id "$full_name" --query ARN --output text)
@@ -280,6 +383,8 @@ if [ -f "$CDK_JSON_PATH" ]; then
                 replicate-api-key) REPLICATE_ARN="$arn" ;;
                 web-search-api-key) WEBSEARCH_ARN="$arn" ;;
                 crossmint-api-key) CROSSMINT_ARN="$arn" ;;
+                privy-app-secret) PRIVY_APP_SECRET_ARN="$arn" ;;
+                privy-jwt-verification-key) PRIVY_JWT_VERIFICATION_KEY_ARN="$arn" ;;
             esac
         fi
     done
@@ -299,6 +404,8 @@ if [ -f "$CDK_JSON_PATH" ]; then
         [ -n "$REPLICATE_ARN" ] && JQ_EXPR="${JQ_EXPR} | .replicateApiKeyArn = \"${REPLICATE_ARN}\""
         [ -n "$WEBSEARCH_ARN" ] && JQ_EXPR="${JQ_EXPR} | .webSearchApiKeyArn = \"${WEBSEARCH_ARN}\""
         [ -n "$CROSSMINT_ARN" ] && JQ_EXPR="${JQ_EXPR} | .crossmintApiKeyArn = \"${CROSSMINT_ARN}\""
+        [ -n "$PRIVY_APP_SECRET_ARN" ] && JQ_EXPR="${JQ_EXPR} | .privyAppSecretArn = \"${PRIVY_APP_SECRET_ARN}\""
+        [ -n "$PRIVY_JWT_VERIFICATION_KEY_ARN" ] && JQ_EXPR="${JQ_EXPR} | .privyJwtVerificationKeyArn = \"${PRIVY_JWT_VERIFICATION_KEY_ARN}\""
 
         # Apply updates
         jq "(.context.environments.${ENV}) |= (${JQ_EXPR} | .)" "$CDK_JSON_PATH" > "${CDK_JSON_PATH}.tmp" && mv "${CDK_JSON_PATH}.tmp" "$CDK_JSON_PATH"
@@ -321,6 +428,8 @@ const updates = {
     replicateApiKeyArn: '${REPLICATE_ARN}' || undefined,
     webSearchApiKeyArn: '${WEBSEARCH_ARN}' || undefined,
     crossmintApiKeyArn: '${CROSSMINT_ARN}' || undefined,
+    privyAppSecretArn: '${PRIVY_APP_SECRET_ARN}' || undefined,
+    privyJwtVerificationKeyArn: '${PRIVY_JWT_VERIFICATION_KEY_ARN}' || undefined,
 };
 
 Object.entries(updates).forEach(([key, value]) => {
