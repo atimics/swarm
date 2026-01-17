@@ -71,10 +71,11 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     }
   }, [connected, publicKey, signMessage, walletAuth.isLoading, walletAuth.isAuthenticated, walletAuth.login]);
 
-  // When Crossmint auth completes with a wallet, sync with our backend
+  // When Crossmint auth completes, sync with our backend.
+  // Don't block on embedded wallet creation: for some social flows (e.g. X),
+  // the SDK can be logged-in before the wallet is available.
   useEffect(() => {
     const isLoggedIn = status === 'logged-in';
-    const hasWallet = !!walletAddress;
     const isNewJwt = jwt !== lastJwtRef.current;
     const isNewWallet = walletAddress && walletAddress !== lastWalletAddressRef.current;
 
@@ -84,7 +85,6 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
       userEmail: crossmintUser?.email,
       hasJwt: !!jwt,
       walletAddress,
-      hasWallet,
       isAuthenticated: crossmintAuth.isAuthenticated,
       syncAttempted: syncAttemptedRef.current,
       isNewJwt,
@@ -93,28 +93,27 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     });
 
     // Only sync if:
-    // 1. User is logged in with a wallet address
+    // 1. User is logged in
     // 2. We haven't already synced this JWT/wallet combo
     // 3. We're not already authenticated
-    if (isLoggedIn && crossmintUser && jwt && hasWallet && !crossmintAuth.isAuthenticated && (!syncAttemptedRef.current || isNewJwt || isNewWallet)) {
-      console.log('[LoginOptions] ✅ Starting backend sync with wallet:', walletAddress);
+    if (isLoggedIn && crossmintUser && jwt && !crossmintAuth.isAuthenticated && (!syncAttemptedRef.current || isNewJwt || isNewWallet)) {
+      console.log('[LoginOptions] ✅ Starting backend sync', { walletAddress });
       syncAttemptedRef.current = true;
       lastJwtRef.current = jwt;
       lastWalletAddressRef.current = walletAddress;
-      // Pass wallet address from the wallet hook
       crossmintAuth.syncWithBackend(jwt, {
         ...crossmintUser,
-        wallet: { address: walletAddress },
+        wallet: walletAddress ? { address: walletAddress } : undefined,
       }).catch((error) => {
         console.error('[LoginOptions] ❌ Sync failed:', error);
         // Reset sync attempted so user can retry
         syncAttemptedRef.current = false;
       });
-    } else if (isLoggedIn && !hasWallet) {
+    } else if (isLoggedIn && !walletAddress) {
       console.warn('[LoginOptions] ⏳ Crossmint user logged in but wallet not yet created');
-    } else if (isLoggedIn && hasWallet && crossmintAuth.isAuthenticated) {
+    } else if (isLoggedIn && walletAddress && crossmintAuth.isAuthenticated) {
       console.log('[LoginOptions] ✓ Already authenticated, skipping sync');
-    } else if (isLoggedIn && hasWallet && syncAttemptedRef.current && !isNewJwt && !isNewWallet) {
+    } else if (isLoggedIn && syncAttemptedRef.current && !isNewJwt && !isNewWallet) {
       console.log('[LoginOptions] ⏸ Sync already attempted for this wallet/jwt combo');
     }
   }, [status, crossmintUser, walletAddress, jwt, crossmintAuth.isAuthenticated]);
@@ -130,13 +129,13 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     
     // If Crossmint SDK already has user logged in but our backend sync hasn't happened,
     // trigger the sync directly instead of calling login() which will error
-    if (status === 'logged-in' && jwt && crossmintUser && walletAddress && !crossmintAuth.isAuthenticated) {
+    if (status === 'logged-in' && jwt && crossmintUser && !crossmintAuth.isAuthenticated) {
       console.log('[LoginOptions] SDK already logged in, triggering backend sync');
       crossmintAuth.setLoading(true);
       try {
         await crossmintAuth.syncWithBackend(jwt, {
           ...crossmintUser,
-          wallet: { address: walletAddress },
+          wallet: walletAddress ? { address: walletAddress } : undefined,
         });
       } catch (error) {
         console.error('[LoginOptions] Backend sync error:', error);

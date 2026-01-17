@@ -237,7 +237,6 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     if (!crossmintJwt || !crossmintUser?.id) return;
 
     const walletAddress = crossmintWallet?.address;
-    if (!walletAddress) return;
 
     let cancelled = false;
     const doLink = async () => {
