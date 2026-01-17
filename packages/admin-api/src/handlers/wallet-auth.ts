@@ -10,6 +10,8 @@ import {
   getSessionWithUser,
   deleteSession,
 } from '../services/wallet-auth.js';
+import { getAccountSummary, getOrCreateAccountForWallet } from '../services/accounts.js';
+import { createLinkWalletChallenge, verifyLinkWallet } from '../services/wallet-link.js';
 import {
   getClearSessionCookies,
   getSessionFromCookie,
@@ -49,6 +51,10 @@ export interface WalletAuthHandlerDeps {
   nftGate: {
     getGateStatus: typeof getGateStatus;
   };
+  accounts?: {
+    getOrCreateAccountForWallet: typeof getOrCreateAccountForWallet;
+    getAccountSummary: typeof getAccountSummary;
+  };
 }
 
 function getDefaultDeps(): WalletAuthHandlerDeps {
@@ -61,6 +67,10 @@ function getDefaultDeps(): WalletAuthHandlerDeps {
     },
     nftGate: {
       getGateStatus,
+    },
+    accounts: {
+      getOrCreateAccountForWallet,
+      getAccountSummary,
     },
   };
 }
@@ -77,6 +87,16 @@ const VerifyRequestSchema = z.object({
   signature: z.string().min(64), // Base58 signature
   publicKey: z.string().min(32).max(44), // Wallet public key
   nonce: z.string().min(1), // Challenge nonce
+});
+
+const LinkWalletChallengeSchema = z.object({
+  walletAddress: z.string().min(32).max(44),
+});
+
+const LinkWalletVerifySchema = z.object({
+  walletAddress: z.string().min(32).max(44),
+  nonce: z.string().min(1),
+  signature: z.string().min(64),
 });
 
 // Cookie helpers live in ../auth/session-cookie.ts
@@ -305,6 +325,14 @@ export async function handleMe(
     // Get gate status for the wallet
     const gateStatus = await resolvedDeps.nftGate.getGateStatus(session.user.walletAddress);
 
+    const accountId = session.accountId ||
+      (resolvedDeps.accounts
+        ? await resolvedDeps.accounts.getOrCreateAccountForWallet(session.user.walletAddress)
+        : undefined);
+    const account = accountId && resolvedDeps.accounts
+      ? await resolvedDeps.accounts.getAccountSummary(accountId)
+      : null;
+
     // Inhabitation is stored in the avatar ownership mapping; don't rely on UserRecord.inhabitedAvatarId.
     const inhabitedAvatar = await resolvedDeps.avatarOwnership.getInhabitedAvatar(
       session.user.walletAddress
@@ -315,6 +343,7 @@ export async function handleMe(
 
     return jsonResponse(200, {
       authenticated: true,
+      account,
       user: {
         walletAddress: session.user.walletAddress,
         displayName: session.user.displayName,
@@ -334,6 +363,120 @@ export async function handleMe(
     }, cors);
   } catch (error) {
     console.error('[WalletAuth] Me error:', error);
+    return jsonResponse(500, { error: 'Internal server error' }, cors);
+  }
+}
+
+/**
+ * POST /auth/link/wallet/challenge
+ * Create a signed message challenge to link a wallet identity to the current account.
+ */
+export async function handleLinkWalletChallenge(
+  event: APIGatewayProxyEventV2,
+  deps?: WalletAuthHandlerDeps
+): Promise<APIGatewayProxyResultV2> {
+  const cors = corsHeaders(event);
+
+  if (event.requestContext.http.method === 'OPTIONS') {
+    return { statusCode: 204, headers: cors };
+  }
+
+  try {
+    const resolvedDeps = deps || getDefaultDeps();
+    const sessionToken = getSessionFromCookie(event);
+    if (!sessionToken) {
+      return jsonResponse(401, { error: 'Not authenticated' }, cors, getClearSessionCookies());
+    }
+
+    const session = await resolvedDeps.walletAuth.getSessionWithUser(sessionToken);
+    if (!session) {
+      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
+    }
+
+    const body = JSON.parse(event.body || '{}');
+    const parsed = LinkWalletChallengeSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { error: 'Invalid request', details: parsed.error.issues }, cors);
+    }
+
+    const accountId = session.accountId ||
+      (resolvedDeps.accounts
+        ? await resolvedDeps.accounts.getOrCreateAccountForWallet(session.user.walletAddress)
+        : undefined);
+    if (!accountId) {
+      return jsonResponse(500, { error: 'Account resolution unavailable' }, cors);
+    }
+    const result = await createLinkWalletChallenge({
+      accountId,
+      walletAddress: parsed.data.walletAddress,
+    });
+
+    if ('error' in result) {
+      return jsonResponse(409, { error: result.error }, cors);
+    }
+
+    return jsonResponse(200, result, cors);
+  } catch (error) {
+    console.error('[WalletAuth] Link wallet challenge error:', error);
+    return jsonResponse(500, { error: 'Internal server error' }, cors);
+  }
+}
+
+/**
+ * POST /auth/link/wallet/verify
+ * Verify signature and attach wallet identity to the current account.
+ */
+export async function handleLinkWalletVerify(
+  event: APIGatewayProxyEventV2,
+  deps?: WalletAuthHandlerDeps
+): Promise<APIGatewayProxyResultV2> {
+  const cors = corsHeaders(event);
+
+  if (event.requestContext.http.method === 'OPTIONS') {
+    return { statusCode: 204, headers: cors };
+  }
+
+  try {
+    const resolvedDeps = deps || getDefaultDeps();
+    const sessionToken = getSessionFromCookie(event);
+    if (!sessionToken) {
+      return jsonResponse(401, { error: 'Not authenticated' }, cors, getClearSessionCookies());
+    }
+
+    const session = await resolvedDeps.walletAuth.getSessionWithUser(sessionToken);
+    if (!session) {
+      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
+    }
+
+    const body = JSON.parse(event.body || '{}');
+    const parsed = LinkWalletVerifySchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { error: 'Invalid request', details: parsed.error.issues }, cors);
+    }
+
+    const accountId = session.accountId ||
+      (resolvedDeps.accounts
+        ? await resolvedDeps.accounts.getOrCreateAccountForWallet(session.user.walletAddress)
+        : undefined);
+    if (!accountId) {
+      return jsonResponse(500, { error: 'Account resolution unavailable' }, cors);
+    }
+    const verifyResult = await verifyLinkWallet({
+      accountId,
+      walletAddress: parsed.data.walletAddress,
+      nonce: parsed.data.nonce,
+      signatureBase58: parsed.data.signature,
+    });
+
+    if (!verifyResult.success) {
+      const status = verifyResult.error.includes('already linked') ? 409 : 400;
+      return jsonResponse(status, { error: verifyResult.error }, cors);
+    }
+
+    const account = resolvedDeps.accounts ? await resolvedDeps.accounts.getAccountSummary(accountId) : null;
+    return jsonResponse(200, { success: true, account }, cors);
+  } catch (error) {
+    console.error('[WalletAuth] Link wallet verify error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }
 }
@@ -706,6 +849,14 @@ export async function handleWalletAuth(
 
   if (path === '/auth/me' && method === 'GET') {
     return handleMe(event, resolvedDeps);
+  }
+
+  if (path === '/auth/link/wallet/challenge' && method === 'POST') {
+    return handleLinkWalletChallenge(event, resolvedDeps);
+  }
+
+  if (path === '/auth/link/wallet/verify' && method === 'POST') {
+    return handleLinkWalletVerify(event, resolvedDeps);
   }
 
   if (path === '/auth/logout' && method === 'POST') {

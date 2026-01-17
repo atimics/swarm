@@ -12,6 +12,7 @@ import {
 import { randomBytes } from 'crypto';
 import { checkNFTGate, type NFTGateResult } from './nft-gate.js';
 import type { UserRecord, SessionRecord } from './wallet-auth.js';
+import { getOrCreateAccountForCrossmint } from './accounts.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -58,6 +59,7 @@ function generateSessionToken(): string {
 async function createSession(
   walletAddress: string,
   crossmintUserId: string,
+  accountId: string,
   userAgent?: string,
   ipAddress?: string
 ): Promise<SessionRecord> {
@@ -70,6 +72,7 @@ async function createSession(
     sk: 'DATA',
     sessionToken,
     walletAddress,
+    accountId,
     createdAt: now,
     expiresAt,
     lastActiveAt: now,
@@ -286,8 +289,14 @@ export async function verifyCrossmintAuth(
   // 4. Get or create user (keyed by wallet address)
   const user = await getOrCreateUser(walletAddress, email, userId);
 
+  // 4b. Resolve/create account for this Crossmint user and its wallet
+  const accountId = await getOrCreateAccountForCrossmint({
+    crossmintUserId: userId,
+    walletAddress,
+  });
+
   // 5. Create session
-  const session = await createSession(walletAddress, userId, userAgent, ipAddress);
+  const session = await createSession(walletAddress, userId, accountId, userAgent, ipAddress);
 
   console.log(`[CrossmintAuth] Auth successful for user=${userId}, wallet=${walletAddress.slice(0, 8)}...`);
 

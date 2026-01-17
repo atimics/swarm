@@ -8,6 +8,7 @@ import { verifyCrossmintAuth } from '../services/crossmint-auth.js';
 import { getGateStatus } from '../services/nft-gate.js';
 import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 import { getSetSessionCookies } from '../auth/session-cookie.js';
+import { getAccountSummary, getOrCreateAccountForWallet } from '../services/accounts.js';
 
 // ============================================================================
 // Request Schemas
@@ -115,6 +116,9 @@ export async function handleCrossmintVerify(
     // Inhabitation is stored in the avatar ownership mapping; don't rely on user profile fields.
     const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
 
+    const accountId = result.session.accountId || (await getOrCreateAccountForWallet(result.user.walletAddress));
+    const account = await getAccountSummary(accountId);
+
     // Set session cookies (and clear any stale host-only cookie)
     const cookies = getSetSessionCookies(result.session.sessionToken);
 
@@ -124,6 +128,7 @@ export async function handleCrossmintVerify(
         token: result.session.sessionToken,
         expiresAt: result.session.expiresAt,
       },
+      account,
       user: {
         walletAddress: result.user.walletAddress,
         displayName: result.user.displayName,

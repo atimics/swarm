@@ -14,6 +14,7 @@ import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { randomBytes } from 'crypto';
 import { checkNFTGate, type NFTGateResult } from './nft-gate.js';
+import { getOrCreateAccountForWallet } from './accounts.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -51,6 +52,7 @@ export interface SessionRecord {
   sk: 'DATA';
   sessionToken: string;
   walletAddress: string;
+  accountId?: string;
   createdAt: number;
   expiresAt: number;
   lastActiveAt: number;
@@ -72,6 +74,7 @@ export interface ChallengeRecord {
 export interface WalletSession {
   walletAddress: string;
   sessionToken: string;
+  accountId?: string;
   user: UserRecord;
 }
 
@@ -315,6 +318,7 @@ export function verifySignature(
  */
 async function createSession(
   walletAddress: string,
+  accountId: string,
   userAgent?: string,
   ipAddress?: string
 ): Promise<SessionRecord> {
@@ -327,6 +331,7 @@ async function createSession(
     sk: 'DATA',
     sessionToken,
     walletAddress,
+    accountId,
     createdAt: now,
     expiresAt,
     lastActiveAt: now,
@@ -550,8 +555,11 @@ export async function verifyAndCreateSession(
   // 4. Get or create user
   const user = await getOrCreateUser(publicKeyBase58);
 
+  // 4b. Get or create account for this wallet
+  const accountId = await getOrCreateAccountForWallet(publicKeyBase58);
+
   // 5. Create session
-  const session = await createSession(publicKeyBase58, userAgent, ipAddress);
+  const session = await createSession(publicKeyBase58, accountId, userAgent, ipAddress);
 
   console.log(`[WalletAuth] Auth successful for wallet=${publicKeyBase58.slice(0, 8)}...`);
 
@@ -578,6 +586,7 @@ export async function getSessionWithUser(sessionToken: string): Promise<WalletSe
   return {
     walletAddress: session.walletAddress,
     sessionToken: session.sessionToken,
+    accountId: session.accountId,
     user,
   };
 }
