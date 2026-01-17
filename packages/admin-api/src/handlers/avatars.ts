@@ -18,15 +18,7 @@ import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { SecretType } from '../types.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getSessionFromCookie } from '../auth/session-cookie.js';
-
-// CORS headers - restricted to configured admin domain
-const allowedOrigin = process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:5173';
-const corsHeaders = {
-  'Access-Control-Allow-Origin': allowedOrigin,
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, CF-Access-JWT-Assertion',
-  'Access-Control-Allow-Credentials': 'true',
-};
+import { getCorsHeaders } from '../http/cors.js';
 
 // Admin wallets that can see all avatars (comma-separated list)
 const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || '').split(',').filter(Boolean);
@@ -62,6 +54,7 @@ function isAdminWallet(walletAddress: string): boolean {
 export async function handler(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
+  const corsHeaders = getCorsHeaders(event);
   // Handle preflight
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders };

@@ -24,6 +24,12 @@ export interface AdminUiProps {
    * ARN of ACM certificate for the custom domain (must be in us-east-1)
    */
   certificateArn?: string;
+
+  /**
+   * Optional API domain to proxy under /api (e.g., 'api-staging.rati.chat')
+   * When set, CloudFront will forward /api/* requests to this origin (same-origin API).
+   */
+  apiDomain?: string;
 }
 
 export class AdminUi extends Construct {
@@ -34,7 +40,7 @@ export class AdminUi extends Construct {
   constructor(scope: Construct, id: string, props: AdminUiProps) {
     super(scope, id);
 
-    const { environment, domainName, certificateArn } = props;
+    const { environment, domainName, certificateArn, apiDomain } = props;
 
     // S3 bucket for static hosting
     this.bucket = new s3.Bucket(this, 'Bucket', {
@@ -61,6 +67,51 @@ export class AdminUi extends Construct {
       ? acm.Certificate.fromCertificateArn(this, 'Certificate', certificateArn)
       : undefined;
 
+    // Rewrite SPA routes to /index.html (but never touch /api/*)
+    const spaRewriteFunction = new cloudfront.Function(this, 'SpaRewriteFunction', {
+      comment: 'Rewrite non-file routes to /index.html for SPA routing (excluding /api/*)',
+      code: cloudfront.FunctionCode.fromInline(`function handler(event) {
+  var request = event.request;
+  var uri = request.uri;
+
+  // Never rewrite API requests
+  if (uri === '/api' || uri.indexOf('/api/') === 0) {
+    return request;
+  }
+
+  // If the URI looks like a static file (has an extension), leave it alone
+  if (uri.indexOf('.') !== -1) {
+    return request;
+  }
+
+  // Rewrite all other paths to the SPA entrypoint
+  request.uri = '/index.html';
+  return request;
+}`),
+    });
+
+    // Strip /api prefix before proxying to the API origin
+    const apiRewriteFunction = apiDomain
+      ? new cloudfront.Function(this, 'ApiRewriteFunction', {
+          comment: 'Strip /api prefix before forwarding to API origin',
+          code: cloudfront.FunctionCode.fromInline(`function handler(event) {
+  var request = event.request;
+  var uri = request.uri;
+
+  if (uri === '/api') {
+    request.uri = '/';
+    return request;
+  }
+
+  if (uri.indexOf('/api/') === 0) {
+    request.uri = uri.substring(4);
+  }
+
+  return request;
+}`),
+        })
+      : undefined;
+
     // CloudFront distribution
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
@@ -70,24 +121,36 @@ export class AdminUi extends Construct {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        functionAssociations: [
+          {
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+            function: spaRewriteFunction,
+          },
+        ],
       },
+      additionalBehaviors: apiDomain && apiRewriteFunction
+        ? {
+            '/api/*': {
+              origin: new origins.HttpOrigin(apiDomain, {
+                protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
+              }),
+              viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+              allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+              cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+              // Forward cookies + auth headers (e.g., CF-Access-JWT-Assertion, Authorization)
+              originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+              functionAssociations: [
+                {
+                  eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+                  function: apiRewriteFunction,
+                },
+              ],
+            },
+          }
+        : undefined,
       domainNames,
       certificate,
       defaultRootObject: 'index.html',
-      errorResponses: [
-        {
-          httpStatus: 404,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: cdk.Duration.seconds(0),
-        },
-        {
-          httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: cdk.Duration.seconds(0),
-        },
-      ],
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       comment: `Admin UI - ${environment}`,
     });

@@ -25,6 +25,7 @@ import {
   updateAvatar as avatarpdateAgent,
 } from '../services/avatars.js';
 import type { UserSession, AvatarRecord } from '../types.js';
+import { getCorsHeaders } from '../http/cors.js';
 
 /**
  * Dependencies interface for dependency injection (testing)
@@ -79,16 +80,7 @@ function getDefaultDeps(): TwitterOAuthHandlerDeps {
   };
 }
 
-// CORS headers
-const allowedOrigin = process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:5173';
-const ADMIN_UI_URL = process.env.ADMIN_UI_URL || allowedOrigin;
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': allowedOrigin,
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, CF-Access-JWT-Assertion',
-  'Access-Control-Allow-Credentials': 'true',
-};
+const ADMIN_UI_URL = process.env.ADMIN_UI_URL || process.env.ALLOWED_ORIGINS?.split(',')[0] || 'http://localhost:5173';
 
 /**
  * Lambda handler for Twitter OAuth endpoints
@@ -107,6 +99,8 @@ export async function handler(
   const resolvedDeps = deps || getDefaultDeps();
   const { twitterOAuth, avatarService, auth } = resolvedDeps;
 
+  const corsHeaders = getCorsHeaders(event);
+
   // Handle preflight
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders };
@@ -121,18 +115,22 @@ export async function handler(
     event: 'request_received',
     method,
     path,
+    query: event.queryStringParameters,
   }));
 
   try {
-    // GET /oauth/twitter/callback - OAuth callback from Twitter (no auth needed)
-    // This is called by Twitter after user authorizes - they won't have auth headers
+    // GET /oauth/twitter/callback?oauth_token=xxx&oauth_verifier=xxx - OAuth callback
+    // This must not require Cloudflare Access (Twitter won't provide the header).
     if (method === 'GET' && path === '/oauth/twitter/callback') {
-      return handleCallback(event, resolvedDeps);
+      const result = await handleCallback(event, resolvedDeps);
+      return {
+        ...result,
+        headers: { ...corsHeaders, ...(result.headers || {}) },
+      };
     }
 
     // GET /oauth/twitter/start?avatarId=xxx - Start OAuth flow (no auth needed)
-    // This just redirects to Twitter - the actual authorization happens there
-    // The callback will store tokens for the specified avatarId
+    // This redirects to Twitter; the callback will store tokens for the specified avatarId.
     if (method === 'GET' && path === '/oauth/twitter/start') {
       const avatarId = event.queryStringParameters?.avatarId;
 
@@ -144,7 +142,6 @@ export async function handler(
         };
       }
 
-      // Verify avatar exists
       const avatar = await avatarService.getAvatar(avatarId);
       if (!avatar) {
         return {
@@ -154,7 +151,6 @@ export async function handler(
         };
       }
 
-      // Check if Twitter OAuth is configured
       if (!(await twitterOAuth.isConfigured())) {
         return {
           statusCode: 503,
@@ -168,12 +164,11 @@ export async function handler(
 
       const { authorizationUrl } = await twitterOAuth.startOAuthFlow(avatarId);
 
-      // Redirect directly to Twitter for OAuth authorization
       return {
         statusCode: 302,
         headers: {
           ...corsHeaders,
-          'Location': authorizationUrl,
+          Location: authorizationUrl,
         },
         body: '',
       };
@@ -193,7 +188,6 @@ export async function handler(
     const statusMatch = path.match(/^\/oauth\/twitter\/status\/([^/]+)$/);
     if (method === 'GET' && statusMatch) {
       const avatarId = statusMatch[1];
-
       const status = await twitterOAuth.getConnectionStatus(avatarId);
 
       return {

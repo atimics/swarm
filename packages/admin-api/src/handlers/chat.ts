@@ -9,6 +9,7 @@ import type {
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { DEFAULT_LLM_MODEL } from '@swarm/core';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
+import { getCorsHeaders } from '../http/cors.js';
 import * as chatHistory from '../services/chat-history.js';
 import { OpenRouter, fromChatMessages, hasExecuteFunction, toChatMessage, stepCountIs, type Tool } from '@openrouter/sdk';
 import { zodToJsonSchema } from 'zod-to-json-schema';
@@ -1264,28 +1265,7 @@ async function processChat(
 export async function handler(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const resolveCorsOrigin = (): string => {
-    const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
-      .split(',')
-      .map(origin => origin.trim())
-      .filter(Boolean);
-    const fallbackOrigin = allowedOrigins[0] || 'http://localhost:5173';
-    const requestOrigin = event.headers['origin'] || event.headers['Origin'];
-    if (!requestOrigin) return fallbackOrigin;
-    const normalizedRequest = requestOrigin.replace(/\/$/, '');
-    const match = allowedOrigins.find(allowed => normalizedRequest === allowed.replace(/\/$/, ''));
-    return match || fallbackOrigin;
-  };
-
-  // CORS headers - restricted to configured admin domains
-  const allowedOrigin = resolveCorsOrigin();
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': allowedOrigin,
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, CF-Access-JWT-Assertion',
-    'Access-Control-Allow-Credentials': 'true',
-    'Vary': 'Origin',
-  };
+  const corsHeaders = getCorsHeaders(event);
 
   // Handle preflight
   if (event.requestContext.http.method === 'OPTIONS') {

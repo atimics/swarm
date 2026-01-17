@@ -193,7 +193,7 @@ jobs:
       - name: Build Admin UI
         run: |
           cd packages/admin-ui
-          VITE_API_URL=${{ needs.setup.outputs.api_url }} \
+          VITE_API_URL=/api \
           VITE_CROSSMINT_PROJECT_ID=${{ secrets.VITE_CROSSMINT_PROJECT_ID }} \
           pnpm build
 

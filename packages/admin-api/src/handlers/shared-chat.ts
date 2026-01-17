@@ -16,6 +16,7 @@ import { logger } from '@swarm/core';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 import { getClearSessionCookies, getSessionFromCookie } from '../auth/session-cookie.js';
+import { getCorsHeaders } from '../http/cors.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
@@ -86,21 +87,7 @@ function jsonResponse(
 }
 
 function corsHeaders(event: APIGatewayProxyEventV2): Record<string, string> {
-  const origin = event.headers.origin || event.headers.Origin || '';
-  const allowedOrigins = [
-    'https://admin.rati.chat',
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ];
-
-  const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
-
-  return {
-    'Access-Control-Allow-Origin': corsOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  };
+  return getCorsHeaders(event);
 }
 
 // =============================================================================

@@ -10,6 +10,7 @@ import { getClearSessionCookies, getSessionFromCookie, getSetSessionCookies } fr
 import { getAccountSummary, getOrCreateAccountForWallet, linkCrossmintIdentityToAccount } from '../services/accounts.js';
 import { getAccountGateStatus } from '../services/account-gate.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
+import { getCorsHeaders } from '../http/cors.js';
 
 // ============================================================================
 // Request Schemas
@@ -48,22 +49,7 @@ function jsonResponse(
 }
 
 function corsHeaders(event: APIGatewayProxyEventV2): Record<string, string> {
-  const origin = event.headers.origin || event.headers.Origin || '';
-  const allowedOrigins = [
-    'https://admin.rati.chat',
-    'https://admin-staging.rati.chat',
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ];
-
-  const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
-
-  return {
-    'Access-Control-Allow-Origin': corsOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  };
+  return getCorsHeaders(event);
 }
 
 // ============================================================================

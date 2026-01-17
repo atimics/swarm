@@ -9,9 +9,9 @@ import type {
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import { logger } from '@swarm/core';
+import { getCorsHeaders } from '../http/cors.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
 const WHISPER_MODEL = process.env.WHISPER_MODEL || 'whisper-1';
 
 // Cache the API key after first fetch
@@ -50,21 +50,10 @@ async function getOpenAiApiKey(): Promise<string> {
   return cachedApiKey!;
 }
 
-function getCorsHeaders(origin?: string): Record<string, string> {
-  const allowedOrigin = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-  return {
-    'Access-Control-Allow-Origin': allowedOrigin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, CF-Access-JWT-Assertion',
-    'Access-Control-Allow-Credentials': 'true',
-  };
-}
-
 export async function handler(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const origin = event.headers?.origin;
-  const corsHeaders = getCorsHeaders(origin);
+  const corsHeaders = getCorsHeaders(event);
 
   // Handle CORS preflight
   if (event.requestContext.http.method === 'OPTIONS') {

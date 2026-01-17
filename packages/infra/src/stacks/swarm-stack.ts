@@ -211,6 +211,7 @@ export class SwarmStack extends cdk.Stack {
       environment,
       domainName: adminDomain,
       certificateArn: adminCertificateArn,
+      apiDomain: adminDomain?.replace('admin-', 'api-').replace('admin.', 'api.'),
     });
 
     // Create Claude Code worker if enabled

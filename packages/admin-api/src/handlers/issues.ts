@@ -17,21 +17,9 @@ import type {
 } from 'aws-lambda';
 import { logger } from '@swarm/core';
 import * as autoIssues from '../services/auto-issues.js';
+import { getCorsHeaders } from '../http/cors.js';
 
-// CORS headers
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
 
-function getCorsHeaders(event: APIGatewayProxyEventV2) {
-  const origin = event.headers['origin'] || event.headers['Origin'] || allowedOrigins[0];
-  const allowedOrigin = allowedOrigins.find(o => o.trim() === origin) || allowedOrigins[0];
-
-  return {
-    'Access-Control-Allow-Origin': allowedOrigin,
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, x-internal-test-key, CF-Access-JWT-Assertion',
-    'Access-Control-Allow-Credentials': 'true',
-  };
-}
 
 // Internal test key for CI/CD access (set in Lambda env)
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;

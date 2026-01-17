@@ -31,9 +31,10 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
 
   // Check if Crossmint SDK is loading or waiting for wallet
   const crossmintIsLoading = status === 'in-progress';
-  // Also consider "logged in but waiting for wallet" as loading state
+  // Some Crossmint flows can be "logged-in" before an embedded wallet is available.
+  // Don't block the UI on wallet creation; backend sync can proceed without it.
   const isWaitingForWallet = status === 'logged-in' && crossmintUser && !walletAddress;
-  const isLoading = walletAuth.isLoading || crossmintAuth.isLoading || crossmintIsLoading || isWaitingForWallet;
+  const isLoading = walletAuth.isLoading || crossmintAuth.isLoading || crossmintIsLoading;
 
   // Track sync attempts to prevent infinite loops
   const syncAttemptedRef = useRef(false);
@@ -205,6 +206,12 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
           </>
         )}
       </button>
+
+      {isWaitingForWallet && !isLoading && (
+        <p className="text-xs text-[var(--color-text-muted)] text-center">
+          Crossmint is finishing wallet setup in the background.
+        </p>
+      )}
 
       {/* Divider */}
       <div className="flex items-center gap-3">

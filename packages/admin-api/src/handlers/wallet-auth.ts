@@ -18,6 +18,7 @@ import {
   getSessionFromCookie,
   getSetSessionCookies,
 } from '../auth/session-cookie.js';
+import { getCorsHeaders } from '../http/cors.js';
 import {
   inhabitAvatar,
   abandonAvatar,
@@ -129,26 +130,6 @@ function jsonResponse(
   };
 }
 
-function corsHeaders(event: APIGatewayProxyEventV2): Record<string, string> {
-  const origin = event.headers.origin || event.headers.Origin || '';
-  // Allow localhost for development
-  const allowedOrigins = [
-    'https://admin.rati.chat',
-    'https://admin-staging.rati.chat',
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ];
-  
-  const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
-  
-  return {
-    'Access-Control-Allow-Origin': corsOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-internal-test-key',
-  };
-}
-
 // ============================================================================
 // Handlers
 // ============================================================================
@@ -160,7 +141,7 @@ function corsHeaders(event: APIGatewayProxyEventV2): Record<string, string> {
 export async function handleChallenge(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   // Handle preflight
   if (event.requestContext.http.method === 'OPTIONS') {
@@ -210,7 +191,7 @@ export async function handleChallenge(
 export async function handleVerify(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   // Handle preflight
   if (event.requestContext.http.method === 'OPTIONS') {
@@ -322,7 +303,7 @@ export async function handleMe(
   event: APIGatewayProxyEventV2,
   deps?: WalletAuthHandlerDeps
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   // Handle preflight
   if (event.requestContext.http.method === 'OPTIONS') {
@@ -412,7 +393,7 @@ export async function handleLinkWalletChallenge(
   event: APIGatewayProxyEventV2,
   deps?: WalletAuthHandlerDeps
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
@@ -467,7 +448,7 @@ export async function handleLinkWalletVerify(
   event: APIGatewayProxyEventV2,
   deps?: WalletAuthHandlerDeps
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
@@ -525,7 +506,7 @@ export async function handleLinkWalletVerify(
 export async function handleLogout(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   // Handle preflight
   if (event.requestContext.http.method === 'OPTIONS') {
@@ -557,7 +538,7 @@ export async function handleLogout(
 export async function handleUnclaimedAvatars(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
@@ -588,7 +569,7 @@ export async function handleUnclaimedAvatars(
 export async function handleGateStatus(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
@@ -624,7 +605,7 @@ export async function handleGateStatus(
 export async function handleInhabitationStatus(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
@@ -660,7 +641,7 @@ export async function handleInhabitationStatus(
 export async function handleInhabitAvatar(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
@@ -715,7 +696,7 @@ export async function handleInhabitAvatar(
 export async function handleCanAbandon(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
@@ -772,7 +753,7 @@ export async function handleCanAbandon(
 export async function handleAbandonAvatar(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
@@ -863,7 +844,7 @@ export async function handleWalletAuth(
 
   const path = event.rawPath;
   const method = event.requestContext.http.method;
-  const cors = corsHeaders(event);
+  const cors = getCorsHeaders(event);
 
   // Handle preflight for all auth routes
   if (method === 'OPTIONS') {
