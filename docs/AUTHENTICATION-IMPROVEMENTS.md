@@ -20,12 +20,11 @@ This document describes the current authentication architecture in AWS Swarm (Ad
 - Admin UI prompts the user before switching identities when Crossmint-authenticated and a different Phantom wallet connects.
 - App bootstrap logic treats the backend session as the source of truth and clears persisted Crossmint auth when `/auth/me` indicates unauthenticated.
 
-**What’s next (P1/P2)**
-- Introduce an explicit **Account + Identity** model and implement **Link vs Switch** flows.
-- Make “Orb/NFT gating” evaluate against the **union of linked wallets** (account-level), eliminating confusion when assets are in a different wallet.
-- Finalize a production auth posture that does not depend on Cloudflare Access while retaining admin-only controls via roles/permissions.
+**What’s next (remaining work)**
+- Finish the last onboarding UX requirements (CTAs + explanation + stable “Account” view).
+- Optionally: add a dedicated “Account settings” route instead of the WalletLogin modal-style UI.
 
-**What’s implemented (P2 posture, incremental)**
+**What’s implemented (production posture)**
 - Admin API auth no longer “falls back” to `Origin`/`Referer` checks when no token is present; requests must authenticate via Cloudflare Access token or first-party `swarm_session`.
 - When using session-cookie auth for admin endpoints, admin determination can be configured via `ADMIN_EMAILS` and/or `ADMIN_WALLETS`.
 
@@ -135,6 +134,10 @@ Configuration:
 - `ADMIN_EMAILS` (comma-separated)
 - `ADMIN_WALLETS` (comma-separated base58 wallet addresses)
 
+Also used:
+- `AUTH_DOMAIN` (used to compute parent-domain cookie scope)
+- `CF_ACCESS_CERTS_URL`, `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` (when validating CF Access JWTs)
+
 ---
 
 ## Target End State (Production-Ready Auth)
@@ -148,7 +151,7 @@ Configuration:
 
 ---
 
-## Proposed Data Model (P1)
+## Implemented Data Model (Account + Identity)
 
 ### Entities
 
@@ -177,18 +180,21 @@ Server-side session bound to an account.
 - `createdAt`, `expiresAt`, `lastSeenAt`
 - Optional: `authMethod` (wallet/crossmint), `ipHash`, `uaHash`
 
-### DynamoDB table strategy
-You can implement these as:
-- **One table** with PK/SK patterns, or
-- **Separate tables** (`ACCOUNTS_TABLE`, `IDENTITIES_TABLE`, `SESSIONS_TABLE`).
+### DynamoDB strategy (current)
+The implementation uses a single-table-style approach for account + identity mapping:
+- `ACCOUNT#<accountId>` for the account root item
+- `IDENTITY#wallet#<walletAddress>` and `IDENTITY#crossmint#<crossmintUserId>` mapping items that point to `accountId`
 
-Given current infra uses DynamoDB tables already, the simplest safe approach is usually:
-- Keep sessions where they are today (if stable), but evolve session value to include `accountId`.
-- Introduce a new identities store that maps provider identity → accountId.
+Implementation entry points:
+- `packages/admin-api/src/services/accounts.ts`
+- `packages/admin-api/src/services/wallet-link.ts`
+- `packages/admin-api/src/services/account-gate.ts`
 
 ---
 
 ## API Spec (P1)
+
+These endpoints are now implemented; the notes below describe the intended contract.
 
 ### Auth
 
@@ -213,6 +219,9 @@ Response:
 Notes:
 - UI should treat this endpoint as the only authority.
 - If `isAuthenticated=false`, UI should clear any persisted provider state.
+
+Current response shape uses `authenticated: boolean` (legacy) and includes `account`, `user`, and account-level gating fields:
+- `gateStatus`, `gateWallet`, `gateStatusByWallet`
 
 ### Link wallet to current account
 
@@ -258,6 +267,31 @@ Server behavior:
 - Verify signature over the exact challenge message.
 - Ensure nonce is unused and unexpired.
 - Enforce uniqueness: a wallet can only be linked to one account.
+
+Test coverage:
+- `packages/admin-api/src/services/wallet-link.test.ts`
+
+### Link Crossmint identity to current account
+
+#### `POST /auth/link/crossmint/verify`
+Requires authenticated session (cookie).
+
+Behavior:
+- Verifies the Crossmint JWT (proof of Crossmint identity)
+- Links `IDENTITY#crossmint#<userId>` to the current `accountId`
+- Does not create a new backend session (no cookie mutation)
+
+Test coverage:
+- `packages/admin-api/src/services/accounts.test.ts`
+
+---
+
+## Remaining onboarding UX requirements
+
+These are the only remaining TODOs in the auth plan dashboard:
+- After email/social login, show the embedded wallet and a CTA to “Link existing wallet to use your Orbs”.
+- If the embedded wallet has no Orbs, explain “limited mode” and how to unlock (link wallet or acquire Orbs).
+- Provide a stable “Account” view that answers: which identities are linked, which wallet has Orbs, and what features are unlocked.
 - On success: attach wallet identity to account.
 
 ### Switch account (optional but recommended)
