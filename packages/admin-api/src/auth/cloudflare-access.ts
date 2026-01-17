@@ -145,7 +145,11 @@ async function verifyAccessToken(token: string): Promise<CloudflareAccessClaims>
 
 /**
  * Authenticate a request using Cloudflare Access
- * Falls back to allowing access if the UI is already protected by Cloudflare Access
+ * Accepts either:
+ * - a Cloudflare Access JWT (CF-Access-JWT-Assertion / Bearer token), or
+ * - a first-party `swarm_session` cookie (server-side session)
+ *
+ * Note: This does not allow origin/referer-only fallbacks.
  */
 export async function authenticateRequest(
   event: APIGatewayProxyEventV2

@@ -232,7 +232,7 @@ export async function handleVerify(
     const { signature, publicKey, nonce } = parsed.data;
 
     // Get client info
-    const userAgent = event.headers['user-avatar'];
+    const userAgent = event.headers['user-agent'] || event.headers['User-Agent'] || '';
     const ipAddress = event.requestContext.http.sourceIp;
 
     // Verify and create session

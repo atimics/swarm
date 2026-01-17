@@ -36,6 +36,16 @@ describe('session-cookie', () => {
     expect(getSessionFromCookie(event)).toBe('token-1');
   });
 
+  it('getSessionFromCookie falls back to parsing the Cookie header when event.cookies is missing', () => {
+    const event = {
+      headers: {
+        cookie: 'foo=bar; swarm_session=abc; baz=qux',
+      },
+    } as unknown as APIGatewayProxyEventV2;
+
+    expect(getSessionFromCookie(event)).toBe('abc');
+  });
+
   it('getSetSessionCookies sets host-only cookie when AUTH_DOMAIN not set', () => {
     const cookies = getSetSessionCookies('abc');
     expect(cookies).toHaveLength(1);

@@ -56,6 +56,20 @@ export function getSessionFromCookie(event: APIGatewayProxyEventV2): string | nu
     const [name, value] = cookie.split('=');
     if (name === COOKIE_NAME && value) return value;
   }
+
+  // Some proxies/environments may not populate event.cookies; fall back to Cookie header.
+  const cookieHeader = event.headers?.cookie || event.headers?.Cookie;
+  if (!cookieHeader) return null;
+
+  for (const part of cookieHeader.split(';')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const [name, ...rest] = trimmed.split('=');
+    if (name !== COOKIE_NAME) continue;
+    const value = rest.join('=');
+    if (value) return value;
+  }
+
   return null;
 }
 
