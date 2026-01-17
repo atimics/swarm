@@ -142,6 +142,7 @@ export interface AdminApiConstructProps {
 
 export class AdminApiConstruct extends Construct {
   public readonly api: apigateway.HttpApi;
+  public readonly apiEndpoint: string;
   public readonly customDomain?: apigateway.DomainName;
   public readonly table: dynamodb.Table;
   public readonly encryptionKey: kms.Key;
@@ -418,6 +419,9 @@ export class AdminApiConstruct extends Construct {
         maxAge: cdk.Duration.hours(24),
       },
     });
+
+    // Expose the API endpoint for CloudFront to use as origin
+    this.apiEndpoint = this.api.apiEndpoint;
 
     // Add routes
     const chatIntegration = new integrations.HttpLambdaIntegration(

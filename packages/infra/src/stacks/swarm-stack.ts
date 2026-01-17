@@ -197,9 +197,6 @@ export class SwarmStack extends cdk.Stack {
 
     // Create Admin API if Cloudflare Access is configured
     if (cloudflareTeamDomain && adminEmails) {
-      // Derive API domain from admin domain (admin-staging.x.com -> api-staging.x.com)
-      const apiDomain = adminDomain?.replace('admin-', 'api-').replace('admin.', 'api.');
-
       this.adminApi = new AdminApiConstruct(this, 'AdminApi', {
         cloudflareTeamDomain,
         adminEmails,
@@ -215,8 +212,7 @@ export class SwarmStack extends cdk.Stack {
         privyJwtVerificationKeyArn,
         environment,
         adminDomain,
-        apiDomain,
-        apiCertificateArn: adminCertificateArn, // Use same wildcard cert
+        // No apiDomain - API is accessed through admin UI CloudFront /api/* path
         stateTable: this.shared.stateTable,
         // Media infrastructure for image/video generation
         mediaBucket: this.shared.mediaBucket,
@@ -232,7 +228,8 @@ export class SwarmStack extends cdk.Stack {
       environment,
       domainName: adminDomain,
       certificateArn: adminCertificateArn,
-      apiDomain: adminDomain?.replace('admin-', 'api-').replace('admin.', 'api.'),
+      // Use raw API Gateway endpoint (extracted hostname without protocol)
+      apiDomain: this.adminApi?.apiEndpoint?.replace('https://', ''),
     });
 
     // Create Claude Code worker if enabled
