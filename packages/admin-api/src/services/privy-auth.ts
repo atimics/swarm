@@ -1,0 +1,368 @@
+/**
+ * Privy Authentication Service
+ * Handles authentication for users signing in via Privy (email/social)
+ */
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { randomBytes } from 'crypto';
+import { PrivyClient, type User as PrivyUser } from '@privy-io/node';
+
+import { checkNFTGate, type NFTGateResult } from './nft-gate.js';
+import type { UserRecord, SessionRecord } from './wallet-auth.js';
+import { getOrCreateAccountForPrivy } from './accounts.js';
+
+const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
+
+const secretsClient = new SecretsManagerClient({});
+
+const ADMIN_TABLE = process.env.ADMIN_TABLE!;
+
+const PRIVY_APP_ID = process.env.PRIVY_APP_ID;
+const PRIVY_APP_SECRET_ARN = process.env.PRIVY_APP_SECRET_ARN;
+let privyAppSecret: string | null = process.env.PRIVY_APP_SECRET || null;
+let privyAppSecretFetched = false;
+
+const PRIVY_JWT_VERIFICATION_KEY_ARN = process.env.PRIVY_JWT_VERIFICATION_KEY_ARN;
+let privyJwtVerificationKey: string | null = process.env.PRIVY_JWT_VERIFICATION_KEY || null;
+let privyJwtVerificationKeyFetched = false;
+
+const SESSION_TTL_HOURS = 24;
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface PrivyVerifyRequest {
+  accessToken: string;
+  userId?: string;
+  email?: string;
+  walletAddress?: string;
+}
+
+export interface PrivyAuthResult {
+  success: boolean;
+  session?: SessionRecord;
+  user?: UserRecord & { email?: string };
+  nftGate?: NFTGateResult;
+  error?: string;
+  conflict?: { type: 'wallet' | 'privy'; providerId: string; existingAccountId: string };
+}
+
+// ============================================================================
+// Config + Client
+// ============================================================================
+
+async function getSecretValue(secretArn: string): Promise<string | null> {
+  try {
+    const response = await secretsClient.send(
+      new GetSecretValueCommand({
+        SecretId: secretArn,
+      })
+    );
+    return response.SecretString || null;
+  } catch (error) {
+    console.error('[PrivyAuth] Failed to fetch secret from Secrets Manager:', error);
+    return null;
+  }
+}
+
+async function getPrivyAppSecret(): Promise<string | null> {
+  if (privyAppSecret) return privyAppSecret;
+  if (privyAppSecretFetched) return null;
+  privyAppSecretFetched = true;
+
+  if (!PRIVY_APP_SECRET_ARN) return null;
+  privyAppSecret = await getSecretValue(PRIVY_APP_SECRET_ARN);
+  return privyAppSecret;
+}
+
+async function getPrivyJwtVerificationKey(): Promise<string | null> {
+  if (privyJwtVerificationKey) return privyJwtVerificationKey;
+  if (privyJwtVerificationKeyFetched) return null;
+  privyJwtVerificationKeyFetched = true;
+
+  if (!PRIVY_JWT_VERIFICATION_KEY_ARN) return null;
+  privyJwtVerificationKey = await getSecretValue(PRIVY_JWT_VERIFICATION_KEY_ARN);
+  return privyJwtVerificationKey;
+}
+
+let privyClient: PrivyClient | null = null;
+
+async function getPrivyClient(): Promise<PrivyClient> {
+  if (privyClient) return privyClient;
+
+  const appId = PRIVY_APP_ID;
+  const appSecret = await getPrivyAppSecret();
+  const jwtVerificationKey = await getPrivyJwtVerificationKey();
+
+  if (!appId) throw new Error('Missing PRIVY_APP_ID');
+  if (!appSecret) throw new Error('Missing PRIVY_APP_SECRET or PRIVY_APP_SECRET_ARN');
+  if (!jwtVerificationKey) {
+    throw new Error('Missing PRIVY_JWT_VERIFICATION_KEY or PRIVY_JWT_VERIFICATION_KEY_ARN');
+  }
+
+  privyClient = new PrivyClient({
+    appId,
+    appSecret,
+    jwtVerificationKey,
+  });
+
+  return privyClient;
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function generateSessionToken(): string {
+  return randomBytes(48).toString('base64url');
+}
+
+function pickSolanaWalletAddressFromPrivyUser(user: PrivyUser): string | null {
+  const solanaWallets = (user.linked_accounts ?? []).filter(
+    (a): a is { type: 'wallet'; chain_type: 'solana'; address: string; wallet_client?: string } =>
+      typeof (a as any)?.type === 'string' &&
+      (a as any).type === 'wallet' &&
+      (a as any).chain_type === 'solana' &&
+      typeof (a as any).address === 'string'
+  );
+
+  if (solanaWallets.length === 0) return null;
+
+  const embedded = solanaWallets.find((w) => (w as any).wallet_client === 'privy');
+  return (embedded ?? solanaWallets[0]).address;
+}
+
+function pickEmailFromPrivyUser(user: PrivyUser): string | undefined {
+  const email = (user.linked_accounts ?? []).find(
+    (a): a is { type: 'email'; address: string } =>
+      typeof (a as any)?.type === 'string' && (a as any).type === 'email' && typeof (a as any).address === 'string'
+  );
+  return email?.address;
+}
+
+// ============================================================================
+// Session Management
+// ============================================================================
+
+async function createSession(
+  walletAddress: string,
+  privyUserId: string,
+  accountId: string,
+  userAgent?: string,
+  ipAddress?: string
+): Promise<SessionRecord> {
+  const sessionToken = generateSessionToken();
+  const now = Date.now();
+  const expiresAt = now + SESSION_TTL_HOURS * 60 * 60 * 1000;
+
+  const record: SessionRecord = {
+    pk: `SESSION#${sessionToken}`,
+    sk: 'DATA',
+    sessionToken,
+    walletAddress,
+    accountId,
+    createdAt: now,
+    expiresAt,
+    lastActiveAt: now,
+    userAgent,
+    ipAddress,
+    ttl: Math.floor(expiresAt / 1000),
+  };
+
+  await dynamoClient.send(
+    new PutCommand({
+      TableName: ADMIN_TABLE,
+      Item: {
+        ...record,
+        authProvider: 'privy',
+        privyUserId,
+      },
+    })
+  );
+
+  console.log(
+    `[PrivyAuth] Created session for privyUser=${privyUserId}, wallet=${walletAddress.slice(0, 8)}...`
+  );
+
+  return record;
+}
+
+// ============================================================================
+// User Management
+// ============================================================================
+
+async function getOrCreateUser(
+  walletAddress: string,
+  email?: string,
+  privyUserId?: string
+): Promise<UserRecord & { email?: string }> {
+  const pk = `USER#${walletAddress}`;
+
+  const result = await dynamoClient.send(
+    new GetCommand({
+      TableName: ADMIN_TABLE,
+      Key: { pk, sk: 'PROFILE' },
+    })
+  );
+
+  const now = Date.now();
+
+  if (result.Item) {
+    const user = result.Item as UserRecord & { email?: string };
+    const updateExpr = email
+      ? 'SET lastSeenAt = :now, sessionCount = sessionCount + :one, email = :email, authProvider = :ap, privyUserId = :puid'
+      : 'SET lastSeenAt = :now, sessionCount = sessionCount + :one, authProvider = :ap, privyUserId = :puid';
+
+    const exprValues: Record<string, unknown> = {
+      ':now': now,
+      ':one': 1,
+      ':ap': 'privy',
+      ':puid': privyUserId ?? null,
+    };
+
+    if (email) {
+      exprValues[':email'] = email;
+    }
+
+    await dynamoClient.send(
+      new UpdateCommand({
+        TableName: ADMIN_TABLE,
+        Key: { pk, sk: 'PROFILE' },
+        UpdateExpression: updateExpr,
+        ExpressionAttributeValues: exprValues,
+      })
+    );
+
+    return { ...user, lastSeenAt: now, sessionCount: user.sessionCount + 1, email: email || user.email };
+  }
+
+  const newUser: UserRecord & { email?: string; authProvider: string; privyUserId?: string } = {
+    pk,
+    sk: 'PROFILE',
+    walletAddress,
+    email,
+    authProvider: 'privy',
+    privyUserId,
+    createdAt: now,
+    lastSeenAt: now,
+    sessionCount: 1,
+  };
+
+  if (email) {
+    newUser.displayName = email.split('@')[0];
+  }
+
+  await dynamoClient.send(
+    new PutCommand({
+      TableName: ADMIN_TABLE,
+      Item: newUser,
+    })
+  );
+
+  console.log(
+    `[PrivyAuth] Created new user for privyUser=${privyUserId}, wallet=${walletAddress.slice(0, 8)}...`
+  );
+
+  return newUser;
+}
+
+// ============================================================================
+// Main Auth Flow
+// ============================================================================
+
+export async function verifyPrivyAuth(
+  request: PrivyVerifyRequest,
+  userAgent?: string,
+  ipAddress?: string
+): Promise<PrivyAuthResult> {
+  const { accessToken, userId: claimedUserId } = request;
+
+  if (!accessToken) {
+    return { success: false, error: 'Missing access token' };
+  }
+
+  try {
+    const client = await getPrivyClient();
+
+    // 1) Verify the access token signature + claims.
+    const payload = await client.utils().auth().verifyAccessToken(accessToken);
+    const privyUserId = payload.user_id;
+
+    if (!privyUserId) {
+      return { success: false, error: 'Invalid access token' };
+    }
+
+    if (claimedUserId && claimedUserId !== privyUserId) {
+      return { success: false, error: 'Token user mismatch' };
+    }
+
+    // 2) Fetch the user so we can trust-linked wallet/email (don’t trust client-provided walletAddress).
+    const user = await client.users()._get(privyUserId);
+
+    const walletAddress = pickSolanaWalletAddressFromPrivyUser(user);
+    if (!walletAddress) {
+      return { success: false, error: 'No Solana wallet found for Privy user' };
+    }
+
+    const email = pickEmailFromPrivyUser(user) ?? request.email;
+
+    console.log(
+      `[PrivyAuth] Verifying user=${privyUserId}, email=${email}, wallet=${walletAddress.slice(0, 8)}...`
+    );
+
+    // 3) Check NFT gate.
+    const nftGate = await checkNFTGate(walletAddress);
+
+    // 4) Get/create user record (keyed by wallet).
+    const appUser = await getOrCreateUser(walletAddress, email, privyUserId);
+
+    // 5) Resolve/create account.
+    const accountResult = await getOrCreateAccountForPrivy({
+      privyUserId,
+      walletAddress,
+    });
+
+    if (!accountResult.success) {
+      return {
+        success: false,
+        error: accountResult.error,
+        conflict: accountResult.conflict,
+      };
+    }
+
+    // 6) Create session.
+    const session = await createSession(walletAddress, privyUserId, accountResult.accountId, userAgent, ipAddress);
+
+    return { success: true, session, user: appUser, nftGate };
+  } catch (error) {
+    console.error('[PrivyAuth] Verify error:', error);
+    return { success: false, error: 'Authentication failed' };
+  }
+}
+
+export async function verifyPrivyAccessTokenForLink(accessToken: string): Promise<{ ok: true; privyUserId: string; walletAddress: string | null; email?: string } | { ok: false; error: string }> {
+  try {
+    const client = await getPrivyClient();
+    const payload = await client.utils().auth().verifyAccessToken(accessToken);
+    const privyUserId = payload.user_id;
+    if (!privyUserId) return { ok: false, error: 'Invalid access token' };
+
+    const user = await client.users()._get(privyUserId);
+    const walletAddress = pickSolanaWalletAddressFromPrivyUser(user);
+    const email = pickEmailFromPrivyUser(user);
+
+    return { ok: true, privyUserId, walletAddress, email };
+  } catch (error) {
+    console.error('[PrivyAuth] Link verify error:', error);
+    return { ok: false, error: 'Invalid authentication token' };
+  }
+}

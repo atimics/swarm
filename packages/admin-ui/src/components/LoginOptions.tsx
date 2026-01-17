@@ -1,13 +1,14 @@
 /**
  * Login Options Component
- * Provides both Crossmint (email/social) and native wallet login options
+ * Provides both Privy (email/social) and native wallet login options
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { useAuth as useCrossmintAuthHook, useWallet as useCrossmintWallet } from '@crossmint/client-sdk-react-ui';
 import { useWalletAuth } from '../store/walletAuth';
-import { useCrossmintAuth } from '../store/crossmintAuth';
+import { usePrivy } from '@privy-io/react-auth';
+import { usePrivyAuth } from '../store/privyAuth';
+import { useWalletUi } from '../store/walletUi';
 
 interface LoginOptionsProps {
   className?: string;
@@ -17,28 +18,25 @@ interface LoginOptionsProps {
 export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsProps) {
   const { setVisible } = useWalletModal();
   const walletAuth = useWalletAuth();
-  const crossmintAuth = useCrossmintAuth();
+  const privyAuth = usePrivyAuth();
+  const walletError = useWalletUi((s) => s.walletError);
+  const clearWalletError = useWalletUi((s) => s.clearWalletError);
 
   // Solana wallet adapter hooks for Phantom/etc
   const { publicKey, connected, signMessage } = useWallet();
 
-  // Crossmint SDK hooks
-  const { login: crossmintLogin, user: crossmintUser, jwt, status } = useCrossmintAuthHook();
-  const { wallet: crossmintWallet } = useCrossmintWallet();
+  // Privy SDK hooks
+  const { ready, authenticated, user: privyUser, login: privyLogin, getAccessToken } = usePrivy();
+  const walletAddress = getSolanaWalletAddressFromPrivyUser(privyUser);
 
-  // Extract wallet address upfront to ensure stable dependency
-  const walletAddress = crossmintWallet?.address;
+  // If Privy is authenticated but we don't yet have an embedded wallet address, don't block the UI.
+  const isWaitingForWallet = authenticated && !!privyUser && !walletAddress;
 
-  // Check if Crossmint SDK is loading or waiting for wallet
-  const crossmintIsLoading = status === 'in-progress';
-  // Some Crossmint flows can be "logged-in" before an embedded wallet is available.
-  // Don't block the UI on wallet creation; backend sync can proceed without it.
-  const isWaitingForWallet = status === 'logged-in' && crossmintUser && !walletAddress;
-  const isLoading = walletAuth.isLoading || crossmintAuth.isLoading || crossmintIsLoading;
+  const isLoading = walletAuth.isLoading || privyAuth.isLoading;
 
   // Track sync attempts to prevent infinite loops
   const syncAttemptedRef = useRef(false);
-  const lastJwtRef = useRef<string | null>(null);
+  const lastTokenRef = useRef<string | null>(null);
   const lastWalletAddressRef = useRef<string | null>(null);
   
   // Track Solana wallet login attempts
@@ -72,96 +70,88 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     }
   }, [connected, publicKey, signMessage, walletAuth.isLoading, walletAuth.isAuthenticated, walletAuth.login]);
 
-  // When Crossmint auth completes, sync with our backend.
-  // Don't block on embedded wallet creation: for some social flows (e.g. X),
-  // the SDK can be logged-in before the wallet is available.
+  // When Privy auth completes, sync with our backend.
+  // Don't block on embedded wallet creation: Privy may be authenticated before wallet is ready.
   useEffect(() => {
-    const isLoggedIn = status === 'logged-in';
-    const isNewJwt = jwt !== lastJwtRef.current;
-    const isNewWallet = walletAddress && walletAddress !== lastWalletAddressRef.current;
+    if (!ready) return;
+    if (!authenticated) return;
+    if (!privyUser?.id) return;
+    if (privyAuth.isAuthenticated) return;
 
-    console.log('[LoginOptions] Auth effect triggered:', {
-      status,
-      hasUser: !!crossmintUser,
-      userEmail: crossmintUser?.email,
-      hasJwt: !!jwt,
-      walletAddress,
-      isAuthenticated: crossmintAuth.isAuthenticated,
-      syncAttempted: syncAttemptedRef.current,
-      isNewJwt,
-      isNewWallet,
-      lastWallet: lastWalletAddressRef.current,
-    });
+    const doSync = async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) return;
 
-    // Only sync if:
-    // 1. User is logged in
-    // 2. We haven't already synced this JWT/wallet combo
-    // 3. We're not already authenticated
-    if (isLoggedIn && crossmintUser && jwt && !crossmintAuth.isAuthenticated && (!syncAttemptedRef.current || isNewJwt || isNewWallet)) {
-      console.log('[LoginOptions] ✅ Starting backend sync', { walletAddress });
-      syncAttemptedRef.current = true;
-      lastJwtRef.current = jwt;
-      lastWalletAddressRef.current = walletAddress ?? null;
-      crossmintAuth.syncWithBackend(jwt, {
-        ...crossmintUser,
-        wallet: walletAddress ? { address: walletAddress } : undefined,
-      }).catch((error) => {
-        console.error('[LoginOptions] ❌ Sync failed:', error);
-        // Reset sync attempted so user can retry
+        const isNewToken = token !== lastTokenRef.current;
+        const isNewWallet = walletAddress && walletAddress !== lastWalletAddressRef.current;
+        if (syncAttemptedRef.current && !isNewToken && !isNewWallet) return;
+
+        syncAttemptedRef.current = true;
+        lastTokenRef.current = token;
+        lastWalletAddressRef.current = walletAddress ?? null;
+
+        await privyAuth.syncWithBackend(token, {
+          id: privyUser.id,
+          email: (privyUser as unknown as { email?: string })?.email,
+          walletAddress: walletAddress ?? undefined,
+        });
+      } catch (error) {
+        console.error('[LoginOptions] Privy backend sync error:', error);
         syncAttemptedRef.current = false;
-      });
-    } else if (isLoggedIn && !walletAddress) {
-      console.warn('[LoginOptions] ⏳ Crossmint user logged in but wallet not yet created');
-    } else if (isLoggedIn && walletAddress && crossmintAuth.isAuthenticated) {
-      console.log('[LoginOptions] ✓ Already authenticated, skipping sync');
-    } else if (isLoggedIn && syncAttemptedRef.current && !isNewJwt && !isNewWallet) {
-      console.log('[LoginOptions] ⏸ Sync already attempted for this wallet/jwt combo');
-    }
-  }, [status, crossmintUser, walletAddress, jwt, crossmintAuth.isAuthenticated]);
+      }
+    };
+
+    void doSync();
+  }, [ready, authenticated, privyUser, getAccessToken, walletAddress, privyAuth]);
 
   const handleWalletConnect = useCallback(() => {
     solanaLoginAttemptedRef.current = null; // Allow fresh attempt
     walletAuth.clearError();
+    clearWalletError();
     setVisible(true);
-  }, [setVisible, walletAuth]);
+  }, [setVisible, walletAuth, clearWalletError]);
 
-  const handleCrossmintLogin = useCallback(async () => {
-    crossmintAuth.clearError();
-    
-    // If Crossmint SDK already has user logged in but our backend sync hasn't happened,
-    // trigger the sync directly instead of calling login() which will error
-    if (status === 'logged-in' && jwt && crossmintUser && !crossmintAuth.isAuthenticated) {
-      console.log('[LoginOptions] SDK already logged in, triggering backend sync');
-      crossmintAuth.setLoading(true);
+  const handlePrivyLogin = useCallback(async () => {
+    privyAuth.clearError();
+
+    // If Privy is already authenticated but backend sync hasn't happened yet, force sync.
+    if (ready && authenticated && privyUser?.id && !privyAuth.isAuthenticated) {
+      privyAuth.setLoading(true);
       try {
-        await crossmintAuth.syncWithBackend(jwt, {
-          ...crossmintUser,
-          wallet: walletAddress ? { address: walletAddress } : undefined,
-        });
+        const token = await getAccessToken();
+        if (token) {
+          await privyAuth.syncWithBackend(token, {
+            id: privyUser.id,
+            email: (privyUser as unknown as { email?: string })?.email,
+            walletAddress: getSolanaWalletAddressFromPrivyUser(privyUser) ?? undefined,
+          });
+        }
       } catch (error) {
-        console.error('[LoginOptions] Backend sync error:', error);
+        console.error('[LoginOptions] Privy backend sync error:', error);
       } finally {
-        crossmintAuth.setLoading(false);
+        privyAuth.setLoading(false);
       }
       return;
     }
-    
-    // Otherwise, initiate normal login flow
-    crossmintAuth.setLoading(true);
+
+    privyAuth.setLoading(true);
     try {
-      await crossmintLogin();
+      await privyLogin();
     } catch (error) {
-      console.error('[LoginOptions] Crossmint login error:', error);
+      console.error('[LoginOptions] Privy login error:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      privyAuth.setError(message || 'Sign-in failed');
     } finally {
-      crossmintAuth.setLoading(false);
+      privyAuth.setLoading(false);
     }
-  }, [crossmintLogin, crossmintAuth, status, jwt, crossmintUser, walletAddress]);
+  }, [privyAuth, ready, authenticated, privyUser, getAccessToken, privyLogin]);
 
   if (variant === 'compact') {
     return (
       <div className={`flex flex-col gap-2 ${className}`}>
         <button
-          onClick={handleCrossmintLogin}
+          onClick={handlePrivyLogin}
           disabled={isLoading}
           className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white font-medium text-sm transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -188,9 +178,9 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
 
   return (
     <div className={`flex flex-col gap-4 ${className}`}>
-      {/* Primary: Email/Social login via Crossmint */}
+      {/* Primary: Email/Social login via Privy */}
       <button
-        onClick={handleCrossmintLogin}
+        onClick={handlePrivyLogin}
         disabled={isLoading}
         className="flex items-center justify-center gap-3 px-8 py-4 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white font-semibold text-lg transition-all shadow-lg shadow-brand-500/30 hover:shadow-brand-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
       >
@@ -209,7 +199,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
 
       {isWaitingForWallet && !isLoading && (
         <p className="text-xs text-[var(--color-text-muted)] text-center">
-          Crossmint is finishing wallet setup in the background.
+          Privy is finishing wallet setup in the background.
         </p>
       )}
 
@@ -232,17 +222,45 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
 
       {/* Social login hint */}
       <p className="text-xs text-[var(--color-text-muted)] text-center">
-        Sign in with Google, Twitter, Farcaster, or email
+        Sign in with Google, Twitter, or email
       </p>
 
       {/* Error display */}
-      {(walletAuth.error || crossmintAuth.error) && (
+      {(walletAuth.error || privyAuth.error || walletError) && (
         <p className="text-xs text-red-400 text-center">
-          {walletAuth.error || crossmintAuth.error}
+          {walletAuth.error || privyAuth.error || walletError}
         </p>
       )}
     </div>
   );
+}
+
+function getSolanaWalletAddressFromPrivyUser(user: unknown): string | null {
+  if (!user || typeof user !== 'object') return null;
+  const anyUser = user as any;
+
+  const direct =
+    anyUser?.wallet?.address ||
+    anyUser?.wallet?.publicKey ||
+    anyUser?.embeddedWallet?.address ||
+    anyUser?.embeddedWallet?.publicKey;
+  if (typeof direct === 'string' && direct.length >= 32) return direct;
+
+  const wallets = anyUser?.wallets || anyUser?.linkedWallets;
+  if (Array.isArray(wallets)) {
+    const first = wallets.find((w: any) => typeof w?.address === 'string')?.address;
+    if (typeof first === 'string' && first.length >= 32) return first;
+  }
+
+  const linked = anyUser?.linkedAccounts || anyUser?.linked_accounts;
+  if (Array.isArray(linked)) {
+    const walletAccount = linked.find((a: any) => a?.type === 'wallet' && typeof a?.address === 'string');
+    if (typeof walletAccount?.address === 'string' && walletAccount.address.length >= 32) {
+      return walletAccount.address;
+    }
+  }
+
+  return null;
 }
 
 function LoadingSpinner() {

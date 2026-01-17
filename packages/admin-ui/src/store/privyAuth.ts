@@ -1,14 +1,14 @@
 /**
- * Crossmint Authentication Store
- * Manages Crossmint email/social login and session sync with backend
+ * Privy Authentication Store
+ * Manages Privy email/social login and session sync with backend.
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 import { API_BASE } from '../api/apiBase';
+import type { GateStatus } from './walletAuth';
 
 async function readErrorMessage(response: Response): Promise<string> {
-  // Prefer JSON { error } but tolerate HTML/text (e.g. Cloudflare, proxies).
   try {
     const data = (await response.json()) as { error?: string; message?: string };
     return data.error || data.message || response.statusText || `Request failed (${response.status})`;
@@ -22,7 +22,7 @@ async function readErrorMessage(response: Response): Promise<string> {
   }
 }
 
-export interface CrossmintUser {
+export interface PrivyUser {
   id: string;
   email?: string;
   walletAddress: string;
@@ -34,37 +34,25 @@ export interface CrossmintUser {
 export interface AccountSummary {
   accountId: string;
   role: 'user' | 'admin';
-  identities: Array<{ type: 'wallet' | 'crossmint'; providerId: string }>;
+  identities: Array<{ type: 'wallet' | 'privy' | 'crossmint'; providerId: string }>;
 }
 
-export interface GateStatus {
-  nftsHeld: number;
-  avatarsCreated: number;
-  availableSlots: number;
-  canCreate: boolean;
-  canAbandon: boolean;
-  ownedNFTs?: Array<{ id: string; name: string; image?: string }>;
-}
-
-interface CrossmintAuthState {
-  // Auth state
+interface PrivyAuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
-  user: CrossmintUser | null;
+  user: PrivyUser | null;
   account: AccountSummary | null;
   gateWallet: string | null;
   gateStatusByWallet: Record<string, GateStatus> | null;
   error: string | null;
-
-  // Gate status (same as wallet auth)
   gateStatus: GateStatus | null;
 
-  // Actions
-  syncWithBackend: (crossmintJwt: string, crossmintUser: {
+  syncWithBackend: (accessToken: string, privyUser: {
     id: string;
     email?: string;
-    wallet?: { address?: string };
+    walletAddress?: string;
   }) => Promise<void>;
+
   logout: () => Promise<void>;
   resetLocal: () => void;
   clearError: () => void;
@@ -72,7 +60,7 @@ interface CrossmintAuthState {
   setLoading: (loading: boolean) => void;
 }
 
-export const useCrossmintAuth = create<CrossmintAuthState>()(
+export const usePrivyAuth = create<PrivyAuthState>()(
   persist(
     (set, get) => ({
       isAuthenticated: false,
@@ -84,37 +72,26 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
       error: null,
       gateStatus: null,
 
-      /**
-       * Sync Crossmint auth with backend
-       * Creates/updates user record and session based on Crossmint wallet address
-       */
-      syncWithBackend: async (crossmintJwt, crossmintUser) => {
-        const walletAddress = crossmintUser.wallet?.address;
+      syncWithBackend: async (accessToken, privyUser) => {
+        const walletAddress = privyUser.walletAddress;
         if (!walletAddress) {
-          console.warn('[CrossmintAuth] Wallet address not available yet; attempting backend verify without it');
+          console.warn('[PrivyAuth] Wallet address not available yet; skipping backend sync');
+          return;
         }
 
-        // Guard: Don't sync if already syncing or authenticated
         const state = get();
-        if (state.isLoading) {
-          console.debug('[CrossmintAuth] Sync already in progress, skipping');
-          return;
-        }
-        if (walletAddress && state.isAuthenticated && state.user?.walletAddress === walletAddress) {
-          console.debug('[CrossmintAuth] Already authenticated with this wallet');
-          return;
-        }
+        if (state.isLoading) return;
+        if (state.isAuthenticated && state.user?.walletAddress === walletAddress) return;
 
         set({ isLoading: true, error: null });
         try {
-          // Verify with our backend and create session
-          const response = await fetch(`${API_BASE}/auth/crossmint/verify`, {
+          const response = await fetch(`${API_BASE}/auth/privy/verify`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              jwt: crossmintJwt,
-              userId: crossmintUser.id,
-              email: crossmintUser.email,
+              accessToken,
+              userId: privyUser.id,
+              email: privyUser.email,
               walletAddress,
             }),
             credentials: 'include',
@@ -126,15 +103,14 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
           }
 
           const data = await response.json();
-
           if (data.success && data.user) {
             set({
               isAuthenticated: true,
               user: {
-                id: crossmintUser.id,
-                email: crossmintUser.email,
+                id: privyUser.id,
+                email: privyUser.email,
                 walletAddress: data.user.walletAddress,
-                displayName: data.user.displayName || crossmintUser.email,
+                displayName: data.user.displayName || privyUser.email,
                 avatarUrl: data.user.avatarUrl,
                 inhabitedAvatarId: data.user.inhabitedAvatarId,
               },
@@ -148,23 +124,20 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
             throw new Error('Backend verification failed');
           }
         } catch (error) {
-          console.error('[CrossmintAuth] Sync error:', error);
+          console.error('[PrivyAuth] Sync error:', error);
           set({
             isAuthenticated: false,
             user: null,
             account: null,
             gateWallet: null,
             gateStatusByWallet: null,
+            gateStatus: null,
             isLoading: false,
             error: error instanceof Error ? error.message : 'Authentication failed',
           });
-          // Don't re-throw - prevents retry loops from callers
         }
       },
 
-      /**
-       * Logout from backend session
-       */
       logout: async () => {
         set({ isLoading: true });
         try {
@@ -173,7 +146,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
             credentials: 'include',
           });
         } catch (error) {
-          console.error('[CrossmintAuth] Logout error:', error);
+          console.error('[PrivyAuth] Logout error:', error);
         } finally {
           set({
             isAuthenticated: false,
@@ -206,10 +179,14 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
       setLoading: (loading) => set({ isLoading: loading }),
     }),
     {
-      name: 'crossmint-auth',
+      name: 'privy-auth',
       partialize: (state) => ({
         isAuthenticated: state.isAuthenticated,
         user: state.user,
+        account: state.account,
+        gateWallet: state.gateWallet,
+        gateStatusByWallet: state.gateStatusByWallet,
+        gateStatus: state.gateStatus,
       }),
     }
   )

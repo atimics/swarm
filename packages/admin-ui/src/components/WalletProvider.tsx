@@ -6,13 +6,15 @@
  * via the Wallet Standard. We only need to add adapters for wallets that don't
  * support the standard yet (like Coinbase).
  */
-import { useMemo, type ReactNode } from 'react';
+import { useCallback, useMemo, type ReactNode } from 'react';
 import {
   ConnectionProvider,
   WalletProvider as SolanaWalletProvider,
 } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { CoinbaseWalletAdapter } from '@solana/wallet-adapter-wallets';
+import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
+import { CoinbaseWalletAdapter, PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
+import { humanizeWalletAdapterError, useWalletUi } from '../store/walletUi';
 
 // Import wallet adapter styles
 import '@solana/wallet-adapter-react-ui/styles.css';
@@ -25,18 +27,32 @@ interface WalletProviderProps {
 }
 
 export function WalletProvider({ children }: WalletProviderProps) {
+  const setWalletError = useWalletUi((s) => s.setWalletError);
+
+  const network = WalletAdapterNetwork.Mainnet;
+
   // Initialize wallet adapters for non-standard wallets only
   // Phantom, Solflare, etc. auto-register via Wallet Standard
   const wallets = useMemo(
     () => [
+      new PhantomWalletAdapter(),
+      new SolflareWalletAdapter({ network }),
       new CoinbaseWalletAdapter(),
     ],
-    []
+    [network]
+  );
+
+  const onError = useCallback(
+    (error: unknown) => {
+      console.error('[WalletProvider] Wallet error:', error);
+      setWalletError(humanizeWalletAdapterError(error));
+    },
+    [setWalletError]
   );
 
   return (
     <ConnectionProvider endpoint={SOLANA_RPC}>
-      <SolanaWalletProvider wallets={wallets} autoConnect>
+      <SolanaWalletProvider wallets={wallets} onError={onError} autoConnect={false}>
         <WalletModalProvider>
           {children}
         </WalletModalProvider>

@@ -1,25 +1,26 @@
 /**
  * Wallet Login Button
  * Handles Solana wallet connection and authentication
- * Also supports Crossmint auth users in the authenticated display
+ * Also supports Privy auth users in the authenticated display
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { useAuth as useCrossmintAuthHook, useWallet as useCrossmintWallet } from '@crossmint/client-sdk-react-ui';
+import { usePrivy } from '@privy-io/react-auth';
 import bs58 from 'bs58';
 import { useWalletAuth } from '../store/walletAuth';
-import { useCrossmintAuth } from '../store/crossmintAuth';
+import { usePrivyAuth } from '../store/privyAuth';
 import { useAuth } from '../store/auth';
 import { decideWalletConnectionDecision } from '../auth/wallet-connection';
 import { formatAddress as formatWalletAddress, getLinkedWalletDisplay } from '../auth/linked-wallets';
 import { API_BASE } from '../api/apiBase';
+import { useWalletUi } from '../store/walletUi';
 
 interface WalletLoginProps {
   className?: string;
 }
 
-function humanizeCrossmintLinkError(error: unknown): string {
+function humanizePrivyLinkError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
 
   // Browser fetch/network/CORS failures often surface as a generic TypeError message.
@@ -47,13 +48,48 @@ function humanizeWalletLinkError(error: unknown): string {
   return message || 'Failed to link wallet';
 }
 
+function getSolanaWalletAddressFromPrivyUser(privyUser: unknown): string | null {
+  const userAny = privyUser as {
+    walletAddress?: unknown;
+    wallet?: { address?: unknown };
+    linkedAccounts?: unknown;
+    wallets?: unknown;
+  };
+
+  const direct = userAny?.walletAddress ?? userAny?.wallet?.address;
+  if (typeof direct === 'string' && direct.length > 0) return direct;
+
+  const accounts: unknown[] = [];
+  if (Array.isArray(userAny?.linkedAccounts)) accounts.push(...userAny.linkedAccounts);
+  if (Array.isArray(userAny?.wallets)) accounts.push(...userAny.wallets);
+
+  for (const acct of accounts) {
+    const acctAny = acct as { chainType?: unknown; chain?: unknown; address?: unknown; publicKey?: unknown };
+    const chain = acctAny?.chainType ?? acctAny?.chain;
+    const address = acctAny?.address ?? acctAny?.publicKey;
+    if ((chain === 'solana' || chain === 'SOLANA') && typeof address === 'string' && address.length > 0) {
+      return address;
+    }
+  }
+
+  return null;
+}
+
 export function WalletLogin({ className = '' }: WalletLoginProps) {
   const { publicKey, connected, signMessage, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
   const walletAuth = useWalletAuth();
-  const crossmintAuth = useCrossmintAuth();
-  const { login: crossmintLogin, logout: crossmintLogout, user: crossmintUser, jwt: crossmintJwt, status: crossmintStatus } = useCrossmintAuthHook();
-  const { wallet: crossmintWallet } = useCrossmintWallet();
+  const privyAuth = usePrivyAuth();
+  const walletUiError = useWalletUi((s) => s.walletError);
+  const clearWalletUiError = useWalletUi((s) => s.clearWalletError);
+
+  const {
+    login: privyLogin,
+    logout: privyLogout,
+    authenticated: privyAuthenticated,
+    user: privyUser,
+    getAccessToken,
+  } = usePrivy();
 
   // Use unified auth for display
   const {
@@ -77,15 +113,15 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   // Prevents infinite loop when login fails
   const loginAttemptedRef = useRef<string | null>(null);
 
-  // If user is signed in via Crossmint and connects a different Phantom wallet,
+  // If user is signed in via an email/social provider and connects a different Phantom wallet,
   // we should not auto-switch accounts. Instead, prompt for an explicit choice.
   const [pendingWalletSwitch, setPendingWalletSwitch] = useState<string | null>(null);
   const [linkingWallet, setLinkingWallet] = useState(false);
   const [linkWalletError, setLinkWalletError] = useState<string | null>(null);
   const [switchingWallet, setSwitchingWallet] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
-  const [linkingCrossmint, setLinkingCrossmint] = useState(false);
-  const [linkCrossmintError, setLinkCrossmintError] = useState<string | null>(null);
+  const [linkingPrivy, setLinkingPrivy] = useState(false);
+  const [linkPrivyError, setLinkPrivyError] = useState<string | null>(null);
 
   // Check auth on mount
   useEffect(() => {
@@ -151,10 +187,10 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     loginAttemptedRef.current = pendingWalletSwitch;
 
     try {
-      // Ensure we are signed out of everything first (backend session + Crossmint SDK + local stores).
+      // Ensure we are signed out of everything first (backend session + Privy + local stores).
       await walletLogout();
-      crossmintAuth.resetLocal();
-      await crossmintLogout();
+      privyAuth.resetLocal();
+      await privyLogout();
 
       // Explicitly sign in as the connected wallet (do not rely on the effect).
       await login(signMessage, pendingWalletSwitch);
@@ -166,7 +202,8 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     } finally {
       setSwitchingWallet(false);
     }
-  }, [pendingWalletSwitch, signMessage, walletLogout, crossmintAuth, crossmintLogout, login]);
+  }, [pendingWalletSwitch, signMessage, walletLogout, privyAuth, privyLogout, login]);
+
 
   const handleLinkConnectedWallet = useCallback(async () => {
     if (!pendingWalletSwitch) return;
@@ -230,25 +267,28 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     setLinkWalletError(null);
   }, []);
 
-  // Link Crossmint identity to an existing wallet account (without switching sessions)
+  // Link Privy identity to an existing wallet account (without switching sessions)
   useEffect(() => {
-    if (!linkingCrossmint) return;
-    if (crossmintStatus !== 'logged-in') return;
-    if (!crossmintJwt || !crossmintUser?.id) return;
+    if (!linkingPrivy) return;
+    if (!privyAuthenticated) return;
+    if (!privyUser?.id) return;
 
-    const walletAddress = crossmintWallet?.address;
+    const walletAddress = getSolanaWalletAddressFromPrivyUser(privyUser);
 
     let cancelled = false;
     const doLink = async () => {
       try {
-        const response = await fetch(`${API_BASE}/auth/link/crossmint/verify`, {
+        const accessToken = await getAccessToken();
+        if (!accessToken) throw new Error('Missing Privy access token');
+
+        const response = await fetch(`${API_BASE}/auth/link/privy/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({
-            jwt: crossmintJwt,
-            userId: crossmintUser.id,
-            email: crossmintUser.email,
+            accessToken,
+            userId: privyUser.id,
+            email: (privyUser as unknown as { email?: string })?.email,
             walletAddress,
           }),
         });
@@ -259,16 +299,16 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
         }
 
         await walletAuth.checkAuth();
-        await crossmintLogout();
+        await privyLogout();
         if (!cancelled) {
-          setLinkingCrossmint(false);
-          setLinkCrossmintError(null);
+          setLinkingPrivy(false);
+          setLinkPrivyError(null);
         }
       } catch (e) {
-        console.error('[WalletLogin] Link Crossmint error:', e);
+        console.error('[WalletLogin] Link Privy error:', e);
         if (!cancelled) {
-          setLinkingCrossmint(false);
-          setLinkCrossmintError(e instanceof Error ? e.message : 'Failed to link email/social');
+          setLinkingPrivy(false);
+          setLinkPrivyError(e instanceof Error ? e.message : 'Failed to link email/social');
         }
       }
     };
@@ -277,31 +317,33 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     return () => {
       cancelled = true;
     };
-  }, [linkingCrossmint, crossmintStatus, crossmintJwt, crossmintUser, crossmintWallet, walletAuth, crossmintLogout]);
+  }, [linkingPrivy, privyAuthenticated, privyUser, getAccessToken, walletAuth, privyLogout]);
 
   // Handle connect button click
   const handleConnect = useCallback(() => {
     loginAttemptedRef.current = null; // Allow fresh attempt
     clearError();
+    clearWalletUiError();
     setVisible(true);
-  }, [setVisible, clearError]);
+  }, [setVisible, clearError, clearWalletUiError]);
 
   // Handle disconnect/logout - works for both auth providers
   const handleDisconnect = useCallback(async () => {
     loginAttemptedRef.current = null;
     setPendingWalletSwitch(null);
     setLinkWalletError(null);
+    clearWalletUiError();
 
-    // Logout should log out of everything: backend session, Crossmint SDK, and wallet connection.
+    // Logout should log out of everything: backend session, Privy, and wallet connection.
     await Promise.allSettled([
       walletLogout(),
       (async () => {
-        crossmintAuth.resetLocal();
-        await crossmintLogout();
+        privyAuth.resetLocal();
+        await privyLogout();
       })(),
       disconnect(),
     ]);
-  }, [crossmintAuth, crossmintLogout, walletLogout, disconnect]);
+  }, [privyAuth, privyLogout, walletLogout, disconnect, clearWalletUiError]);
 
   // Format wallet address for display
   const formatAddress = formatWalletAddress;
@@ -324,10 +366,10 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
 
   // Authenticated state
   if (isAuthenticated && user) {
-    // For Crossmint users, show email; for wallet users, show address
+    // For Privy users, show email; for wallet users, show address
     const displayIdentifier = user.email || formatAddress(user.walletAddress);
     const secondaryInfo = user.email
-      ? formatAddress(user.walletAddress) // Show truncated wallet for Crossmint users
+      ? formatAddress(user.walletAddress) // Show truncated wallet for email users
       : undefined; // Don't show wallet twice for wallet users
 
     const { labels: linkedWalletLabels, overflow: linkedWalletOverflow } = getLinkedWalletDisplay({
@@ -366,7 +408,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
         <button
           onClick={() => {
             setShowAccount(true);
-            setLinkCrossmintError(null);
+            setLinkPrivyError(null);
           }}
           className="p-1.5 rounded-lg hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
           title="Account"
@@ -382,14 +424,14 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
         <button
           onClick={handleDisconnect}
           className="p-1.5 rounded-lg hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
-          title={authProvider === 'crossmint' ? 'Sign out' : 'Disconnect wallet'}
+          title={authProvider === 'wallet' ? 'Disconnect wallet' : 'Sign out'}
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
         </button>
 
-        {pendingWalletSwitch && authProvider === 'crossmint' && (
+        {pendingWalletSwitch && authProvider !== 'wallet' && (
           <div className="ml-2 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1">
             <span className="text-[11px] text-[var(--color-text-secondary)]">
               Wallet connected: {formatAddress(pendingWalletSwitch)}
@@ -427,13 +469,13 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
         )}
 
         {showAccount && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
             <div
               className="absolute inset-0 bg-black/60"
               onClick={() => setShowAccount(false)}
               aria-hidden="true"
             />
-            <div className="relative w-[min(520px,92vw)] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-xl">
+            <div className="relative w-full sm:w-[min(520px,92vw)] max-h-[85dvh] sm:max-h-[80vh] rounded-t-2xl sm:rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-xl overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
                 <div className="text-sm font-semibold text-[var(--color-text)]">Account</div>
                 <button
@@ -447,18 +489,18 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                 </button>
               </div>
 
-              <div className="px-4 py-3 space-y-3 max-h-[80vh] overflow-y-auto">
+              <div className="px-4 py-3 space-y-3 overflow-y-auto">
                 <div className="text-xs text-[var(--color-text-muted)]">
                   Signed in via{' '}
                   <span className="text-[var(--color-text)] font-medium">
-                    {authProvider === 'crossmint' ? 'Crossmint' : 'Wallet'}
+                    {authProvider === 'wallet' ? 'Wallet' : authProvider === 'privy' ? 'Privy' : 'Crossmint'}
                   </span>
                   <span className="text-[var(--color-text-muted)]">
-                    {authProvider === 'crossmint' ? ' (email/social)' : ' (SIWS)'}
+                    {authProvider === 'wallet' ? ' (SIWS)' : ' (email/social)'}
                   </span>
                 </div>
 
-                {authProvider === 'crossmint' && user.email && (
+                {authProvider !== 'wallet' && user.email && (
                   <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
                     <div className="text-xs font-medium text-[var(--color-text)]">Identity</div>
                     <div className="mt-2 space-y-2">
@@ -519,7 +561,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                   )}
                 </div>
 
-                {(account?.accountId || (authProvider === 'crossmint' && user.walletAddress)) && (
+                {(account?.accountId || (authProvider !== 'wallet' && user.walletAddress)) && (
                   <details className="group">
                     <summary className="cursor-pointer select-none text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] inline-flex items-center gap-1">
                       Advanced
@@ -539,7 +581,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                           Account ID: <span className="text-[var(--color-text)]">{account.accountId}</span>
                         </div>
                       )}
-                      {authProvider === 'crossmint' && user.walletAddress && (
+                      {authProvider !== 'wallet' && user.walletAddress && (
                         <div className="text-xs text-[var(--color-text-muted)]">
                           Embedded wallet: <span className="text-[var(--color-text)]">{user.walletAddress}</span>
                         </div>
@@ -548,37 +590,28 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                   </details>
                 )}
 
-                {authProvider === 'crossmint' && (gateStatus?.nftsHeld || 0) === 0 && (
+                {authProvider !== 'wallet' && (gateStatus?.nftsHeld || 0) === 0 && (
                   <div className="rounded-lg border border-brand-500/30 bg-brand-500/10 p-3">
                     <div className="text-sm font-medium text-[var(--color-text)]">Limited mode</div>
                     <div className="text-xs text-[var(--color-text-secondary)] mt-1">
                       Your embedded wallet has no Orbs. Mint <span className="font-medium">(limited supply)</span>, buy an Orb, or connect a wallet that already holds Orbs and choose <span className="font-medium">Link</span>.
                     </div>
-                    <div className="mt-2 flex gap-2">
-                      <a
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <FaviconLink
                         href="https://www.launchmynft.io/collections/8e55demQ2mUvLDYFvq7D28UartGaK9F9NacQod15eChH/mdMATMxEwub25fM2Ak4o"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text)] text-xs"
-                      >
-                        Mint (limited supply)
-                      </a>
-                      <a
+                        domain="launchmynft.io"
+                        label="Mint (limited supply)"
+                      />
+                      <FaviconLink
                         href="https://magiceden.io/marketplace/open_rati_nft_mint"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text)] text-xs"
-                      >
-                        Buy on Magic Eden
-                      </a>
-                      <a
+                        domain="magiceden.io"
+                        label="Buy on Magic Eden"
+                      />
+                      <FaviconLink
                         href="https://www.tensor.trade/trade/open_rati_nft_mint"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text)] text-xs"
-                      >
-                        Buy on Tensor
-                      </a>
+                        domain="tensor.trade"
+                        label="Buy on Tensor"
+                      />
                       <button
                         onClick={handleConnect}
                         className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium"
@@ -599,28 +632,28 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                   <div className="rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3">
                     <div className="text-sm font-medium text-[var(--color-text)]">Link email/social</div>
                     <div className="text-xs text-[var(--color-text-secondary)] mt-1">
-                      Add Crossmint (email/social) as another way to sign in to this same account.
+                      Add Privy (email/social) as another way to sign in to this same account.
                     </div>
                     <div className="mt-2 flex items-center gap-2">
                       <button
                         onClick={async () => {
-                          setLinkCrossmintError(null);
-                          setLinkingCrossmint(true);
+                          setLinkPrivyError(null);
+                          setLinkingPrivy(true);
                           try {
-                            await crossmintLogin();
+                            await privyLogin();
                           } catch (e) {
-                            console.error('[WalletLogin] Crossmint login for linking failed:', e);
-                            setLinkingCrossmint(false);
-                            setLinkCrossmintError(humanizeCrossmintLinkError(e));
+                            console.error('[WalletLogin] Privy login for linking failed:', e);
+                            setLinkingPrivy(false);
+                            setLinkPrivyError(humanizePrivyLinkError(e));
                           }
                         }}
-                        disabled={linkingCrossmint}
+                        disabled={linkingPrivy}
                         className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
                       >
-                        {linkingCrossmint ? 'Linking…' : 'Link email/social'}
+                        {linkingPrivy ? 'Linking…' : 'Link email/social'}
                       </button>
-                      {linkCrossmintError && (
-                        <span className="text-xs text-red-400">{linkCrossmintError}</span>
+                      {linkPrivyError && (
+                        <span className="text-xs text-red-400">{linkPrivyError}</span>
                       )}
                     </div>
                   </div>
@@ -649,10 +682,36 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
       </button>
       
       {/* Error message */}
-      {error && (
-        <span className="text-xs text-red-400">{error}</span>
+      {(error || walletUiError) && (
+        <span className="text-xs text-red-400">{error || walletUiError}</span>
       )}
     </div>
+  );
+}
+
+function FaviconLink({ href, domain, label }: { href: string; domain: string; label: string }) {
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-2 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] underline-offset-4 hover:underline"
+    >
+      <img
+        src={faviconUrl}
+        alt=""
+        className="h-4 w-4 rounded-sm"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+      />
+      <span>{label}</span>
+      <svg className="h-3.5 w-3.5 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M14 3h7v7" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10 14L21 3" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 14v7H3V3h7" />
+      </svg>
+    </a>
   );
 }
 

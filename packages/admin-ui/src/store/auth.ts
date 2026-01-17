@@ -1,18 +1,19 @@
 /**
  * Unified Authentication Store
- * Provides a single interface for both Wallet and Crossmint authentication
+ * Provides a single interface for Wallet + Privy (and legacy Crossmint)
  */
 import { useWalletAuth, type WalletUser, type GateStatus } from './walletAuth';
 import { useCrossmintAuth, type CrossmintUser } from './crossmintAuth';
+import { usePrivyAuth, type PrivyUser } from './privyAuth';
 
-export type AuthProvider = 'wallet' | 'crossmint' | null;
+export type AuthProvider = 'wallet' | 'privy' | 'crossmint' | null;
 
 export interface UnifiedUser {
   walletAddress: string;
   displayName?: string;
   avatarUrl?: string;
   inhabitedAvatarId?: string;
-  email?: string; // Only for Crossmint users
+  email?: string; // For email-based providers (Privy/Crossmint)
 }
 
 export interface UnifiedAuthState {
@@ -26,7 +27,7 @@ export interface UnifiedAuthState {
   account: {
     accountId: string;
     role: 'user' | 'admin';
-    identities: Array<{ type: 'wallet' | 'crossmint'; providerId: string }>;
+    identities: Array<{ type: 'wallet' | 'privy' | 'crossmint'; providerId: string }>;
   } | null;
   linkedWallets: string[];
   error: string | null;
@@ -40,13 +41,41 @@ export interface UnifiedAuthState {
  */
 export function useAuth(): UnifiedAuthState {
   const walletAuth = useWalletAuth();
+  const privyAuth = usePrivyAuth();
   const crossmintAuth = useCrossmintAuth();
 
   // Determine which auth is active.
-  // Prefer Crossmint if both are authenticated, since walletAuth may reflect
-  // the backend session even when the user signed in via Crossmint.
+  // Prefer email-based providers if both are authenticated, since walletAuth may reflect
+  // the backend session even when the user signed in via Privy/Crossmint.
   const walletActive = walletAuth.isAuthenticated && walletAuth.user;
+  const privyActive = privyAuth.isAuthenticated && privyAuth.user;
   const crossmintActive = crossmintAuth.isAuthenticated && crossmintAuth.user;
+
+  // If Privy is authenticated, use Privy auth
+  if (privyActive) {
+    const account = privyAuth.account || walletAuth.account || null;
+    const gateWallet = privyAuth.gateWallet || walletAuth.gateWallet || null;
+    const gateStatusByWallet = privyAuth.gateStatusByWallet || walletAuth.gateStatusByWallet || null;
+    const linkedWallets =
+      account?.identities
+        ?.filter(i => i.type === 'wallet')
+        .map(i => i.providerId) ??
+      [];
+    return {
+      isAuthenticated: true,
+      isLoading: privyAuth.isLoading,
+      user: normalizePrivyUser(privyAuth.user!),
+      authProvider: 'privy',
+      gateStatus: privyAuth.gateStatus,
+      gateWallet,
+      gateStatusByWallet,
+      account,
+      linkedWallets,
+      error: privyAuth.error,
+      logout: privyAuth.logout,
+      clearError: privyAuth.clearError,
+    };
+  }
 
   // If Crossmint is authenticated, use Crossmint auth
   if (crossmintActive) {
@@ -103,7 +132,7 @@ export function useAuth(): UnifiedAuthState {
   // Not authenticated
   return {
     isAuthenticated: false,
-    isLoading: walletAuth.isLoading || crossmintAuth.isLoading,
+    isLoading: walletAuth.isLoading || privyAuth.isLoading || crossmintAuth.isLoading,
     user: null,
     authProvider: null,
     gateStatus: null,
@@ -111,13 +140,15 @@ export function useAuth(): UnifiedAuthState {
     gateStatusByWallet: null,
     account: null,
     linkedWallets: [],
-    error: walletAuth.error || crossmintAuth.error,
+    error: walletAuth.error || privyAuth.error || crossmintAuth.error,
     logout: async () => {
       await walletAuth.logout();
+      await privyAuth.logout();
       await crossmintAuth.logout();
     },
     clearError: () => {
       walletAuth.clearError();
+      privyAuth.clearError();
       crossmintAuth.clearError();
     },
   };
@@ -133,6 +164,16 @@ function normalizeWalletUser(user: WalletUser): UnifiedUser {
 }
 
 function normalizeCrossmintUser(user: CrossmintUser): UnifiedUser {
+  return {
+    walletAddress: user.walletAddress,
+    displayName: user.displayName || user.email,
+    avatarUrl: user.avatarUrl,
+    inhabitedAvatarId: user.inhabitedAvatarId,
+    email: user.email,
+  };
+}
+
+function normalizePrivyUser(user: PrivyUser): UnifiedUser {
   return {
     walletAddress: user.walletAddress,
     displayName: user.displayName || user.email,

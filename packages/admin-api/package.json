@@ -25,6 +25,7 @@
     "@aws-sdk/s3-request-presigner": "^3.966.0",
     "@aws-sdk/util-dynamodb": "^3.970.0",
     "@openrouter/sdk": "^0.3.12",
+    "@privy-io/node": "^0.7.0",
     "@solana/web3.js": "^1.98.0",
     "@swarm/core": "workspace:*",
     "@swarm/mcp-server": "workspace:*",
