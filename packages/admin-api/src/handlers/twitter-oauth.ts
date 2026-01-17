@@ -10,7 +10,7 @@
  */
 import type {
   APIGatewayProxyEventV2,
-  APIGatewayProxyResultV2,
+  APIGatewayProxyStructuredResultV2,
 } from 'aws-lambda';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import {
@@ -90,7 +90,7 @@ const ADMIN_UI_URL = process.env.ADMIN_UI_URL || process.env.ALLOWED_ORIGINS?.sp
 export async function handler(
   event: APIGatewayProxyEventV2,
   depsOrContext?: TwitterOAuthHandlerDeps | unknown
-): Promise<APIGatewayProxyResultV2> {
+): Promise<APIGatewayProxyStructuredResultV2> {
   // Check if deps has the expected shape (not Lambda context)
   // Lambda context has properties like functionName, awsRequestId, etc.
   const deps = depsOrContext && 'twitterOAuth' in (depsOrContext as object)
@@ -252,7 +252,7 @@ export async function handler(
 async function handleCallback(
   event: APIGatewayProxyEventV2,
   deps: TwitterOAuthHandlerDeps
-): Promise<APIGatewayProxyResultV2> {
+): Promise<APIGatewayProxyStructuredResultV2> {
   const { twitterOAuth, avatarService } = deps;
   const { oauth_token, oauth_verifier, denied } = event.queryStringParameters || {};
 
