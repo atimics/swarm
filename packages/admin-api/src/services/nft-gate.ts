@@ -47,11 +47,12 @@ async function getHeliusApiKey(): Promise<string | null> {
   return null;
 }
 
-async function getHeliusRpcUrl(): Promise<string> {
+async function getHeliusRpcUrl(): Promise<string | null> {
   const apiKey = await getHeliusApiKey();
+  // DAS API methods like getAssetsByOwner only work with Helius, not public RPC
   return apiKey
     ? `https://mainnet.helius-rpc.com/?api-key=${apiKey}`
-    : 'https://api.mainnet-beta.solana.com';
+    : null;
 }
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
@@ -211,6 +212,15 @@ export async function checkNFTGate(walletAddress: string): Promise<NFTGateResult
   try {
     // Use Helius DAS API to get NFTs by owner filtered by collection
     const heliusRpcUrl = await getHeliusRpcUrl();
+    
+    // If no Helius API key, NFT gating is disabled - allow all users
+    if (!heliusRpcUrl) {
+      console.log('[NFTGate] No Helius API key configured, NFT gating disabled - allowing access');
+      result.allowed = true;
+      result.ownedCount = 999; // Grant unlimited slots when gating is disabled
+      return result;
+    }
+    
     const response = await fetch(heliusRpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
