@@ -224,12 +224,18 @@ export class SwarmStack extends cdk.Stack {
     }
 
     // Create Admin UI with CloudFront
+    // Extract hostname from API Gateway endpoint: https://xxx.execute-api.region.amazonaws.com
+    // Use Fn.select to parse at deploy time since apiEndpoint is a CloudFormation token
+    const apiGatewayHost = this.adminApi?.apiEndpoint 
+      ? cdk.Fn.select(2, cdk.Fn.split('/', this.adminApi.apiEndpoint)) // Split by '/' and get index 2 (hostname)
+      : undefined;
+    
     this.adminUi = new AdminUi(this, 'AdminUi', {
       environment,
       domainName: adminDomain,
       certificateArn: adminCertificateArn,
-      // Use raw API Gateway endpoint (extracted hostname without protocol)
-      apiDomain: this.adminApi?.apiEndpoint?.replace('https://', ''),
+      // Use raw API Gateway endpoint hostname for CloudFront origin
+      apiDomain: apiGatewayHost,
     });
 
     // Create Claude Code worker if enabled
