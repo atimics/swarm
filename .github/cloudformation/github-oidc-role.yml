@@ -112,6 +112,18 @@ Resources:
                 Resource:
                   - !Sub 'arn:aws:s3:::swarm-admin-ui-*'
                   - !Sub 'arn:aws:s3:::swarm-admin-ui-*/*'
+
+              - Sid: CDKContextBucket
+                Effect: Allow
+                Action:
+                  - s3:GetObject*
+                  - s3:PutObject*
+                  - s3:DeleteObject*
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - !Sub 'arn:aws:s3:::swarm-cdk-context-*'
+                  - !Sub 'arn:aws:s3:::swarm-cdk-context-*/*'
         
         # ECR permissions (if using container images)
         - PolicyName: ECRAccess
