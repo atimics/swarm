@@ -59,6 +59,7 @@ prompt_secret_value() {
     local help_url="$4"
     local is_json="${5:-false}"
     local mode="$6" # missing|existing
+    local is_multiline="${7:-false}"
 
     local full_name=""
     if [ "$scope" = "global" ]; then
@@ -81,8 +82,12 @@ prompt_secret_value() {
     if [ "$mode" = "missing" ]; then
         echo -e "${YELLOW}Current status: Not set${NC}"
         echo ""
-        if [ "$is_json" = "true" ]; then
-            echo "Enter JSON value (paste and press Enter, then Ctrl+D)."
+        if [ "$is_json" = "true" ] || [ "$is_multiline" = "true" ]; then
+            if [ "$is_json" = "true" ]; then
+                echo "Enter JSON value (paste and press Enter, then Ctrl+D)."
+            else
+                echo "Enter value (paste and press Enter, then Ctrl+D)."
+            fi
             value=$(cat)
         else
             read -sp "Enter value (or press Enter to skip): " value
@@ -111,8 +116,12 @@ prompt_secret_value() {
     case "$choice" in
         [yY]|[yY][eE][sS])
             echo ""
-            if [ "$is_json" = "true" ]; then
-                echo "Enter JSON value (paste and press Enter, then Ctrl+D)."
+            if [ "$is_json" = "true" ] || [ "$is_multiline" = "true" ]; then
+                if [ "$is_json" = "true" ]; then
+                    echo "Enter JSON value (paste and press Enter, then Ctrl+D)."
+                else
+                    echo "Enter value (paste and press Enter, then Ctrl+D)."
+                fi
                 value=$(cat)
             else
                 read -sp "Enter new value (or press Enter to skip): " value
@@ -223,6 +232,9 @@ ENV_SECRET_URLS=(
     "https://dashboard.privy.io"
 )
 
+# Some secrets are easiest to paste as multi-line (e.g. PEM/JWK material)
+ENV_SECRET_IS_MULTILINE=(false false false false false false true)
+
 # 0 = required, 1 = optional
 ENV_SECRET_OPTIONAL=(0 0 1 1 1 1 1)
 
@@ -239,7 +251,7 @@ for i in "${!ENV_SECRET_NAMES[@]}"; do
     name="${ENV_SECRET_NAMES[$i]}"
     full_name="${PREFIX}/${ENV}/${name}"
     if ! secret_exists "$full_name"; then
-        prompt_secret_value "env" "$name" "${ENV_SECRET_DESCRIPTIONS[$i]}" "${ENV_SECRET_URLS[$i]}" "false" "missing"
+        prompt_secret_value "env" "$name" "${ENV_SECRET_DESCRIPTIONS[$i]}" "${ENV_SECRET_URLS[$i]}" "false" "missing" "${ENV_SECRET_IS_MULTILINE[$i]}"
     fi
 done
 
@@ -290,7 +302,7 @@ for i in "${!ENV_SECRET_NAMES[@]}"; do
     name="${ENV_SECRET_NAMES[$i]}"
     full_name="${PREFIX}/${ENV}/${name}"
     if secret_exists "$full_name"; then
-        prompt_secret_value "env" "$name" "${ENV_SECRET_DESCRIPTIONS[$i]}" "${ENV_SECRET_URLS[$i]}" "false" "existing"
+        prompt_secret_value "env" "$name" "${ENV_SECRET_DESCRIPTIONS[$i]}" "${ENV_SECRET_URLS[$i]}" "false" "existing" "${ENV_SECRET_IS_MULTILINE[$i]}"
     fi
 done
 
