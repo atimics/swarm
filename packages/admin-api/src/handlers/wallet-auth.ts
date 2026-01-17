@@ -261,12 +261,16 @@ export async function handleVerify(
     // Inhabitation is stored in the avatar ownership mapping; don't rely on UserRecord.inhabitedAvatarId.
     const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
 
+    const accountId = result.session.accountId || (await getOrCreateAccountForWallet(result.user.walletAddress));
+    const account = await getAccountSummary(accountId);
+
     return jsonResponse(200, {
       success: true,
       session: {
         token: result.session.sessionToken,
         expiresAt: result.session.expiresAt,
       },
+      account,
       user: {
         walletAddress: result.user.walletAddress,
         displayName: result.user.displayName,

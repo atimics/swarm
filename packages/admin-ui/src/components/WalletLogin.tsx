@@ -31,6 +31,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     isLoading,
     user,
     authProvider,
+    linkedWallets,
     error,
     clearError,
   } = useAuth();
@@ -47,6 +48,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   const [pendingWalletSwitch, setPendingWalletSwitch] = useState<string | null>(null);
   const [linkingWallet, setLinkingWallet] = useState(false);
   const [linkWalletError, setLinkWalletError] = useState<string | null>(null);
+  const [switchingWallet, setSwitchingWallet] = useState(false);
 
   // Check auth on mount
   useEffect(() => {
@@ -99,15 +101,32 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
 
   const handleSwitchToConnectedWallet = useCallback(async () => {
     if (!pendingWalletSwitch) return;
-    loginAttemptedRef.current = null;
+    if (!signMessage || typeof signMessage !== 'function') {
+      setLinkWalletError('Connected wallet does not support message signing');
+      return;
+    }
 
-    // Fully sign out of Crossmint (SDK + backend) to avoid split-brain sessions.
-    await crossmintAuth.logout();
-    await crossmintLogout();
+    setSwitchingWallet(true);
+    setLinkWalletError(null);
+    loginAttemptedRef.current = pendingWalletSwitch;
 
-    // Trigger wallet login on next effect tick.
-    setPendingWalletSwitch(null);
-  }, [pendingWalletSwitch, crossmintAuth, crossmintLogout]);
+    try {
+      // Ensure we are signed out of everything first (backend session + Crossmint SDK + local stores).
+      await walletLogout();
+      crossmintAuth.resetLocal();
+      await crossmintLogout();
+
+      // Explicitly sign in as the connected wallet (do not rely on the effect).
+      await login(signMessage, pendingWalletSwitch);
+
+      setPendingWalletSwitch(null);
+    } catch (err) {
+      console.error('[WalletLogin] Switch wallet error:', err);
+      setLinkWalletError(err instanceof Error ? err.message : 'Failed to switch wallet');
+    } finally {
+      setSwitchingWallet(false);
+    }
+  }, [pendingWalletSwitch, signMessage, walletLogout, crossmintAuth, crossmintLogout, login]);
 
   const handleLinkConnectedWallet = useCallback(async () => {
     if (!pendingWalletSwitch) return;
@@ -181,16 +200,19 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   // Handle disconnect/logout - works for both auth providers
   const handleDisconnect = useCallback(async () => {
     loginAttemptedRef.current = null;
-    if (authProvider === 'crossmint') {
-      // Logout from Crossmint SDK and our backend
-      await crossmintAuth.logout();
-      await crossmintLogout();
-    } else {
-      // Logout from wallet auth
-      await walletLogout();
-      await disconnect();
-    }
-  }, [authProvider, crossmintAuth, crossmintLogout, walletLogout, disconnect]);
+    setPendingWalletSwitch(null);
+    setLinkWalletError(null);
+
+    // Logout should log out of everything: backend session, Crossmint SDK, and wallet connection.
+    await Promise.allSettled([
+      walletLogout(),
+      (async () => {
+        crossmintAuth.resetLocal();
+        await crossmintLogout();
+      })(),
+      disconnect(),
+    ]);
+  }, [crossmintAuth, crossmintLogout, walletLogout, disconnect]);
 
   // Format wallet address for display
   const formatAddress = (address: string) => {
@@ -218,6 +240,12 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
       ? formatAddress(user.walletAddress) // Show truncated wallet for Crossmint users
       : undefined; // Don't show wallet twice for wallet users
 
+    const linkedWalletLabels = linkedWallets
+      .filter(w => w !== user.walletAddress)
+      .slice(0, 2)
+      .map(formatAddress);
+    const linkedWalletOverflow = Math.max(0, linkedWallets.filter(w => w !== user.walletAddress).length - linkedWalletLabels.length);
+
     return (
       <div className={`flex items-center gap-2 ${className}`}>
         {/* User avatar or ghost icon */}
@@ -233,6 +261,13 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
           {(user.displayName || secondaryInfo) && (
             <span className="text-xs text-[var(--color-text-muted)]">
               {user.displayName ? displayIdentifier : secondaryInfo}
+            </span>
+          )}
+
+          {linkedWallets.length > 1 && (
+            <span className="text-[11px] text-[var(--color-text-muted)]">
+              Linked wallets: {linkedWalletLabels.join(', ')}
+              {linkedWalletOverflow > 0 ? ` +${linkedWalletOverflow}` : ''}
             </span>
           )}
         </div>
@@ -256,17 +291,18 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
             <button
               onClick={handleLinkConnectedWallet}
               className="text-[11px] font-medium text-brand-400 hover:text-brand-300 disabled:opacity-50"
-              disabled={linkingWallet}
+              disabled={linkingWallet || switchingWallet}
               title="Link this wallet to your current account"
             >
               {linkingWallet ? 'Linking…' : 'Link'}
             </button>
             <button
               onClick={handleSwitchToConnectedWallet}
-              className="text-[11px] font-medium text-brand-400 hover:text-brand-300"
+              className="text-[11px] font-medium text-brand-400 hover:text-brand-300 disabled:opacity-50"
+              disabled={switchingWallet || linkingWallet}
               title="Switch to this wallet account"
             >
-              Switch
+              {switchingWallet ? 'Switching…' : 'Switch'}
             </button>
             <button
               onClick={handleIgnoreConnectedWallet}

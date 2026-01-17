@@ -21,6 +21,12 @@ export interface UnifiedAuthState {
   user: UnifiedUser | null;
   authProvider: AuthProvider;
   gateStatus: GateStatus | null;
+  account: {
+    accountId: string;
+    role: 'user' | 'admin';
+    identities: Array<{ type: 'wallet' | 'crossmint'; providerId: string }>;
+  } | null;
+  linkedWallets: string[];
   error: string | null;
   logout: () => Promise<void>;
   clearError: () => void;
@@ -42,12 +48,20 @@ export function useAuth(): UnifiedAuthState {
 
   // If Crossmint is authenticated, use Crossmint auth
   if (crossmintActive) {
+    const account = crossmintAuth.account || walletAuth.account || null;
+    const linkedWallets =
+      account?.identities
+        ?.filter(i => i.type === 'wallet')
+        .map(i => i.providerId) ??
+      [];
     return {
       isAuthenticated: true,
       isLoading: crossmintAuth.isLoading,
       user: normalizeCrossmintUser(crossmintAuth.user!),
       authProvider: 'crossmint',
       gateStatus: crossmintAuth.gateStatus,
+      account,
+      linkedWallets,
       error: crossmintAuth.error,
       logout: crossmintAuth.logout,
       clearError: crossmintAuth.clearError,
@@ -56,12 +70,20 @@ export function useAuth(): UnifiedAuthState {
 
   // If wallet is authenticated, use wallet auth
   if (walletActive) {
+    const account = walletAuth.account || null;
+    const linkedWallets =
+      account?.identities
+        ?.filter(i => i.type === 'wallet')
+        .map(i => i.providerId) ??
+      [];
     return {
       isAuthenticated: true,
       isLoading: walletAuth.isLoading,
       user: normalizeWalletUser(walletAuth.user!),
       authProvider: 'wallet',
       gateStatus: walletAuth.gateStatus,
+      account,
+      linkedWallets,
       error: walletAuth.error,
       logout: walletAuth.logout,
       clearError: walletAuth.clearError,
@@ -75,6 +97,8 @@ export function useAuth(): UnifiedAuthState {
     user: null,
     authProvider: null,
     gateStatus: null,
+    account: null,
+    linkedWallets: [],
     error: walletAuth.error || crossmintAuth.error,
     logout: async () => {
       await walletAuth.logout();

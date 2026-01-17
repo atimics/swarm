@@ -16,6 +16,12 @@ export interface CrossmintUser {
   inhabitedAvatarId?: string;
 }
 
+export interface AccountSummary {
+  accountId: string;
+  role: 'user' | 'admin';
+  identities: Array<{ type: 'wallet' | 'crossmint'; providerId: string }>;
+}
+
 export interface GateStatus {
   nftsHeld: number;
   avatarsCreated: number;
@@ -29,6 +35,7 @@ interface CrossmintAuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   user: CrossmintUser | null;
+  account: AccountSummary | null;
   error: string | null;
 
   // Gate status (same as wallet auth)
@@ -52,6 +59,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
       isAuthenticated: false,
       isLoading: false,
       user: null,
+      account: null,
       error: null,
       gateStatus: null,
 
@@ -111,6 +119,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
                 avatarUrl: data.user.avatarUrl,
                 inhabitedAvatarId: data.user.inhabitedAvatarId,
               },
+              account: data.account || null,
               gateStatus: data.gateStatus || null,
               isLoading: false,
             });
@@ -122,6 +131,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
           set({
             isAuthenticated: false,
             user: null,
+            account: null,
             isLoading: false,
             error: error instanceof Error ? error.message : 'Authentication failed',
           });
@@ -145,6 +155,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
           set({
             isAuthenticated: false,
             user: null,
+            account: null,
             gateStatus: null,
             isLoading: false,
             error: null,
@@ -156,6 +167,7 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
         set({
           isAuthenticated: false,
           user: null,
+          account: null,
           gateStatus: null,
           isLoading: false,
           error: null,

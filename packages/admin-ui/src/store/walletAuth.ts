@@ -17,6 +17,12 @@ export interface WalletUser {
   sessionCount?: number;
 }
 
+export interface AccountSummary {
+  accountId: string;
+  role: 'user' | 'admin';
+  identities: Array<{ type: 'wallet' | 'crossmint'; providerId: string }>;
+}
+
 export interface NFTGateInfo {
   allowed: boolean;
   ownedCount: number;
@@ -90,6 +96,7 @@ interface WalletAuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   user: WalletUser | null;
+  account: AccountSummary | null;
   error: string | null;
 
   // NFT gating state
@@ -117,6 +124,7 @@ export const useWalletAuth = create<WalletAuthState>()(
       isAuthenticated: false,
       isLoading: false,
       user: null,
+      account: null,
       error: null,
       nftGateError: false,
       nftGateInfo: null,
@@ -142,6 +150,7 @@ export const useWalletAuth = create<WalletAuthState>()(
             set({
               isAuthenticated: true,
               user: data.user,
+              account: data.account || null,
               gateStatus: data.gateStatus || null,
               isLoading: false,
             });
@@ -149,6 +158,7 @@ export const useWalletAuth = create<WalletAuthState>()(
             set({
               isAuthenticated: false,
               user: null,
+              account: null,
               gateStatus: null,
               isLoading: false,
             });
@@ -158,6 +168,7 @@ export const useWalletAuth = create<WalletAuthState>()(
           set({
             isAuthenticated: false,
             user: null,
+            account: null,
             gateStatus: null,
             isLoading: false,
           });
@@ -215,6 +226,7 @@ export const useWalletAuth = create<WalletAuthState>()(
             set({
               isAuthenticated: true,
               user: data.user,
+              account: data.account || null,
               isLoading: false,
               nftGateError: false,
               nftGateInfo: data.nftGate || null,
@@ -228,6 +240,7 @@ export const useWalletAuth = create<WalletAuthState>()(
           set({
             isAuthenticated: false,
             user: null,
+            account: null,
             isLoading: false,
             error: error instanceof Error ? error.message : 'Login failed',
           });
@@ -251,6 +264,7 @@ export const useWalletAuth = create<WalletAuthState>()(
           set({
             isAuthenticated: false,
             user: null,
+            account: null,
             gateStatus: null,
             isLoading: false,
             error: null,
