@@ -1,7 +1,7 @@
 /**
  * Prompt Preview API - Shows what would be sent to the LLM.
  */
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+import { API_BASE } from './apiBase';
 
 export interface ToolPreview {
   name: string;

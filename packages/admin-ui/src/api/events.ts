@@ -1,7 +1,7 @@
 /**
  * Avatar Events API - Issues and feedback from DynamoDB (fast)
  */
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+import { API_BASE } from './apiBase';
 
 export type EventType = 'issue' | 'feedback';
 export type IssueSeverity = 'low' | 'medium' | 'high' | 'critical';

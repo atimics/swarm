@@ -1,7 +1,7 @@
 /**
  * Issues API - Avatar-reported issues endpoint.
  */
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+import { API_BASE } from './apiBase';
 
 export interface AvatarIssue {
   id: string;

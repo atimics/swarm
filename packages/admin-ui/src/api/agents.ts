@@ -1,7 +1,7 @@
 /**
  * Avatars API - Backend calls for avatar CRUD operations
  */
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+import { API_BASE } from './apiBase';
 
 export interface LlmConfig {
   provider: string;

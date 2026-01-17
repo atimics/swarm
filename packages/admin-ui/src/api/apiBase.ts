@@ -11,7 +11,28 @@ export function getApiBase(): string {
   const fromProcess = typeof process !== 'undefined' ? process.env?.VITE_API_URL : undefined;
 
   const explicit = (fromEnv || fromProcess || '').trim();
-  if (explicit) return explicit.replace(/\/$/, '');
+  if (explicit) {
+    // Prefer same-origin proxy on deployed admin domains to avoid cross-origin auth/CORS issues.
+    if (
+      typeof window !== 'undefined' &&
+      window.location?.host &&
+      /(^admin[-.]|\.rati\.chat$)/.test(window.location.host) &&
+      /^https?:\/\//.test(explicit) &&
+      /\/\/api[-.]/.test(explicit)
+    ) {
+      return '/api';
+    }
+
+    return explicit.replace(/\/$/, '');
+  }
+
+  // Default for deployed Admin UI: same-origin proxy.
+  if (typeof window !== 'undefined' && window.location?.host) {
+    const host = window.location.host;
+    if (/^admin[-.]/.test(host) || host.endsWith('.rati.chat')) {
+      return '/api';
+    }
+  }
 
   if (typeof window !== 'undefined' && window.location?.host) {
     const host = window.location.host;
