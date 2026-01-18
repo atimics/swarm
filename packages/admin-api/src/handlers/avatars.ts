@@ -13,6 +13,7 @@ import * as secretsService from '../services/secrets.js';
 import * as logsService from '../services/logs.js';
 import * as avatarogsService from '../services/avatar-logs.js';
 import * as telegramService from '../services/telegram.js';
+import * as discordService from '../services/discord.js';
 import * as avatarventsService from '../services/avatar-events.js';
 import * as galleryService from '../services/gallery.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
@@ -263,6 +264,11 @@ export async function handler(
       const body = JSON.parse(event.body || '{}');
       const { key, type, value } = body as { key?: string; type?: string; value?: string };
       const rawKey = key || type;
+      let telegramStatus: {
+        webhookUrl?: string;
+        webhookInfo?: { url?: string; pending_update_count?: number };
+        reRegistered?: boolean;
+      } | null = null;
 
       const normalizedKey = typeof rawKey === 'string'
         ? rawKey.trim().toLowerCase()
@@ -319,7 +325,8 @@ export async function handler(
             platforms: {
               telegram: {
                 enabled: true,
-                botUsername: validation.botInfo?.username
+                botUsername: validation.botInfo?.username,
+                botId: validation.botInfo?.id,
               }
             }
           }, session);
@@ -335,10 +342,17 @@ export async function handler(
               session,
               `Telegram webhook secret for ${avatarId}`
             );
+            telegramStatus = {
+              webhookUrl: webhookResult.webhookUrl,
+              webhookInfo: webhookResult.webhookInfo,
+              reRegistered: webhookResult.reRegistered,
+            };
             logger.info('Telegram webhook registered', {
               event: 'telegram_webhook_registered',
               webhookUrl: webhookResult.webhookUrl,
               botUsername: validation.botInfo?.username,
+              webhookInfo: webhookResult.webhookInfo,
+              reRegistered: webhookResult.reRegistered,
             });
           } else {
             logger.error('Telegram webhook registration failed', undefined, {
@@ -355,7 +369,7 @@ export async function handler(
       }
 
       // Special handling for Replicate API key - validate it
-      if (key === 'replicate_api_key') {
+      if (normalizedKey === 'replicate_api_key') {
         logger.setContext({ subsystem: 'media', avatarId });
         logger.info('Replicate key stored via API', { event: 'replicate_key_stored_via_api' });
 
@@ -387,8 +401,62 @@ export async function handler(
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ success: true, message: `${key} stored securely` }),
+        body: JSON.stringify({
+          success: true,
+          message: `${normalizedKey} stored securely`,
+          telegramStatus: telegramStatus || undefined,
+        }),
       };
+    }
+
+    // POST /avatars/{id}/validate-token - Validate integration tokens
+    const validateTokenMatch = path.match(/^\/avatars\/([^/]+)\/validate-token$/);
+    if (method === 'POST' && validateTokenMatch) {
+      const avatarId = validateTokenMatch[1];
+      const body = JSON.parse(event.body || '{}') as { type?: string; value?: string };
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const normalizedType = typeof body.type === 'string'
+        ? body.type.trim().toLowerCase()
+        : '';
+
+      if (!normalizedType || typeof body.value !== 'string' || !body.value) {
+        return jsonResponse(corsHeaders, 400, { error: 'type and value are required' });
+      }
+
+      const secretType = SecretType.safeParse(normalizedType);
+      if (!secretType.success) {
+        return jsonResponse(corsHeaders, 400, {
+          error: `Unsupported secret type: ${normalizedType}`,
+          allowed: SecretType.options,
+        });
+      }
+
+      switch (secretType.data) {
+        case 'telegram_bot_token': {
+          const validation = await telegramService.validateTelegramToken(body.value);
+          return jsonResponse(corsHeaders, 200, validation);
+        }
+        case 'discord_bot_token': {
+          const validation = await discordService.validateBotToken(body.value);
+          return jsonResponse(corsHeaders, 200, validation);
+        }
+        case 'discord_webhook_url': {
+          const validation = await discordService.validateWebhookUrl(body.value);
+          return jsonResponse(corsHeaders, 200, validation);
+        }
+        default:
+          return jsonResponse(corsHeaders, 400, { error: 'Validation not supported for this secret type' });
+      }
     }
 
     // POST /avatars/{id}/tools/{toolCallId} - Submit a tool result and resume chat

@@ -194,7 +194,7 @@ export interface AvatarRecord {
   };
 
   platforms: {
-    telegram?: { enabled: boolean; botUsername?: string };
+    telegram?: { enabled: boolean; botUsername?: string; botId?: number };
     twitter?: { enabled: boolean; username?: string };
     discord?: {
       enabled: boolean;

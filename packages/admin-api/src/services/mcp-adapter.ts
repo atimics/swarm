@@ -616,7 +616,8 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
             platforms: {
               telegram: {
                 enabled: true,
-                botUsername: validation.botInfo?.username
+                botUsername: validation.botInfo?.username,
+                botId: validation.botInfo?.id,
               }
             }
           }, session);
@@ -637,6 +638,8 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
               event: 'telegram_webhook_registered',
               avatarId,
               webhookUrl: webhookResult.webhookUrl,
+              webhookInfo: webhookResult.webhookInfo,
+              reRegistered: webhookResult.reRegistered,
             }));
           } else {
             console.log(JSON.stringify({

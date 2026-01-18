@@ -58,7 +58,14 @@ export async function registerTelegramWebhook(
   botToken: string,
   avatarId: string,
   secretToken?: string
-): Promise<{ success: boolean; message: string; webhookUrl?: string; secretToken?: string }> {
+): Promise<{
+  success: boolean;
+  message: string;
+  webhookUrl?: string;
+  secretToken?: string;
+  webhookInfo?: { url?: string; pending_update_count?: number };
+  reRegistered?: boolean;
+}> {
   const webhookUrl = `https://${API_DOMAIN}/webhook/telegram/${avatarId}`;
 
   // Generate secret token if not provided
@@ -66,19 +73,23 @@ export async function registerTelegramWebhook(
 
   const url = `https://api.telegram.org/bot${botToken}/setWebhook`;
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      url: webhookUrl,
-      secret_token: webhookSecret,  // Telegram will send this in X-Telegram-Bot-Api-Secret-Token header
-      allowed_updates: ['message', 'edited_message', 'callback_query'],
-      drop_pending_updates: true,
-      max_connections: 40,  // Default, can be tuned
-    }),
-  });
+  const register = async () => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: webhookUrl,
+        secret_token: webhookSecret,  // Telegram will send this in X-Telegram-Bot-Api-Secret-Token header
+        allowed_updates: ['message', 'edited_message', 'callback_query'],
+        drop_pending_updates: true,
+        max_connections: 40,  // Default, can be tuned
+      }),
+    });
 
-  const result = await response.json() as { ok: boolean; description?: string };
+    return await response.json() as { ok: boolean; description?: string };
+  };
+
+  const result = await register();
 
   if (!result.ok) {
     console.error('Failed to register webhook:', result);
@@ -90,11 +101,45 @@ export async function registerTelegramWebhook(
 
   console.log(`Registered Telegram webhook for avatar ${avatarId}: ${webhookUrl}`);
 
+  let webhookInfo: { url?: string; pending_update_count?: number } | undefined;
+  let reRegistered = false;
+  try {
+    webhookInfo = await getTelegramWebhookInfo(botToken);
+    if (webhookInfo.url && webhookInfo.url !== webhookUrl) {
+      console.warn('Webhook URL mismatch after registration', {
+        avatarId,
+        expected: webhookUrl,
+        actual: webhookInfo.url,
+      });
+      const retry = await register();
+      if (retry.ok) {
+        reRegistered = true;
+        webhookInfo = await getTelegramWebhookInfo(botToken);
+      } else {
+        console.warn('Webhook re-registration failed', { avatarId, error: retry.description });
+      }
+    }
+
+    if (webhookInfo.pending_update_count && webhookInfo.pending_update_count > 0) {
+      console.warn('Telegram webhook has pending updates', {
+        avatarId,
+        pendingUpdateCount: webhookInfo.pending_update_count,
+      });
+    }
+  } catch (error) {
+    console.warn('Failed to fetch Telegram webhook info', {
+      avatarId,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+
   return {
     success: true,
     message: 'Webhook registered successfully',
     webhookUrl,
     secretToken: webhookSecret,  // Caller must store this securely
+    webhookInfo,
+    reRegistered,
   };
 }
 
@@ -137,7 +182,7 @@ export async function validateTelegramToken(
 ): Promise<{ 
   valid: boolean; 
   error?: string;
-  botInfo?: { username?: string; firstName?: string };
+  botInfo?: { id?: number; username?: string; firstName?: string };
 }> {
   try {
     const url = `https://api.telegram.org/bot${botToken}/getMe`;
@@ -145,7 +190,7 @@ export async function validateTelegramToken(
     const result = await response.json() as { 
       ok: boolean; 
       description?: string;
-      result?: { username?: string; first_name?: string } 
+      result?: { id?: number; username?: string; first_name?: string } 
     };
 
     if (!result.ok || !result.result) {
@@ -155,6 +200,7 @@ export async function validateTelegramToken(
     return {
       valid: true,
       botInfo: {
+        id: result.result.id,
         username: result.result.username,
         firstName: result.result.first_name,
       }

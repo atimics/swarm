@@ -58,6 +58,7 @@ export interface PlatformConfigs {
 export interface TelegramConfig {
   enabled: boolean;
   botUsername: string;
+  botId?: number;
   webhookPath: string;
   allowedChatTypes?: ('private' | 'group' | 'supergroup' | 'channel')[];
 }
@@ -657,6 +658,7 @@ export interface NFTMetadata {
 export const TelegramConfigSchema = z.object({
   enabled: z.boolean(),
   botUsername: z.string(),
+  botId: z.number().optional(),
   webhookPath: z.string(),
   allowedChatTypes: z.array(z.enum(['private', 'group', 'supergroup', 'channel'])).optional(),
 });

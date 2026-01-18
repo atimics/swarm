@@ -123,7 +123,6 @@ export const createSecretTools = (services: SecretServices) => [
     platforms: ['admin-ui'],
     inputSchema: z.object({
       secretType: z.enum([
-        'telegram_bot_token',
         'twitter_api_key',
         'replicate_api_key',
         'openai_api_key',

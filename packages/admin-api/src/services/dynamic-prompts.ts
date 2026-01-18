@@ -49,15 +49,16 @@ export interface AvatarPromptContext {
 const PROMPT_SECTIONS: Record<ToolCategory, string> = {
   secrets: `## Secrets & Integrations
 
-You can request and store secrets for various integrations:
-- **Telegram**: Request bot token from @BotFather
-- **Discord**: Request bot token from Discord Developer Portal  
-- **Twitter/X**: Request API credentials
+You can request and store secrets for various integrations and services:
+- **Telegram**: Configure via the integration panel (bot token from @BotFather)
+- **Discord**: Configure via the integration panel (bot token from Developer Portal)
+- **Twitter/X**: Configure via the integration panel (OAuth/API)
 - **Helius**: API key for Solana RPC (wallet balance lookups)
 - **Replicate**: API key for image/video generation
 - **AI Providers**: OpenRouter, Anthropic, OpenAI API keys
 
-When the user wants to set up an integration, use the request_secret tool. This shows a secure input field - the secret is AUTOMATICALLY stored when submitted.
+When the user wants to set up a platform integration (Telegram, Discord, Twitter/X), use the configure_integration tool.
+Use request_secret only for non-integration keys (Replicate, Helius, AI providers, custom secrets).
 
 **Security Notes:**
 - Secrets are stored in AWS Secrets Manager with KMS encryption

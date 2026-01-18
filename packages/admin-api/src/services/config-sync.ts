@@ -156,6 +156,7 @@ function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
     config.platforms.telegram = {
       enabled: true,
       botUsername: record.platforms.telegram.botUsername || '',
+      botId: record.platforms.telegram.botId,
       webhookPath: `/webhook/telegram/${record.avatarId}`,
       allowedChatTypes: ['private', 'group', 'supergroup'],
     };

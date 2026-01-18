@@ -4,6 +4,7 @@
  */
 import type { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import {
   TelegramAdapter,
   createStateService,
@@ -13,14 +14,17 @@ import {
   logger,
   type AvatarConfig,
 } from '@swarm/core';
+import { timingSafeEqual } from 'crypto';
 
 const sqs = new SQSClient({});
+const secretsClient = new SecretsManagerClient({});
 
 // Environment variables
 const MESSAGE_QUEUE_URL = process.env.MESSAGE_QUEUE_URL!;
 const STATE_TABLE = process.env.STATE_TABLE!;
 const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE!;
 const AVATAR_ID = process.env.AVATAR_ID!;
+const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
 
 // Lazy-initialized services
 let stateService: ReturnType<typeof createStateService>;
@@ -28,6 +32,31 @@ let activityService: ReturnType<typeof createActivityService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let telegramAdapter: TelegramAdapter;
 let avatarConfig: AvatarConfig;
+
+// Webhook secret cache
+let cachedWebhookSecret: { value: string; expiresAt: number } | null = null;
+const WEBHOOK_SECRET_TTL = 5 * 60 * 1000;
+
+async function getWebhookSecret(): Promise<string | null> {
+  const now = Date.now();
+  if (cachedWebhookSecret && cachedWebhookSecret.expiresAt > now) {
+    return cachedWebhookSecret.value;
+  }
+
+  const secretName = `${SECRET_PREFIX}/${AVATAR_ID}/telegram_webhook_secret/default`;
+
+  try {
+    const response = await secretsClient.send(new GetSecretValueCommand({
+      SecretId: secretName,
+    }));
+    const value = response.SecretString || '';
+    if (!value) return null;
+    cachedWebhookSecret = { value, expiresAt: now + WEBHOOK_SECRET_TTL };
+    return value;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Initialize services (called once per Lambda cold start)
@@ -109,14 +138,32 @@ export async function handler(
       Object.entries(event.headers).map(([k, v]) => [k.toLowerCase(), v || ''])
     );
 
-    const isValid = await telegramAdapter.verifyRequest(body, headers);
-    if (!isValid) {
-      logger.warn('Invalid request signature', {
-        event: 'validation_error',
-        subsystem: 'telegram',
-        reason: 'invalid_signature',
-      });
-      return { statusCode: 401, body: 'Unauthorized' };
+    const webhookSecret = await getWebhookSecret();
+    if (webhookSecret) {
+      const providedSecret = headers['x-telegram-bot-api-secret-token'];
+      const providedBuf = Buffer.from(providedSecret || '');
+      const expectedBuf = Buffer.from(webhookSecret);
+      const secretValid = providedBuf.length === expectedBuf.length &&
+        timingSafeEqual(providedBuf, expectedBuf);
+
+      if (!secretValid) {
+        logger.warn('Invalid webhook secret', {
+          event: 'validation_error',
+          subsystem: 'telegram',
+          reason: 'invalid_secret',
+        });
+        return { statusCode: 401, body: 'Unauthorized' };
+      }
+    } else {
+      const isValid = await telegramAdapter.verifyRequest(body, headers);
+      if (!isValid) {
+        logger.warn('Invalid request signature', {
+          event: 'validation_error',
+          subsystem: 'telegram',
+          reason: 'invalid_signature',
+        });
+        return { statusCode: 401, body: 'Unauthorized' };
+      }
     }
 
     // Parse the message
