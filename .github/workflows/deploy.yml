@@ -345,13 +345,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [setup, changes, cdk-deploy, admin-ui-build, stack-outputs]
     if: >-
-      ${
-        always() &&
-        needs.changes.outputs.admin_ui == 'true' &&
-        (needs.cdk-deploy.result == 'success' || needs.cdk-deploy.result == 'skipped') &&
-        needs.admin-ui-build.result == 'success' &&
-        (needs.stack-outputs.result == 'success' || needs.stack-outputs.result == 'skipped')
-      }
+      always() &&
+      needs.changes.outputs.admin_ui == 'true' &&
+      (needs.cdk-deploy.result == 'success' || needs.cdk-deploy.result == 'skipped') &&
+      needs.admin-ui-build.result == 'success' &&
+      (needs.stack-outputs.result == 'success' || needs.stack-outputs.result == 'skipped')
 
     steps:
       - name: Download Admin UI build
