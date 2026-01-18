@@ -146,11 +146,38 @@ export async function startOAuthFlow(avatarId: string, deps: TwitterOAuthService
     appSecret: creds.appSecret,
   });
 
-  // Get request token with callback URL that includes state
-  const { url, oauth_token, oauth_token_secret } = await client.generateAuthLink(
-    deps.oauthCallbackUrl,
-    { linkMode: 'authorize' } // 'authorize' asks every time, 'authenticate' auto-approves if already authorized
-  );
+  // Get request token with callback URL
+  let url: string;
+  let oauth_token: string;
+  let oauth_token_secret: string;
+  try {
+    ({ url, oauth_token, oauth_token_secret } = await client.generateAuthLink(
+      deps.oauthCallbackUrl,
+      { linkMode: 'authorize' } // 'authorize' asks every time, 'authenticate' auto-approves if already authorized
+    ));
+  } catch (error) {
+    // twitter-api-v2 throws rich errors; surface a helpful, non-sensitive message.
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      subsystem: 'twitter-oauth',
+      event: 'oauth_start_failed',
+      avatarId,
+      oauthCallbackUrl: deps.oauthCallbackUrl,
+      error: message,
+    }));
+
+    // Common case: Twitter rejects callback URL or app permissions (often manifests as 403).
+    if (/\b403\b/.test(message) || /code\s*403/i.test(message)) {
+      throw new Error(
+        `Twitter rejected the OAuth request (HTTP 403). Verify your X Developer app settings allow the callback URL: ${deps.oauthCallbackUrl}`
+      );
+    }
+
+    throw new Error(
+      `Failed to start Twitter OAuth flow: ${message}`
+    );
+  }
 
   // Store the request token temporarily (needed to complete the flow)
   const now = Date.now();

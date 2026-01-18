@@ -170,7 +170,27 @@ export async function handler(
         };
       }
 
-      const { authorizationUrl } = await twitterOAuth.startOAuthFlow(avatarId);
+      let authorizationUrl: string;
+      try {
+        ({ authorizationUrl } = await twitterOAuth.startOAuthFlow(avatarId));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(JSON.stringify({
+          level: 'ERROR',
+          subsystem: 'twitter-oauth',
+          event: 'oauth_start_failed',
+          avatarId,
+          error: message,
+        }));
+        return {
+          statusCode: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            error: 'Twitter OAuth start failed',
+            message,
+          }),
+        };
+      }
 
       return {
         statusCode: 302,

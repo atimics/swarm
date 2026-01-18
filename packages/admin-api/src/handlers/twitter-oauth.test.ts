@@ -212,6 +212,24 @@ describe('Twitter OAuth Handler', () => {
       expect(mockStartOAuthFlow).toHaveBeenCalledWith('test-avatar');
       expect(mockAuthenticateRequest).not.toHaveBeenCalled();
     });
+
+    it('returns 503 with message when Twitter rejects request token (e.g., 403)', async () => {
+      mockStartOAuthFlow.mockImplementation(() => {
+        throw new Error('Request failed with code 403');
+      });
+
+      const event = createEvent({
+        rawPath: '/api/oauth/twitter/start',
+        queryStringParameters: { avatarId: 'test-avatar' },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(503);
+      const body = JSON.parse(result.body as string);
+      expect(body.error).toBe('Twitter OAuth start failed');
+      expect(String(body.message)).toContain('403');
+    });
   });
 
   describe('GET /oauth/twitter/callback', () => {

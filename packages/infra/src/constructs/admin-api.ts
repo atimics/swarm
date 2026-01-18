@@ -285,8 +285,11 @@ export class AdminApiConstruct extends Construct {
     const twitterAppCredentialsSecret = secretsmanager.Secret.fromSecretNameV2(
       this, 'TwitterAppCredentials', 'swarm/global/twitter-app-credentials'
     );
-    const twitterOAuthCallbackUrl = props.apiDomain 
-      ? `https://${props.apiDomain}/oauth/twitter/callback`
+    // When `apiCertificateArn` is not set, the API is served via the Admin UI CloudFront
+    // distribution under the `/api/*` path (see SwarmStack wiring). In that case, OAuth
+    // callbacks must include the `/api` prefix so the callback reaches the Lambda.
+    const twitterOAuthCallbackUrl = props.apiDomain
+      ? `https://${props.apiDomain}${props.apiCertificateArn ? '' : '/api'}/oauth/twitter/callback`
       : '';
 
     // Build webhook URL for Replicate callbacks
@@ -1155,9 +1158,7 @@ export class AdminApiConstruct extends Construct {
         SECRET_PREFIX: 'swarm',
         // Twitter App credentials from Secrets Manager
         TWITTER_APP_CREDENTIALS_ARN: twitterAppCredentialsSecret.secretArn,
-        TWITTER_OAUTH_CALLBACK_URL: props.apiDomain 
-          ? `https://${props.apiDomain}/oauth/twitter/callback`
-          : '',
+        TWITTER_OAUTH_CALLBACK_URL: twitterOAuthCallbackUrl,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
