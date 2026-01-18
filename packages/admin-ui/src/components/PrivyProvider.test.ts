@@ -7,6 +7,7 @@ describe('PrivyProvider config', () => {
 
     expect(config.loginMethods).toEqual(['email', 'google', 'twitter']);
     expect(config.embeddedWallets?.solana?.createOnLogin).toBe('users-without-wallets');
-    expect((config as { defaultChain?: string }).defaultChain).toBe('solana');
+    expect(config.defaultChain).toBeUndefined();
+    expect(config.supportedChains).toBeUndefined();
   });
 });
