@@ -567,7 +567,7 @@ describe('Admin Chat - Tool-Call Flow Integration', () => {
     const result = simulateToolCallFlow('Connect Twitter', [], toolCalls);
 
     expect(result.pendingToolCall).toBeDefined();
-    expect(result.pendingToolCall!.name).toBe('request_twitter_connection');
+    expect(result.pendingToolCall!.name).toBe('configure_integration');
     expect(result.response).toBe('Please connect your X/Twitter account:');
   });
 

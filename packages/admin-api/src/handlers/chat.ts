@@ -541,6 +541,9 @@ async function buildFeatureTogglePayload(
 
 function buildPendingToolResponse(toolName: string, args: Record<string, unknown>): string {
   if (toolName === 'configure_integration') {
+    if (args.integration === 'twitter') {
+      return 'Please connect your X/Twitter account:';
+    }
     return 'Please configure the integration below:';
   }
   if (toolName === 'request_model_selection') {
@@ -1098,7 +1101,16 @@ async function processChat(
     response = buildPendingToolResponse(uiToolName, pendingArgs);
     const shouldOverrideToolCall = uiToolName !== toolName;
     const toolCallsForHistory = shouldOverrideToolCall
-      ? [pendingToolCall]
+      ? [
+          {
+            id: pendingToolCall.id,
+            type: 'function' as const,
+            function: {
+              name: uiToolName,
+              arguments: JSON.stringify(pendingArgs),
+            },
+          },
+        ]
       : adminToolCalls.length > 0
         ? adminToolCalls
         : [toAdminToolCall(pauseToolCall)];
