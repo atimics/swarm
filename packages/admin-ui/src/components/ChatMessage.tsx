@@ -188,14 +188,21 @@ function processMessageContent(content: string): {
       };
     }
 
-    // Check for audio URL
+    // Check for audio URL (can be at top level or inside data object from tool results)
+    const audioUrlCandidate = 
+      (typeof parsed.url === 'string' ? parsed.url : null) ||
+      (parsed.data && typeof parsed.data === 'object' && 'url' in parsed.data && typeof (parsed.data as Record<string, unknown>).url === 'string' 
+        ? (parsed.data as Record<string, unknown>).url as string 
+        : null);
+    
+    if (audioUrlCandidate && isAudioUrl(audioUrlCandidate)) {
+      embeddedAudios.push(audioUrlCandidate);
+      return { type: 'audio', data: parsed, audioUrl: audioUrlCandidate };
+    }
+    
+    // Check for image URL
     if (parsed.url && typeof parsed.url === 'string') {
       const url = parsed.url;
-      if (isAudioUrl(url)) {
-        embeddedAudios.push(url);
-        return { type: 'audio', data: parsed, audioUrl: url };
-      }
-      
       // Image generation result
       const isImage = url.includes('.png') || url.includes('.jpg') || 
                       url.includes('.webp') || url.includes('rati.chat') || 
@@ -327,7 +334,13 @@ function extractAudiosFromToolCalls(toolCalls?: ChatMessageType['toolCalls']): s
   for (const tc of toolCalls) {
     if (tc.result && typeof tc.result === 'object') {
       const result = tc.result as Record<string, unknown>;
-      const url = (result.url || result.resultUrl) as string | undefined;
+      // Check top-level url
+      let url = (result.url || result.resultUrl) as string | undefined;
+      // Also check inside data object (voice tool returns { success, data: { url } })
+      if (!url && result.data && typeof result.data === 'object') {
+        const data = result.data as Record<string, unknown>;
+        url = data.url as string | undefined;
+      }
       if (url && typeof url === 'string' && isAudioUrl(url)) {
         audios.push(url);
       }
