@@ -100,8 +100,8 @@ async function getAppCredentials(deps: TwitterOAuthServiceDeps = defaultDeps): P
 
     const parsed = JSON.parse(response.SecretString);
     cachedAppCredentials = {
-      appKey: parsed.TWITTER_APP_KEY,
-      appSecret: parsed.TWITTER_APP_SECRET,
+      appKey: parsed.TWITTER_APP_KEY || parsed.consumer_key || parsed.consumerKey,
+      appSecret: parsed.TWITTER_APP_SECRET || parsed.consumer_secret || parsed.consumerSecret,
     };
     return cachedAppCredentials;
   } catch (error) {
