@@ -692,7 +692,7 @@ export class AdminApiConstruct extends Construct {
     });
 
     // Grant permissions to jobs handler
-    this.table.grantReadData(jobsHandler);
+    this.table.grantReadWriteData(jobsHandler);
 
     const jobsIntegration = new integrations.HttpLambdaIntegration(
       'JobsIntegration',

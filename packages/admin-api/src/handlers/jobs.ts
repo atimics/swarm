@@ -8,12 +8,17 @@ import type {
 } from 'aws-lambda';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import * as mediaJobs from '../services/media-jobs.js';
+import * as avatars from '../services/avatars.js';
 import { getCorsHeaders } from '../http/cors.js';
 
 /**
- * Lambda handler for job status API
- * GET /jobs/{jobId} - Get job status
- * GET /jobs?avatarId=xxx - List pending jobs for an avatar
+ * Lambda handler for job status API.
+ *
+ * Admins can poll any job; non-admin wallet users can poll jobs only for
+ * avatars they own or inhabit.
+ *
+ * - GET /jobs/{jobId} - Get job status
+ * - GET /jobs?avatarId=xxx - List pending jobs for an avatar
  */
 export async function handler(
   event: APIGatewayProxyEventV2
@@ -29,14 +34,40 @@ export async function handler(
     // Authenticate the request
     const session = await authenticateRequest(event);
 
-    // Require admin access
-    if (!requireAdmin(session)) {
-      return {
-        statusCode: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Admin access required' }),
-      };
-    }
+    const isAdmin = requireAdmin(session);
+
+    const ensureAvatarAccess = async (avatarId: string | undefined | null): Promise<APIGatewayProxyResultV2 | null> => {
+      if (isAdmin) return null;
+
+      if (!avatarId) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'avatarId is required' }),
+        };
+      }
+
+      const avatar = await avatars.getAvatar(avatarId);
+      if (!avatar) {
+        return {
+          statusCode: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Avatar not found' }),
+        };
+      }
+
+      const walletAddress = session.userId;
+      if (!walletAddress || (avatar.creatorWallet !== walletAddress && avatar.inhabitantWallet !== walletAddress)) {
+        // Hide existence when the user doesn't have access.
+        return {
+          statusCode: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Avatar not found' }),
+        };
+      }
+
+      return null;
+    };
 
     // Check for jobId in path parameters
     const jobId = event.pathParameters?.jobId;
@@ -46,6 +77,17 @@ export async function handler(
       const job = await mediaJobs.getJob(jobId);
 
       if (!job) {
+        return {
+          statusCode: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Job not found' }),
+        };
+      }
+
+      const accessError = await ensureAvatarAccess(job.avatarId);
+      if (accessError) {
+        // Hide existence if unauthorized.
+        if (accessError.statusCode === 400) return accessError;
         return {
           statusCode: 404,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -83,6 +125,9 @@ export async function handler(
       };
     }
 
+    const accessError = await ensureAvatarAccess(avatarId);
+    if (accessError) return accessError;
+
     const jobs = await mediaJobs.getPendingJobs(avatarId);
 
     return {
@@ -104,6 +149,17 @@ export async function handler(
       }),
     };
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    // Treat missing/expired sessions as auth failures (not 500s)
+    if (errorMessage === 'No authentication token provided' || errorMessage === 'Session expired') {
+      return {
+        statusCode: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: errorMessage }),
+      };
+    }
+
     console.error('Jobs handler error:', error);
 
     return {
@@ -111,7 +167,8 @@ export async function handler(
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error',
+        message: errorMessage,
+        requestId: event.requestContext.requestId,
       }),
     };
   }

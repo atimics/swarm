@@ -1416,7 +1416,10 @@ async function processChat(
 }
 
 /**
- * Lambda handler for admin chat API
+ * Lambda handler for chat API.
+ *
+ * Admins can chat with any avatar; non-admin wallet users can chat only with
+ * avatars they own or inhabit.
  */
 export async function handler(
   event: APIGatewayProxyEventV2
@@ -1453,19 +1456,48 @@ export async function handler(
     
     // Set logging context for this handler
     logger.setContext({ subsystem: 'chat', requestId });
-    
-    // Require admin access
-    if (!requireAdmin(session)) {
-      return {
-        statusCode: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Admin access required' }),
-      };
-    }
+
+    const isAdmin = requireAdmin(session);
+
+    const ensureAvatarAccess = async (avatarId: string | undefined | null): Promise<APIGatewayProxyResultV2 | null> => {
+      if (isAdmin) return null;
+
+      if (!avatarId) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'avatarId is required' }),
+        };
+      }
+
+      const avatar = await avatars.getAvatar(avatarId);
+      if (!avatar) {
+        return {
+          statusCode: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Avatar not found' }),
+        };
+      }
+
+      const walletAddress = session.userId;
+      // Only wallet-auth sessions are allowed for non-admin chat.
+      // If this is a CF Access session (sub/email) it won't match wallet fields.
+      if (!walletAddress || (avatar.creatorWallet !== walletAddress && avatar.inhabitantWallet !== walletAddress)) {
+        return {
+          statusCode: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Avatar not found' }),
+        };
+      }
+
+      return null;
+    };
 
     // GET /chat?avatarId=xxx - Retrieve chat history
     if (method === 'GET') {
       const avatarId = event.queryStringParameters?.avatarId;
+      const accessError = await ensureAvatarAccess(avatarId);
+      if (accessError) return accessError;
       const history = await chatHistory.getChatHistory(session, avatarId);
       
       return {
@@ -1478,6 +1510,8 @@ export async function handler(
     // DELETE /chat?avatarId=xxx - Clear chat history
     if (method === 'DELETE') {
       const avatarId = event.queryStringParameters?.avatarId;
+      const accessError = await ensureAvatarAccess(avatarId);
+      if (accessError) return accessError;
       await chatHistory.clearChatHistory(session, avatarId);
       
       return {
@@ -1508,6 +1542,9 @@ export async function handler(
       };
     }
     const { message, history, avatar, systemPrompt: customSystemPrompt, attachments, model } = parseResult.data;
+
+    const accessError = await ensureAvatarAccess(avatar?.id);
+    if (accessError) return accessError;
 
     const avatarRecord = avatar?.id ? await avatars.getAvatar(avatar.id) : null;
     const voiceEnabled = process.env.ENABLE_VOICE_TOOLS !== 'false';
