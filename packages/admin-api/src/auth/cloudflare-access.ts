@@ -7,15 +7,12 @@ import type { CloudflareAccessClaims, UserSession } from '../types.js';
 import * as nodeCrypto from 'crypto';
 import { getSessionFromCookie } from './session-cookie.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
+import { getAccountSummary, getOrCreateAccountForWallet } from '../services/accounts.js';
 
 // Cloudflare Access public keys endpoint
 const CF_ACCESS_CERTS_URL = process.env.CF_ACCESS_CERTS_URL;
 const CF_ACCESS_TEAM_DOMAIN = process.env.CF_ACCESS_TEAM_DOMAIN;
 const CF_ACCESS_AUD = process.env.CF_ACCESS_AUD;
-
-// Admin emails that have full access
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').filter(Boolean);
-const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || '').split(',').filter(Boolean);
 
 interface CloudflareJWK {
   kid: string;
@@ -187,24 +184,28 @@ export async function authenticateRequest(
       throw new Error('Session expired');
     }
 
+    // Look up admin role from account record in database
+    const accountId = session.accountId || await getOrCreateAccountForWallet(session.walletAddress);
+    const account = await getAccountSummary(accountId);
+    const isAdmin = account?.role === 'admin';
+
     const email = (session.user as { email?: string }).email || '';
-    const isAdmin =
-      (email && ADMIN_EMAILS.includes(email)) ||
-      ADMIN_WALLETS.includes(session.walletAddress);
 
     return {
       email: email || session.walletAddress,
       userId: session.walletAddress,
       isAdmin,
       accessToken: '',
+      accountId,
     };
   }
 
   // Verify the token
   const claims = await verifyAccessToken(token);
 
-  // Check if user is an admin
-  const isAdmin = ADMIN_EMAILS.includes(claims.email);
+  // For CF Access users, look up by email in accounts (or create)
+  // Note: CF Access path is less common now; Privy/wallet auth is primary
+  const isAdmin = false; // CF Access users default to non-admin; use DB role instead
 
   return {
     email: claims.email,

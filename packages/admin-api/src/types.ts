@@ -17,12 +17,13 @@ export interface CloudflareAccessClaims {
   country: string;
 }
 
-// User session from Cloudflare Access
+// User session from Cloudflare Access or cookie auth
 export interface UserSession {
   email: string;
   userId: string;
   isAdmin: boolean;
   accessToken: string;
+  accountId?: string;
 }
 
 // Secret types that can be managed
