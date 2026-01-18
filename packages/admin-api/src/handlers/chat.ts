@@ -1056,6 +1056,7 @@ async function processChat(
   if (pauseToolCall && mcpServices && avatarId) {
     let pendingArgs = getToolArgs(pauseToolCall);
     const toolName = String(pauseToolCall.name);
+    let uiToolName = toolName;
     try {
       if (toolName === 'request_model_selection') {
         const family = typeof pendingArgs.family === 'string'
@@ -1067,7 +1068,12 @@ async function processChat(
       } else if (toolName === 'request_feature_toggle') {
         pendingArgs = await buildFeatureTogglePayload(avatarId, pendingArgs);
       } else if (toolName === 'request_twitter_connection' || toolName === 'twitter_request_integration') {
-        pendingArgs = { type: 'twitter_connect', ...pendingArgs };
+        pendingArgs = {
+          integration: 'twitter',
+          reason: typeof pendingArgs.message === 'string' ? pendingArgs.message : undefined,
+          ...pendingArgs,
+        };
+        uiToolName = 'configure_integration';
       } else if (
         toolName === 'get_profile_upload_url' ||
         toolName === 'get_reference_image_upload_url' ||
@@ -1085,15 +1091,21 @@ async function processChat(
 
     pendingToolCall = {
       id: String(pauseToolCall.id),
-      name: toolName,
+      name: uiToolName,
       arguments: pendingArgs,
     };
 
-    response = buildPendingToolResponse(toolName, pendingArgs);
+    response = buildPendingToolResponse(uiToolName, pendingArgs);
+    const shouldOverrideToolCall = uiToolName !== toolName;
+    const toolCallsForHistory = shouldOverrideToolCall
+      ? [pendingToolCall]
+      : adminToolCalls.length > 0
+        ? adminToolCalls
+        : [toAdminToolCall(pauseToolCall)];
     messages.push({
       role: 'assistant',
       content: response,
-      tool_calls: adminToolCalls.length > 0 ? adminToolCalls : [toAdminToolCall(pauseToolCall)],
+      tool_calls: toolCallsForHistory,
     });
 
     return {

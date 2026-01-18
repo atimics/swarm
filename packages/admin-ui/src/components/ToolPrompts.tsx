@@ -1138,45 +1138,56 @@ export function FeatureTogglePrompt({ toolCall, onSubmit, disabled }: ToolPrompt
  * Route tool calls to the appropriate prompt component
  */
 export function ToolPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
+  const normalizedToolCall = (() => {
+    if (typeof toolCall.arguments === 'string') {
+      try {
+        return { ...toolCall, arguments: JSON.parse(toolCall.arguments) };
+      } catch {
+        return toolCall;
+      }
+    }
+    return toolCall;
+  })();
+
   // Check if this is an upload URL response (from get_profile_upload_url or get_reference_image_upload_url)
-  const args = toolCall.arguments as Record<string, unknown>;
+  const args = normalizedToolCall.arguments as Record<string, unknown>;
   const isUploadUrl = args?.type === 'upload_url' ||
     (args?.uploadUrl && args?.s3Key && args?.publicUrl);
 
   if (isUploadUrl) {
-    return <UploadPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+    return <UploadPrompt toolCall={normalizedToolCall} onSubmit={onSubmit} disabled={disabled} />;
   }
 
   // Check if this is a model selector response
   if (args?.type === 'model_selector') {
-    return <ModelSelectorPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+    return <ModelSelectorPrompt toolCall={normalizedToolCall} onSubmit={onSubmit} disabled={disabled} />;
   }
 
   // Check if this is a feature toggle response
   if (args?.type === 'feature_toggle') {
-    return <FeatureTogglePrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+    return <FeatureTogglePrompt toolCall={normalizedToolCall} onSubmit={onSubmit} disabled={disabled} />;
   }
 
   // Check if this is a Twitter connect response
   if (args?.type === 'twitter_connect') {
-    return <TwitterConnectPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+    return <TwitterConnectPrompt toolCall={normalizedToolCall} onSubmit={onSubmit} disabled={disabled} />;
   }
 
   switch (toolCall.name) {
     case 'request_secret':
     case 'prompt_secret':
-      return <SecretPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+      return <SecretPrompt toolCall={normalizedToolCall} onSubmit={onSubmit} disabled={disabled} />;
     case 'confirm_action':
-      return <ConfirmPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+      return <ConfirmPrompt toolCall={normalizedToolCall} onSubmit={onSubmit} disabled={disabled} />;
     case 'request_property_research':
-      return <PropertyAuthPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+      return <PropertyAuthPrompt toolCall={normalizedToolCall} onSubmit={onSubmit} disabled={disabled} />;
     case 'request_feature_toggle':
-      return <FeatureTogglePrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+      return <FeatureTogglePrompt toolCall={normalizedToolCall} onSubmit={onSubmit} disabled={disabled} />;
     case 'request_twitter_connection':
     case 'twitter_request_integration':
-      return <TwitterConnectPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+      return <TwitterConnectPrompt toolCall={normalizedToolCall} onSubmit={onSubmit} disabled={disabled} />;
     case 'configure_integration':
-      return <IntegrationConfigPrompt toolCall={toolCall} onSubmit={onSubmit} disabled={disabled} />;
+      return <IntegrationConfigPrompt toolCall={normalizedToolCall} onSubmit={onSubmit} disabled={disabled} />;
     default:
       // Unknown tool - show debug info
       return (

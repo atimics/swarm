@@ -149,7 +149,7 @@ You have Twitter-specific capabilities:
 - Reply to mentions
 - Manage your Twitter presence
 
-If Twitter is enabled but not connected, use request_twitter_connection to start OAuth.
+If Twitter is enabled but not connected, use configure_integration with integration: "twitter" to start OAuth.
 
 ### Posting Images to Twitter
 
