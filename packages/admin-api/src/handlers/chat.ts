@@ -7,7 +7,7 @@ import type {
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { DEFAULT_LLM_MODEL } from '@swarm/core';
+import { DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_MODEL } from '@swarm/core';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import { getCorsHeaders } from '../http/cors.js';
 import * as chatHistory from '../services/chat-history.js';
@@ -39,6 +39,9 @@ import * as memory from '../services/memory.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
 const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
+const LLM_MAX_TOKENS = Number.isFinite(Number.parseInt(process.env.LLM_MAX_TOKENS ?? '', 10))
+  ? Number.parseInt(process.env.LLM_MAX_TOKENS ?? '', 10)
+  : DEFAULT_LLM_MAX_TOKENS;
 
 // Timeout settings
 const LLM_TIMEOUT_MS = 60_000; // 60 seconds for LLM calls (can be slow)
@@ -144,6 +147,7 @@ function getOpenRouterClient(): OpenRouter {
 async function callLlmDirectFallback(
   model: string,
   messages: Array<{ role: string; content: string | { type: string; text?: string; image_url?: unknown }[] }>,
+  maxTokens: number,
   tools?: unknown[]
 ): Promise<{
   content: string;
@@ -154,7 +158,7 @@ async function callLlmDirectFallback(
   const body: Record<string, unknown> = {
     model,
     messages,
-    max_tokens: 2048,
+    max_tokens: maxTokens,
     stream: false, // Disable streaming to avoid SDK validation issues
   };
   
@@ -677,6 +681,19 @@ interface ProcessChatOptions {
   customSystemPrompt?: string;
   attachments?: Array<{ type: 'image' | 'file' | 'audio'; data: string; name?: string }>;
   model?: string; // Override default LLM model
+  maxTokens?: number; // Override default max output tokens
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function parseOpenRouterStatusFromError(message: string): number | null {
+  const match = message.match(/OpenRouter API error:\s*(\d{3})\b/);
+  if (!match) return null;
+  const code = Number.parseInt(match[1]!, 10);
+  return Number.isFinite(code) ? code : null;
 }
 
 /**
@@ -831,6 +848,7 @@ async function processChat(
 
   // Use provided model or fall back to default
   const effectiveModel = options?.model || LLM_MODEL;
+  const maxOutputTokens = clampInt(options?.maxTokens ?? LLM_MAX_TOKENS, 1, 8192);
 
   logger.info('LLM request', {
     event: 'llm_request',
@@ -859,7 +877,7 @@ async function processChat(
       modelResult = getOpenRouterClient().callModel({
         model: effectiveModel,
         input,
-        maxOutputTokens: 2048,
+        maxOutputTokens,
         ...(tools.length > 0 ? { tools, stopWhen: stepCountIs(10) } : {}),
       });
 
@@ -892,6 +910,7 @@ async function processChat(
       const fallbackResult = await callLlmDirectFallback(
         effectiveModel,
         apiMessages as Array<{ role: string; content: string }>,
+        maxOutputTokens,
         tools.length > 0 ? tools : undefined
       );
 
@@ -1394,10 +1413,12 @@ export async function handler(
     });
 
     // Process the chat with avatar context
+    const avatarMaxTokens = avatarRecord?.llmConfig?.maxTokens;
     const result = await processChat(message, history, session, avatarContext, {
       customSystemPrompt,
       attachments,
       model,
+      maxTokens: typeof avatarMaxTokens === 'number' ? avatarMaxTokens : undefined,
     });
 
     // Save the updated history to DynamoDB for cross-device sync
@@ -1423,6 +1444,9 @@ export async function handler(
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
 
+    const upstreamStatus = parseOpenRouterStatusFromError(errorMessage);
+    const statusCode = upstreamStatus === 402 || upstreamStatus === 429 ? upstreamStatus : 500;
+
     logger.error('Handler error', error, {
       event: 'handler_error',
       requestId: event.requestContext.requestId,
@@ -1440,10 +1464,14 @@ export async function handler(
     });
     
     return {
-      statusCode: 500,
+      statusCode,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
-        error: 'Internal server error',
+        error: statusCode === 402
+          ? 'LLM credits required'
+          : statusCode === 429
+            ? 'LLM rate limited'
+            : 'Internal server error',
         message: errorMessage,
       }),
     };
