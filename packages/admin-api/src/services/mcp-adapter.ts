@@ -1564,7 +1564,7 @@ function createNFTServices(): NFTServices {
 
     getInhabitationUrl: (avatarId: string) => {
       // URL to the inhabitation page for this avatar
-      const baseUrl = process.env.ADMIN_UI_URL || 'https://admin.rati.chat';
+      const baseUrl = process.env.ADMIN_UI_URL || 'https://swarm.rati.chat';
       return `${baseUrl}/inhabit/${avatarId}`;
     },
   };

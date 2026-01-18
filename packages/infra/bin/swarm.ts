@@ -14,31 +14,74 @@ const __dirname = path.dirname(__filename);
 
 const app = new cdk.App();
 
+type EnvConfig = Record<string, unknown>;
+
+function normalizeEnvironmentName(env: string): string {
+  // Support both "production" (GitHub env) and "prod" (CDK stack env)
+  return env === 'production' ? 'prod' : env;
+}
+
+function computeStackDomain(args: { environment: string; stackSubdomain: string; baseDomain: string }): string | undefined {
+  const environment = normalizeEnvironmentName(args.environment);
+  if (!args.stackSubdomain || !args.baseDomain) return undefined;
+
+  if (environment === 'prod') {
+    return `${args.stackSubdomain}.${args.baseDomain}`;
+  }
+
+  // Common pattern: <env>-<stack>.<base>
+  if (environment === 'staging') {
+    return `${environment}-${args.stackSubdomain}.${args.baseDomain}`;
+  }
+
+  return undefined;
+}
+
+function getContextValue<T>(key: string, envConfig: EnvConfig): T | undefined {
+  // Prefer explicit CDK context overrides (e.g. `-c adminDomain=...`) over envConfig.
+  const fromContext = app.node.tryGetContext(key);
+  if (fromContext !== undefined) return fromContext as T;
+
+  const fromEnv = (envConfig as Record<string, unknown>)[key];
+  return fromEnv as T | undefined;
+}
+
 // Get environment from context or default
-const environment = app.node.tryGetContext('environment') || 'dev';
-const avatarIds = app.node.tryGetContext('avatars')?.split(',');
+const rawEnvironment = (app.node.tryGetContext('environment') as string | undefined) || 'dev';
+const environment = normalizeEnvironmentName(rawEnvironment);
+const avatarIds = (app.node.tryGetContext('avatars') as string | undefined)?.split(',');
 
 // Get environment-specific config
-const environments = app.node.tryGetContext('environments') || {};
-const envConfig = environments[environment] || {};
-const adminDomain = app.node.tryGetContext('adminDomain') || envConfig.adminDomain;
-const adminCertificateArn = app.node.tryGetContext('adminCertificateArn') || envConfig.adminCertificateArn;
-const cloudflareTeamDomain = app.node.tryGetContext('cloudflareTeamDomain') || envConfig.cloudflareTeamDomain;
-const adminEmails = app.node.tryGetContext('adminEmails') || envConfig.adminEmails;
-const adminWallets = app.node.tryGetContext('adminWallets') || envConfig.adminWallets;
-const openRouterApiKeyArn = app.node.tryGetContext('openRouterApiKeyArn') || envConfig.openRouterApiKeyArn;
-const replicateApiKeyArn = app.node.tryGetContext('replicateApiKeyArn') || envConfig.replicateApiKeyArn;
-const heliusApiKeyArn = app.node.tryGetContext('heliusApiKeyArn') || envConfig.heliusApiKeyArn;
-const webSearchApiKeyArn = app.node.tryGetContext('webSearchApiKeyArn') || envConfig.webSearchApiKeyArn;
-const webSearchProvider = app.node.tryGetContext('webSearchProvider') || envConfig.webSearchProvider;
-const crossmintApiKeyArn = app.node.tryGetContext('crossmintApiKeyArn') || envConfig.crossmintApiKeyArn;
-const privyAppId = app.node.tryGetContext('privyAppId') || envConfig.privyAppId;
-const privyAppSecretArn = app.node.tryGetContext('privyAppSecretArn') || envConfig.privyAppSecretArn;
-const privyJwtVerificationKeyArn = app.node.tryGetContext('privyJwtVerificationKeyArn') || envConfig.privyJwtVerificationKeyArn;
-const galleryDomain = app.node.tryGetContext('galleryDomain') || envConfig.galleryDomain;
-const galleryCertificateArn = app.node.tryGetContext('galleryCertificateArn') || envConfig.galleryCertificateArn;
-const enableClaudeCode = app.node.tryGetContext('enableClaudeCode') ?? envConfig.enableClaudeCode ?? false;
-const claudeCodeUseOpenRouter = app.node.tryGetContext('claudeCodeUseOpenRouter') ?? envConfig.claudeCodeUseOpenRouter ?? false;
+const environments = (app.node.tryGetContext('environments') as Record<string, EnvConfig> | undefined) || {};
+const envConfig = environments[environment] || environments[rawEnvironment] || {};
+
+// Domain configuration
+// Prefer explicit adminDomain, but allow a computed stack domain for easier multi-stack deployments.
+const domainBase = getContextValue<string>('domainBase', envConfig) || 'rati.chat';
+const stackSubdomain = getContextValue<string>('stackSubdomain', envConfig) || 'swarm';
+const computedAdminDomain = computeStackDomain({ environment, stackSubdomain, baseDomain: domainBase });
+
+const adminDomain = getContextValue<string>('adminDomain', envConfig) || computedAdminDomain;
+const adminCertificateArn = getContextValue<string>('adminCertificateArn', envConfig);
+const cloudflareTeamDomain =
+  getContextValue<string>('cloudflareTeamDomain', envConfig) ||
+  // Back-compat for older env config key name
+  (envConfig as Record<string, unknown>).cloudflareTeamDomain as string | undefined;
+const adminEmails = getContextValue<string>('adminEmails', envConfig);
+const adminWallets = getContextValue<string>('adminWallets', envConfig);
+const openRouterApiKeyArn = getContextValue<string>('openRouterApiKeyArn', envConfig);
+const replicateApiKeyArn = getContextValue<string>('replicateApiKeyArn', envConfig);
+const heliusApiKeyArn = getContextValue<string>('heliusApiKeyArn', envConfig);
+const webSearchApiKeyArn = getContextValue<string>('webSearchApiKeyArn', envConfig);
+const webSearchProvider = getContextValue<string>('webSearchProvider', envConfig);
+const crossmintApiKeyArn = getContextValue<string>('crossmintApiKeyArn', envConfig);
+const privyAppId = getContextValue<string>('privyAppId', envConfig);
+const privyAppSecretArn = getContextValue<string>('privyAppSecretArn', envConfig);
+const privyJwtVerificationKeyArn = getContextValue<string>('privyJwtVerificationKeyArn', envConfig);
+const galleryDomain = getContextValue<string>('galleryDomain', envConfig);
+const galleryCertificateArn = getContextValue<string>('galleryCertificateArn', envConfig);
+const enableClaudeCode = (getContextValue<boolean>('enableClaudeCode', envConfig) ?? false) as boolean;
+const claudeCodeUseOpenRouter = (getContextValue<boolean>('claudeCodeUseOpenRouter', envConfig) ?? false) as boolean;
 
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root

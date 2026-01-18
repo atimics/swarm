@@ -19,7 +19,7 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const LINK_CHALLENGE_TTL_MINUTES = 5;
-const DOMAIN = process.env.AUTH_DOMAIN || 'admin.rati.chat';
+const DOMAIN = process.env.AUTH_DOMAIN || 'swarm.rati.chat';
 
 export interface WalletLinkDeps {
   dynamoClient: Pick<DynamoDBDocumentClient, 'send'>;

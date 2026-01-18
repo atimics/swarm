@@ -76,7 +76,7 @@ fix(core): correct DynamoDB query for listAgents
 Closes #42
 
 # Documentation update
-docs(plan): add domain setup instructions for admin.rati.chat
+docs(plan): add domain setup instructions for swarm.rati.chat
 
 # Multiple scopes
 feat(admin-api,infra): add audit logging service
@@ -234,7 +234,7 @@ main (protected)
 
 ```bash
 # Via Admin UI
-1. Go to admin.rati.chat
+1. Go to swarm.rati.chat
 2. Chat: "Create a new avatar called myagent"
 3. Configure platforms and set secrets
 4. Deploy via GitHub Actions

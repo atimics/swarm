@@ -164,6 +164,8 @@ export class AdminApiConstruct extends Construct {
       dependencyLayer,
     } = props;
 
+    const isProd = environment === 'prod' || environment === 'production';
+
     // Use provided CDN URL or fall back to distribution domain
     const cdnUrl = propsCdnUrl || (mediaCdn ? `https://${mediaCdn.distributionDomainName}` : undefined);
 
@@ -177,7 +179,7 @@ export class AdminApiConstruct extends Construct {
       alias: `swarm/admin-secrets-${environment}`,
       description: `KMS key for encrypting Swarm admin secrets (${environment})`,
       enableKeyRotation: true,
-      removalPolicy: environment === 'production' 
+      removalPolicy: isProd
         ? cdk.RemovalPolicy.RETAIN 
         : cdk.RemovalPolicy.DESTROY,
     });
@@ -188,11 +190,11 @@ export class AdminApiConstruct extends Construct {
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: environment === 'production' 
+      removalPolicy: isProd
         ? cdk.RemovalPolicy.RETAIN 
         : cdk.RemovalPolicy.DESTROY,
       pointInTimeRecoverySpecification: {
-        pointInTimeRecoveryEnabled: environment === 'production',
+        pointInTimeRecoveryEnabled: isProd,
       },
       timeToLiveAttribute: 'ttl',
     });

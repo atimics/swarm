@@ -61,7 +61,7 @@ describe('session-cookie', () => {
   });
 
   it('getSetSessionCookies sets a parent-domain cookie and clears host-only when AUTH_DOMAIN is set', () => {
-    process.env.AUTH_DOMAIN = 'admin.rati.chat';
+    process.env.AUTH_DOMAIN = 'swarm.rati.chat';
 
     const cookies = getSetSessionCookies('abc');
     expect(cookies).toHaveLength(2);
@@ -78,7 +78,7 @@ describe('session-cookie', () => {
   });
 
   it('getClearSessionCookies clears both host-only and parent-domain when AUTH_DOMAIN is set', () => {
-    process.env.AUTH_DOMAIN = 'admin.rati.chat';
+    process.env.AUTH_DOMAIN = 'swarm.rati.chat';
 
     const cookies = getClearSessionCookies();
     expect(cookies).toHaveLength(2);

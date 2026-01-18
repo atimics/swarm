@@ -24,7 +24,7 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 // Session configuration
 const SESSION_TTL_HOURS = 24;
 const CHALLENGE_TTL_MINUTES = 5;
-const DOMAIN = process.env.AUTH_DOMAIN || 'admin.rati.chat';
+const DOMAIN = process.env.AUTH_DOMAIN || 'swarm.rati.chat';
 
 // Rate limiting configuration
 const CHALLENGE_RATE_LIMIT_PER_MINUTE = 10;

@@ -20,12 +20,12 @@ describe('cloudflare-access auth', () => {
   it('does not allow origin/referer fallback when no token is provided', async () => {
     const prevAllowedOrigins = process.env.ALLOWED_ORIGINS;
     try {
-      process.env.ALLOWED_ORIGINS = 'https://admin.rati.chat';
+      process.env.ALLOWED_ORIGINS = 'https://swarm.rati.chat';
 
       const event = makeEvent({
         headers: {
-          origin: 'https://admin.rati.chat',
-          referer: 'https://admin.rati.chat/',
+          origin: 'https://swarm.rati.chat',
+          referer: 'https://swarm.rati.chat/',
         },
       });
 
