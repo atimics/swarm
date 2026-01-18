@@ -342,6 +342,12 @@ describe('Admin Chat - Tool-Call Flow Integration', () => {
   }
 
   function buildPendingToolResponse(toolName: string, args: Record<string, unknown>): string {
+    if (toolName === 'configure_integration') {
+      if (args.integration === 'twitter') {
+        return 'Please connect your X/Twitter account:';
+      }
+      return 'Please configure the integration below:';
+    }
     if (toolName === 'request_model_selection') {
       return 'Please select a model:';
     }
@@ -392,28 +398,50 @@ describe('Admin Chat - Tool-Call Flow Integration', () => {
     const pauseToolCall = toolCalls.find(tc => isPauseForInputTool(tc.name, tc.arguments));
 
     if (pauseToolCall) {
+      let uiToolName = pauseToolCall.name;
+      let uiArgs = pauseToolCall.arguments;
+
+      // Match production behavior: normalize Twitter connect pause tools to configure_integration.
+      if (uiToolName === 'request_twitter_connection' || uiToolName === 'twitter_request_integration') {
+        uiToolName = 'configure_integration';
+        uiArgs = {
+          integration: 'twitter',
+          reason: typeof (pauseToolCall.arguments as any).message === 'string' ? (pauseToolCall.arguments as any).message : undefined,
+          ...pauseToolCall.arguments,
+        };
+      }
+
       // Build pendingToolCall
       const pendingToolCall = {
         id: pauseToolCall.id,
-        name: pauseToolCall.name,
-        arguments: pauseToolCall.arguments,
+        name: uiToolName,
+        arguments: uiArgs,
       };
 
       // Build response message
-      const response = buildPendingToolResponse(pauseToolCall.name, pauseToolCall.arguments);
+      const response = buildPendingToolResponse(uiToolName, uiArgs);
 
       // Add assistant message with tool_calls to history
       messages.push({
         role: 'assistant',
         content: response,
-        tool_calls: toolCalls.map(tc => ({
-          id: tc.id,
-          type: 'function',
-          function: {
-            name: tc.name,
-            arguments: JSON.stringify(tc.arguments),
-          },
-        })),
+        tool_calls: uiToolName !== pauseToolCall.name
+          ? [{
+              id: pauseToolCall.id,
+              type: 'function',
+              function: {
+                name: uiToolName,
+                arguments: JSON.stringify(uiArgs),
+              },
+            }]
+          : toolCalls.map(tc => ({
+              id: tc.id,
+              type: 'function',
+              function: {
+                name: tc.name,
+                arguments: JSON.stringify(tc.arguments),
+              },
+            })),
       });
 
       return {
