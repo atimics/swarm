@@ -107,7 +107,14 @@ export async function handler(
   }
 
   const method = event.requestContext.http.method;
-  const path = event.rawPath;
+  const rawPath = event.rawPath;
+  // CloudFront routes the admin API under `/api/*` but API Gateway handlers historically
+  // matched on `/...` paths. Normalize so both work.
+  const path = rawPath === '/api'
+    ? '/'
+    : rawPath.startsWith('/api/')
+      ? rawPath.slice('/api'.length)
+      : rawPath;
 
   console.log(JSON.stringify({
     level: 'INFO',
@@ -115,6 +122,7 @@ export async function handler(
     event: 'request_received',
     method,
     path,
+    rawPath,
     query: event.queryStringParameters,
   }));
 

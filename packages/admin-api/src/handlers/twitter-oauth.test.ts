@@ -198,6 +198,20 @@ describe('Twitter OAuth Handler', () => {
       expect(result.headers?.Location).toContain('twitter.com');
       expect(mockStartOAuthFlow).toHaveBeenCalledWith('test-avatar');
     });
+
+    it('supports /api prefix (CloudFront) without requiring auth', async () => {
+      const event = createEvent({
+        rawPath: '/api/oauth/twitter/start',
+        queryStringParameters: { avatarId: 'test-avatar' },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(302);
+      expect(result.headers?.Location).toContain('twitter.com');
+      expect(mockStartOAuthFlow).toHaveBeenCalledWith('test-avatar');
+      expect(mockAuthenticateRequest).not.toHaveBeenCalled();
+    });
   });
 
   describe('GET /oauth/twitter/callback', () => {
@@ -243,6 +257,22 @@ describe('Twitter OAuth Handler', () => {
         'test-verifier',
         expect.objectContaining({ email: 'oauth-callback@system' })
       );
+    });
+
+    it('supports /api prefix (CloudFront) for callback without requiring auth', async () => {
+      const event = createEvent({
+        rawPath: '/api/oauth/twitter/callback',
+        queryStringParameters: {
+          oauth_token: 'test-token',
+          oauth_verifier: 'test-verifier',
+        },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(302);
+      expect(result.headers?.Location).toContain('twitter_connected=testuser');
+      expect(mockAuthenticateRequest).not.toHaveBeenCalled();
     });
 
     it('updates avatar config after successful OAuth', async () => {
