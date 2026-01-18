@@ -87,7 +87,7 @@ export async function handler(
       const accessError = await ensureAvatarAccess(job.avatarId);
       if (accessError) {
         // Hide existence if unauthorized.
-        if (accessError.statusCode === 400) return accessError;
+        if (typeof accessError !== 'string' && accessError.statusCode === 400) return accessError;
         return {
           statusCode: 404,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
