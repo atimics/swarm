@@ -275,9 +275,9 @@ export class AdminApiConstruct extends Construct {
       : '';
 
     // Build webhook URL for Replicate callbacks
-    const replicateWebhookUrl = props.apiDomain
-      ? `https://${props.apiDomain}/webhook/replicate`
-      : ''; // Will be set after API is created
+    // Note: We'll use the raw API Gateway URL (not custom domain) since Replicate
+    // webhooks need to bypass Cloudflare Access. The actual URL is set after API creation.
+    let replicateWebhookUrl = ''; // Will be updated after API is created
 
     // Internal test key for direct API testing (only in non-production)
     // Generate a random key if not in production
@@ -422,6 +422,17 @@ export class AdminApiConstruct extends Construct {
 
     // Expose the API endpoint for CloudFront to use as origin
     this.apiEndpoint = this.api.apiEndpoint;
+
+    // Update Replicate webhook URL to use raw API Gateway URL (bypasses Cloudflare Access)
+    // Extract hostname from API endpoint (e.g., "https://xxx.execute-api.us-east-1.amazonaws.com")
+    replicateWebhookUrl = cdk.Fn.join('', [this.api.apiEndpoint, '/webhook/replicate']);
+
+    // Update Lambda environment variables that need the API endpoint
+    // ChatHandler
+    (this.chatHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+      'Environment.Variables.REPLICATE_WEBHOOK_URL',
+      replicateWebhookUrl
+    );
 
     // Add routes
     const chatIntegration = new integrations.HttpLambdaIntegration(
@@ -943,6 +954,12 @@ export class AdminApiConstruct extends Construct {
         `arn:aws:secretsmanager:*:${cdk.Stack.of(this).account}:secret:swarm/*`,
       ],
     }));
+
+    // Update TelegramWebhookHandler to use raw API Gateway URL for Replicate webhooks
+    (telegramWebhookHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+      'Environment.Variables.REPLICATE_WEBHOOK_URL',
+      replicateWebhookUrl
+    );
 
     const telegramIntegration = new integrations.HttpLambdaIntegration(
       'TelegramWebhookIntegration',
