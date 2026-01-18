@@ -28,13 +28,18 @@ const CDN_URL = process.env.CDN_URL;
 const REPLICATE_ENDPOINT = 'https://api.replicate.com/v1/predictions';
 
 // Replicate models for voice generation
-// STABLE_AUDIO_MODEL: Used for generating seed audio from text prompts
-// Default: suno-ai/bark - text-to-audio model for speech/audio generation
-const STABLE_AUDIO_MODEL = process.env.STABLE_AUDIO_MODEL || process.env.VOICE_SEED_MODEL || 'suno-ai/bark';
+// STABLE_AUDIO_MODEL: Used for generating abstract audio seed from text prompts
+// Default: stability-ai/stable-audio-2.5 - generates audio/music/sound effects (WARM, fast!)
+// The abstract audio seed defines the voice's tonal character when cloned
+const STABLE_AUDIO_MODEL = process.env.STABLE_AUDIO_MODEL || 'stability-ai/stable-audio-2.5';
 
-// VOICE_TTS_MODEL: Used for voice cloning and TTS with a reference audio
+// VOICE_TTS_MODEL: Used for voice cloning and TTS with a reference audio  
 // Default: lucataco/xtts-v2 - popular voice cloning model (4.7M runs)
+// We run TWO clone passes: first to create voice from abstract audio, second to smooth it
 const VOICE_TTS_MODEL = process.env.VOICE_TTS_MODEL || 'lucataco/xtts-v2';
+
+// Official models (like stability-ai) use a different endpoint than community models
+const OFFICIAL_MODEL_PREFIXES = ['stability-ai', 'meta', 'openai', 'mistralai', 'resemble-ai'];
 
 const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
 const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'alloy';
@@ -125,19 +130,65 @@ async function getSecret(avatarId: string, type: 'openai_api_key' | 'replicate_a
   return _getSecretValueInternal('GLOBAL', type, 'default');
 }
 
+// Cache for model versions (community models need version hash)
+const modelVersionCache = new Map<string, string>();
+
+async function getModelVersion(apiKey: string, model: string): Promise<string> {
+  if (modelVersionCache.has(model)) {
+    return modelVersionCache.get(model)!;
+  }
+  
+  const response = await fetch(`https://api.replicate.com/v1/models/${model}`, {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to get model version for ${model}: ${response.status}`);
+  }
+  
+  const data = await response.json() as { latest_version?: { id: string } };
+  const version = data.latest_version?.id;
+  if (!version) {
+    throw new Error(`No version found for model ${model}`);
+  }
+  
+  modelVersionCache.set(model, version);
+  return version;
+}
+
+function isOfficialModel(model: string): boolean {
+  return OFFICIAL_MODEL_PREFIXES.some(prefix => model.startsWith(prefix));
+}
+
 async function runReplicatePrediction(
   apiKey: string,
   model: string,
   input: Record<string, unknown>
 ): Promise<string> {
-  const createResponse = await fetch(REPLICATE_ENDPOINT, {
+  // Official models use /v1/models/{owner}/{model}/predictions
+  // Community models use /v1/predictions with a version hash
+  const isOfficial = isOfficialModel(model);
+  
+  let endpoint: string;
+  let body: Record<string, unknown>;
+  
+  if (isOfficial) {
+    endpoint = `https://api.replicate.com/v1/models/${model}/predictions`;
+    body = { input };
+  } else {
+    const version = await getModelVersion(apiKey, model);
+    endpoint = REPLICATE_ENDPOINT;
+    body = { version, input };
+  }
+  
+  const createResponse = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
       'Prefer': 'wait',
     },
-    body: JSON.stringify({ version: model, input }),
+    body: JSON.stringify(body),
   });
 
   if (!createResponse.ok) {
@@ -319,14 +370,17 @@ export async function createVoiceSeed(params: {
   }
 
   const durationSeconds = Math.max(1, Math.round(params.durationMs / 1000));
-  const style = params.styleTags?.length ? ` ${params.styleTags.join(', ')}` : '';
+  
+  // Build the prompt - for abstract audio, we want tonal qualities not speech
+  const style = params.styleTags?.length ? `, ${params.styleTags.join(', ')}` : '';
   const prompt = `${params.prompt}${style}`.trim();
-  const negative = params.negativeTags?.join(', ');
 
+  // Stable Audio 2.5 parameters optimized for voice seed generation
   const outputUrl = await runReplicatePrediction(apiKey, STABLE_AUDIO_MODEL, {
     prompt,
     duration: durationSeconds,
-    ...(negative ? { negative_prompt: negative } : {}),
+    steps: 8, // Faster inference, still high quality
+    cfg_scale: 1, // Low CFG for more natural audio
   });
 
   const audioResponse = await fetchWithTimeout(outputUrl);
@@ -348,6 +402,60 @@ export async function createVoiceSeed(params: {
   });
 
   return { assetId: asset.assetId, url: asset.url, durationMs: asset.durationMs };
+}
+
+/**
+ * Run a voice clone pass using XTTS-v2
+ * Takes a reference audio URL and generates speech with that voice character
+ * 
+ * @param avatarId - Avatar ID for API key lookup
+ * @param referenceUrl - URL to reference audio (can be abstract audio or previous clone)
+ * @param text - Text to speak with the cloned voice
+ * @param cleanupVoice - Whether to apply voice cleanup (true for first clone from abstract audio)
+ * @returns URL to the generated audio and optionally the uploaded asset
+ */
+async function runVoiceClonePass(params: {
+  avatarId: string;
+  referenceUrl: string;
+  text: string;
+  cleanupVoice?: boolean;
+  saveAsAsset?: boolean;
+  assetSource?: 'voice-clone' | 'voice-clone-smoothed';
+}): Promise<{ url: string; assetId?: string; asset?: AudioAsset }> {
+  const apiKey = await getSecret(params.avatarId, 'replicate_api_key');
+  if (!apiKey) {
+    throw new Error('Replicate API key not configured');
+  }
+
+  const outputUrl = await runReplicatePrediction(apiKey, VOICE_TTS_MODEL, {
+    text: params.text,
+    speaker: params.referenceUrl,
+    language: 'en',
+    cleanup_voice: params.cleanupVoice ?? false,
+  });
+
+  if (!params.saveAsAsset) {
+    return { url: outputUrl };
+  }
+
+  // Download and save as asset
+  const audioResponse = await fetchWithTimeout(outputUrl);
+  if (!audioResponse.ok) {
+    throw new Error(`Failed to download cloned audio: ${audioResponse.status}`);
+  }
+
+  const buffer = Buffer.from(await audioResponse.arrayBuffer());
+  const contentType = audioResponse.headers.get('content-type');
+  const format = detectAudioFormat(contentType, outputUrl);
+
+  const asset = await uploadAudioAsset({
+    avatarId: params.avatarId,
+    buffer,
+    source: params.assetSource || 'voice-clone',
+    format,
+  });
+
+  return { url: asset.url, assetId: asset.assetId, asset };
 }
 
 export async function cloneVoiceFromSeed(params: {
@@ -435,11 +543,18 @@ export async function hasVoice(avatarId: string): Promise<{
 /**
  * Create a voice for the avatar based on a description.
  * 
- * Consolidated Pipeline:
- * 1. Generate a voice seed audio using Stable Audio based on description
- * 2. Clone that audio into a voice profile
- * 3. Set as the avatar's active voice for TTS
- * 4. Generate a voice introduction message
+ * 3-Step Voice Creation Pipeline (Sound → Voice):
+ * 1. Generate ABSTRACT AUDIO with Stable Audio 2.5 (synth drones, hums, tones)
+ *    - This defines the tonal character of the voice
+ *    - NOT speech - pure audio frequencies that XTTS interprets as voice qualities
+ * 2. First clone pass with XTTS-v2 (abstract audio → raw voice)
+ *    - XTTS creates a voice from the abstract audio's tonal qualities
+ * 3. Second clone pass with XTTS-v2 (raw voice → smoothed voice)
+ *    - Refines the voice, removes artifacts, produces polished result
+ * 4. Set as avatar's active voice
+ * 5. Generate intro message
+ * 
+ * This produces unique voices born from pure sound, not cloned from humans.
  */
 export async function createMyVoice(params: {
   avatarId: string;
@@ -467,46 +582,110 @@ export async function createMyVoice(params: {
     throw new Error(`Not enough energy to create voice. ${energyCheck.reason}`);
   }
 
-  // Build a voice prompt based on the description
   const avatarName = avatar.name || 'Avatar';
-  const avatarescription = params.description || avatar.description || avatar.persona || '';
+  const avatarDescription = params.description || avatar.description || avatar.persona || '';
   
-  // Create a prompt for Stable Audio to generate a voice
-  const voicePrompt = buildVoicePrompt(avatarName, avatarescription);
+  // Build an ABSTRACT AUDIO prompt - NOT speech, but tonal qualities
+  const abstractAudioPrompt = buildAbstractAudioPrompt(avatarName, avatarDescription);
   
-  // Step 1: Generate seed audio using Stable Audio
-  let seedAssetId: string;
+  console.log(`[createMyVoice] Starting 3-step pipeline for ${params.avatarId}`);
+  console.log(`[createMyVoice] Step 1: Generating abstract audio with prompt: "${abstractAudioPrompt.substring(0, 80)}..."`);
+  
+  // ============================================================
+  // STEP 1: Generate abstract audio seed with Stable Audio 2.5
+  // ============================================================
   let seedUrl: string;
+  let seedAssetId: string;
   
   try {
     const seed = await createVoiceSeed({
       avatarId: params.avatarId,
-      prompt: voicePrompt,
-      durationMs: 8000, // 8 seconds of audio for voice cloning
-      styleTags: ['voice', 'speaking', 'clear'],
-      negativeTags: ['music', 'noise', 'static', 'instrumental'],
+      prompt: abstractAudioPrompt,
+      durationMs: 10000, // 10 seconds - XTTS needs at least 6
     });
     seedAssetId = seed.assetId;
     seedUrl = seed.url;
+    console.log(`[createMyVoice] Step 1 complete: seed audio at ${seedUrl}`);
   } catch (err) {
-    // If Stable Audio fails, we can still use a fallback
-    throw new Error(`Failed to generate voice seed: ${err instanceof Error ? err.message : 'Unknown error'}. Make sure STABLE_AUDIO_MODEL is configured.`);
+    throw new Error(`Failed to generate abstract audio: ${err instanceof Error ? err.message : 'Unknown error'}`);
   }
 
-  // Step 2: Clone the voice from the seed audio
-  const clone = await cloneVoiceFromSeed({
-    avatarId: params.avatarId,
-    seedAssetId,
-    name: `${avatarName}'s Voice`,
-  });
+  // ============================================================
+  // STEP 2: First clone pass (abstract audio → raw voice)
+  // ============================================================
+  console.log(`[createMyVoice] Step 2: First clone pass (abstract audio → raw voice)`);
+  
+  const firstCloneText = `I am a voice born from pure sound. My tonal character comes from abstract audio frequencies, transformed into speech. This is my unique vocal signature.`;
+  
+  let firstCloneUrl: string;
+  try {
+    const firstClone = await runVoiceClonePass({
+      avatarId: params.avatarId,
+      referenceUrl: seedUrl,
+      text: firstCloneText,
+      cleanupVoice: true, // Clean up artifacts from abstract audio
+      saveAsAsset: false, // Don't save intermediate step
+    });
+    firstCloneUrl = firstClone.url;
+    console.log(`[createMyVoice] Step 2 complete: first clone at ${firstCloneUrl}`);
+  } catch (err) {
+    throw new Error(`Failed first clone pass: ${err instanceof Error ? err.message : 'Unknown error'}`);
+  }
 
-  // Step 3: Set as active voice profile
-  await setActiveVoiceProfile(params.avatarId, clone.voiceId, params.updatedBy || 'system');
+  // ============================================================
+  // STEP 3: Second clone pass (raw voice → smoothed voice)
+  // ============================================================
+  console.log(`[createMyVoice] Step 3: Second clone pass (smoothing the voice)`);
+  
+  const smoothingText = `Now my voice is refined and polished. The raw frequencies have been smoothed into a clear, distinctive vocal character. I speak with clarity and presence.`;
+  
+  let smoothedUrl: string;
+  let smoothedAssetId: string;
+  try {
+    const smoothed = await runVoiceClonePass({
+      avatarId: params.avatarId,
+      referenceUrl: firstCloneUrl,
+      text: smoothingText,
+      cleanupVoice: false, // Already clean from first pass
+      saveAsAsset: true, // Save final voice as asset
+      assetSource: 'voice-clone-smoothed',
+    });
+    smoothedUrl = smoothed.url;
+    smoothedAssetId = smoothed.assetId!;
+    console.log(`[createMyVoice] Step 3 complete: smoothed voice at ${smoothedUrl}`);
+  } catch (err) {
+    throw new Error(`Failed smoothing pass: ${err instanceof Error ? err.message : 'Unknown error'}`);
+  }
+
+  // ============================================================
+  // STEP 4: Create voice profile and set as active
+  // ============================================================
+  const now = Date.now();
+  const voiceId = uuid();
+  
+  const profile: VoiceProfile = {
+    pk: `VOICE#${voiceId}`,
+    sk: 'PROFILE',
+    voiceId,
+    avatarId: params.avatarId,
+    status: 'ready',
+    provider: 'voice-clone',
+    seedAssetId,
+    cloneAssetId: smoothedAssetId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  
+  await saveVoiceProfile(profile);
+  await setActiveVoiceProfile(params.avatarId, voiceId, params.updatedBy || 'system');
 
   // Consume energy after successful creation
   await credits.consumeEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
+  console.log(`[createMyVoice] Voice profile ${voiceId} created and set as active`);
 
-  // Step 4: Generate a voice introduction message
+  // ============================================================
+  // STEP 5: Generate intro message (optional, non-fatal)
+  // ============================================================
   let introAssetId: string | undefined;
   let introUrl: string | undefined;
   const introText = `Hello! This is ${avatarName}. I just got my voice set up and I'm excited to speak with you!`;
@@ -520,54 +699,59 @@ export async function createMyVoice(params: {
     introAssetId = introMessage.assetId;
     introUrl = introMessage.url;
   } catch (err) {
-    // Non-fatal - voice was created successfully, intro message failed
-    console.warn(`Failed to generate intro message: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    console.warn(`[createMyVoice] Failed to generate intro message: ${err instanceof Error ? err.message : 'Unknown error'}`);
   }
 
   return {
-    voiceId: clone.voiceId,
-    message: `Voice created successfully! I can now speak using generate_voice_message. My voice was crafted from: "${voicePrompt.substring(0, 100)}..."`,
-    previewUrl: seedUrl,
+    voiceId,
+    message: `Voice created successfully using 3-step pipeline! Abstract audio → first clone → smoothed voice. My voice was born from pure sound: "${abstractAudioPrompt.substring(0, 80)}..."`,
+    previewUrl: smoothedUrl,
     introAssetId,
     introUrl,
   };
 }
 
 /**
- * Build a voice prompt for Stable Audio based on avatar characteristics
+ * Build an ABSTRACT AUDIO prompt for Stable Audio 2.5
+ * This generates tonal qualities that XTTS interprets as voice characteristics
+ * NOT speech - pure audio that defines the voice's character
  */
-function buildVoicePrompt(name: string, description: string): string {
-  // Extract personality traits from description
+function buildAbstractAudioPrompt(_name: string, description: string): string {
   const descLower = description.toLowerCase();
   
-  // Detect gender/voice type hints
-  let voiceType = 'speaking voice';
+  // Base tonal qualities
+  const baseQualities = ['resonant hum', 'warm analog tones'];
+  
+  // Add gender-influenced tonal characteristics
   if (descLower.includes('female') || descLower.includes('woman') || descLower.includes('girl') || descLower.includes('she ')) {
-    voiceType = 'female speaking voice';
+    baseQualities.push('bright upper harmonics', 'gentle melodic undertones');
   } else if (descLower.includes('male') || descLower.includes('man') || descLower.includes('boy') || descLower.includes('he ')) {
-    voiceType = 'male speaking voice';
+    baseQualities.push('deep rich bass', 'strong fundamental tones');
+  } else {
+    baseQualities.push('balanced mid-range frequencies');
   }
   
-  // Detect tone hints from the description
-  let tone = 'clear and natural';
+  // Add personality-influenced tonal characteristics
   if (descLower.includes('playful') || descLower.includes('fun') || descLower.includes('silly')) {
-    tone = 'playful and energetic';
+    baseQualities.push('lively rhythmic pulses', 'bright sparkling overtones');
   } else if (descLower.includes('serious') || descLower.includes('professional')) {
-    tone = 'professional and articulate';
+    baseQualities.push('steady confident drone', 'clean precise waveforms');
   } else if (descLower.includes('calm') || descLower.includes('gentle') || descLower.includes('soft')) {
-    tone = 'calm and soothing';
+    baseQualities.push('soft ambient pad', 'gentle soothing waves');
   } else if (descLower.includes('mysterious') || descLower.includes('enigmatic')) {
-    tone = 'mysterious and intriguing';
+    baseQualities.push('ethereal ambient drone', 'mysterious dark undertones');
   } else if (descLower.includes('wise') || descLower.includes('elder')) {
-    tone = 'wise and measured';
+    baseQualities.push('deep measured pulses', 'ancient resonant frequencies');
   } else if (descLower.includes('young') || descLower.includes('youthful')) {
-    tone = 'youthful and vibrant';
+    baseQualities.push('vibrant energetic tones', 'fresh bright harmonics');
+  } else if (descLower.includes('confident') || descLower.includes('commanding')) {
+    baseQualities.push('commanding presence', 'powerful resonance');
   }
   
-  // Build the prompt
-  const prompt = `A ${voiceType}, ${tone}, speaking naturally with personality. The voice of ${name}. Clear vocal tones, expressive speech patterns, conversational delivery.`;
+  // Add some unique character
+  baseQualities.push('smooth analog synthesizer');
   
-  return prompt;
+  return baseQualities.join(', ');
 }
 
 export async function setActiveVoiceProfile(

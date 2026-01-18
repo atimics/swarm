@@ -28,6 +28,9 @@ interface S3ClientLike {
 // Default: lucataco/xtts-v2 - popular voice cloning model (4.7M runs)
 const VOICE_TTS_MODEL = process.env.VOICE_TTS_MODEL || 'lucataco/xtts-v2';
 
+// Official models (like stability-ai) use a different endpoint than community models
+const OFFICIAL_MODEL_PREFIXES = ['stability-ai', 'meta', 'openai', 'mistralai', 'resemble-ai'];
+
 const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
 const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'alloy';
 const FETCH_TIMEOUT_MS = 10_000;
@@ -113,20 +116,66 @@ async function makeUrlAccessible(url: string, cdnUrl?: string): Promise<string> 
   return getSignedUrl(getDefaultS3Client(), command, { expiresIn: 3600 });
 }
 
+// Cache for model versions (community models need version hash)
+const modelVersionCache = new Map<string, string>();
+
+async function getModelVersion(apiKey: string, model: string): Promise<string> {
+  if (modelVersionCache.has(model)) {
+    return modelVersionCache.get(model)!;
+  }
+  
+  const response = await fetch(`https://api.replicate.com/v1/models/${model}`, {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to get model version for ${model}: ${response.status}`);
+  }
+  
+  const data = await response.json() as { latest_version?: { id: string } };
+  const version = data.latest_version?.id;
+  if (!version) {
+    throw new Error(`No version found for model ${model}`);
+  }
+  
+  modelVersionCache.set(model, version);
+  return version;
+}
+
+function isOfficialModel(model: string): boolean {
+  return OFFICIAL_MODEL_PREFIXES.some(prefix => model.startsWith(prefix));
+}
+
 async function runReplicatePrediction(
   apiKey: string,
   model: string,
   input: Record<string, unknown>,
   options: { pollIntervalMs?: number; maxAttempts?: number } = {}
 ): Promise<string> {
-  const createResponse = await fetch(REPLICATE_ENDPOINT, {
+  // Official models use /v1/models/{owner}/{model}/predictions
+  // Community models use /v1/predictions with a version hash
+  const isOfficial = isOfficialModel(model);
+  
+  let endpoint: string;
+  let body: Record<string, unknown>;
+  
+  if (isOfficial) {
+    endpoint = `https://api.replicate.com/v1/models/${model}/predictions`;
+    body = { input };
+  } else {
+    const version = await getModelVersion(apiKey, model);
+    endpoint = REPLICATE_ENDPOINT;
+    body = { version, input };
+  }
+  
+  const createResponse = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
       'Prefer': 'wait',
     },
-    body: JSON.stringify({ version: model, input }),
+    body: JSON.stringify(body),
   });
 
   if (!createResponse.ok) {

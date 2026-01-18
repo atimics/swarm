@@ -136,7 +136,7 @@ export interface AudioAsset {
   sk: string; // ASSET
   assetId: string;
   avatarId: string;
-  source: 'telegram' | 'upload' | 'stable-audio' | 'tts';
+  source: 'telegram' | 'upload' | 'stable-audio' | 'tts' | 'voice-clone' | 'voice-clone-smoothed';
   format: 'ogg' | 'mp3' | 'wav';
   durationMs?: number;
   url: string;
