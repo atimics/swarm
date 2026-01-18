@@ -452,8 +452,6 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         try {
           updateToolCallStatus();
 
-          const filename = resultObj.filename ? ` (${resultObj.filename})` : '';
-
           // Check if this is a character reference upload
           const isCharacterReferenceUpload = toolName === 'set_character_reference' ||
                                               toolName === 'get_character_reference_upload_url' ||
@@ -502,10 +500,35 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
               content: '✅ Profile image updated.',
             });
           } else {
-            // For reference images, ask LLM to save to reference images
-            const category = resultObj.category ? ` ${resultObj.category}` : '';
-            const followUpContent = `I've uploaded the${category} image${filename}. The s3Key is "${resultObj.s3Key}" and publicUrl is "${resultObj.publicUrl}". Please save it to my reference images.`;
-            await handleSendMessage(followUpContent);
+            // For reference images, resume the tool loop with a tool result (no synthetic user message)
+            const resumed = await submitToolResult(activeAvatar.id, toolCallId, {
+              success: true,
+              s3Key: resultObj.s3Key,
+              publicUrl: resultObj.publicUrl,
+              filename: resultObj.filename,
+              category: resultObj.category,
+              purpose: resultObj.purpose,
+              description: resultObj.description,
+            });
+
+            if (resumed.avatarUpdates?.profileImageUrl) {
+              updateAvatar(activeAvatar.id, { avatar: resumed.avatarUpdates.profileImageUrl });
+            }
+            if (resumed.avatarUpdates?.name) {
+              updateAvatar(activeAvatar.id, { name: resumed.avatarUpdates.name });
+            }
+
+            addMessage(activeAvatar.id, {
+              role: 'assistant',
+              content: resumed.response,
+              toolCalls: resumed.pendingToolCall ? [{
+                id: resumed.pendingToolCall.id,
+                name: resumed.pendingToolCall.name,
+                arguments: resumed.pendingToolCall.arguments,
+                status: 'pending',
+              }] : undefined,
+              media: resumed.media,
+            });
           }
           
         } catch (error) {
@@ -555,12 +578,33 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
           );
           updateToolCallStatus();
 
-          // Send follow-up to let the avatar know the toggle was completed
-          const featureLabel = resultObj.feature.charAt(0).toUpperCase() + resultObj.feature.slice(1);
-          const statusLabel = resultObj.enabled ? 'enabled' : 'disabled';
-          await handleSendMessage(`I've ${statusLabel} ${featureLabel}.`);
+          const resumed = await submitToolResult(activeAvatar.id, toolCallId, {
+            feature: resultObj.feature,
+            enabled: resultObj.enabled,
+            applied: true,
+          });
 
-          if (resultObj.feature === 'twitter' && resultObj.enabled) {
+          if (resumed.avatarUpdates?.profileImageUrl) {
+            updateAvatar(activeAvatar.id, { avatar: resumed.avatarUpdates.profileImageUrl });
+          }
+          if (resumed.avatarUpdates?.name) {
+            updateAvatar(activeAvatar.id, { name: resumed.avatarUpdates.name });
+          }
+
+          addMessage(activeAvatar.id, {
+            role: 'assistant',
+            content: resumed.response,
+            toolCalls: resumed.pendingToolCall ? [{
+              id: resumed.pendingToolCall.id,
+              name: resumed.pendingToolCall.name,
+              arguments: resumed.pendingToolCall.arguments,
+              status: 'pending',
+            }] : undefined,
+            media: resumed.media,
+          });
+
+          // Fallback UX: if Twitter was enabled but model didn't prompt for connect
+          if (resultObj.feature === 'twitter' && resultObj.enabled && !resumed.pendingToolCall) {
             addMessage(activeAvatar.id, {
               role: 'assistant',
               content: 'Please connect your X/Twitter account:',
