@@ -208,8 +208,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          type: config.secretType,
-          name: config.tokenLabel,
+          key: config.secretType,
           value: token.trim(),
         }),
       });

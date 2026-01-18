@@ -261,7 +261,12 @@ export async function handler(
     if (method === 'POST' && secretsMatch) {
       const avatarId = secretsMatch[1];
       const body = JSON.parse(event.body || '{}');
-      const { key, value } = body;
+      const { key, type, value } = body as { key?: string; type?: string; value?: string };
+      const rawKey = key || type;
+
+      const normalizedKey = typeof rawKey === 'string'
+        ? rawKey.trim().toLowerCase()
+        : rawKey;
 
       if (!effectiveIsAdmin) {
         if (!walletAddress) {
@@ -273,7 +278,7 @@ export async function handler(
         }
       }
 
-      if (typeof key !== 'string' || typeof value !== 'string' || !key || !value) {
+      if (typeof normalizedKey !== 'string' || typeof value !== 'string' || !normalizedKey || !value) {
         return {
           statusCode: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -281,13 +286,13 @@ export async function handler(
         };
       }
 
-      const secretType = SecretType.safeParse(key);
+      const secretType = SecretType.safeParse(normalizedKey);
       if (!secretType.success) {
         return {
           statusCode: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            error: `Unsupported secret key: ${key}`,
+            error: `Unsupported secret key: ${normalizedKey}`,
             allowed: SecretType.options,
           }),
         };
@@ -299,11 +304,11 @@ export async function handler(
         'default',
         value,
         session,
-        `${key} for avatar ${avatarId}`
+        `${normalizedKey} for avatar ${avatarId}`
       );
 
       // Special handling for Telegram bot tokens - register webhook automatically
-      if (key === 'telegram_bot_token') {
+      if (normalizedKey === 'telegram_bot_token') {
         logger.setContext({ subsystem: 'telegram', avatarId });
         logger.info('Telegram token stored via API', { event: 'telegram_token_stored_via_api' });
 
