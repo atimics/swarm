@@ -400,12 +400,14 @@ export function createVoiceServices(config: {
           throw new Error('Voice reference URL not configured');
         }
 
+        const accessibleSeedUrl = await makeUrlAccessible(seedUrl, config.cdnUrl);
         const outputUrl = await runReplicatePrediction(
           replicateKey,
           VOICE_TTS_MODEL,
           {
             text: params.text,
-            speaker_wav: await makeUrlAccessible(seedUrl, config.cdnUrl),
+            speaker: accessibleSeedUrl, // XTTS-v2 uses 'speaker' not 'speaker_wav'
+            language: 'en',
           },
           { pollIntervalMs: config.replicatePollIntervalMs }
         );
@@ -498,12 +500,14 @@ export function createVoiceServices(config: {
           throw new Error('Voice reference URL not configured');
         }
 
+        const accessibleSeedUrl = await makeUrlAccessible(seedUrl, config.cdnUrl);
         const outputUrl = await runReplicatePrediction(
           replicateKey,
           VOICE_TTS_MODEL,
           {
             text: params.text,
-            speaker_wav: await makeUrlAccessible(seedUrl, config.cdnUrl),
+            speaker: accessibleSeedUrl, // XTTS-v2 uses 'speaker' not 'speaker_wav'
+            language: 'en',
           },
           { pollIntervalMs: config.replicatePollIntervalMs }
         );

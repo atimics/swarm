@@ -847,9 +847,13 @@ export async function generateVoiceMessage(params: {
       throw new Error('Voice reference audio not found');
     }
 
+    // Make URL accessible (signed URL for S3)
+    const accessibleSeedUrl = await makeUrlAccessible(seedUrl);
+
     const outputUrl = await runReplicatePrediction(apiKey, VOICE_TTS_MODEL, {
       text: params.text,
-      speaker_wav: await makeUrlAccessible(seedUrl),
+      speaker: accessibleSeedUrl, // XTTS-v2 uses 'speaker' not 'speaker_wav'
+      language: 'en',
     });
 
     const audioResponse = await fetchWithTimeout(outputUrl);
