@@ -19,7 +19,7 @@ on:
         type: string
 
 concurrency:
-  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.event.workflow_run.head_branch }}
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.event.workflow_run.head_branch || github.event.workflow_run.head_sha }}
   cancel-in-progress: false
 
 env:
@@ -40,11 +40,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       (
-         github.event.workflow_run.head_branch == 'main' ||
-         startsWith(github.event.workflow_run.head_branch, 'v')
-       ))
+       github.event.workflow_run.event == 'push')
     outputs:
       environment: ${{ steps.env.outputs.environment }}
       cdk_env: ${{ steps.env.outputs.cdk_env }}
@@ -52,20 +48,35 @@ jobs:
       admin_url: ${{ steps.env.outputs.admin_url }}
 
     steps:
+      - name: Checkout (for tag detection)
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Set environment
         id: env
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ENV="${{ inputs.environment }}"
           else
-            REF="${{ github.event.workflow_run.head_branch }}"
-            if [ "$REF" = "main" ]; then
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+            SHA="${{ github.event.workflow_run.head_sha }}"
+
+            if [ "$BRANCH" = "main" ]; then
               ENV="staging"
-            elif [[ "$REF" == v* ]]; then
+            elif [[ "$BRANCH" == v* ]]; then
               ENV="production"
             else
-              echo "::error::Unsupported ref '$REF' for deployment"
-              exit 1
+              # For tag pushes, workflow_run.head_branch may be empty.
+              # Detect version tags pointing at the CI run SHA.
+              TAG=$(git tag --points-at "$SHA" | grep '^v' | head -n 1 || true)
+              if [ -n "$TAG" ]; then
+                ENV="production"
+              else
+                echo "::error::Unsupported ref/sha for deployment (branch='$BRANCH', sha='$SHA')"
+                exit 1
+              fi
             fi
           fi
           CDK_ENV="${ENV/production/prod}"

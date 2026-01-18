@@ -14,6 +14,7 @@ import * as logsService from '../services/logs.js';
 import * as avatarogsService from '../services/avatar-logs.js';
 import * as telegramService from '../services/telegram.js';
 import * as avatarventsService from '../services/avatar-events.js';
+import * as galleryService from '../services/gallery.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { SecretType } from '../types.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
@@ -62,6 +63,21 @@ async function getWalletSessionFromEvent(event: APIGatewayProxyEventV2) {
   const sessionToken = getSessionFromCookie(event);
   if (!sessionToken) return null;
   return getSessionWithUser(sessionToken);
+}
+
+async function hydrateAvatarProfileImage<T extends { avatarId: string; profileImage?: { url: string } }>(avatar: T): Promise<T> {
+  if (avatar.profileImage?.url) return avatar;
+  const inferred = await galleryService.getLatestProfileImageFromGallery(avatar.avatarId);
+  if (!inferred) return avatar;
+
+  return {
+    ...avatar,
+    profileImage: {
+      url: inferred.url,
+      s3Key: inferred.s3Key,
+      updatedAt: inferred.createdAt,
+    },
+  };
 }
 
 // Cookie parsing is handled by ../auth/session-cookie.ts
@@ -154,10 +170,14 @@ export async function handler(
         return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
       }
 
+      // Back-compat: older avatars may not have `profileImage` set, but may have
+      // a generated profile image in the gallery.
+      const hydrated = await Promise.all(avatars.map(hydrateAvatarProfileImage));
+
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify(avatars),
+        body: JSON.stringify(hydrated),
       };
     }
 
@@ -165,7 +185,8 @@ export async function handler(
     const avatardMatch = path.match(/^\/avatars\/([^/]+)$/);
     if (method === 'GET' && avatardMatch) {
       const avatarId = avatardMatch[1];
-      const avatar = await avatarService.getAvatar(avatarId);
+      const avatarRaw = await avatarService.getAvatar(avatarId);
+      const avatar = avatarRaw ? await hydrateAvatarProfileImage(avatarRaw) : null;
 
       if (!avatar) {
         return {

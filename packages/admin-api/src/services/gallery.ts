@@ -84,6 +84,22 @@ export async function getGallery(
 }
 
 /**
+ * Back-compat helper: if an avatar predates `profileImage` being stored on the
+ * avatar config record, we can infer a displayable profile image from the
+ * gallery by taking the most recent image generated for the `profile` platform.
+ */
+export async function getLatestProfileImageFromGallery(avatarId: string): Promise<{
+  url: string;
+  s3Key: string;
+  createdAt: number;
+} | null> {
+  const items = await getGallery(avatarId, { limit: 50, type: 'image' });
+  const match = items.find(item => item.type === 'image' && item.platform === 'profile');
+  if (!match?.url) return null;
+  return { url: match.url, s3Key: match.s3Key, createdAt: match.createdAt };
+}
+
+/**
  * Get a specific gallery item
  */
 export async function getGalleryItem(
