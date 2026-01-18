@@ -438,6 +438,8 @@ export class AdminApiConstruct extends Construct {
     // Expose the API endpoint for CloudFront to use as origin
     this.apiEndpoint = this.api.apiEndpoint;
 
+    const apiGatewayHost = cdk.Fn.select(2, cdk.Fn.split('/', this.api.apiEndpoint));
+
     // Update Replicate webhook URL to use raw API Gateway URL (bypasses Cloudflare Access)
     // Extract hostname from API endpoint (e.g., "https://xxx.execute-api.us-east-1.amazonaws.com")
     replicateWebhookUrl = cdk.Fn.join('', [this.api.apiEndpoint, '/webhook/replicate']);
@@ -447,6 +449,11 @@ export class AdminApiConstruct extends Construct {
     (this.chatHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
       'Environment.Variables.REPLICATE_WEBHOOK_URL',
       replicateWebhookUrl
+    );
+
+    (this.chatHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+      'Environment.Variables.WEBHOOK_DOMAIN',
+      apiGatewayHost
     );
 
     // Add routes
@@ -572,6 +579,11 @@ export class AdminApiConstruct extends Construct {
       actions: ['secretsmanager:ListSecrets'],
       resources: ['*'],
     }));
+
+    (avatarsHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+      'Environment.Variables.WEBHOOK_DOMAIN',
+      apiGatewayHost
+    );
 
     // CloudWatch Logs access for consolidated avatar logs
     avatarsHandler.addToRolePolicy(new iam.PolicyStatement({

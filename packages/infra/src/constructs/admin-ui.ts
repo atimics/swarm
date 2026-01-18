@@ -26,7 +26,7 @@ export interface AdminUiProps {
   certificateArn?: string;
 
   /**
-   * Optional API domain to proxy under /api (e.g., 'api-staging.rati.chat')
+  * Optional API domain to proxy under /api (e.g., 'staging-swarm.rati.chat')
    * When set, CloudFront will forward /api/* requests to this origin (same-origin API).
    */
   apiDomain?: string;

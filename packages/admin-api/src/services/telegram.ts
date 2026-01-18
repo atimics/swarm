@@ -7,7 +7,10 @@
  */
 import { randomBytes } from 'crypto';
 
-const API_DOMAIN = process.env.API_DOMAIN || 'api-staging.rati.chat';
+const API_DOMAIN = process.env.API_DOMAIN || 'staging-swarm.rati.chat';
+const WEBHOOK_DOMAIN = process.env.TELEGRAM_WEBHOOK_DOMAIN
+  || process.env.WEBHOOK_DOMAIN
+  || API_DOMAIN;
 
 // Telegram webhook IP ranges (for additional verification)
 // https://core.telegram.org/bots/webhooks#the-short-version
@@ -66,7 +69,7 @@ export async function registerTelegramWebhook(
   webhookInfo?: { url?: string; pending_update_count?: number };
   reRegistered?: boolean;
 }> {
-  const webhookUrl = `https://${API_DOMAIN}/webhook/telegram/${avatarId}`;
+  const webhookUrl = `https://${WEBHOOK_DOMAIN}/webhook/telegram/${avatarId}`;
 
   // Generate secret token if not provided
   const webhookSecret = secretToken || generateWebhookSecret();

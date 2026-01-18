@@ -29,7 +29,7 @@ describe('P0: Session cookie semantics', () => {
     expect(true).toBe(true);
   });
 
-  test('Cross-subdomain session works in prod: swarm.rati.chat can call api.rati.chat with credentials and the session cookie is sent', () => {
+  test('Same-origin session works in prod: swarm.rati.chat can call /api with credentials and the session cookie is sent', () => {
     // IMPLEMENTED + COVERED: packages/admin-api/src/auth/session-cookie.test.ts
     // (Parent-domain cookie computed from AUTH_DOMAIN.)
     expect(true).toBe(true);
