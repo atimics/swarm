@@ -119,6 +119,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testResult, setTestResult] = useState<{ botUsername?: string; error?: string } | null>(null);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const args = toolCall.arguments as {
     integration: 'telegram' | 'twitter' | 'discord';
@@ -180,7 +181,13 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         }),
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setStatus('error');
+        setTestResult({ error: result.error || result.message || `Validation failed (HTTP ${response.status})` });
+        return;
+      }
       
       if (result.valid) {
         setStatus('success');
@@ -201,6 +208,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     if (!token.trim() || isSubmitting || !activeAgent?.id) return;
 
     setIsSubmitting(true);
+    setSaveError(null);
     try {
       // Store the secret
       const response = await fetch(`${API_BASE}/avatars/${activeAgent.id}/secrets`, {
@@ -213,8 +221,10 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         }),
       });
 
+      const payload = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        throw new Error('Failed to save');
+        throw new Error(payload.error || payload.message || 'Failed to save');
       }
 
       // Submit the tool result
@@ -224,7 +234,9 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
       });
       setSaved(true);
       setToken(''); // Clear sensitive data
-    } catch {
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -295,6 +307,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                   setToken(e.target.value);
                   setStatus('idle');
                   setTestResult(null);
+                  setSaveError(null);
                 }}
                 placeholder={config.tokenPlaceholder}
                 className="w-full px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500"
@@ -358,6 +371,15 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                 {isSubmitting ? 'Saving...' : 'Save & Enable'}
               </button>
             </div>
+
+            {saveError && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span className="text-sm text-red-300">{saveError}</span>
+              </div>
+            )}
           </>
         )}
 
