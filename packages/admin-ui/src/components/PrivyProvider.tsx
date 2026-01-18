@@ -50,6 +50,7 @@ export function buildPrivyConfig(): PrivyClientConfig {
         createOnLogin: 'users-without-wallets',
       },
     },
+    supportedChains: ['solana'] as unknown as PrivyClientConfig['supportedChains'],
     defaultChain: 'solana' as unknown as PrivyClientConfig['defaultChain'],
   };
 }
