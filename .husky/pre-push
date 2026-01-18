@@ -14,5 +14,11 @@ pnpm lint
 echo "pre-push: pnpm build"
 pnpm build
 
+echo "pre-push: admin-ui build"
+pnpm --filter @swarm/admin-ui build
+
+echo "pre-push: admin-ui smoke (Privy)"
+node scripts/smoke-admin-ui.mjs
+
 echo "pre-push: pnpm test"
 pnpm test
