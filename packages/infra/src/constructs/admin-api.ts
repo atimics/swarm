@@ -514,6 +514,11 @@ export class AdminApiConstruct extends Construct {
     // Grant permissions to avatars handler
     this.table.grantReadWriteData(avatarsHandler);
     this.encryptionKey.grantEncryptDecrypt(avatarsHandler);
+    avatarsHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['kms:CreateGrant', 'kms:DescribeKey', 'kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey'],
+      resources: [this.encryptionKey.keyArn],
+    }));
     if (stateTable) {
       stateTable.grantReadWriteData(avatarsHandler);
     }
