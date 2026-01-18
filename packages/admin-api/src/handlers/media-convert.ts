@@ -6,7 +6,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { randomUUID } from 'crypto';
 import { createWriteStream, promises as fs } from 'fs';
 import { pipeline } from 'stream/promises';
-import { spawn } from 'child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import path from 'path';
 import ffmpegPath from 'ffmpeg-static';
 
@@ -73,25 +73,26 @@ async function downloadToFile(sourceUrl: string, outputPath: string): Promise<vo
     const errorText = await response.text();
     throw new Error(`Failed to download source: ${response.status} - ${errorText}`);
   }
-  const fileStream = createWriteStream(outputPath);
-  await pipeline(response.body as NodeJS.ReadableStream, fileStream);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  await fs.writeFile(outputPath, buffer);
 }
 
 async function runFfmpeg(args: string[]): Promise<void> {
-  if (!ffmpegPath) {
+  const ffmpegBinary = typeof ffmpegPath === 'string' ? ffmpegPath : undefined;
+  if (!ffmpegBinary) {
     throw new Error('ffmpeg binary not available');
   }
 
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(ffmpegBinary, args, { stdio: ['ignore', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams;
     let stderr = '';
 
-    proc.stderr.on('data', (chunk) => {
+    proc.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
 
-    proc.on('error', (error) => reject(error));
-    proc.on('close', (code) => {
+    proc.on('error', (error: Error) => reject(error));
+    proc.on('close', (code: number | null) => {
       if (code === 0) {
         resolve();
       } else {
