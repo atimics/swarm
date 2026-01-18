@@ -23,6 +23,7 @@ interface AvatarConfig {
     telegram?: {
       enabled: boolean;
       botUsername: string;
+      botId?: number;
       webhookPath: string;
       allowedChatTypes?: ('private' | 'group' | 'supergroup' | 'channel')[];
     };

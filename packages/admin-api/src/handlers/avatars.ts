@@ -17,6 +17,8 @@ import * as discordService from '../services/discord.js';
 import * as avatarventsService from '../services/avatar-events.js';
 import * as galleryService from '../services/gallery.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
+import { setupTelegramIntegration } from '../services/telegram-setup.js';
+import { validateReplicateApiKey } from '../services/replicate.js';
 import { SecretType } from '../types.js';
 import { resumeChatAfterToolResult } from './chat.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
@@ -304,98 +306,57 @@ export async function handler(
         };
       }
 
-      await secretsService.storeSecret(
-        avatarId,
-        secretType.data,
-        'default',
-        value,
-        session,
-        `${normalizedKey} for avatar ${avatarId}`
-      );
-
-      // Special handling for Telegram bot tokens - register webhook automatically
       if (normalizedKey === 'telegram_bot_token') {
         logger.setContext({ subsystem: 'telegram', avatarId });
-        logger.info('Telegram token stored via API', { event: 'telegram_token_stored_via_api' });
+        logger.info('Telegram token setup requested via API', { event: 'telegram_token_setup_via_api' });
 
-        const validation = await telegramService.validateTelegramToken(value);
-        if (validation.valid) {
-          // Update avatar config to enable Telegram
-          await avatarService.updateAvatar(avatarId, {
-            platforms: {
-              telegram: {
-                enabled: true,
-                botUsername: validation.botInfo?.username,
-                botId: validation.botInfo?.id,
-              }
+        const setupResult = await setupTelegramIntegration({
+          avatarId,
+          token: value,
+          session,
+          deps: {
+            validateTelegramToken: telegramService.validateTelegramToken,
+            registerTelegramWebhook: telegramService.registerTelegramWebhook,
+            generateWebhookSecret: telegramService.generateWebhookSecret,
+            updateAvatar: avatarService.updateAvatar,
+            storeSecret: secretsService.storeSecret,
+          },
+        });
+
+        if (!setupResult.success) {
+          logger.warn('Telegram token setup failed', {
+            event: 'telegram_token_setup_failed',
+            error: setupResult.error,
+          });
+          return jsonResponse(corsHeaders, 400, { error: setupResult.error || 'Failed to configure Telegram' });
+        }
+
+        telegramStatus = setupResult.status
+          ? {
+              webhookUrl: setupResult.status.webhookUrl,
+              webhookInfo: setupResult.status.webhookInfo,
+              reRegistered: setupResult.status.reRegistered,
             }
-          }, session);
+          : null;
+      } else {
+        if (normalizedKey === 'replicate_api_key') {
+          logger.setContext({ subsystem: 'media', avatarId });
+          logger.info('Replicate key validation requested via API', { event: 'replicate_key_validate_via_api' });
 
-          // Register webhook with Telegram
-          const webhookResult = await telegramService.registerTelegramWebhook(value, avatarId);
-          if (webhookResult.success && webhookResult.secretToken) {
-            await secretsService.storeSecret(
-              avatarId,
-              'telegram_webhook_secret',
-              'default',
-              webhookResult.secretToken,
-              session,
-              `Telegram webhook secret for ${avatarId}`
-            );
-            telegramStatus = {
-              webhookUrl: webhookResult.webhookUrl,
-              webhookInfo: webhookResult.webhookInfo,
-              reRegistered: webhookResult.reRegistered,
-            };
-            logger.info('Telegram webhook registered', {
-              event: 'telegram_webhook_registered',
-              webhookUrl: webhookResult.webhookUrl,
-              botUsername: validation.botInfo?.username,
-              webhookInfo: webhookResult.webhookInfo,
-              reRegistered: webhookResult.reRegistered,
-            });
-          } else {
-            logger.error('Telegram webhook registration failed', undefined, {
-              event: 'telegram_webhook_failed',
-              error: webhookResult.message,
-            });
+          const validation = await validateReplicateApiKey(value);
+          if (!validation.valid) {
+            return jsonResponse(corsHeaders, 400, { error: validation.error || 'Replicate key invalid' });
           }
-        } else {
-          logger.warn('Telegram token invalid', {
-            event: 'telegram_token_invalid',
-            error: validation.error,
-          });
         }
-      }
 
-      // Special handling for Replicate API key - validate it
-      if (normalizedKey === 'replicate_api_key') {
-        logger.setContext({ subsystem: 'media', avatarId });
-        logger.info('Replicate key stored via API', { event: 'replicate_key_stored_via_api' });
-
-        try {
-          const response = await fetch('https://api.replicate.com/v1/account', {
-            headers: { 'Authorization': `Bearer ${value}` },
-          });
-          
-          if (response.ok) {
-            const account = await response.json() as { username?: string };
-            logger.info('Replicate key valid', {
-              event: 'replicate_key_valid',
-              username: account.username,
-            });
-          } else {
-            logger.warn('Replicate key invalid', {
-              event: 'replicate_key_invalid',
-              status: response.status,
-            });
-          }
-        } catch (err) {
-          logger.warn('Replicate key validation error', {
-            event: 'replicate_key_validation_error',
-            error: err instanceof Error ? err.message : 'Unknown error',
-          });
-        }
+        await secretsService.storeSecret(
+          avatarId,
+          secretType.data,
+          'default',
+          value,
+          session,
+          `${normalizedKey} for avatar ${avatarId}`
+        );
       }
 
       return {

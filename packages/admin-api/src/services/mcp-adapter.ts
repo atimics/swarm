@@ -29,6 +29,8 @@ import * as memory from '../services/memory.js';
 import * as memoryMigration from '../services/memory-migration.js';
 import { createWebSearch } from '../services/web-search.js';
 import { createMcpAdminServices } from '../services/mcp-config.js';
+import { setupTelegramIntegration } from '../services/telegram-setup.js';
+import { validateReplicateApiKey } from '../services/replicate.js';
 
 // Timeout for external API calls
 const API_TIMEOUT_MS = 10_000;
@@ -580,122 +582,58 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
       },
 
       storeSecret: async (avatarId, secretType, name, value, description) => {
-        await secrets.storeSecret(avatarId, secretType as SecretType, name, value, session, description);
-
-        // Special handling for Telegram bot tokens - register webhook automatically
         if (secretType === 'telegram_bot_token') {
           console.log(JSON.stringify({
             level: 'INFO',
             subsystem: 'telegram',
-            event: 'telegram_token_stored',
+            event: 'telegram_token_setup_requested',
             avatarId,
-            message: 'Telegram bot token stored, validating and registering webhook...',
+            message: 'Telegram bot token received, validating and registering webhook...',
           }));
 
-          const validation = await telegram.validateTelegramToken(value);
-          if (!validation.valid) {
-            console.log(JSON.stringify({
-              level: 'WARN',
-              subsystem: 'telegram',
-              event: 'telegram_token_invalid',
-              avatarId,
-              error: validation.error,
-            }));
-            return;
-          }
-
-          console.log(JSON.stringify({
-            level: 'INFO',
-            subsystem: 'telegram',
-            event: 'telegram_token_valid',
+          const setupResult = await setupTelegramIntegration({
             avatarId,
-            botUsername: validation.botInfo?.username,
-          }));
+            token: value,
+            session,
+            deps: {
+              validateTelegramToken: telegram.validateTelegramToken,
+              registerTelegramWebhook: telegram.registerTelegramWebhook,
+              generateWebhookSecret: telegram.generateWebhookSecret,
+              updateAvatar: avatars.updateAvatar,
+              storeSecret: secrets.storeSecret,
+            },
+          });
 
-          await avatars.updateAvatar(avatarId, {
-            platforms: {
-              telegram: {
-                enabled: true,
-                botUsername: validation.botInfo?.username,
-                botId: validation.botInfo?.id,
-              }
-            }
-          }, session);
-
-          const webhookResult = await telegram.registerTelegramWebhook(value, avatarId);
-          if (webhookResult.success && webhookResult.secretToken) {
-            await secrets.storeSecret(
-              avatarId,
-              'telegram_webhook_secret',
-              'default',
-              webhookResult.secretToken,
-              session,
-              `Telegram webhook secret for ${avatarId}`
-            );
-            console.log(JSON.stringify({
-              level: 'INFO',
-              subsystem: 'telegram',
-              event: 'telegram_webhook_registered',
-              avatarId,
-              webhookUrl: webhookResult.webhookUrl,
-              webhookInfo: webhookResult.webhookInfo,
-              reRegistered: webhookResult.reRegistered,
-            }));
-          } else {
+          if (!setupResult.success) {
             console.log(JSON.stringify({
               level: 'ERROR',
               subsystem: 'telegram',
-              event: 'telegram_webhook_failed',
+              event: 'telegram_token_setup_failed',
               avatarId,
-              error: webhookResult.message,
+              error: setupResult.error,
             }));
+            throw new Error(setupResult.error || 'Failed to configure Telegram');
           }
+
+          return;
         }
 
-        // Special handling for Replicate API key - validate it works
         if (secretType === 'replicate_api_key') {
           console.log(JSON.stringify({
             level: 'INFO',
             subsystem: 'media',
-            event: 'replicate_key_stored',
+            event: 'replicate_key_validation_requested',
             avatarId,
-            message: 'Replicate API key stored, validating...',
+            message: 'Replicate API key received, validating...',
           }));
 
-          try {
-            // Test the API key by getting account info
-            const response = await fetch('https://api.replicate.com/v1/account', {
-              headers: { 'Authorization': `Bearer ${value}` },
-            });
-            
-            if (response.ok) {
-              const account = await response.json() as { username?: string };
-              console.log(JSON.stringify({
-                level: 'INFO',
-                subsystem: 'media',
-                event: 'replicate_key_valid',
-                avatarId,
-                username: account.username,
-              }));
-            } else {
-              console.log(JSON.stringify({
-                level: 'WARN',
-                subsystem: 'media',
-                event: 'replicate_key_invalid',
-                avatarId,
-                status: response.status,
-              }));
-            }
-          } catch (err) {
-            console.log(JSON.stringify({
-              level: 'WARN',
-              subsystem: 'media',
-              event: 'replicate_key_validation_error',
-              avatarId,
-              error: err instanceof Error ? err.message : 'Unknown error',
-            }));
+          const validation = await validateReplicateApiKey(value);
+          if (!validation.valid) {
+            throw new Error(validation.error || 'Replicate API key invalid');
           }
         }
+
+        await secrets.storeSecret(avatarId, secretType as SecretType, name, value, session, description);
       },
 
       validateTelegramToken: telegram.validateTelegramToken,

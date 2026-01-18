@@ -7,14 +7,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { usePrivy } from '@privy-io/react-auth';
-import bs58 from 'bs58';
 import { useWalletAuth } from '../store/walletAuth';
 import { usePrivyAuth } from '../store/privyAuth';
 import { useAuth } from '../store/auth';
 import { decideWalletConnectionDecision } from '../auth/wallet-connection';
 import { formatAddress as formatWalletAddress, getLinkedWalletDisplay } from '../auth/linked-wallets';
+import { signWalletLinkMessage, type PhantomProvider } from '../auth/wallet-linking';
 import { API_BASE } from '../api/apiBase';
 import { useWalletUi } from '../store/walletUi';
+import { CopyableAddress } from './CopyableAddress';
 
 interface WalletLoginProps {
   className?: string;
@@ -207,7 +208,8 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
 
   const handleLinkConnectedWallet = useCallback(async () => {
     if (!pendingWalletSwitch) return;
-    if (!signMessage || typeof signMessage !== 'function') {
+    const phantomProvider = (window as typeof window & { phantom?: { solana?: PhantomProvider } })?.phantom?.solana;
+    if (!signMessage && !phantomProvider?.signMessage) {
       setLinkWalletError('Connected wallet does not support message signing');
       return;
     }
@@ -231,8 +233,11 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
       const { nonce, message } = await challengeResponse.json();
 
       const messageBytes = new TextEncoder().encode(message);
-      const signatureBytes = await signMessage(messageBytes);
-      const signature = bs58.encode(signatureBytes);
+      const { signatureBase58 } = await signWalletLinkMessage({
+        message: messageBytes,
+        privySignMessage: signMessage,
+        phantomProvider,
+      });
 
       const verifyResponse = await fetch(`${API_BASE}/auth/link/wallet/verify`, {
         method: 'POST',
@@ -241,7 +246,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
         body: JSON.stringify({
           walletAddress: pendingWalletSwitch,
           nonce,
-          signature,
+          signature: signatureBase58,
         }),
       });
 
@@ -522,7 +527,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                         </div>
                         <div className="flex items-baseline gap-2">
                           <div className="text-xs text-[var(--color-text-muted)]">Embedded</div>
-                          <div className="text-sm text-[var(--color-text)]">{formatAddress(user.walletAddress)}</div>
+                          <CopyableAddress address={user.walletAddress} />
                         </div>
                       </div>
                     </div>
@@ -539,7 +544,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                     </div>
                     {gateWallet && (
                       <div className="text-xs text-[var(--color-text-muted)]">
-                        Using <span className="text-[var(--color-text)]">{formatAddress(gateWallet)}</span>
+                        Using <CopyableAddress address={gateWallet} className="inline-flex" />
                       </div>
                     )}
                   </div>
@@ -552,7 +557,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                       <div className="mt-2 space-y-1">
                         {sortedGateWallets.map(([addr, st]) => (
                           <div key={addr} className="flex items-center justify-between text-xs">
-                            <span className="text-[var(--color-text)]">{formatAddress(addr)}</span>
+                            <CopyableAddress address={addr} className="text-[var(--color-text)]" />
                             <span className="text-[var(--color-text-muted)]">{st.nftsHeld} Orbs • {st.availableSlots} slots</span>
                           </div>
                         ))}
@@ -582,8 +587,9 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                         </div>
                       )}
                       {authProvider !== 'wallet' && user.walletAddress && (
-                        <div className="text-xs text-[var(--color-text-muted)]">
-                          Embedded wallet: <span className="text-[var(--color-text)]">{user.walletAddress}</span>
+                        <div className="text-xs text-[var(--color-text-muted)] flex items-center gap-2">
+                          Embedded wallet:
+                          <CopyableAddress address={user.walletAddress} />
                         </div>
                       )}
                     </div>

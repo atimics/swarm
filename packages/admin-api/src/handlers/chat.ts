@@ -23,6 +23,9 @@ import {
 import { logger } from '@swarm/core';
 import { buildDynamicSystemPrompt, detectEnabledCategories, type ToolCategory } from '../services/dynamic-prompts.js';
 import { recordError } from '../services/auto-issues.js';
+import { createAvatarAccessChecker } from '../services/chat-access.js';
+import { chatIdempotencyStore } from '../services/idempotency.js';
+import { llmCircuitBreaker } from '../services/circuit-breaker.js';
 import {
   ToolRegistry,
   registerAllTools,
@@ -879,6 +882,10 @@ async function processChat(
   let fallbackResponse = '';
 
   const runLlmAttempt = async (): Promise<void> => {
+    if (!llmCircuitBreaker.canExecute()) {
+      throw new Error('LLM circuit breaker open');
+    }
+
     toolCalls = [];
     adminToolCalls = [];
     modelResult = null;
@@ -886,66 +893,73 @@ async function processChat(
     fallbackResponse = '';
 
     try {
-      // Tools from the SDK are already in the correct format
-      modelResult = getOpenRouterClient().callModel({
-        model: effectiveModel,
-        input,
-        maxOutputTokens,
-        ...(tools.length > 0 ? { tools, stopWhen: stepCountIs(10) } : {}),
-      });
+      try {
+        // Tools from the SDK are already in the correct format
+        modelResult = getOpenRouterClient().callModel({
+          model: effectiveModel,
+          input,
+          maxOutputTokens,
+          ...(tools.length > 0 ? { tools, stopWhen: stepCountIs(10) } : {}),
+        });
 
-      toolCalls = await modelResult.getToolCalls();
-      adminToolCalls = toolCalls.map(toAdminToolCall);
-    } catch (sdkError) {
-      // Check if this is a Zod validation/schema error (SDK uses zod/v4 internally)
-      const errorName = sdkError instanceof Error ? sdkError.name : '';
-      const errorMessage = sdkError instanceof Error ? sdkError.message : '';
-      const isZodError = errorName === 'ZodError' ||
-        errorMessage.includes('invalid_type') ||
-        errorMessage.includes('Invalid Zod schema');
+        toolCalls = await modelResult.getToolCalls();
+        adminToolCalls = toolCalls.map(toAdminToolCall);
+      } catch (sdkError) {
+        // Check if this is a Zod validation/schema error (SDK uses zod/v4 internally)
+        const errorName = sdkError instanceof Error ? sdkError.name : '';
+        const errorMessage = sdkError instanceof Error ? sdkError.message : '';
+        const isZodError = errorName === 'ZodError' ||
+          errorMessage.includes('invalid_type') ||
+          errorMessage.includes('Invalid Zod schema');
 
-      if (!isZodError) {
-        throw sdkError;
+        if (!isZodError) {
+          throw sdkError;
+        }
+
+        logger.warn('SDK Zod validation error, falling back to direct API', {
+          event: 'sdk_fallback',
+          errorName,
+          errorMessage,
+        });
+
+        // Build messages for direct API call
+        const apiMessages = [
+          { role: 'system', content: systemPrompt },
+          ...toSdkMessages(sanitizeMessages(messages)),
+        ];
+
+        const fallbackResult = await callLlmDirectFallback(
+          effectiveModel,
+          apiMessages as Array<{ role: string; content: string }>,
+          maxOutputTokens,
+          tools.length > 0 ? tools : undefined
+        );
+
+        usedFallback = true;
+        fallbackResponse = fallbackResult.content;
+
+        // Convert fallback tool calls to admin format
+        adminToolCalls = fallbackResult.toolCalls.map(tc => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: {
+            name: tc.name,
+            arguments: JSON.stringify(tc.arguments),
+          },
+        }));
+
+        // Create pseudo-SdkToolCalls for compatibility with existing code
+        toolCalls = fallbackResult.toolCalls.map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.arguments,
+        })) as unknown as SdkToolCall[];
       }
 
-      logger.warn('SDK Zod validation error, falling back to direct API', {
-        event: 'sdk_fallback',
-        errorName,
-        errorMessage,
-      });
-
-      // Build messages for direct API call
-      const apiMessages = [
-        { role: 'system', content: systemPrompt },
-        ...toSdkMessages(sanitizeMessages(messages)),
-      ];
-
-      const fallbackResult = await callLlmDirectFallback(
-        effectiveModel,
-        apiMessages as Array<{ role: string; content: string }>,
-        maxOutputTokens,
-        tools.length > 0 ? tools : undefined
-      );
-
-      usedFallback = true;
-      fallbackResponse = fallbackResult.content;
-
-      // Convert fallback tool calls to admin format
-      adminToolCalls = fallbackResult.toolCalls.map(tc => ({
-        id: tc.id,
-        type: 'function' as const,
-        function: {
-          name: tc.name,
-          arguments: JSON.stringify(tc.arguments),
-        },
-      }));
-
-      // Create pseudo-SdkToolCalls for compatibility with existing code
-      toolCalls = fallbackResult.toolCalls.map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments,
-      })) as unknown as SdkToolCall[];
+      llmCircuitBreaker.recordSuccess();
+    } catch (error) {
+      llmCircuitBreaker.recordFailure();
+      throw error;
     }
   };
 
@@ -1458,40 +1472,12 @@ export async function handler(
     logger.setContext({ subsystem: 'chat', requestId });
 
     const isAdmin = requireAdmin(session);
-
-    const ensureAvatarAccess = async (avatarId: string | undefined | null): Promise<APIGatewayProxyResultV2 | null> => {
-      if (isAdmin) return null;
-
-      if (!avatarId) {
-        return {
-          statusCode: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'avatarId is required' }),
-        };
-      }
-
-      const avatar = await avatars.getAvatar(avatarId);
-      if (!avatar) {
-        return {
-          statusCode: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Avatar not found' }),
-        };
-      }
-
-      const walletAddress = session.userId;
-      // Only wallet-auth sessions are allowed for non-admin chat.
-      // If this is a CF Access session (sub/email) it won't match wallet fields.
-      if (!walletAddress || (avatar.creatorWallet !== walletAddress && avatar.inhabitantWallet !== walletAddress)) {
-        return {
-          statusCode: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Avatar not found' }),
-        };
-      }
-
-      return null;
-    };
+    const ensureAvatarAccess = createAvatarAccessChecker({
+      isAdmin,
+      session,
+      getAvatar: avatars.getAvatar,
+      corsHeaders,
+    });
 
     // GET /chat?avatarId=xxx - Retrieve chat history
     if (method === 'GET') {
@@ -1542,6 +1528,14 @@ export async function handler(
       };
     }
     const { message, history, avatar, systemPrompt: customSystemPrompt, attachments, model } = parseResult.data;
+
+    const idempotencyKey = event.headers['idempotency-key'] || event.headers['Idempotency-Key'];
+    if (idempotencyKey) {
+      const cached = chatIdempotencyStore.get(idempotencyKey) as APIGatewayProxyResultV2 | null;
+      if (cached) {
+        return cached;
+      }
+    }
 
     const accessError = await ensureAvatarAccess(avatar?.id);
     if (accessError) return accessError;
@@ -1598,7 +1592,7 @@ export async function handler(
     // Save the updated history to DynamoDB for cross-device sync
     await chatHistory.saveChatHistory(session, result.history, avatar?.id);
 
-    return {
+    const responsePayload = {
       statusCode: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1614,12 +1608,23 @@ export async function handler(
         avatarUpdates: result.avatarUpdates,
       }),
     };
+
+    if (idempotencyKey) {
+      chatIdempotencyStore.set(idempotencyKey, responsePayload);
+    }
+
+    return responsePayload;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
 
     const upstreamStatus = parseOpenRouterStatusFromError(errorMessage);
-    const statusCode = upstreamStatus === 402 || upstreamStatus === 429 ? upstreamStatus : 500;
+    const isCircuitOpen = /circuit breaker open/i.test(errorMessage);
+    const statusCode = upstreamStatus === 402 || upstreamStatus === 429
+      ? upstreamStatus
+      : isCircuitOpen
+        ? 503
+        : 500;
 
     logger.error('Handler error', error, {
       event: 'handler_error',
@@ -1645,7 +1650,9 @@ export async function handler(
           ? 'LLM credits required'
           : statusCode === 429
             ? 'LLM rate limited'
-            : 'Internal server error',
+            : statusCode === 503
+              ? 'LLM temporarily unavailable'
+              : 'Internal server error',
         message: errorMessage,
       }),
     };

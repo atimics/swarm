@@ -4,7 +4,7 @@
  * and (optionally) embedded wallet creation.
  */
 import { type ReactNode } from 'react';
-import { PrivyProvider as PrivyReactProvider } from '@privy-io/react-auth';
+import { PrivyProvider as PrivyReactProvider, type PrivyClientConfig } from '@privy-io/react-auth';
 
 const PRIVY_APP_ID = import.meta.env.VITE_PRIVY_APP_ID || '';
 
@@ -35,16 +35,21 @@ VITE_PRIVY_APP_ID=your_privy_app_id
   return (
     <PrivyReactProvider
       appId={PRIVY_APP_ID}
-      config={{
-        loginMethods: ['email', 'google', 'twitter'],
-        embeddedWallets: {
-          solana: {
-            createOnLogin: 'users-without-wallets',
-          },
-        },
-      }}
+      config={buildPrivyConfig()}
     >
       {children}
     </PrivyReactProvider>
   );
+}
+
+export function buildPrivyConfig(): PrivyClientConfig {
+  return {
+    loginMethods: ['email', 'google', 'twitter'],
+    embeddedWallets: {
+      solana: {
+        createOnLogin: 'users-without-wallets',
+      },
+    },
+    defaultChain: 'solana',
+  };
 }
