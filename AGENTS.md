@@ -56,13 +56,13 @@ Each avatar has a logs endpoint: `GET /avatars/{avatarId}/logs`
 **Example:**
 ```bash
 # Get last 30 minutes of ERROR logs for an avatar
-curl "https://api.rati.chat/avatars/my-avatar/logs?level=ERROR&since=30m"
+curl "https://swarm.rati.chat/api/avatars/my-avatar/logs?level=ERROR&since=30m"
 
 # Search for specific text in last hour
-curl "https://api.rati.chat/avatars/my-avatar/logs?query=timeout&since=1h"
+curl "https://swarm.rati.chat/api/avatars/my-avatar/logs?query=timeout&since=1h"
 
 # Filter by subsystem (telegram, chat, llm)
-curl "https://api.rati.chat/avatars/my-avatar/logs?subsystem=telegram&since=1h"
+curl "https://swarm.rati.chat/api/avatars/my-avatar/logs?subsystem=telegram&since=1h"
 ```
 
 **Response:**
