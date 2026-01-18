@@ -3,10 +3,10 @@
  * Vanity Wallet Generator (Multi-threaded)
  * 
  * Generates Solana keypairs in parallel until finding one with a desired pattern.
- * Uses all CPU cores for maximum speed. Always saves to GitHub secrets.
+ * Uses all CPU cores for maximum speed.
  * 
  * Usage:
- *   node scripts/generate-vanity-wallet.mjs [pattern] [--start] [--secret-name NAME] [--workers N] [--progress-every N] [--quiet]
+ *   node scripts/generate-vanity-wallet.mjs [pattern] [--start] [--secret-name NAME] [--workers N] [--progress-every N] [--quiet] [--save-to-github-secrets]
  * 
  * Examples:
  *   node scripts/generate-vanity-wallet.mjs RATi                    # "RATi" anywhere
@@ -15,8 +15,9 @@
  *   node scripts/generate-vanity-wallet.mjs RATi --workers 8 --progress-every 200000
  * 
  * Environment:
- *   GITHUB_ACTIONS=true  - Running in CI (uses gh secret set)
- *   GH_TOKEN             - GitHub token for CI (auto-provided in Actions)
+ *   GITHUB_ACTIONS=true  - Running in CI (defaults to outputs; secrets require PAT)
+ *   GITHUB_OUTPUT        - GitHub Actions output file path
+ *   GH_TOKEN             - GitHub token for gh CLI (use a PAT for writing repo secrets)
  */
 
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
@@ -79,6 +80,8 @@ if (!isMainThread) {
   const caseInsensitive = args.includes('--ignore-case');
   const dryRun = args.includes('--dry-run');
   const quiet = args.includes('--quiet');
+  const runningInActions = Boolean(process.env.GITHUB_ACTIONS);
+  const saveToGitHubSecrets = args.includes('--save-to-github-secrets') || !runningInActions;
   
   // Parse --secret-name NAME
   const secretNameIndex = args.indexOf('--secret-name');
@@ -137,6 +140,9 @@ if (!isMainThread) {
   console.log(`Workers: ${workerCount} threads`);
   console.log(`Target secret: ${secretName}`);
   console.log(`Expected: ~${Math.round(expectedAttempts).toLocaleString()} attempts (~${timeStr})`);
+  if (runningInActions && !saveToGitHubSecrets) {
+    console.log('CI mode: will NOT write repo secrets (use --save-to-github-secrets + PAT if needed)');
+  }
   console.log();
 
   const startTime = Date.now();
@@ -196,6 +202,27 @@ if (!isMainThread) {
     process.exit(0);
   }
 
+  // In GitHub Actions, the default token commonly cannot write repository secrets
+  // (403 "Resource not accessible by integration"). Default to outputs.
+  if (runningInActions && !saveToGitHubSecrets) {
+    console.log(`::add-mask::${found.secretKey}`);
+    console.log(`::add-mask::${found.publicKey}`);
+
+    const outputPath = process.env.GITHUB_OUTPUT;
+    if (!outputPath) {
+      console.error('\n❌ GITHUB_OUTPUT is not set; refusing to print secret key to logs.');
+      process.exit(1);
+    }
+
+    const fs = await import('fs');
+    fs.appendFileSync(outputPath, `wallet_address=${found.publicKey}\n`);
+    fs.appendFileSync(outputPath, `wallet_secret_key=${found.secretKey}\n`);
+
+    console.log('\n💾 CI outputs written (wallet_address, wallet_secret_key)');
+    console.log('   To persist as repo secrets, run locally or pass --save-to-github-secrets with a PAT in GH_TOKEN.');
+    process.exit(0);
+  }
+
   // Save to GitHub secrets
   console.log('\n💾 Saving to GitHub secrets...');
   
@@ -218,12 +245,17 @@ if (!isMainThread) {
     console.log(`✅ ${publicKeySecretName} = ${found.publicKey}`);
     
     // Output for GitHub Actions
-    if (process.env.GITHUB_ACTIONS) {
-      console.log(`\n::set-output name=wallet_address::${found.publicKey}`);
+    if (process.env.GITHUB_ACTIONS && process.env.GITHUB_OUTPUT) {
+      const fs = await import('fs');
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, `wallet_address=${found.publicKey}\n`);
     }
   } catch (err) {
     console.error('❌ Failed to save to GitHub secrets');
     console.error('   Ensure gh CLI is authenticated: gh auth login');
+    if (process.env.GITHUB_ACTIONS) {
+      console.error('   Note: GitHub Actions tokens typically cannot write repo secrets.');
+      console.error('   Use --save-to-github-secrets with a PAT in GH_TOKEN, or omit the flag to use CI outputs instead.');
+    }
     process.exit(1);
   }
 };
