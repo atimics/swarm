@@ -6,7 +6,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { randomUUID } from 'crypto';
 import { createWriteStream, promises as fs } from 'fs';
 import { pipeline } from 'stream/promises';
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn } from 'child_process';
 import path from 'path';
 import ffmpegPath from 'ffmpeg-static';
 
@@ -84,7 +84,7 @@ async function runFfmpeg(args: string[]): Promise<void> {
   }
 
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn(ffmpegBinary, args, { stdio: ['ignore', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams;
+    const proc = spawn(ffmpegBinary, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     let stderr = '';
 
     proc.stderr.on('data', (chunk: Buffer) => {
