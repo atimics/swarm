@@ -469,6 +469,7 @@ export class AdminApiConstruct extends Construct {
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
       environment: {
+        ADMIN_TABLE: this.table.tableName,
         CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
         NODE_ENV: environment,
@@ -484,6 +485,7 @@ export class AdminApiConstruct extends Construct {
     });
 
     // Grant permissions to transcribe handler
+    this.table.grantReadWriteData(transcribeHandler);
     llmApiKey.grantRead(transcribeHandler);
 
     const transcribeIntegration = new integrations.HttpLambdaIntegration(
