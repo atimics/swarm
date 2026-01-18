@@ -33,7 +33,7 @@ export function createCircuitBreaker(params?: {
     if (state === 'closed') return true;
     if (state === 'half-open') return true;
     if (state === 'open') {
-      if (openedAt && now() - openedAt >= cooldownMs) {
+      if (openedAt !== null && now() - openedAt >= cooldownMs) {
         state = 'half-open';
         return true;
       }
