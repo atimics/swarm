@@ -4,7 +4,7 @@
  */
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
-import { createWriteStream, createReadStream, promises as fs } from 'fs';
+import { createWriteStream, promises as fs } from 'fs';
 import { pipeline } from 'stream/promises';
 import { spawn } from 'child_process';
 import path from 'path';
