@@ -67,6 +67,7 @@ function createMockAvatar(avatarId: string): AvatarRecord {
 describe('Twitter OAuth Handler', () => {
   let mockDeps: TwitterOAuthHandlerDeps;
   let mockIsConfigured: ReturnType<typeof mock>;
+  let mockProbeOAuthStart: ReturnType<typeof mock>;
   let mockStartOAuthFlow: ReturnType<typeof mock>;
   let mockCompleteOAuthFlow: ReturnType<typeof mock>;
   let mockGetConnectionStatus: ReturnType<typeof mock>;
@@ -79,6 +80,7 @@ describe('Twitter OAuth Handler', () => {
   beforeEach(() => {
     // Create fresh mocks for each test
     mockIsConfigured = mock(() => Promise.resolve(true));
+    mockProbeOAuthStart = mock(() => Promise.resolve());
     mockStartOAuthFlow = mock(() =>
       Promise.resolve({
         authorizationUrl: 'https://twitter.com/oauth/authorize?oauth_token=test-token',
@@ -110,6 +112,7 @@ describe('Twitter OAuth Handler', () => {
     mockDeps = {
       twitterOAuth: {
         isConfigured: mockIsConfigured as unknown as TwitterOAuthHandlerDeps['twitterOAuth']['isConfigured'],
+        probeOAuthStart: mockProbeOAuthStart as unknown as TwitterOAuthHandlerDeps['twitterOAuth']['probeOAuthStart'],
         startOAuthFlow: mockStartOAuthFlow as unknown as TwitterOAuthHandlerDeps['twitterOAuth']['startOAuthFlow'],
         completeOAuthFlow: mockCompleteOAuthFlow as unknown as TwitterOAuthHandlerDeps['twitterOAuth']['completeOAuthFlow'],
         getConnectionStatus: mockGetConnectionStatus as unknown as TwitterOAuthHandlerDeps['twitterOAuth']['getConnectionStatus'],
@@ -339,6 +342,92 @@ describe('Twitter OAuth Handler', () => {
 
       expect(result.statusCode).toBe(302);
       expect(result.headers?.Location).toContain('twitter_error=Token');
+    });
+  });
+
+  describe('GET /oauth/twitter/health', () => {
+    it('requires authentication', async () => {
+      const event = createEvent({
+        rawPath: '/oauth/twitter/health',
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(mockAuthenticateRequest).toHaveBeenCalled();
+      expect(result.statusCode).toBe(200);
+    });
+
+    it('returns 503 when not configured', async () => {
+      mockIsConfigured.mockImplementation(() => Promise.resolve(false));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/health',
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(503);
+      const body = JSON.parse(result.body as string);
+      expect(body.configured).toBe(false);
+      expect(body.ok).toBe(false);
+    });
+
+    it('returns 200 when configured (no live probe)', async () => {
+      const event = createEvent({
+        rawPath: '/oauth/twitter/health',
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.configured).toBe(true);
+      expect(body.live).toBe(false);
+      expect(body.ok).toBe(true);
+      expect(mockProbeOAuthStart).not.toHaveBeenCalled();
+    });
+
+    it('returns 200 when live probe succeeds', async () => {
+      const event = createEvent({
+        rawPath: '/oauth/twitter/health',
+        queryStringParameters: { live: '1' },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.ok).toBe(true);
+      expect(body.probeOk).toBe(true);
+      expect(mockProbeOAuthStart).toHaveBeenCalled();
+    });
+
+    it('returns 503 when live probe fails', async () => {
+      mockProbeOAuthStart.mockImplementation(() => Promise.reject(new Error('Request failed with code 403')));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/health',
+        queryStringParameters: { live: 'true' },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(503);
+      const body = JSON.parse(result.body as string);
+      expect(body.ok).toBe(false);
+      expect(String(body.probeError)).toContain('403');
+    });
+
+    it('supports /api prefix (CloudFront)', async () => {
+      const event = createEvent({
+        rawPath: '/api/oauth/twitter/health',
+        queryStringParameters: { live: '1' },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(200);
+      expect(mockProbeOAuthStart).toHaveBeenCalled();
     });
   });
 

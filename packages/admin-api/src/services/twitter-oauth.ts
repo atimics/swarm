@@ -129,6 +129,45 @@ export async function isConfigured(deps: TwitterOAuthServiceDeps = defaultDeps):
 }
 
 /**
+ * Smoke-test Twitter OAuth configuration by attempting to create an auth link.
+ *
+ * This performs a network call to Twitter (request token endpoint) but does NOT
+ * store any tokens in DynamoDB and does not return the URL/token to callers.
+ */
+export async function probeOAuthStart(deps: TwitterOAuthServiceDeps = defaultDeps): Promise<void> {
+  const creds = await getAppCredentials(deps);
+  if (!creds || !deps.oauthCallbackUrl) {
+    throw new Error('Twitter OAuth not configured. Ensure swarm/global/twitter-app-credentials secret exists and TWITTER_OAUTH_CALLBACK_URL is set.');
+  }
+
+  const client = new deps.TwitterApi({
+    appKey: creds.appKey,
+    appSecret: creds.appSecret,
+  });
+
+  try {
+    await client.generateAuthLink(deps.oauthCallbackUrl, { linkMode: 'authorize' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      subsystem: 'twitter-oauth',
+      event: 'oauth_probe_failed',
+      oauthCallbackUrl: deps.oauthCallbackUrl,
+      error: message,
+    }));
+
+    if (/\b403\b/.test(message) || /code\s*403/i.test(message)) {
+      throw new Error(
+        `Twitter rejected the OAuth request (HTTP 403). Verify your X Developer app settings allow the callback URL: ${deps.oauthCallbackUrl}`
+      );
+    }
+
+    throw new Error(`Twitter OAuth probe failed: ${message}`);
+  }
+}
+
+/**
  * Start the OAuth flow - get request token and return authorization URL
  */
 export async function startOAuthFlow(avatarId: string, deps: TwitterOAuthServiceDeps = defaultDeps): Promise<{

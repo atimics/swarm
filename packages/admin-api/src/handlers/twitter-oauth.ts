@@ -5,6 +5,7 @@
  * Routes:
  * - GET /oauth/twitter/start?avatarId=xxx - Start OAuth flow
  * - GET /oauth/twitter/callback?oauth_token=xxx&oauth_verifier=xxx - OAuth callback
+ * - GET /oauth/twitter/health?live=1 - Health check (admin only)
  * - GET /oauth/twitter/status/{avatarId} - Check connection status
  * - DELETE /oauth/twitter/{avatarId} - Disconnect Twitter
  */
@@ -15,6 +16,7 @@ import type {
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import {
   isConfigured as twitterIsConfigured,
+  probeOAuthStart as twitterProbeOAuthStart,
   startOAuthFlow as twitterStartOAuthFlow,
   completeOAuthFlow as twitterCompleteOAuthFlow,
   getConnectionStatus as twitterGetConnectionStatus,
@@ -33,6 +35,7 @@ import { getCorsHeaders } from '../http/cors.js';
 export interface TwitterOAuthHandlerDeps {
   twitterOAuth: {
     isConfigured: () => Promise<boolean>;
+    probeOAuthStart: () => Promise<void>;
     startOAuthFlow: (avatarId: string) => Promise<{ authorizationUrl: string; oauthToken: string }>;
     completeOAuthFlow: (oauthToken: string, oauthVerifier: string, session: UserSession) => Promise<{
       success: boolean;
@@ -64,6 +67,7 @@ function getDefaultDeps(): TwitterOAuthHandlerDeps {
   return {
     twitterOAuth: {
       isConfigured: twitterIsConfigured,
+      probeOAuthStart: twitterProbeOAuthStart,
       startOAuthFlow: twitterStartOAuthFlow,
       completeOAuthFlow: twitterCompleteOAuthFlow,
       getConnectionStatus: twitterGetConnectionStatus,
@@ -209,6 +213,45 @@ export async function handler(
         statusCode: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Admin access required' }),
+      };
+    }
+
+    // GET /oauth/twitter/health - Health/smoke test for Twitter OAuth configuration
+    if (method === 'GET' && path === '/oauth/twitter/health') {
+      const configured = await twitterOAuth.isConfigured();
+      const live = event.queryStringParameters?.live === '1' || event.queryStringParameters?.live === 'true';
+
+      let probeOk: boolean | undefined;
+      let probeError: string | undefined;
+
+      if (live) {
+        if (!configured) {
+          probeOk = false;
+          probeError = 'Not configured';
+        } else {
+          try {
+            await twitterOAuth.probeOAuthStart();
+            probeOk = true;
+          } catch (error) {
+            probeOk = false;
+            probeError = error instanceof Error ? error.message : String(error);
+          }
+        }
+      }
+
+      const ok = configured && (!live || probeOk === true);
+
+      return {
+        statusCode: ok ? 200 : 503,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok,
+          configured,
+          live,
+          probeOk,
+          probeError,
+          callbackUrl: process.env.TWITTER_OAUTH_CALLBACK_URL || '',
+        }),
       };
     }
 
