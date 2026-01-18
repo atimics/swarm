@@ -184,6 +184,19 @@ export class AdminApiConstruct extends Construct {
         : cdk.RemovalPolicy.DESTROY,
     });
 
+    this.encryptionKey.addToResourcePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      principals: [new iam.ServicePrincipal('secretsmanager.amazonaws.com')],
+      actions: ['kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey', 'kms:CreateGrant', 'kms:DescribeKey'],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'kms:ViaService': `secretsmanager.${cdk.Stack.of(this).region}.amazonaws.com`,
+          'kms:CallerAccount': cdk.Stack.of(this).account,
+        },
+      },
+    }));
+
     // DynamoDB table for admin data
     this.table = new dynamodb.Table(this, 'AdminTable', {
       tableName: `SwarmAdmin-${environment}`,
