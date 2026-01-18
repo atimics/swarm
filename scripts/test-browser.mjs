@@ -824,7 +824,18 @@ async function runAutonomousBrowserTest() {
   console.log();
   
   const adminUrl = getStackOutput('admin-ui-url');
-  const apiUrl = getStackOutput('admin-api-url');
+  const rawApiUrl = getStackOutput('admin-api-url');
+  const apiUrl = (() => {
+    if (!rawApiUrl) return null;
+    // If API URL points at the admin UI domain without /api, use /api path.
+    if (adminUrl && rawApiUrl === adminUrl) {
+      return `${adminUrl}/api`;
+    }
+    if (adminUrl && rawApiUrl.startsWith(adminUrl) && !rawApiUrl.includes('/api')) {
+      return `${adminUrl}/api`;
+    }
+    return rawApiUrl;
+  })();
   const testKey = getInternalTestKey();
   
   if (!adminUrl) {
