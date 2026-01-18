@@ -106,7 +106,7 @@ export async function submitToolResult(
   avatarId: string,
   toolCallId: string,
   result: unknown
-): Promise<void> {
+): Promise<ChatResponse> {
   const response = await fetch(`${API_BASE}/avatars/${avatarId}/tools/${toolCallId}`, {
     method: 'POST',
     headers: {
@@ -120,6 +120,8 @@ export async function submitToolResult(
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(error.error || `HTTP ${response.status}`);
   }
+
+  return response.json();
 }
 
 /**

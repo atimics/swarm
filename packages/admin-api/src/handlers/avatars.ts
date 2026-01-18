@@ -17,6 +17,7 @@ import * as avatarventsService from '../services/avatar-events.js';
 import * as galleryService from '../services/gallery.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { SecretType } from '../types.js';
+import { resumeChatAfterToolResult } from './chat.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getSessionFromCookie } from '../auth/session-cookie.js';
 import { getCorsHeaders } from '../http/cors.js';
@@ -383,6 +384,49 @@ export async function handler(
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ success: true, message: `${key} stored securely` }),
       };
+    }
+
+    // POST /avatars/{id}/tools/{toolCallId} - Submit a tool result and resume chat
+    const toolsMatch = path.match(/^\/avatars\/([^/]+)\/tools\/([^/]+)$/);
+    if (method === 'POST' && toolsMatch) {
+      const avatarId = toolsMatch[1];
+      const toolCallId = toolsMatch[2];
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const body = JSON.parse(event.body || '{}') as { result?: unknown };
+      if (!('result' in body)) {
+        return jsonResponse(corsHeaders, 400, { error: 'result is required' });
+      }
+
+      try {
+        const resumed = await resumeChatAfterToolResult({
+          avatarId,
+          toolCallId,
+          result: body.result,
+          session,
+        });
+
+        return jsonResponse(corsHeaders, 200, {
+          response: resumed.response,
+          history: resumed.history,
+          media: resumed.media,
+          pendingJobs: resumed.pendingJobs,
+          pendingToolCall: resumed.pendingToolCall,
+          avatarUpdates: resumed.avatarUpdates,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to resume tool call';
+        return jsonResponse(corsHeaders, 400, { error: msg });
+      }
     }
 
     // GET /avatars/{id}/secrets - List secrets (not values)

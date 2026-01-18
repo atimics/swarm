@@ -707,7 +707,7 @@ function parseOpenRouterStatusFromError(message: string): number | null {
  * Process a chat message, executing tools as needed
  */
 async function processChat(
-  userMessage: string,
+  userMessage: string | null,
   conversationHistory: AdminChatMessage[],
   session: UserSession,
   avatar?: AvatarContext,
@@ -753,7 +753,7 @@ async function processChat(
 
   const messages: AdminChatMessage[] = [
     ...conversationHistory,
-    { role: 'user', content: userMessage },
+    ...(userMessage !== null ? [{ role: 'user' as const, content: userMessage }] : []),
   ];
 
   let response = '';
@@ -786,9 +786,9 @@ async function processChat(
     }
   }
 
-  // Auto-transcribe audio attachments
+  // Auto-transcribe audio attachments (only for real user messages)
   let transcribedText = '';
-  if (avatarId && options?.attachments) {
+  if (userMessage !== null && avatarId && options?.attachments) {
     const audioAttachments = options.attachments.filter(a => a.type === 'audio');
     if (audioAttachments.length > 0) {
       logger.info('Auto-transcribing audio attachments', {
@@ -825,11 +825,13 @@ async function processChat(
   }
 
   // Combine original message with transcribed audio
-  const messageWithTranscription = transcribedText ? userMessage + transcribedText : userMessage;
+  const messageWithTranscription = userMessage !== null
+    ? (transcribedText ? userMessage + transcribedText : userMessage)
+    : '';
 
   // Build the user message content - may include attachments
   let userMessageContent: string | Array<{ type: string; text?: string; image_url?: { url: string } }> = messageWithTranscription;
-  if (options?.attachments && options.attachments.length > 0) {
+  if (userMessage !== null && options?.attachments && options.attachments.length > 0) {
     const imageAttachments = options.attachments.filter(a => a.type === 'image');
     if (imageAttachments.length > 0) {
       userMessageContent = [
@@ -841,15 +843,19 @@ async function processChat(
       ];
     }
   }
-  
+
   // Update the last message with attachments/transcription if present
-  const hasModifications = userMessageContent !== messageWithTranscription || transcribedText !== '';
-  const messagesWithAttachments: AdminChatMessage[] = hasModifications
-    ? [
-        ...conversationHistory,
-        { role: 'user' as const, content: userMessageContent as string },
-      ]
-    : messages;
+  const hasModifications = userMessage !== null
+    ? (userMessageContent !== messageWithTranscription || transcribedText !== '')
+    : false;
+  const messagesWithAttachments: AdminChatMessage[] = userMessage === null
+    ? messages
+    : hasModifications
+      ? [
+          ...conversationHistory,
+          { role: 'user' as const, content: userMessageContent as string },
+        ]
+      : messages;
   
   const input = buildModelInput(systemPrompt, messagesWithAttachments);
 
@@ -1313,7 +1319,7 @@ async function processChat(
       context: {
         attempts: LLM_MAX_RETRIES + 1,
         model: effectiveModel,
-        messageLength: userMessage.length,
+        messageLength: (userMessage ?? '').length,
       },
     }).catch(() => {
       // Ignore recording failures
@@ -1607,4 +1613,82 @@ export async function handler(
       }),
     };
   }
+}
+
+/**
+ * Resume the admin chat conversation after the UI submits a tool result.
+ * This appends a proper `role: tool` message (with `tool_call_id`) and lets the model continue.
+ */
+export async function resumeChatAfterToolResult(params: {
+  avatarId: string;
+  toolCallId: string;
+  result: unknown;
+  session: UserSession;
+}): Promise<{
+  response: string;
+  history: AdminChatMessage[];
+  media?: MediaItem[];
+  pendingJobs?: Array<{ jobId: string; type: 'image' | 'video' | 'sticker'; prompt?: string; purpose?: string }>;
+  avatarUpdates?: { profileImageUrl?: string; name?: string };
+  pendingToolCall?: {
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+}> {
+  const { avatarId, toolCallId, result, session } = params;
+
+  const avatarRecord = await avatars.getAvatar(avatarId);
+  const voiceEnabled = process.env.ENABLE_VOICE_TOOLS !== 'false';
+  const mcpConfig = avatarRecord?.mcpConfig;
+  const enabledToolsets = mcpConfig?.enabledToolsets || [];
+  const enabledCategories = avatarRecord
+    ? detectEnabledCategories({
+        voice: voiceEnabled,
+        memory: enabledToolsets.includes('memory'),
+        telegram: Boolean(avatarRecord.platforms?.telegram?.enabled),
+        twitter: Boolean(avatarRecord.platforms?.twitter?.enabled),
+        discord: Boolean(avatarRecord.platforms?.discord?.enabled),
+        nft: true,
+        property: enabledToolsets.includes('property'),
+      })
+    : undefined;
+  const avatarContext: AvatarContext | undefined = avatarRecord
+    ? {
+        id: avatarId,
+        name: avatarRecord.name,
+        description: avatarRecord.description,
+        persona: avatarRecord.persona,
+        enabledCategories,
+      }
+    : { id: avatarId, enabledCategories };
+
+  const history = await chatHistory.getChatHistory(session, avatarId);
+
+  const hasMatchingToolCall = history.some(m =>
+    m.role === 'assistant' &&
+    Array.isArray(m.tool_calls) &&
+    m.tool_calls.some(tc => tc.id === toolCallId)
+  );
+  if (!hasMatchingToolCall) {
+    throw new Error(`Unknown or expired toolCallId: ${toolCallId}`);
+  }
+
+  const toolContent = typeof result === 'string' ? result : JSON.stringify(result ?? {});
+  const nextHistory: AdminChatMessage[] = [
+    ...history,
+    {
+      role: 'tool',
+      tool_call_id: toolCallId,
+      content: toolContent,
+    } as ToolResult,
+  ];
+
+  const avatarMaxTokens = avatarRecord?.llmConfig?.maxTokens;
+  const chatResult = await processChat(null, nextHistory, session, avatarContext, {
+    maxTokens: typeof avatarMaxTokens === 'number' ? avatarMaxTokens : undefined,
+  });
+
+  await chatHistory.saveChatHistory(session, chatResult.history, avatarId);
+  return chatResult;
 }

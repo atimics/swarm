@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { useAvatarStore, useActiveAvatar, useActiveChat, useWalletAuth } from '../store';
-import { sendChatMessage, saveAvatarSecret, pollJobCompletion, updateAvatar as updateAvatarApi, transcribeAudio, type JobStatus } from '../api';
+import { sendChatMessage, saveAvatarSecret, submitToolResult, pollJobCompletion, updateAvatar as updateAvatarApi, transcribeAudio, type JobStatus } from '../api';
 import { ChatMessage as ChatMessageComponent } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { AvatarDisplay } from './AvatarSidebar';
@@ -416,11 +416,30 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         try {
           await saveAvatarSecret(activeAvatar.id, resultObj.secretKey as string, resultObj.value as string);
           updateToolCallStatus();
-          
-          // Send a follow-up message to let the avatar know the secret was stored
-          const followUpContent = `I've entered my ${(resultObj.secretKey as string).replace(/_/g, ' ')}.`;
-          await handleSendMessage(followUpContent);
-          
+
+          const resumed = await submitToolResult(activeAvatar.id, toolCallId, {
+            stored: true,
+            secretKey: resultObj.secretKey,
+          });
+
+          if (resumed.avatarUpdates?.profileImageUrl) {
+            updateAvatar(activeAvatar.id, { avatar: resumed.avatarUpdates.profileImageUrl });
+          }
+          if (resumed.avatarUpdates?.name) {
+            updateAvatar(activeAvatar.id, { name: resumed.avatarUpdates.name });
+          }
+
+          addMessage(activeAvatar.id, {
+            role: 'assistant',
+            content: resumed.response,
+            toolCalls: resumed.pendingToolCall ? [{
+              id: resumed.pendingToolCall.id,
+              name: resumed.pendingToolCall.name,
+              arguments: resumed.pendingToolCall.arguments,
+              status: 'pending',
+            }] : undefined,
+            media: resumed.media,
+          });
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : 'Failed to save secret';
           setError(errorMsg);
@@ -566,8 +585,31 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       // Handle confirmation response
       if ('confirmed' in resultObj) {
         updateToolCallStatus();
-        const followUpContent = resultObj.confirmed ? 'Yes, proceed.' : 'No, cancel that.';
-        await handleSendMessage(followUpContent);
+        try {
+          const resumed = await submitToolResult(activeAvatar.id, toolCallId, resultObj);
+
+          if (resumed.avatarUpdates?.profileImageUrl) {
+            updateAvatar(activeAvatar.id, { avatar: resumed.avatarUpdates.profileImageUrl });
+          }
+          if (resumed.avatarUpdates?.name) {
+            updateAvatar(activeAvatar.id, { name: resumed.avatarUpdates.name });
+          }
+
+          addMessage(activeAvatar.id, {
+            role: 'assistant',
+            content: resumed.response,
+            toolCalls: resumed.pendingToolCall ? [{
+              id: resumed.pendingToolCall.id,
+              name: resumed.pendingToolCall.name,
+              arguments: resumed.pendingToolCall.arguments,
+              status: 'pending',
+            }] : undefined,
+            media: resumed.media,
+          });
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : 'Failed to submit tool result';
+          setError(errorMsg);
+        }
         return;
       }
 
