@@ -15,6 +15,7 @@ describe('Admin Chat - Tool Call Flow', () => {
     it('should identify pause-for-input tools', () => {
       // List of tools that should trigger pendingToolCall
       const pauseTools = [
+        'configure_integration',
         'request_model_selection',
         'request_feature_toggle',
         'request_secret',
@@ -32,11 +33,12 @@ describe('Admin Chat - Tool Call Flow', () => {
         expect(toolName.length).toBeGreaterThan(0);
       }
 
-      expect(pauseTools).toHaveLength(9);
+      expect(pauseTools).toHaveLength(10);
     });
 
     it('should build pending tool response message', () => {
       const toolResponses: Record<string, string> = {
+        configure_integration: 'Please configure the integration below:',
         request_model_selection: 'Please select a model:',
         request_feature_toggle: 'Please choose your preference below:',
         request_secret: 'Please enter the requested secret.',

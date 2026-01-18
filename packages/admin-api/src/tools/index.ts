@@ -12,6 +12,7 @@
  * These should NOT be auto-executed - they return UI payloads
  */
 export const MANUAL_TOOL_NAMES = [
+  'configure_integration',
   'request_secret',
   'request_model_selection',
   'request_feature_toggle',

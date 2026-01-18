@@ -537,6 +537,9 @@ async function buildFeatureTogglePayload(
 }
 
 function buildPendingToolResponse(toolName: string, args: Record<string, unknown>): string {
+  if (toolName === 'configure_integration') {
+    return 'Please configure the integration below:';
+  }
   if (toolName === 'request_model_selection') {
     return 'Please select a model:';
   }
@@ -544,7 +547,11 @@ function buildPendingToolResponse(toolName: string, args: Record<string, unknown
     return 'Please choose your preference below:';
   }
   if (toolName === 'request_secret') {
-    const label = typeof args.label === 'string' ? args.label : 'the requested secret';
+    const label = typeof args.label === 'string'
+      ? args.label
+      : typeof args.secretType === 'string'
+        ? args.secretType.replace(/_/g, ' ')
+        : 'the requested secret';
     return `Please enter ${label}.`;
   }
   if (toolName === 'request_twitter_connection' || toolName === 'twitter_request_integration') {
@@ -1080,43 +1087,167 @@ async function processChat(
   
   // When using fallback, we need to manually execute tools since we don't have the SDK's streaming interface
   if (toolCalls.length > 0 && usedFallback) {
-    logger.info('Executing tools manually (fallback mode)', { toolCallCount: toolCalls.length });
-    for (const toolCall of toolCalls) {
-      const toolName = String(toolCall.name);
-      const toolArgs = typeof toolCall.arguments === 'object' && toolCall.arguments !== null
-        ? toolCall.arguments as Record<string, unknown>
-        : {};
-      
-      try {
-        const tool = tools.find(t => t.function.name === toolName);
-        if (tool && hasExecuteFunction(tool)) {
-          logger.info('Executing tool', { toolName, toolCallId: toolCall.id });
-          const result = await tool.function.execute(toolArgs);
-          const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
-          toolResults.push({
-            tool_call_id: String(toolCall.id),
-            role: 'tool',
-            content: resultStr,
-          });
-          logger.info('Tool executed successfully', { toolName, toolCallId: toolCall.id, resultLength: resultStr.length });
-        } else {
-          logger.warn('Tool not executable', { toolName, toolCallId: toolCall.id, hasExecute: !!tool && hasExecuteFunction(tool) });
-          toolResults.push({
-            tool_call_id: String(toolCall.id),
-            role: 'tool',
-            content: JSON.stringify({ error: `Tool ${toolName} is not executable` }),
-          });
-        }
-      } catch (error) {
-        logger.error('Tool execution failed', error, { toolName, toolCallId: toolCall.id });
-        toolResults.push({
-          tool_call_id: String(toolCall.id),
+    const MAX_FALLBACK_TOOL_STEPS = 8;
+    let fallbackStep = 0;
+    let currentToolCalls = toolCalls;
+    let currentAdminToolCalls = adminToolCalls;
+    let currentAssistantContent = fallbackResponse;
+
+    // Build a base message list in OpenAI format for the fallback calls.
+    // This is separate from `messages` (AdminChatMessage[]) to avoid type mismatches.
+    const baseApiMessages: Array<Record<string, unknown>> = [{ role: 'system', content: systemPrompt }];
+    for (const msg of sanitizeMessages(messagesWithAttachments)) {
+      if (msg.role === 'tool') {
+        baseApiMessages.push({
           role: 'tool',
-          content: JSON.stringify({ error: error instanceof Error ? error.message : 'Tool execution failed' }),
+          tool_call_id: (msg as ToolResult).tool_call_id,
+          content: msg.content,
         });
+        continue;
+      }
+
+      if (msg.role === 'assistant' && msg.tool_calls) {
+        baseApiMessages.push({
+          role: 'assistant',
+          content: msg.content ?? '',
+          tool_calls: msg.tool_calls,
+        });
+        continue;
+      }
+
+      baseApiMessages.push({ role: msg.role, content: msg.content });
+    }
+
+    // Tool loop: execute tools, then call the model again with tool results, repeating until no tool calls.
+    while (currentToolCalls.length > 0 && fallbackStep < MAX_FALLBACK_TOOL_STEPS) {
+      fallbackStep++;
+      logger.info('Executing tools manually (fallback mode)', {
+        fallbackStep,
+        toolCallCount: currentToolCalls.length,
+        toolNames: currentToolCalls.map(tc => String(tc.name)),
+      });
+
+      // Add an assistant tool-call message and corresponding tool results to the API message list.
+      baseApiMessages.push({
+        role: 'assistant',
+        content: currentAssistantContent || '',
+        tool_calls: currentAdminToolCalls.map(tc => ({
+          id: tc.id,
+          type: 'function',
+          function: {
+            name: tc.function.name,
+            arguments: tc.function.arguments,
+          },
+        })),
+      });
+
+      for (const toolCall of currentToolCalls) {
+        const toolName = String(toolCall.name);
+        const toolArgs = typeof toolCall.arguments === 'object' && toolCall.arguments !== null
+          ? toolCall.arguments as Record<string, unknown>
+          : {};
+
+        try {
+          const tool = tools.find(t => t.function.name === toolName);
+          if (tool && hasExecuteFunction(tool)) {
+            logger.info('Executing tool', { toolName, toolCallId: toolCall.id, fallbackStep });
+            const result = await tool.function.execute(toolArgs);
+            const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+            toolResults.push({
+              tool_call_id: String(toolCall.id),
+              role: 'tool',
+              content: resultStr,
+            });
+            baseApiMessages.push({ role: 'tool', tool_call_id: String(toolCall.id), content: resultStr });
+            logger.info('Tool executed successfully', {
+              toolName,
+              toolCallId: toolCall.id,
+              fallbackStep,
+              resultLength: resultStr.length,
+            });
+          } else {
+            logger.warn('Tool not executable', {
+              toolName,
+              toolCallId: toolCall.id,
+              fallbackStep,
+              hasExecute: !!tool && hasExecuteFunction(tool),
+            });
+            const errStr = JSON.stringify({ error: `Tool ${toolName} is not executable` });
+            toolResults.push({
+              tool_call_id: String(toolCall.id),
+              role: 'tool',
+              content: errStr,
+            });
+            baseApiMessages.push({ role: 'tool', tool_call_id: String(toolCall.id), content: errStr });
+          }
+        } catch (error) {
+          logger.error('Tool execution failed', error, { toolName, toolCallId: toolCall.id, fallbackStep });
+          const errStr = JSON.stringify({ error: error instanceof Error ? error.message : 'Tool execution failed' });
+          toolResults.push({
+            tool_call_id: String(toolCall.id),
+            role: 'tool',
+            content: errStr,
+          });
+          baseApiMessages.push({ role: 'tool', tool_call_id: String(toolCall.id), content: errStr });
+        }
+      }
+
+      logger.info('Manual tool execution complete (fallback mode)', {
+        fallbackStep,
+        toolResultCount: toolResults.length,
+      });
+
+      // Call the model again with tool results to get either a final response or more tool calls.
+      const next = await callLlmDirectFallback(
+        effectiveModel,
+        baseApiMessages as unknown as Array<{ role: string; content: string }>,
+        maxOutputTokens,
+        tools.length > 0 ? tools : undefined
+      );
+
+      currentAssistantContent = next.content;
+      currentToolCalls = next.toolCalls.map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments,
+      })) as unknown as SdkToolCall[];
+      currentAdminToolCalls = next.toolCalls.map(tc => ({
+        id: tc.id,
+        type: 'function' as const,
+        function: {
+          name: tc.name,
+          arguments: JSON.stringify(tc.arguments),
+        },
+      }));
+
+      // If the fallback model requested a manual/pause tool, stop and return a pending tool call.
+      const nextPauseTool = currentToolCalls.find(tc => isPauseForInputTool(String(tc.name), getToolArgs(tc)));
+      if (nextPauseTool && mcpServices && avatarId) {
+        pendingToolCall = {
+          id: String(nextPauseTool.id),
+          name: String(nextPauseTool.name),
+          arguments: getToolArgs(nextPauseTool),
+        };
+
+        response = buildPendingToolResponse(pendingToolCall.name, pendingToolCall.arguments);
+        messages.push({
+          role: 'assistant',
+          content: response,
+          tool_calls: [toAdminToolCall(nextPauseTool)],
+        });
+
+        return {
+          response,
+          history: messages,
+          pendingToolCall,
+        };
+      }
+
+      // No more tool calls -> we have a final response.
+      if (currentToolCalls.length === 0) {
+        response = currentAssistantContent;
       }
     }
-    logger.info('Manual tool execution complete', { toolResultCount: toolResults.length });
   }
   
   // When using SDK, process the tool execution stream
