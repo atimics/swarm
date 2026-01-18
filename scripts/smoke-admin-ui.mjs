@@ -57,7 +57,7 @@ async function runSmoke() {
       }
     });
 
-    await page.goto(URL, { waitUntil: 'networkidle' });
+    await page.goto(URL, { waitUntil: 'domcontentloaded' });
 
     const bodyText = await page.textContent('body');
     if (bodyText && bodyText.includes('Privy is not configured')) {
