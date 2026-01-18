@@ -1341,6 +1341,47 @@ async function processChat(
     }
   }
 
+  // If the user asked for model config, ensure we surface it even if the fallback
+  // model response is empty or unhelpful.
+  if (toolCalls.length > 0 && toolResults.length > 0) {
+    const toolCallNameById = new Map(toolCalls.map(tc => [String(tc.id), String(tc.name)]));
+    const modelConfigResult = toolResults.find(r => toolCallNameById.get(String(r.tool_call_id)) === 'get_my_model_config');
+    if (modelConfigResult?.content && typeof modelConfigResult.content === 'string') {
+      try {
+        const parsed = JSON.parse(modelConfigResult.content) as { success?: boolean; data?: unknown };
+        if (parsed?.success === true && parsed.data && typeof parsed.data === 'object') {
+          const data = parsed.data as Record<string, unknown>;
+          const model = typeof data.model === 'string' ? data.model : undefined;
+          const temperature = typeof data.temperature === 'number' ? data.temperature : undefined;
+          const maxTokens = typeof data.maxTokens === 'number' ? data.maxTokens : undefined;
+          const provider = typeof data.provider === 'string' ? data.provider : undefined;
+
+          const summaryParts = [
+            model ? `Model: ${model}` : null,
+            provider ? `Provider: ${provider}` : null,
+            typeof temperature === 'number' ? `Temperature: ${temperature}` : null,
+            typeof maxTokens === 'number' ? `Max tokens: ${maxTokens}` : null,
+          ].filter((p): p is string => !!p);
+
+          if (summaryParts.length > 0) {
+            const summary = summaryParts.join('\n');
+            const responseIsEmptyOrApology = !response || response.includes("I apologize, but I couldn't generate a response");
+            if (responseIsEmptyOrApology) {
+              response = summary;
+            } else {
+              const hasModelHint = /\bmodel\b|temperature|max\s*tokens/i.test(response);
+              if (!hasModelHint) {
+                response = `${response}\n\n${summary}`;
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignore JSON parsing failures
+      }
+    }
+  }
+
   if (!response) {
     logger.error('LLM response empty after all retries', {
       event: 'llm_empty_after_retries',
@@ -1365,7 +1406,44 @@ async function processChat(
 
     response = 'I apologize, but I couldn\'t generate a response. Please try again.';
   }
-  messages.push({ role: 'assistant', content: response });
+
+  // Backend fallback: sometimes the model emits the Twitter connect prompt as plain text
+  // without an explicit pause tool call. If that happens, synthesize a pending tool call
+  // so UIs can reliably render the connect dialog and submit the tool result.
+  const shouldSynthesizeTwitterConnect =
+    !pendingToolCall &&
+    typeof response === 'string' &&
+    /please\s+connect\s+your\s+(x\/?twitter|twitter\/?x)\s+account\s*:/i.test(response) &&
+    !!avatarId;
+
+  if (shouldSynthesizeTwitterConnect) {
+    const syntheticArgs: Record<string, unknown> = {
+      integration: 'twitter',
+    };
+
+    pendingToolCall = {
+      id: `synthetic-twitter-connect-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      name: 'configure_integration',
+      arguments: syntheticArgs,
+    };
+
+    messages.push({
+      role: 'assistant',
+      content: response,
+      tool_calls: [
+        {
+          id: pendingToolCall.id,
+          type: 'function' as const,
+          function: {
+            name: pendingToolCall.name,
+            arguments: JSON.stringify(pendingToolCall.arguments),
+          },
+        },
+      ],
+    });
+  } else {
+    messages.push({ role: 'assistant', content: response });
+  }
 
   const toolCallNames = new Map(toolCalls.map(tc => [tc.id, tc.name]));
   for (const result of toolResults) {
