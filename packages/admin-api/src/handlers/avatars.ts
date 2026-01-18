@@ -46,6 +46,24 @@ function isAdminWallet(walletAddress: string): boolean {
   return ADMIN_WALLETS.includes(walletAddress);
 }
 
+function jsonResponse(
+  corsHeaders: Record<string, string>,
+  statusCode: number,
+  body: unknown
+): APIGatewayProxyResultV2 {
+  return {
+    statusCode,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
+async function getWalletSessionFromEvent(event: APIGatewayProxyEventV2) {
+  const sessionToken = getSessionFromCookie(event);
+  if (!sessionToken) return null;
+  return getSessionWithUser(sessionToken);
+}
+
 // Cookie parsing is handled by ../auth/session-cookie.ts
 
 /**
@@ -63,13 +81,10 @@ export async function handler(
   try {
     // Authenticate
     const session = await authenticateRequest(event);
-    if (!requireAdmin(session)) {
-      return {
-        statusCode: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Admin access required' }),
-      };
-    }
+    const isAdmin = requireAdmin(session);
+    const walletSession = await getWalletSessionFromEvent(event);
+    const walletAddress = walletSession?.walletAddress ?? null;
+    const effectiveIsAdmin = isAdmin || (walletAddress ? isAdminWallet(walletAddress) : false);
 
     const method = event.requestContext.http.method;
     const path = event.rawPath;
@@ -87,35 +102,30 @@ export async function handler(
         };
       }
 
-      // Check for wallet session - use wallet-based creation with gating
-      const sessionToken = getSessionFromCookie(event);
-      if (sessionToken) {
-        const walletSession = await getSessionWithUser(sessionToken);
-        if (walletSession?.walletAddress) {
-          // Wallet user: use gated creation
-          const result = await avatarService.createAvatarWithWallet(name, walletSession.walletAddress, description);
-          if (!result.success) {
-            const errorMessage = result.error === 'no_gate_slot'
-              ? 'No available avatar slots. Hold an Orb NFT to create more avatars.'
-              : result.error === 'name_taken'
-              ? 'An avatar with this name already exists.'
-              : 'Failed to create avatar.';
-            return {
-              statusCode: result.error === 'no_gate_slot' ? 403 : 400,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ error: errorMessage, gateStatus: result.gateStatus }),
-            };
-          }
-          logger.info(`[Avatars] Created avatar=${result.avatar!.avatarId} by wallet=${walletSession.walletAddress.slice(0, 8)}...`);
-          return {
-            statusCode: 201,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            body: JSON.stringify(result.avatar),
-          };
+      // Wallet user: use gated creation (non-admin allowed)
+      if (walletAddress) {
+        const result = await avatarService.createAvatarWithWallet(name, walletAddress, description);
+        if (!result.success) {
+          const errorMessage = result.error === 'no_gate_slot'
+            ? 'No available avatar slots. Hold an Orb NFT to create more avatars.'
+            : result.error === 'name_taken'
+            ? 'An avatar with this name already exists.'
+            : 'Failed to create avatar.';
+          return jsonResponse(corsHeaders, result.error === 'no_gate_slot' ? 403 : 400, {
+            error: errorMessage,
+            gateStatus: result.gateStatus,
+          });
         }
+
+        logger.info(`[Avatars] Created avatar=${result.avatar!.avatarId} by wallet=${walletAddress.slice(0, 8)}...`);
+        return jsonResponse(corsHeaders, 201, result.avatar);
       }
 
-      // Fallback: legacy email-based creation (CF Access admin)
+      // Legacy email-based creation stays admin-only
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Wallet sign-in required' });
+      }
+
       const avatar = await avatarService.createAvatar(name, session, description);
 
       return {
@@ -127,32 +137,21 @@ export async function handler(
 
     // GET /avatars - List avatars (filtered by wallet unless admin)
     if (method === 'GET' && path === '/avatars') {
-      // Check for wallet session to filter avatars by creator
-      const sessionToken = getSessionFromCookie(event);
       let avatars: Awaited<ReturnType<typeof avatarService.listAvatars>>;
 
-      if (sessionToken) {
-        const walletSession = await getSessionWithUser(sessionToken);
-        if (walletSession?.walletAddress) {
-          // Check if this wallet is an admin
-          if (isAdminWallet(walletSession.walletAddress)) {
-            // Admin wallet: show all avatars
-            avatars = await avatarService.listAvatars();
-            logger.info(`[Avatars] Admin wallet=${walletSession.walletAddress.slice(0, 8)}... listed all ${avatars.length} avatars`);
-          } else {
-            // Regular wallet user: show only avatars they created OR inhabit
-            avatars = await avatarService.listAvatarsByWallet(walletSession.walletAddress);
-            logger.info(`[Avatars] Listed ${avatars.length} avatars for wallet=${walletSession.walletAddress.slice(0, 8)}...`);
-          }
+      if (walletAddress) {
+        if (effectiveIsAdmin) {
+          avatars = await avatarService.listAvatars();
+          logger.info(`[Avatars] Admin wallet=${walletAddress.slice(0, 8)}... listed all ${avatars.length} avatars`);
         } else {
-          // Invalid/expired session - return empty list (they need to re-auth)
-          avatars = [];
-          logger.warn(`[Avatars] Invalid wallet session (token present but session not found), returning empty list`);
+          avatars = await avatarService.listAvatarsByWallet(walletAddress);
+          logger.info(`[Avatars] Listed ${avatars.length} avatars for wallet=${walletAddress.slice(0, 8)}...`);
         }
-      } else {
-        // No wallet session (CF Access / internal test only) - return all avatars
+      } else if (effectiveIsAdmin) {
         avatars = await avatarService.listAvatars();
         logger.info(`[Avatars] Listed all ${avatars.length} avatars (no wallet session)`);
+      } else {
+        return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
       }
 
       return {
@@ -176,6 +175,12 @@ export async function handler(
         };
       }
 
+      if (!effectiveIsAdmin) {
+        if (!walletAddress || (avatar.creatorWallet !== walletAddress && avatar.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -187,6 +192,16 @@ export async function handler(
     if (method === 'PUT' && avatardMatch) {
       const avatarId = avatardMatch[1];
       const body = JSON.parse(event.body || '{}');
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
 
       const avatar = await avatarService.updateAvatar(avatarId, body, session);
 
@@ -200,6 +215,17 @@ export async function handler(
     // DELETE /avatars/{id} - Delete avatar
     if (method === 'DELETE' && avatardMatch) {
       const avatarId = avatardMatch[1];
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || existing.creatorWallet !== walletAddress) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
       await avatarService.deleteAvatar(avatarId, session);
 
       return {
@@ -214,6 +240,16 @@ export async function handler(
       const avatarId = secretsMatch[1];
       const body = JSON.parse(event.body || '{}');
       const { key, value } = body;
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
 
       if (typeof key !== 'string' || typeof value !== 'string' || !key || !value) {
         return {
@@ -331,6 +367,17 @@ export async function handler(
     // GET /avatars/{id}/secrets - List secrets (not values)
     if (method === 'GET' && secretsMatch) {
       const avatarId = secretsMatch[1];
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
       const secrets = await secretsService.listSecrets(avatarId);
 
       return {
@@ -343,6 +390,9 @@ export async function handler(
     // GET /avatars/{id}/logs - Query consolidated logs for an avatar (CloudWatch - slow)
     const logsMatch = path.match(/^\/avatars\/([^/]+)\/logs$/);
     if (method === 'GET' && logsMatch) {
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+      }
       const avatarId = logsMatch[1];
       const params = event.queryStringParameters || {};
 
@@ -396,6 +446,9 @@ export async function handler(
     // GET /avatars/{id}/issues - List issues for an avatar (from CloudWatch - legacy)
     const issuesMatch = path.match(/^\/avatars\/([^/]+)\/issues$/);
     if (method === 'GET' && issuesMatch) {
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+      }
       const avatarId = issuesMatch[1];
       const params = event.queryStringParameters || {};
       const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
@@ -414,6 +467,9 @@ export async function handler(
     // GET /avatars/{id}/events - List events (issues + feedback) from DynamoDB
     const eventsMatch = path.match(/^\/avatars\/([^/]+)\/events$/);
     if (method === 'GET' && eventsMatch) {
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+      }
       const avatarId = eventsMatch[1];
       const params = event.queryStringParameters || {};
       const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
@@ -442,6 +498,9 @@ export async function handler(
     // GET /avatars/{id}/events/counts - Get event summary for dashboard
     const eventCountsMatch = path.match(/^\/avatars\/([^/]+)\/events\/counts$/);
     if (method === 'GET' && eventCountsMatch) {
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+      }
       const avatarId = eventCountsMatch[1];
       const counts = await avatarventsService.getAvatarEventCounts(avatarId);
 
@@ -455,6 +514,9 @@ export async function handler(
     // PATCH /avatars/{id}/events/{eventId} - Update issue status
     const eventUpdateMatch = path.match(/^\/avatars\/([^/]+)\/events\/([^/]+)$/);
     if (method === 'PATCH' && eventUpdateMatch) {
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+      }
       const avatarId = eventUpdateMatch[1];
       const eventId = eventUpdateMatch[2];
       const body = JSON.parse(event.body || '{}');
@@ -487,6 +549,10 @@ export async function handler(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
+
+    if (errorMessage === 'No authentication token provided' || errorMessage === 'Session expired') {
+      return jsonResponse(corsHeaders, 401, { error: errorMessage });
+    }
 
     logger.setContext({ subsystem: 'avatars' });
     logger.error('Avatar handler error', error);

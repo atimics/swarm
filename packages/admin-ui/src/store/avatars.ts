@@ -83,6 +83,9 @@ export const useAvatarStore = create<AvatarState>()(
             color: getRandomColor(),
             secrets: [],
             status: response.status,
+            creatorWallet: response.creatorWallet,
+            inhabitantWallet: response.inhabitantWallet,
+            inhabitedAt: response.inhabitedAt,
             createdAt: response.createdAt,
             updatedAt: response.updatedAt,
           };
@@ -181,6 +184,9 @@ export const useAvatarStore = create<AvatarState>()(
             color: getRandomColor(),
             secrets: [],
             status: r.status,
+            creatorWallet: r.creatorWallet,
+            inhabitantWallet: r.inhabitantWallet,
+            inhabitedAt: r.inhabitedAt,
             createdAt: r.createdAt,
             updatedAt: r.updatedAt,
           }));

@@ -9,7 +9,7 @@
  * - Inhabiting, no Orbs: Full admin on inhabited only, chat on others, no create
  */
 import { useAvatarStore } from '../store/avatars';
-import { useWalletAuth } from '../store/walletAuth';
+import { useAuth } from '../store/auth';
 import { ThemeToggle } from './ThemeToggle';
 import { WalletLogin } from './WalletLogin';
 import type { Avatar } from '../types';
@@ -99,7 +99,9 @@ interface AvatarSidebarProps {
 
 export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
   const { avatars, activeAvatarId, createAvatar, setActiveAvatar, isLoading, error } = useAvatarStore();
-  const { isAuthenticated, user, gateStatus } = useWalletAuth();
+  const { isAuthenticated, user, gateStatus, account } = useAuth();
+
+  const isAdmin = account?.role === 'admin';
 
   // Determine access level
   const walletAddress = user?.walletAddress;
@@ -107,10 +109,12 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
   const hasOrbs = (gateStatus?.nftsHeld || 0) > 0;
   const canCreate = gateStatus?.canCreate || false;
 
+  const bypassRestrictions = isAdmin;
+
   // Filter avatars based on access level:
   // - If inhabiting with no orbs: only show inhabited avatar
   // - Otherwise: show all avatars
-  const filteredAvatars = inhabitedAvatarId && !hasOrbs
+  const filteredAvatars = !bypassRestrictions && inhabitedAvatarId && !hasOrbs
     ? avatars.filter(a => a.id === inhabitedAvatarId)
     : avatars;
 
@@ -145,6 +149,15 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
   // Determine if create button should be shown (visible when authenticated, but may be disabled)
   const showCreateButton = isAuthenticated;
   const canCreateAvatar = canCreate;
+
+  const gateNftsHeld = gateStatus?.nftsHeld ?? 0;
+  const gateAvatarsCreated = gateStatus?.avatarsCreated ?? 0;
+  const totalSlotsRaw = 1 + gateNftsHeld;
+  const totalSlots = Number.isFinite(totalSlotsRaw) ? totalSlotsRaw : 1;
+  const usedSlots = Math.max(0, Math.min(totalSlots, totalSlots - (gateStatus?.availableSlots ?? 0)));
+  const maxSlotOrbs = 10;
+  const displaySlots = Math.min(totalSlots, maxSlotOrbs);
+  const hiddenSlots = Math.max(0, totalSlots - displaySlots);
 
   // Get reason why creation is disabled (for tooltip)
   const getCreateDisabledReason = (): string | null => {
@@ -220,6 +233,78 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
 
       {/* Avatar List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {/* Slot Orbs (wallet gating) */}
+        {isAuthenticated && gateStatus && !bypassRestrictions && (
+          <div className="px-2 py-2 mb-2 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wider">
+                Slots
+              </div>
+              <div className="text-xs text-[var(--color-text-muted)]">
+                {gateStatus.availableSlots} available • {gateAvatarsCreated} used
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {Array.from({ length: displaySlots }).map((_, idx) => {
+                const slotIndex = idx + 1;
+                const isFree = slotIndex === 1;
+                const isUsed = idx < usedSlots;
+                const isAvailable = !isUsed;
+                const clickable = isAvailable && canCreateAvatar && !isLoading;
+
+                const baseClass =
+                  'w-7 h-7 rounded-full flex items-center justify-center border transition-colors';
+                const className = isUsed
+                  ? `${baseClass} bg-brand-600/70 border-brand-500/70`
+                  : `${baseClass} bg-[var(--color-bg-secondary)] border-[var(--color-border)] hover:border-brand-500/60`;
+
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={clickable ? handleCreateAvatar : undefined}
+                    disabled={!clickable}
+                    className={`${className} ${clickable ? 'cursor-pointer' : 'cursor-default opacity-80'}`}
+                    title={
+                      isFree
+                        ? isUsed
+                          ? 'Free slot (used)'
+                          : clickable
+                          ? 'Free slot (click to create)'
+                          : 'Free slot'
+                        : isUsed
+                        ? 'Orb slot (used)'
+                        : clickable
+                        ? 'Orb slot (click to create)'
+                        : 'Orb slot'
+                    }
+                    aria-label={isFree ? 'Free slot' : 'Orb slot'}
+                  >
+                    <div
+                      className={
+                        isFree
+                          ? 'w-3 h-3 rounded-full bg-yellow-300/90'
+                          : 'w-3 h-3 rounded-full bg-white/90'
+                      }
+                    />
+                  </button>
+                );
+              })}
+
+              {hiddenSlots > 0 && (
+                <div className="text-xs text-[var(--color-text-muted)] px-1">
+                  +{hiddenSlots}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-2 text-xs text-[var(--color-text-muted)]">
+              1 free slot • +1 per Orb NFT
+            </div>
+          </div>
+        )}
+
         {/* Prominent New Avatar Button */}
         {showCreateButton && (
           <button

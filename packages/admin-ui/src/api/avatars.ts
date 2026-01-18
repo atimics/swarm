@@ -38,6 +38,11 @@ export interface AvatarResponse {
   createdAt: number;
   updatedAt: number;
   createdBy: string;
+  // Wallet ownership (present for wallet-created / inhabited avatars)
+  creatorWallet?: string;
+  inhabitantWallet?: string;
+  inhabitedAt?: number;
+  currentEra?: number;
   mediaConfig?: MediaConfig;
   voiceConfig?: VoiceConfig;
   platforms?: {
