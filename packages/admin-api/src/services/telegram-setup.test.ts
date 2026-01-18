@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { setupTelegramIntegration } from './telegram-setup.js';
 
-const session = { email: 'test@example.com', userId: 'wallet-1', expiresAt: 0 };
+const session = { email: 'test@example.com', userId: 'wallet-1', expiresAt: 0, isAdmin: false, accessToken: '' };
 
 describe('telegram setup', () => {
   it('bails out when token is invalid', async () => {

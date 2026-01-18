@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { createAvatarAccessChecker } from './chat-access.js';
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
-const session = { email: 'test@example.com', userId: 'wallet-1', expiresAt: 0 };
+const session = { email: 'test@example.com', userId: 'wallet-1', expiresAt: 0, isAdmin: false, accessToken: '' };
 
 describe('chat access', () => {
   it('allows admin without checks', async () => {
@@ -26,7 +26,7 @@ describe('chat access', () => {
     });
 
     const result = await ensureAccess('avatar-1');
-    expect(result?.statusCode).toBe(404);
+    expect(result && typeof result !== 'string' ? result.statusCode : undefined).toBe(404);
   });
 
   it('denies access when wallet does not match', async () => {
@@ -38,7 +38,7 @@ describe('chat access', () => {
     });
 
     const result = await ensureAccess('avatar-1');
-    expect(result?.statusCode).toBe(404);
+    expect(result && typeof result !== 'string' ? result.statusCode : undefined).toBe(404);
   });
 
   it('allows access when wallet matches creator', async () => {

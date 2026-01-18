@@ -1,4 +1,5 @@
 import {
+  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   DeleteCommand,
@@ -15,7 +16,7 @@ export interface ChatHistoryRecord {
 }
 
 export interface ChatHistoryStoreDeps {
-  dynamoClient: { send: (cmd: unknown) => Promise<unknown> };
+  dynamoClient: DynamoDBDocumentClient;
   tableName: string;
   now?: () => number;
   maxMessages?: number;

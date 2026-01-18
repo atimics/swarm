@@ -1,5 +1,6 @@
 import type { UserSession } from '../types.js';
-import type { SecretType } from '../types.js';
+import type { updateAvatar } from './avatars.js';
+import type { storeSecret } from './secrets.js';
 
 export interface TelegramSetupResult {
   success: boolean;
@@ -24,8 +25,8 @@ export interface TelegramSetupDeps {
     reRegistered?: boolean;
   }>;
   generateWebhookSecret: () => string;
-  updateAvatar: (avatarId: string, update: unknown, session: UserSession) => Promise<void>;
-  storeSecret: (avatarId: string, secretType: SecretType, name: string, value: string, session: UserSession, description: string) => Promise<void>;
+  updateAvatar: typeof updateAvatar;
+  storeSecret: typeof storeSecret;
 }
 
 export async function setupTelegramIntegration(params: {

@@ -47,13 +47,13 @@ describe('chat history store', () => {
     let now = 1_000_000;
     const { store, send } = makeInMemoryDynamo();
     const historyStore = createChatHistoryStore({
-      dynamoClient: { send },
+      dynamoClient: { send } as unknown as import('@aws-sdk/lib-dynamodb').DynamoDBDocumentClient,
       tableName: 'test-table',
       ttlSeconds: 60,
       now: () => now,
     });
 
-    const session = { email: 'test@example.com', userId: 'wallet-1', expiresAt: 0 };
+    const session = { email: 'test@example.com', userId: 'wallet-1', expiresAt: 0, isAdmin: false, accessToken: '' };
     const messages: AdminChatMessage[] = [{ role: 'user', content: 'hi' }];
 
     await historyStore.saveChatHistory(session, messages, 'avatar-1');
