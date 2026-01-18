@@ -468,6 +468,29 @@ export class AdminApiConstruct extends Construct {
       integration: chatIntegration,
     });
 
+      // Media conversion handler (audio/video transcoding)
+      const mediaConvertHandler = new nodejs.NodejsFunction(this, 'MediaConvertHandler', {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(__dirname, '../../../admin-api/src/handlers/media-convert.ts'),
+        handler: 'handler',
+        timeout: cdk.Duration.seconds(60),
+        memorySize: 1024,
+        environment: {
+          MEDIA_BUCKET: mediaBucket?.bucketName || '',
+          CDN_URL: cdnUrl || '',
+          NODE_ENV: environment,
+        },
+        bundling: {
+          externalModules: ['@aws-sdk/*'],
+          minify: true,
+          sourceMap: true,
+        },
+      });
+
+      if (mediaBucket) {
+        mediaBucket.grantReadWrite(mediaConvertHandler);
+      }
+
     // Transcribe handler - for audio transcription
     const transcribeHandler = new nodejs.NodejsFunction(this, 'TranscribeHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -486,6 +509,7 @@ export class AdminApiConstruct extends Construct {
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
+        nodeModules: ['ffmpeg-static'],
         minify: true,
         sourceMap: true,
       },
@@ -584,6 +608,17 @@ export class AdminApiConstruct extends Construct {
       'Environment.Variables.WEBHOOK_DOMAIN',
       apiGatewayHost
     );
+
+    (this.chatHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+      'Environment.Variables.MEDIA_CONVERT_FUNCTION',
+      mediaConvertHandler.functionName
+    );
+
+    this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [mediaConvertHandler.functionArn],
+    }));
 
     // CloudWatch Logs access for consolidated avatar logs
     avatarsHandler.addToRolePolicy(new iam.PolicyStatement({
@@ -993,6 +1028,17 @@ export class AdminApiConstruct extends Construct {
       resources: [
         `arn:aws:secretsmanager:*:${cdk.Stack.of(this).account}:secret:swarm/*`,
       ],
+    }));
+
+    (telegramWebhookHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+      'Environment.Variables.MEDIA_CONVERT_FUNCTION',
+      mediaConvertHandler.functionName
+    );
+
+    telegramWebhookHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [mediaConvertHandler.functionArn],
     }));
 
     // Update TelegramWebhookHandler to use raw API Gateway URL for Replicate webhooks

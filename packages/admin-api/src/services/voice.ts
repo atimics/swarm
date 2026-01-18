@@ -13,6 +13,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import type { AudioAsset, VoiceProfile } from '../types.js';
 import { _getSecretValueInternal } from './secrets.js';
+import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { syncAvatarConfig } from './config-sync.js';
 import { getAvatar } from './avatars.js';
 import * as credits from './credits.js';
@@ -26,6 +27,8 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET!;
 const CDN_URL = process.env.CDN_URL;
 const REPLICATE_ENDPOINT = 'https://api.replicate.com/v1/predictions';
+const MEDIA_CONVERT_FUNCTION = process.env.MEDIA_CONVERT_FUNCTION;
+const lambdaClient = new LambdaClient({});
 
 // Replicate models for voice generation
 // STABLE_AUDIO_MODEL: Used for generating abstract audio seed from text prompts
@@ -122,6 +125,39 @@ async function makeUrlAccessible(url: string): Promise<string> {
 
   const command = new GetObjectCommand({ Bucket: parsed.bucket, Key: parsed.key });
   return getSignedUrl(s3Client, command, { expiresIn: 3600 });
+}
+
+async function convertAudioForTelegram(params: {
+  avatarId: string;
+  sourceUrl: string;
+  targetFormat: 'ogg';
+}): Promise<string> {
+  if (!MEDIA_CONVERT_FUNCTION) {
+    console.warn('[Voice] MEDIA_CONVERT_FUNCTION not configured; using source audio');
+    return params.sourceUrl;
+  }
+
+  const payload = {
+    avatarId: params.avatarId,
+    sourceUrl: params.sourceUrl,
+    mediaType: 'audio',
+    targetFormat: params.targetFormat,
+  };
+
+  const response = await lambdaClient.send(new InvokeCommand({
+    FunctionName: MEDIA_CONVERT_FUNCTION,
+    Payload: Buffer.from(JSON.stringify(payload)),
+  }));
+
+  const decoded = response.Payload
+    ? JSON.parse(Buffer.from(response.Payload).toString('utf-8')) as { success: boolean; url?: string; error?: string }
+    : null;
+
+  if (!decoded?.success || !decoded.url) {
+    throw new Error(decoded?.error || 'Failed to convert audio for Telegram');
+  }
+
+  return decoded.url;
 }
 
 async function getSecret(avatarId: string, type: 'openai_api_key' | 'replicate_api_key'): Promise<string | null> {
@@ -947,12 +983,20 @@ export async function sendVoiceMessage(params: {
     speed: params.speed,
   });
 
-  const voiceUrl = await makeUrlAccessible(generated.url);
+  let voiceUrl = await makeUrlAccessible(generated.url);
 
   // For Telegram, send directly to the chat
   if (params.platform === 'telegram') {
     if (!params.conversationId) {
       throw new Error('conversationId is required for Telegram voice messages');
+    }
+
+    if (generated.format !== 'ogg') {
+      voiceUrl = await convertAudioForTelegram({
+        avatarId: params.avatarId,
+        sourceUrl: voiceUrl,
+        targetFormat: 'ogg',
+      });
     }
 
     const botToken = await _getSecretValueInternal(params.avatarId, 'telegram_bot_token', 'default');

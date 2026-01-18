@@ -1,9 +1,9 @@
 name: Deploy
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
+    branches: [main]
+    tags: ['v*']
 
   workflow_dispatch:
     inputs:
@@ -19,7 +19,7 @@ on:
         type: string
 
 concurrency:
-  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.event.workflow_run.head_branch || github.event.workflow_run.head_sha }}
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -39,8 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push')
+      github.event_name == 'push'
     outputs:
       environment: ${{ steps.env.outputs.environment }}
       cdk_env: ${{ steps.env.outputs.cdk_env }}
@@ -60,23 +59,16 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ENV="${{ inputs.environment }}"
           else
-            BRANCH="${{ github.event.workflow_run.head_branch }}"
-            SHA="${{ github.event.workflow_run.head_sha }}"
+            REF="${{ github.ref }}"
+            BRANCH="${REF#refs/heads/}"
 
             if [ "$BRANCH" = "main" ]; then
               ENV="staging"
-            elif [[ "$BRANCH" == v* ]]; then
+            elif [[ "$REF" == refs/tags/v* ]]; then
               ENV="production"
             else
-              # For tag pushes, workflow_run.head_branch may be empty.
-              # Detect version tags pointing at the CI run SHA.
-              TAG=$(git tag --points-at "$SHA" | grep '^v' | head -n 1 || true)
-              if [ -n "$TAG" ]; then
-                ENV="production"
-              else
-                echo "::error::Unsupported ref/sha for deployment (branch='$BRANCH', sha='$SHA')"
-                exit 1
-              fi
+              echo "::error::Unsupported ref for deployment (ref='$REF')"
+              exit 1
             fi
           fi
           CDK_ENV="${ENV/production/prod}"
@@ -98,97 +90,18 @@ jobs:
           echo "admin_url=$ADMIN_URL" >> $GITHUB_OUTPUT
           echo "🚀 Deploying to **$ENV**" >> $GITHUB_STEP_SUMMARY
 
-  changes:
-    name: Detect changes
-    runs-on: ubuntu-latest
-    needs: setup
-    outputs:
-      backend: ${{ steps.detect.outputs.backend }}
-      admin_ui: ${{ steps.detect.outputs.admin_ui }}
-    steps:
-      - name: Checkout
-        if: github.event_name != 'workflow_dispatch'
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect changed paths
-        id: detect
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "backend=true" >> $GITHUB_OUTPUT
-            echo "admin_ui=true" >> $GITHUB_OUTPUT
-            echo "Manual dispatch -> deploy all" >> $GITHUB_STEP_SUMMARY
-            exit 0
-          fi
-
-          SHA="${{ github.event.workflow_run.head_sha }}"
-          BASE=""
-
-          if git cat-file -e "$SHA"^{commit} 2>/dev/null; then
-            if git cat-file -e "$SHA"^ 2>/dev/null; then
-              BASE=$(git rev-parse "$SHA"^)
-            fi
-          fi
-
-          if [ -z "$BASE" ]; then
-            echo "backend=true" >> $GITHUB_OUTPUT
-            echo "admin_ui=true" >> $GITHUB_OUTPUT
-            echo "Could not determine base SHA; deploying all" >> $GITHUB_STEP_SUMMARY
-            exit 0
-          fi
-
-          echo "Diff base: $BASE" >> $GITHUB_STEP_SUMMARY
-          echo "Diff head: $SHA" >> $GITHUB_STEP_SUMMARY
-
-          backend=false
-          admin_ui=false
-
-          while IFS= read -r file; do
-            case "$file" in
-              packages/admin-ui/*)
-                admin_ui=true
-                ;;
-              packages/admin-api/*|packages/core/*|packages/handlers/*|packages/infra/*|packages/mcp-server/*|packages/layer/*|packages/claude-code-worker/*)
-                backend=true
-                ;;
-              package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.base.json|eslint.config.js)
-                backend=true
-                admin_ui=true
-                ;;
-            esac
-          done < <(git diff --name-only "$BASE" "$SHA")
-
-          echo "backend=$backend" >> $GITHUB_OUTPUT
-          echo "admin_ui=$admin_ui" >> $GITHUB_OUTPUT
-          echo "Backend changes: $backend" >> $GITHUB_STEP_SUMMARY
-          echo "Admin UI changes: $admin_ui" >> $GITHUB_STEP_SUMMARY
-
   # CDK deployment (Lambda, API Gateway, DynamoDB, etc)
   cdk-deploy:
     name: CDK Deploy
     runs-on: ubuntu-latest
-    needs: [setup, changes]
+    needs: setup
     environment: ${{ needs.setup.outputs.environment }}
-    if: needs.changes.outputs.backend == 'true'
     outputs:
       bucket: ${{ steps.outputs.outputs.bucket }}
       distribution: ${{ steps.outputs.outputs.distribution }}
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download CI build artifacts
-        if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
-        with:
-          name: build-output
-          # CI artifact stores paths relative to `packages/` (e.g. `admin-ui/dist`).
-          # Downloading into `packages/` restores to `packages/admin-ui/dist`.
-          path: packages
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: pnpm/action-setup@v4
 
@@ -220,12 +133,7 @@ jobs:
           if [ "${{ steps.layer-cache.outputs.cache-hit }}" != "true" ]; then
             cd packages/layer && mkdir -p nodejs && cp package.json nodejs/ && cd nodejs && npm i --omit=dev --platform=linux --arch=x64 && cd ../..
           fi
-          # If CI artifacts were downloaded, reuse them; otherwise build
-          if [ -d packages/core/dist ]; then
-            echo "Using CI build artifacts"
-          else
-            pnpm -r --filter '!admin-ui' build
-          fi
+          pnpm -r --filter '!admin-ui' build
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -267,40 +175,21 @@ jobs:
   admin-ui-build:
     name: Build Admin UI
     runs-on: ubuntu-latest
-    needs: [setup, changes]
+    needs: setup
     environment: ${{ needs.setup.outputs.environment }}
-    if: needs.changes.outputs.admin_ui == 'true'
 
     steps:
-      - name: Download CI build artifacts
-        if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
-        with:
-          name: build-output
-          # CI artifact stores paths relative to `packages/` (e.g. `admin-ui/dist`).
-          # Downloading into `packages/` restores to `packages/admin-ui/dist`.
-          path: packages
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
       - uses: actions/checkout@v4
-        if: github.event_name != 'workflow_run'
-
       - uses: pnpm/action-setup@v4
-        if: github.event_name != 'workflow_run'
-
       - uses: actions/setup-node@v4
-        if: github.event_name != 'workflow_run'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
       - name: Install dependencies
-        if: github.event_name != 'workflow_run'
         run: pnpm install --frozen-lockfile
 
       - name: Build Admin UI
-        if: github.event_name != 'workflow_run'
         run: |
           cd packages/admin-ui
           VITE_API_URL=/api \
@@ -320,8 +209,7 @@ jobs:
   stack-outputs:
     name: Stack Outputs
     runs-on: ubuntu-latest
-    needs: [setup, changes]
-    if: needs.changes.outputs.admin_ui == 'true'
+    needs: setup
     outputs:
       bucket: ${{ steps.outputs.outputs.bucket }}
       distribution: ${{ steps.outputs.outputs.distribution }}
@@ -343,10 +231,9 @@ jobs:
   admin-ui-deploy:
     name: Deploy Admin UI
     runs-on: ubuntu-latest
-    needs: [setup, changes, cdk-deploy, admin-ui-build, stack-outputs]
+    needs: [setup, cdk-deploy, admin-ui-build, stack-outputs]
     if: >-
       always() &&
-      needs.changes.outputs.admin_ui == 'true' &&
       (needs.cdk-deploy.result == 'success' || needs.cdk-deploy.result == 'skipped') &&
       needs.admin-ui-build.result == 'success' &&
       (needs.stack-outputs.result == 'success' || needs.stack-outputs.result == 'skipped')
