@@ -2,7 +2,7 @@
  * Telegram Platform Adapter
  * Handles Telegram Bot API webhooks and message sending
  */
-import { Bot, webhookCallback } from 'grammy';
+import { Bot, InputFile, webhookCallback } from 'grammy';
 import type { Message, Update } from 'grammy/types';
 import { PlatformAdapter } from './base.js';
 import type {
@@ -118,6 +118,34 @@ export function buildTelegramEnvelope(
   };
 
   return envelope;
+}
+
+function inferFileNameFromUrl(url: string, fallback: string): string {
+  try {
+    const u = new URL(url);
+    const last = u.pathname.split('/').pop();
+    if (last && last.includes('.')) return last;
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
+async function fetchToInputFile(url: string, fallbackName: string, timeoutMs: number = 20_000): Promise<InputFile> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Failed to fetch media: ${res.status} - ${text}`);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    const fileName = inferFileNameFromUrl(url, fallbackName);
+    return new InputFile(buf, fileName);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 /**
@@ -414,10 +442,21 @@ export class TelegramAdapter extends PlatformAdapter {
           break;
 
         case 'send_voice':
-          await this.bot.api.sendVoice(chatId, action.url, {
-            caption: action.caption,
-            ...replyParams,
-          });
+          // Telegram can be flaky fetching signed/redirecting URLs.
+          // Prefer uploading bytes so it works consistently in groups and DMs.
+          try {
+            const inputFile = await fetchToInputFile(action.url, 'voice.ogg');
+            await this.bot.api.sendVoice(chatId, inputFile, {
+              caption: action.caption,
+              ...replyParams,
+            });
+          } catch (err) {
+            console.warn('[Telegram] Failed to upload voice bytes, falling back to URL send:', err);
+            await this.bot.api.sendVoice(chatId, action.url, {
+              caption: action.caption,
+              ...replyParams,
+            });
+          }
           break;
 
         case 'send_sticker':
