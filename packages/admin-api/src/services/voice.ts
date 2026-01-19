@@ -11,11 +11,12 @@ import {
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
-import type { AudioAsset, VoiceProfile } from '../types.js';
+import type { AudioAsset, VoiceProfile, AICapability } from '../types.js';
 import { _getSecretValueInternal } from './secrets.js';
 import { syncAvatarConfig } from './config-sync.js';
 import { getAvatar } from './avatars.js';
 import * as credits from './credits.js';
+import { DEFAULT_MODELS } from './models-registry.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -28,18 +29,40 @@ const CDN_URL = process.env.CDN_URL;
 const REPLICATE_ENDPOINT = 'https://api.replicate.com/v1/predictions';
 
 // Replicate models for voice generation
+// These are defaults that can be overridden via avatar's integration config
 // STABLE_AUDIO_MODEL: Used for generating abstract audio seed from text prompts
 // Default: stability-ai/stable-audio-2.5 - generates audio/music/sound effects (WARM, fast!)
-// The abstract audio seed defines the voice's tonal character when cloned
-const STABLE_AUDIO_MODEL = process.env.STABLE_AUDIO_MODEL || 'stability-ai/stable-audio-2.5';
+const DEFAULT_STABLE_AUDIO_MODEL = process.env.STABLE_AUDIO_MODEL || DEFAULT_MODELS.audio_generation;
 
-// VOICE_TTS_MODEL: Used for voice cloning and TTS with a reference audio  
+// VOICE_TTS_MODEL: Used for voice cloning and TTS with a reference audio
 // Default: lucataco/xtts-v2 - popular voice cloning model (4.7M runs)
-// We run TWO clone passes: first to create voice from abstract audio, second to smooth it
-const VOICE_TTS_MODEL = process.env.VOICE_TTS_MODEL || 'lucataco/xtts-v2';
+const DEFAULT_VOICE_TTS_MODEL = process.env.VOICE_TTS_MODEL || DEFAULT_MODELS.voice_clone;
 
 // Official models (like stability-ai) use a different endpoint than community models
 const OFFICIAL_MODEL_PREFIXES = ['stability-ai', 'meta', 'openai', 'mistralai', 'resemble-ai'];
+
+/**
+ * Get the configured model for a voice capability.
+ * Checks avatar's integration config first, then falls back to defaults.
+ */
+async function getConfiguredVoiceModel(
+  avatarId: string,
+  capability: AICapability
+): Promise<string> {
+  try {
+    const avatar = await getAvatar(avatarId);
+    if (avatar?.integrations?.replicate?.models?.[capability]) {
+      const configuredModel = avatar.integrations.replicate.models[capability];
+      console.log(`[Voice] Using configured ${capability} model for ${avatarId}: ${configuredModel}`);
+      return configuredModel;
+    }
+  } catch (err) {
+    console.warn(`[Voice] Failed to get avatar config for model preference: ${err}`);
+  }
+
+  // Fall back to defaults
+  return capability === 'audio_generation' ? DEFAULT_STABLE_AUDIO_MODEL : DEFAULT_VOICE_TTS_MODEL;
+}
 
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -367,13 +390,17 @@ export async function createVoiceSeed(params: {
   }
 
   const durationSeconds = Math.max(1, Math.round(params.durationMs / 1000));
-  
+
   // Build the prompt - for abstract audio, we want tonal qualities not speech
   const style = params.styleTags?.length ? `, ${params.styleTags.join(', ')}` : '';
   const prompt = `${params.prompt}${style}`.trim();
 
-  // Stable Audio 2.5 parameters optimized for voice seed generation
-  const outputUrl = await runReplicatePrediction(apiKey, STABLE_AUDIO_MODEL, {
+  // Get configured audio generation model
+  const audioModel = await getConfiguredVoiceModel(params.avatarId, 'audio_generation');
+  console.log(`[Voice] Using audio generation model: ${audioModel}`);
+
+  // Stable Audio parameters optimized for voice seed generation
+  const outputUrl = await runReplicatePrediction(apiKey, audioModel, {
     prompt,
     duration: durationSeconds,
     steps: 8, // Faster inference, still high quality
@@ -424,7 +451,11 @@ async function runVoiceClonePass(params: {
     throw new Error('Replicate API key not configured');
   }
 
-  const outputUrl = await runReplicatePrediction(apiKey, VOICE_TTS_MODEL, {
+  // Get configured voice clone model
+  const voiceModel = await getConfiguredVoiceModel(params.avatarId, 'voice_clone');
+  console.log(`[Voice] Using voice clone model: ${voiceModel}`);
+
+  const outputUrl = await runReplicatePrediction(apiKey, voiceModel, {
     text: params.text,
     speaker: params.referenceUrl,
     language: 'en',
@@ -819,9 +850,13 @@ export async function generateVoiceMessage(params: {
   const voiceId = params.voiceId || voiceConfig?.defaultVoiceId;
   const referenceUrl = voiceConfig?.referenceUrl;
 
-  if (voiceConfig?.ttsProvider !== 'voice-clone' || !VOICE_TTS_MODEL) {
+  if (voiceConfig?.ttsProvider !== 'voice-clone') {
     throw new Error('Voice cloning not enabled');
   }
+
+  // Get configured TTS model
+  const ttsModel = await getConfiguredVoiceModel(params.avatarId, 'text_to_speech');
+  console.log(`[Voice] Using TTS model: ${ttsModel}`);
 
   const apiKey = await getSecret(params.avatarId, 'replicate_api_key');
   if (!apiKey) {
@@ -849,7 +884,7 @@ export async function generateVoiceMessage(params: {
   // Make URL accessible (signed URL for S3)
   const accessibleSeedUrl = await makeUrlAccessible(seedUrl);
 
-  const outputUrl = await runReplicatePrediction(apiKey, VOICE_TTS_MODEL, {
+  const outputUrl = await runReplicatePrediction(apiKey, ttsModel, {
     text: params.text,
     speaker: accessibleSeedUrl, // XTTS-v2 uses 'speaker' not 'speaker_wav'
     language: 'en',

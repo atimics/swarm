@@ -13,7 +13,8 @@ import * as mediaJobs from './media-jobs.js';
 import * as gallery from './gallery.js';
 import * as credits from './credits.js';
 import { _getSecretValueInternal } from './secrets.js';
-import type { MediaJob, GalleryItem, SecretType } from '../types.js';
+import { getReplicateVersion, DEFAULT_MODELS } from './models-registry.js';
+import type { MediaJob, GalleryItem, SecretType, AICapability } from '../types.js';
 
 const s3Client = new S3Client({});
 const sqsClient = new SQSClient({});
@@ -288,16 +289,34 @@ async function getImageGenerationApiKey(avatarId: string): Promise<string> {
   return systemKey;
 }
 
-// Default models (Replicate model identifiers)
-const DEFAULT_IMAGE_MODEL = 'google/nano-banana-pro';
-const DEFAULT_VIDEO_MODEL = 'minimax/video-01';
+/**
+ * Get the configured model for an avatar's capability.
+ * Checks avatar's integration config first, then falls back to system defaults.
+ */
+async function getConfiguredModel(
+  avatarId: string,
+  capability: AICapability
+): Promise<string> {
+  // Try to get avatar's integration config
+  try {
+    const result = await dynamoClient.send(new GetCommand({
+      TableName: ADMIN_TABLE,
+      Key: { pk: `AVATAR#${avatarId}`, sk: 'CONFIG' },
+    }));
 
-// Replicate model versions (required for predictions API)
-const REPLICATE_MODEL_VERSIONS: Record<string, string> = {
-  'google/nano-banana-pro': 'eefce837d77048ccc736cd660d4f178d223b2d99aeb5ef856741eb81941c9ed2',
-  'black-forest-labs/flux-schnell': 'f2ab8a5bfe79f02f0789a146cf5e73d2a4ff2684a98c2b303d1e1ff3814271db',
-  'black-forest-labs/flux-dev': 'a8a9b47a5f6c7f2e06b5d4f0e6a5d4f0e6a5d4f0e6a5d4f0e6a5d4f0e6a5d4f0',
-};
+    const avatar = result.Item;
+    if (avatar?.integrations?.replicate?.models?.[capability]) {
+      const configuredModel = avatar.integrations.replicate.models[capability];
+      console.log(`[Media] Using configured ${capability} model for ${avatarId}: ${configuredModel}`);
+      return configuredModel;
+    }
+  } catch (err) {
+    console.warn(`[Media] Failed to get avatar config for model preference: ${err}`);
+  }
+
+  // Fall back to system default
+  return DEFAULT_MODELS[capability];
+}
 
 interface GenerateImageOptions {
   prompt: string;
@@ -453,13 +472,11 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
     finalPrompt = `${prompt}. Use the provided reference images to maintain visual consistency with the character's appearance, style, and features.`;
   }
 
-  // Get model version for Replicate
-  const modelId = model || DEFAULT_IMAGE_MODEL;
-  const version = REPLICATE_MODEL_VERSIONS[modelId];
+  // Get model - use provided model, avatar's configured model, or system default
+  const modelId = model || await getConfiguredModel(avatarId, 'image_generation');
+  const version = getReplicateVersion(modelId);
 
-  if (!version) {
-    throw new Error(`Unknown model: ${modelId}. Supported models: ${Object.keys(REPLICATE_MODEL_VERSIONS).join(', ')}`);
-  }
+  console.log(`[Media] Using image model: ${modelId}${version ? ` (version: ${version.slice(0, 8)}...)` : ' (using /models API)'}`);
 
   // Convert reference image URLs to publicly accessible URLs
   // (CDN URLs if available, otherwise signed S3 URLs)
@@ -505,18 +522,26 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
 
   console.log(`Generating image with ${modelId}, refs: ${referenceImageUrls.length}, prompt: ${prompt.slice(0, 50)}...`);
 
-  // Start Replicate prediction
-  const response = await fetch(REPLICATE_ENDPOINT, {
+  // Start Replicate prediction - use version-based or model-based API
+  const endpoint = version
+    ? REPLICATE_ENDPOINT
+    : `https://api.replicate.com/v1/models/${modelId}/predictions`;
+
+  const requestBody: Record<string, unknown> = {
+    input: isNanoBanana ? nanoBananaInput : fluxInput,
+  };
+  if (version) {
+    requestBody.version = version;
+  }
+
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Token ${apiKey}`,
+      'Authorization': version ? `Token ${apiKey}` : `Bearer ${apiKey}`,
       'Prefer': 'wait', // Wait for completion (up to 60s for fast models)
     },
-    body: JSON.stringify({
-      version,
-      input: isNanoBanana ? nanoBananaInput : fluxInput,
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
@@ -690,13 +715,11 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
     finalPrompt = `${prompt}. Use the provided reference images to maintain visual consistency with the character's appearance, style, and features.`;
   }
 
-  // Get model version for Replicate
-  const modelId = model || DEFAULT_IMAGE_MODEL;
-  const version = REPLICATE_MODEL_VERSIONS[modelId];
+  // Get model - use provided model, avatar's configured model, or system default
+  const modelId = model || await getConfiguredModel(avatarId, 'image_generation');
+  const version = getReplicateVersion(modelId);
 
-  if (!version) {
-    throw new Error(`Unknown model: ${modelId}. Supported models: ${Object.keys(REPLICATE_MODEL_VERSIONS).join(', ')}`);
-  }
+  console.log(`[Media] Async image gen using model: ${modelId}${version ? ` (version: ${version.slice(0, 8)}...)` : ' (using /models API)'}`);
 
   // Convert reference image URLs to publicly accessible URLs
   const accessibleReferenceUrls = referenceImageUrls.length > 0
@@ -756,22 +779,29 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
   // Start Replicate prediction with webhook (async - don't wait)
   const webhookUrl = process.env.REPLICATE_WEBHOOK_URL;
 
+  // Choose endpoint based on whether model has a version hash
+  const asyncEndpoint = version
+    ? REPLICATE_ENDPOINT
+    : `https://api.replicate.com/v1/models/${modelId}/predictions`;
+
   // Build request body - only include webhook config when URL is configured
   const requestBody: Record<string, unknown> = {
-    version,
     input: isNanoBanana ? nanoBananaInput : fluxInput,
   };
+  if (version) {
+    requestBody.version = version;
+  }
 
   if (webhookUrl) {
     requestBody.webhook = `${webhookUrl}?jobId=${jobId}`;
     requestBody.webhook_events_filter = ['completed'];
   }
 
-  const response = await fetch(REPLICATE_ENDPOINT, {
+  const response = await fetch(asyncEndpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Token ${apiKey}`,
+      'Authorization': version ? `Token ${apiKey}` : `Bearer ${apiKey}`,
       // Note: NOT using 'Prefer: wait' - we want async processing
     },
     body: JSON.stringify(requestBody),
@@ -845,11 +875,11 @@ export async function generateVideo(options: GenerateVideoOptions): Promise<Medi
   // Start Replicate prediction with webhook
   const webhookUrl = process.env.REPLICATE_WEBHOOK_URL;
 
-  // Replicate requires a specific model version, not just model name
-  // For minimax/video-01, we need to get the latest version or use the deployment API
-  const videoModel = model || DEFAULT_VIDEO_MODEL;
-  
-  // Use the deployments API endpoint for official models
+  // Get model - use provided model, avatar's configured model, or system default
+  const videoModel = model || await getConfiguredModel(avatarId, 'video_generation');
+  console.log(`[Media] Using video model: ${videoModel}`);
+
+  // Use the models API endpoint (video models typically don't use version hashes)
   // Format: https://api.replicate.com/v1/models/{owner}/{name}/predictions
   const modelEndpoint = `https://api.replicate.com/v1/models/${videoModel}/predictions`;
 
