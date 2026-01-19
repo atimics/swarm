@@ -661,7 +661,12 @@ function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
       // Direct image/media generation result (check for success + url/resultUrl)
       // Also check for status === 'completed' as alternative success indicator
       const isSuccess = parsed.success || (parsed.status === 'completed' && mediaUrl);
-      if (isSuccess && mediaUrl && typeof mediaUrl === 'string') {
+
+      // Skip Twitter/X URLs - these are tweet links, not media
+      const isTwitterUrl = mediaUrl && typeof mediaUrl === 'string' &&
+        (mediaUrl.includes('x.com/') || mediaUrl.includes('twitter.com/'));
+
+      if (isSuccess && mediaUrl && typeof mediaUrl === 'string' && !isTwitterUrl) {
         // Determine type from context, parsed.type, or file extension
         let mediaType: 'image' | 'video' | 'sticker' | 'audio' = parsed.type || 'image';
 
