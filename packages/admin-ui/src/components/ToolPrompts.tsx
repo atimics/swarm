@@ -1261,7 +1261,7 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
     setIsSubmitting(true);
     setError(null);
     // Open OAuth start endpoint in a new tab/window. This endpoint will redirect to X.
-    const url = `${API_BASE}/oauth/twitter/start?avatarId=${encodeURIComponent(activeAgent.id)}`;
+    const url = `${API_BASE}/oauth/twitter/start?avatarId=${encodeURIComponent(activeAgent.id)}&reconnect=1`;
     setOauthUrl(url);
     const opened = window.open(url, '_blank', 'noopener,noreferrer');
     if (!opened) {
@@ -1307,7 +1307,7 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
 
       <div className="flex items-center justify-between pt-2 border-t border-[var(--color-border)]">
         <span className="text-xs text-[var(--color-text-muted)]">
-          Opens a new window for OAuth authorization.
+          Opens a new window for OAuth authorization (disconnects any existing link first).
         </span>
         <button
           onClick={handleConnect}

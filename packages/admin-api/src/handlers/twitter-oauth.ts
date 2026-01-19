@@ -141,10 +141,21 @@ export async function handler(
       };
     }
 
-    // GET /oauth/twitter/start?avatarId=xxx - Start OAuth flow (no auth needed)
+    // GET /oauth/twitter/start?avatarId=xxx - Start OAuth flow
     // This redirects to Twitter; the callback will store tokens for the specified avatarId.
     if (method === 'GET' && path === '/oauth/twitter/start') {
+      // Require authentication for start to prevent unauthorized account linking.
+      const session = await auth.authenticateRequest(event);
+      if (!auth.requireAdmin(session)) {
+        return {
+          statusCode: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Admin access required' }),
+        };
+      }
+
       const avatarId = event.queryStringParameters?.avatarId;
+      const reconnect = event.queryStringParameters?.reconnect === '1' || event.queryStringParameters?.reconnect === 'true';
 
       if (!avatarId) {
         return {
@@ -172,6 +183,28 @@ export async function handler(
             message: 'Ensure swarm/global/twitter-app-credentials secret exists and TWITTER_OAUTH_CALLBACK_URL is set',
           }),
         };
+      }
+
+      // Optional safety: disconnect existing connection BEFORE starting reconnect.
+      // This avoids cases where the UI thinks a reconnect happened but old tokens remain active.
+      if (reconnect) {
+        try {
+          await twitterOAuth.disconnectTwitter(avatarId, session);
+        } catch {
+          // ignore
+        }
+        try {
+          await avatarService.updateAvatar(avatarId, {
+            platforms: {
+              twitter: {
+                enabled: false,
+                username: undefined,
+              },
+            },
+          }, session);
+        } catch {
+          // ignore
+        }
       }
 
       let authorizationUrl: string;

@@ -200,9 +200,10 @@ describe('Twitter OAuth Handler', () => {
       expect(result.statusCode).toBe(302);
       expect(result.headers?.Location).toContain('twitter.com');
       expect(mockStartOAuthFlow).toHaveBeenCalledWith('test-avatar');
+      expect(mockAuthenticateRequest).toHaveBeenCalled();
     });
 
-    it('supports /api prefix (CloudFront) without requiring auth', async () => {
+    it('supports /api prefix (CloudFront) for start route', async () => {
       const event = createEvent({
         rawPath: '/api/oauth/twitter/start',
         queryStringParameters: { avatarId: 'test-avatar' },
@@ -213,7 +214,7 @@ describe('Twitter OAuth Handler', () => {
       expect(result.statusCode).toBe(302);
       expect(result.headers?.Location).toContain('twitter.com');
       expect(mockStartOAuthFlow).toHaveBeenCalledWith('test-avatar');
-      expect(mockAuthenticateRequest).not.toHaveBeenCalled();
+      expect(mockAuthenticateRequest).toHaveBeenCalled();
     });
 
     it('returns 503 with message when Twitter rejects request token (e.g., 403)', async () => {
