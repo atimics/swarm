@@ -353,7 +353,15 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
           body: JSON.stringify({ integration: args.integration, value: token.trim() }),
         });
 
-        const result = await response.json().catch(() => ({} as Record<string, unknown>));
+        let result: Record<string, unknown>;
+        try {
+          result = await response.json();
+        } catch {
+          // JSON parsing failed - could be timeout, HTML error page, etc.
+          setStatus('error');
+          setTestResult({ error: `Server error (HTTP ${response.status}). Please try again.` });
+          return;
+        }
         const valid = Boolean((result as { valid?: boolean }).valid);
         const error = (result as { error?: string }).error;
         const warning = (result as { warning?: string }).warning;
@@ -361,7 +369,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
         if (!response.ok || !valid) {
           setStatus('error');
-          setTestResult({ error: error || 'Validation failed' });
+          setTestResult({ error: error || `Validation failed (HTTP ${response.status})` });
           return;
         }
 
