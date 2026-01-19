@@ -1,6 +1,6 @@
 /**
  * Secure Secrets Service
- * Write-only secrets management with KMS encryption
+ * Write-only secrets management with Secrets Manager
  */
 import {
   SecretsManagerClient,
@@ -9,6 +9,8 @@ import {
   DeleteSecretCommand,
   DescribeSecretCommand,
   GetSecretValueCommand,
+  RestoreSecretCommand,
+  type CreateSecretCommandInput,
 } from '@aws-sdk/client-secrets-manager';
 import {
   DynamoDBClient,
@@ -28,8 +30,12 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 });
 
 const SECRETS_TABLE = process.env.ADMIN_TABLE!;
-const KMS_KEY_ID = process.env.KMS_KEY_ID!;
 const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
+
+// Cache secret values in-memory to reduce Secrets Manager (and KMS decrypt) calls.
+// Lambda containers are reused, so this can significantly cut steady-state costs.
+const SECRET_CACHE_TTL_MS = Number.parseInt(process.env.SECRETS_CACHE_TTL_MS || '300000', 10);
+const secretValueCache = new Map<string, { value: string | null; expiresAt: number }>();
 
 /**
  * Generate a unique secret ARN/name
@@ -68,7 +74,15 @@ export async function storeSecret(
       SecretId: secretName,
     }));
     secretArn = existing.ARN!;
-    
+
+    // If secret is scheduled for deletion, restore it first
+    if (existing.DeletedDate) {
+      console.log(`Restoring secret ${secretName} from scheduled deletion`);
+      await secretsClient.send(new RestoreSecretCommand({
+        SecretId: secretName,
+      }));
+    }
+
     // Update existing secret
     await secretsClient.send(new UpdateSecretCommand({
       SecretId: secretName,
@@ -78,17 +92,20 @@ export async function storeSecret(
     if ((error as { name?: string }).name === 'ResourceNotFoundException') {
       // Create new secret
       isNew = true;
-      const result = await secretsClient.send(new CreateSecretCommand({
+      const createInput: CreateSecretCommandInput = {
         Name: secretName,
         SecretString: value,
-        KmsKeyId: KMS_KEY_ID,
         Description: description,
         Tags: [
           { Key: 'swarm:avatar', Value: avatarId || 'global' },
           { Key: 'swarm:type', Value: secretType },
           { Key: 'swarm:managed', Value: 'true' },
         ],
-      }));
+      };
+
+      // Use AWS-managed key (default) by not specifying KmsKeyId.
+
+      const result = await secretsClient.send(new CreateSecretCommand(createInput));
       secretArn = result.ARN!;
     } else {
       throw error;
@@ -256,12 +273,14 @@ export async function listSecrets(
 
 /**
  * Delete a secret
+ * @param forceDelete - If true, immediately deletes without recovery period. Use for re-creatable secrets like OAuth tokens.
  */
 export async function deleteSecret(
   avatarId: string | null,
   secretType: SecretType,
   name: string,
-  _session: UserSession
+  _session: UserSession,
+  forceDelete: boolean = false
 ): Promise<void> {
   const pk = avatarId ? `AVATAR#${avatarId}` : 'GLOBAL';
   const sk = `SECRET#${secretType}#${name}`;
@@ -281,7 +300,7 @@ export async function deleteSecret(
   // Delete from Secrets Manager
   await secretsClient.send(new DeleteSecretCommand({
     SecretId: metadata.secretArn,
-    ForceDeleteWithoutRecovery: false, // Allow recovery for 7 days
+    ForceDeleteWithoutRecovery: forceDelete, // If true, immediately delete without recovery
   }));
 
   // Delete metadata from DynamoDB
@@ -378,11 +397,18 @@ export async function _getSecretValueInternal(
   }
   if (!secretArn) return null;
 
+  const cached = secretValueCache.get(secretArn);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
   try {
     const response = await secretsClient.send(new GetSecretValueCommand({
       SecretId: secretArn,
     }));
-    return response.SecretString || null;
+    const value = response.SecretString || null;
+    secretValueCache.set(secretArn, { value, expiresAt: Date.now() + SECRET_CACHE_TTL_MS });
+    return value;
   } catch (error) {
     console.error('Error retrieving secret:', error);
     return null;

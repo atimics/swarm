@@ -506,14 +506,16 @@ export async function disconnectTwitter(
   deps: TwitterOAuthServiceDeps = defaultDeps
 ): Promise<void> {
   // Delete the access tokens from Secrets Manager
+  // Use forceDelete=true because OAuth tokens can be re-authorized,
+  // and scheduled deletion would block storing new tokens
   try {
-    await deps.secretsService.deleteSecret(avatarId, 'twitter_access_token', 'default', session);
+    await deps.secretsService.deleteSecret(avatarId, 'twitter_access_token', 'default', session, true);
   } catch {
     // Ignore if not found
   }
 
   try {
-    await deps.secretsService.deleteSecret(avatarId, 'twitter_access_secret', 'default', session);
+    await deps.secretsService.deleteSecret(avatarId, 'twitter_access_secret', 'default', session, true);
   } catch {
     // Ignore if not found
   }

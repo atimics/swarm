@@ -6,7 +6,6 @@ import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
-import * as kms from 'aws-cdk-lib/aws-kms';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigatewayv2';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -145,7 +144,6 @@ export class AdminApiConstruct extends Construct {
   public readonly apiEndpoint: string;
   public readonly customDomain?: apigateway.DomainName;
   public readonly table: dynamodb.Table;
-  public readonly encryptionKey: kms.Key;
   public readonly chatHandler: lambda.Function;
   public readonly mediaConvertHandler?: lambda.Function;
 
@@ -175,28 +173,8 @@ export class AdminApiConstruct extends Construct {
       ? [`https://${adminDomain}`]
       : ['http://localhost:5173', 'http://localhost:3000'];
 
-    // KMS key for encrypting secrets
-    this.encryptionKey = new kms.Key(this, 'AdminEncryptionKey', {
-      alias: `swarm/admin-secrets-${environment}`,
-      description: `KMS key for encrypting Swarm admin secrets (${environment})`,
-      enableKeyRotation: true,
-      removalPolicy: isProd
-        ? cdk.RemovalPolicy.RETAIN 
-        : cdk.RemovalPolicy.DESTROY,
-    });
-
-    this.encryptionKey.addToResourcePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      principals: [new iam.ServicePrincipal('secretsmanager.amazonaws.com')],
-      actions: ['kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey', 'kms:CreateGrant', 'kms:DescribeKey'],
-      resources: ['*'],
-      conditions: {
-        StringEquals: {
-          'kms:ViaService': `secretsmanager.${cdk.Stack.of(this).region}.amazonaws.com`,
-          'kms:CallerAccount': cdk.Stack.of(this).account,
-        },
-      },
-    }));
+    // Secrets Manager uses AWS-managed KMS key by default (alias/aws/secretsmanager).
+    // We intentionally do not provision a customer-managed key to avoid the monthly CMK charge.
 
     // DynamoDB table for admin data
     this.table = new dynamodb.Table(this, 'AdminTable', {
@@ -317,7 +295,6 @@ export class AdminApiConstruct extends Construct {
         ADMIN_TABLE: this.table.tableName,
         STATE_TABLE: stateTable?.tableName || '',
         SECRET_PREFIX: 'swarm',
-        KMS_KEY_ID: this.encryptionKey.keyId,
         CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
         LLM_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions',
@@ -359,7 +336,6 @@ export class AdminApiConstruct extends Construct {
 
     // Grant permissions
     this.table.grantReadWriteData(this.chatHandler);
-    this.encryptionKey.grantEncryptDecrypt(this.chatHandler);
     llmApiKey.grantRead(this.chatHandler);
     if (replicateApiKey) {
       replicateApiKey.grantRead(this.chatHandler);
@@ -552,7 +528,6 @@ export class AdminApiConstruct extends Construct {
         ADMIN_WALLETS: props.adminWallets || '',
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
-        KMS_KEY_ID: this.encryptionKey.keyId,
         SECRET_PREFIX: 'swarm',
         REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
         // Internal testing (non-production only)
@@ -567,12 +542,6 @@ export class AdminApiConstruct extends Construct {
 
     // Grant permissions to avatars handler
     this.table.grantReadWriteData(avatarsHandler);
-    this.encryptionKey.grantEncryptDecrypt(avatarsHandler);
-    avatarsHandler.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['kms:CreateGrant', 'kms:DescribeKey', 'kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey'],
-      resources: [this.encryptionKey.keyArn],
-    }));
     if (stateTable) {
       stateTable.grantReadWriteData(avatarsHandler);
     }
@@ -1027,9 +996,6 @@ export class AdminApiConstruct extends Construct {
       replicateApiKey.grantRead(telegramWebhookHandler);
     }
 
-    // Grant KMS decrypt for avatar secrets
-    this.encryptionKey.grantDecrypt(telegramWebhookHandler);
-
     // Grant S3 permissions for media operations
     if (mediaBucket) {
       mediaBucket.grantReadWrite(telegramWebhookHandler);
@@ -1134,7 +1100,6 @@ export class AdminApiConstruct extends Construct {
 
     // Grant permissions to response sender
     this.table.grantReadData(responseSenderHandler);
-    this.encryptionKey.grantDecrypt(responseSenderHandler);
 
     // Grant secrets manager access (for bot tokens)
     responseSenderHandler.addToRolePolicy(new iam.PolicyStatement({
@@ -1165,7 +1130,6 @@ export class AdminApiConstruct extends Construct {
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         ADMIN_UI_URL: allowedOrigins[0] || 'http://localhost:5173',
-        KMS_KEY_ID: this.encryptionKey.keyId,
         SECRET_PREFIX: 'swarm',
         // Twitter App credentials from Secrets Manager
         TWITTER_APP_CREDENTIALS_ARN: twitterAppCredentialsSecret.secretArn,
@@ -1183,7 +1147,6 @@ export class AdminApiConstruct extends Construct {
 
     // Grant permissions to Twitter OAuth handler
     this.table.grantReadWriteData(twitterOAuthHandler);
-    this.encryptionKey.grantEncryptDecrypt(twitterOAuthHandler);
     if (stateTable) {
       stateTable.grantReadWriteData(twitterOAuthHandler);
     }
@@ -1295,9 +1258,5 @@ export class AdminApiConstruct extends Construct {
       description: 'DynamoDB table name for admin data',
     });
 
-    new cdk.CfnOutput(this, 'EncryptionKeyArn', {
-      value: this.encryptionKey.keyArn,
-      description: 'KMS key ARN for secret encryption',
-    });
   }
 }

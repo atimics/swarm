@@ -1333,6 +1333,11 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
     }
   };
 
+  // Show nothing when completed - the success message is shown separately
+  if (toolCall.status === 'completed') {
+    return null;
+  }
+
   if (started) {
     return (
       <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]">

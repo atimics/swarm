@@ -218,7 +218,7 @@ function App() {
         return;
       }
 
-      // Mark any pending twitter connection tool calls as completed
+      // Mark any pending twitter connection tool calls as completed and update message content
       const avatarChats = chats[targetAvatarId] || [];
       for (const msg of avatarChats) {
         if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' && tc.status === 'pending')) {
@@ -227,7 +227,11 @@ function App() {
               ? { ...tc, status: 'completed' as const }
               : tc
           );
-          updateMessage(targetAvatarId, msg.id, { toolCalls: updatedToolCalls });
+          // Update both toolCalls and content - clear the "Please connect" message
+          updateMessage(targetAvatarId, msg.id, {
+            toolCalls: updatedToolCalls,
+            content: '', // Clear the old message, success message is added separately
+          });
         }
       }
 

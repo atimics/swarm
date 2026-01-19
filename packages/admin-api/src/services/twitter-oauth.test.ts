@@ -554,7 +554,8 @@ describe('Twitter OAuth - Disconnect', () => {
       'avatar-123',
       'twitter_access_token',
       'default',
-      session
+      session,
+      true
     );
   });
 
@@ -568,7 +569,8 @@ describe('Twitter OAuth - Disconnect', () => {
       'avatar-123',
       'twitter_access_secret',
       'default',
-      session
+      session,
+      true
     );
   });
 
