@@ -380,6 +380,11 @@ export async function completeOAuthFlow(
 
 /**
  * Get the Twitter connection status for an avatar
+ *
+ * Checks DynamoDB metadata record first, then falls back to checking
+ * Secrets Manager for tokens. This handles cases where the DynamoDB
+ * record may be missing but tokens exist (e.g., failed DynamoDB write
+ * after successful token storage).
  */
 export async function getConnectionStatus(avatarId: string, deps: TwitterOAuthServiceDeps = defaultDeps): Promise<{
   connected: boolean;
@@ -387,6 +392,7 @@ export async function getConnectionStatus(avatarId: string, deps: TwitterOAuthSe
   userId?: string;
   connectedAt?: number;
 }> {
+  // First check DynamoDB metadata record
   const result = await deps.dynamoClient.send(new GetCommand({
     TableName: deps.tableName,
     Key: {
@@ -395,16 +401,100 @@ export async function getConnectionStatus(avatarId: string, deps: TwitterOAuthSe
     },
   })) as { Item?: { username?: string; userId?: string; connectedAt?: number } };
 
-  if (!result.Item) {
-    return { connected: false };
+  if (result.Item) {
+    return {
+      connected: true,
+      username: result.Item.username,
+      userId: result.Item.userId,
+      connectedAt: result.Item.connectedAt,
+    };
   }
 
-  return {
-    connected: true,
-    username: result.Item.username,
-    userId: result.Item.userId,
-    connectedAt: result.Item.connectedAt,
-  };
+  // Fallback: Check if tokens exist in Secrets Manager
+  // This handles the case where DynamoDB write failed but tokens were stored
+  try {
+    const accessToken = await deps.secretsService.getSecretValue(avatarId, 'twitter_access_token', 'default');
+    const accessSecret = await deps.secretsService.getSecretValue(avatarId, 'twitter_access_secret', 'default');
+
+    if (accessToken && accessSecret) {
+      console.log(JSON.stringify({
+        level: 'WARN',
+        subsystem: 'twitter-oauth',
+        event: 'connection_record_missing_but_tokens_exist',
+        avatarId,
+        message: 'DynamoDB metadata missing but tokens found in Secrets Manager',
+      }));
+
+      // Tokens exist - try to verify and repair the metadata record
+      const creds = await getAppCredentials(deps);
+      if (creds) {
+        try {
+          const client = new deps.TwitterApi({
+            appKey: creds.appKey,
+            appSecret: creds.appSecret,
+            accessToken,
+            accessSecret,
+          });
+
+          // Verify tokens by fetching user info
+          const me = await client.v2.me();
+          const username = me.data.username;
+          const userId = me.data.id;
+
+          // Repair the metadata record
+          await deps.dynamoClient.send(new PutCommand({
+            TableName: deps.tableName,
+            Item: {
+              pk: `AVATAR#${avatarId}`,
+              sk: 'TWITTER#CONNECTION',
+              username,
+              userId,
+              connectedAt: Date.now(),
+              repairedAt: Date.now(),
+            },
+          }));
+
+          console.log(JSON.stringify({
+            level: 'INFO',
+            subsystem: 'twitter-oauth',
+            event: 'connection_record_repaired',
+            avatarId,
+            username,
+            userId,
+          }));
+
+          return {
+            connected: true,
+            username,
+            userId,
+            connectedAt: Date.now(),
+          };
+        } catch (verifyError) {
+          // Tokens exist but are invalid - still report as connected
+          // Let the actual posting operation handle the invalid token error
+          console.log(JSON.stringify({
+            level: 'WARN',
+            subsystem: 'twitter-oauth',
+            event: 'token_verification_failed',
+            avatarId,
+            error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+          }));
+
+          return {
+            connected: true,
+            // No username/userId since we couldn't verify
+          };
+        }
+      }
+
+      // App credentials not available, but user tokens exist
+      return { connected: true };
+    }
+  } catch {
+    // Secrets not found - truly not connected
+  }
+
+  return { connected: false };
 }
 
 /**

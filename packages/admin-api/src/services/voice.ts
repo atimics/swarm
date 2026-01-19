@@ -3,6 +3,7 @@
  * Handles transcription, voice profile creation, and TTS generation.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import {
   DynamoDBDocumentClient,
   GetCommand,
@@ -27,6 +28,7 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET!;
 const CDN_URL = process.env.CDN_URL;
 const REPLICATE_ENDPOINT = 'https://api.replicate.com/v1/predictions';
+const MEDIA_CONVERT_FUNCTION = process.env.MEDIA_CONVERT_FUNCTION;
 
 // Replicate models for voice generation
 // These are defaults that can be overridden via avatar's integration config
@@ -110,7 +112,42 @@ function extractOutputUrl(output: ReplicatePrediction['output']): string | undef
 function parseS3Key(url: string): { bucket: string; key: string } | null {
   const match = url.match(/https:\/\/([^.]+)\.s3[^/]*\.amazonaws\.com\/(.+)/);
   if (!match) return null;
-  return { bucket: match[1], key: decodeURIComponent(match[2]) };
+  const keyWithQuery = decodeURIComponent(match[2]);
+  const key = keyWithQuery.split('?')[0] || keyWithQuery;
+  return { bucket: match[1], key };
+}
+
+type MediaConvertResponse = { success: boolean; url?: string; format?: string; error?: string };
+
+async function convertAudioToOgg(params: { avatarId: string; sourceUrl: string }): Promise<string | null> {
+  if (!MEDIA_CONVERT_FUNCTION) return null;
+
+  const client = new LambdaClient({});
+  const payload = JSON.stringify({
+    avatarId: params.avatarId,
+    sourceUrl: params.sourceUrl,
+    mediaType: 'audio',
+    targetFormat: 'ogg',
+  });
+
+  const result = await client.send(new InvokeCommand({
+    FunctionName: MEDIA_CONVERT_FUNCTION,
+    InvocationType: 'RequestResponse',
+    Payload: new TextEncoder().encode(payload),
+  }));
+
+  if (!result.Payload) return null;
+  const raw = new TextDecoder().decode(result.Payload);
+
+  let parsed: MediaConvertResponse;
+  try {
+    parsed = JSON.parse(raw) as MediaConvertResponse;
+  } catch {
+    return null;
+  }
+
+  if (!parsed.success || !parsed.url) return null;
+  return parsed.url;
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs: number = FETCH_TIMEOUT_MS): Promise<Response> {
@@ -945,14 +982,41 @@ export async function sendVoiceMessage(params: {
       throw new Error('Telegram bot token not configured');
     }
 
+    // Telegram wants OGG/Opus for "voice" notes and frequently fails to fetch signed/redirecting URLs
+    // ("failed to get HTTP URL content").
+    // We (1) transcode to OGG/Opus via MediaConvertHandler when available, (2) download ourselves,
+    // (3) upload bytes via multipart/form-data.
+    let telegramSourceUrl = voiceUrl;
+    if (generated.format !== 'ogg') {
+      try {
+        const converted = await convertAudioToOgg({ avatarId: params.avatarId, sourceUrl: voiceUrl });
+        if (converted) telegramSourceUrl = converted;
+      } catch (err) {
+        console.warn('[Voice] Media convert failed, falling back to original audio:', err);
+      }
+    }
+
+    const audioResponse = await fetchWithTimeout(telegramSourceUrl, { method: 'GET' }, 20_000);
+    if (!audioResponse.ok) {
+      const errorText = await audioResponse.text();
+      throw new Error(`Failed to download voice audio for Telegram upload: ${audioResponse.status} - ${errorText}`);
+    }
+
+    const buffer = Buffer.from(await audioResponse.arrayBuffer());
+    const contentType = audioResponse.headers.get('content-type');
+    const uploadType = contentType || 'audio/ogg';
+    const fileName = 'voice.ogg';
+
+    const form = new FormData();
+    form.append('chat_id', params.conversationId.toString());
+    form.append('voice', new Blob([buffer], { type: uploadType }), fileName);
+    if (params.replyToMessageId) {
+      form.append('reply_to_message_id', Number(params.replyToMessageId).toString());
+    }
+
     const response = await fetch(`https://api.telegram.org/bot${botToken}/sendVoice`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: params.conversationId,
-        voice: voiceUrl,
-        reply_to_message_id: params.replyToMessageId ? Number(params.replyToMessageId) : undefined,
-      }),
+      body: form,
     });
 
     if (!response.ok) {

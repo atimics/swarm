@@ -10,6 +10,8 @@
  * @see packages/admin-api/src/services/media.ts
  */
 import { describe, it, expect } from 'bun:test';
+import { DEFAULT_MODELS, getReplicateVersion } from './models-registry.js';
+import type { AICapability, AvatarRecord } from '../types.js';
 
 describe('Media URL Generation', () => {
   describe('URL accessibility conversion', () => {
@@ -298,6 +300,194 @@ describe('URL Accessibility - Promise.allSettled Pattern', () => {
       expect(results[1].status).toBe('rejected');
       expect((results[1] as PromiseRejectedResult).reason.message).toBe('failure');
       expect(results[2]).toEqual({ status: 'fulfilled', value: 'success2' });
+    });
+  });
+});
+
+describe('Integration Config Model Selection', () => {
+  /**
+   * Tests for the unified integration configuration system.
+   * Models can now be configured per-avatar via integrations.replicate.models
+   */
+
+  describe('getConfiguredModel behavior', () => {
+    /**
+     * Simulates the getConfiguredModel function logic for testing
+     * In production this reads from DynamoDB
+     */
+    function getConfiguredModel(
+      avatar: Partial<AvatarRecord> | null,
+      capability: AICapability
+    ): string {
+      // Check avatar's integration config
+      if (avatar?.integrations?.replicate?.models?.[capability]) {
+        return avatar.integrations.replicate.models[capability]!;
+      }
+      // Fall back to system default
+      return DEFAULT_MODELS[capability];
+    }
+
+    it('should return configured model when avatar has integration config', () => {
+      const avatar: Partial<AvatarRecord> = {
+        integrations: {
+          replicate: {
+            enabled: true,
+            useGlobalKey: false,
+            models: {
+              image_generation: 'black-forest-labs/flux-schnell',
+            },
+          },
+        },
+      };
+
+      const model = getConfiguredModel(avatar, 'image_generation');
+      expect(model).toBe('black-forest-labs/flux-schnell');
+    });
+
+    it('should return default model when avatar has no integration config', () => {
+      const avatar: Partial<AvatarRecord> = {};
+      const model = getConfiguredModel(avatar, 'image_generation');
+      expect(model).toBe(DEFAULT_MODELS.image_generation);
+    });
+
+    it('should return default model when avatar is null', () => {
+      const model = getConfiguredModel(null, 'image_generation');
+      expect(model).toBe(DEFAULT_MODELS.image_generation);
+    });
+
+    it('should return default model when replicate integration not configured', () => {
+      const avatar: Partial<AvatarRecord> = {
+        integrations: {
+          telegram: {
+            enabled: true,
+          },
+        },
+      };
+
+      const model = getConfiguredModel(avatar, 'image_generation');
+      expect(model).toBe(DEFAULT_MODELS.image_generation);
+    });
+
+    it('should return default model when capability not specified in config', () => {
+      const avatar: Partial<AvatarRecord> = {
+        integrations: {
+          replicate: {
+            enabled: true,
+            useGlobalKey: true,
+            models: {
+              video_generation: 'luma/ray',
+            },
+          },
+        },
+      };
+
+      // Request image_generation but only video_generation is configured
+      const model = getConfiguredModel(avatar, 'image_generation');
+      expect(model).toBe(DEFAULT_MODELS.image_generation);
+    });
+
+    it('should support all AI capabilities', () => {
+      const capabilityModelMap: Record<AICapability, string> = {
+        image_generation: 'custom/image-model',
+        video_generation: 'custom/video-model',
+        audio_generation: 'custom/audio-model',
+        voice_clone: 'custom/voice-model',
+        text_to_speech: 'custom/tts-model',
+        transcription: 'custom/transcription-model',
+        llm: 'custom/llm-model',
+      };
+
+      const avatar: Partial<AvatarRecord> = {
+        integrations: {
+          replicate: {
+            enabled: true,
+            useGlobalKey: false,
+            models: capabilityModelMap,
+          },
+        },
+      };
+
+      for (const [capability, expectedModel] of Object.entries(capabilityModelMap)) {
+        const model = getConfiguredModel(avatar, capability as AICapability);
+        expect(model).toBe(expectedModel);
+      }
+    });
+  });
+
+  describe('Replicate API endpoint selection', () => {
+    it('should use version-based endpoint for models with version hash', () => {
+      const modelId = 'google/nano-banana-pro';
+      const version = getReplicateVersion(modelId);
+
+      expect(version).toBeTruthy();
+
+      // Logic: if version exists, use /v1/predictions with version
+      const endpoint = version
+        ? 'https://api.replicate.com/v1/predictions'
+        : `https://api.replicate.com/v1/models/${modelId}/predictions`;
+
+      expect(endpoint).toBe('https://api.replicate.com/v1/predictions');
+    });
+
+    it('should use model-based endpoint for models without version hash', () => {
+      const modelId = 'minimax/video-01';
+      const version = getReplicateVersion(modelId);
+
+      expect(version).toBeUndefined();
+
+      // Logic: if no version, use /v1/models/{model}/predictions
+      const endpoint = version
+        ? 'https://api.replicate.com/v1/predictions'
+        : `https://api.replicate.com/v1/models/${modelId}/predictions`;
+
+      expect(endpoint).toBe('https://api.replicate.com/v1/models/minimax/video-01/predictions');
+    });
+
+    it('should construct correct auth header based on endpoint type', () => {
+      const versionedModel = 'google/nano-banana-pro';
+      const modelApiModel = 'minimax/video-01';
+      const apiKey = 'test-api-key';
+
+      const versionedVersion = getReplicateVersion(versionedModel);
+      const modelApiVersion = getReplicateVersion(modelApiModel);
+
+      // Version-based uses Token auth
+      const versionedAuth = versionedVersion ? `Token ${apiKey}` : `Bearer ${apiKey}`;
+      expect(versionedAuth).toBe('Token test-api-key');
+
+      // Model API uses Bearer auth
+      const modelApiAuth = modelApiVersion ? `Token ${apiKey}` : `Bearer ${apiKey}`;
+      expect(modelApiAuth).toBe('Bearer test-api-key');
+    });
+  });
+
+  describe('Request body construction', () => {
+    it('should include version in body for version-based models', () => {
+      const modelId = 'google/nano-banana-pro';
+      const version = getReplicateVersion(modelId);
+      const input = { prompt: 'test' };
+
+      const requestBody: Record<string, unknown> = { input };
+      if (version) {
+        requestBody.version = version;
+      }
+
+      expect(requestBody.version).toBe(version);
+      expect(requestBody.input).toEqual(input);
+    });
+
+    it('should omit version in body for model API models', () => {
+      const modelId = 'minimax/video-01';
+      const version = getReplicateVersion(modelId);
+      const input = { prompt: 'test' };
+
+      const requestBody: Record<string, unknown> = { input };
+      if (version) {
+        requestBody.version = version;
+      }
+
+      expect(requestBody.version).toBeUndefined();
+      expect(requestBody.input).toEqual(input);
     });
   });
 });

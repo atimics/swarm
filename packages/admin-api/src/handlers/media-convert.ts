@@ -32,7 +32,9 @@ interface ConvertResponse {
 function parseS3Url(url: string): { bucket: string; key: string } | null {
   const match = url.match(/https:\/\/([^.]+)\.s3[^/]*\.amazonaws\.com\/(.+)/);
   if (!match) return null;
-  return { bucket: match[1], key: decodeURIComponent(match[2]) };
+  const keyWithQuery = decodeURIComponent(match[2]);
+  const key = keyWithQuery.split('?')[0] || keyWithQuery;
+  return { bucket: match[1], key };
 }
 
 function getOutputKey(avatarId: string, ext: string) {

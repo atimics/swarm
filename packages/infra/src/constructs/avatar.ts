@@ -82,6 +82,12 @@ export interface AvatarConstructProps {
    * JSON does not include Replicate credentials.
    */
   replicateApiKeyArn?: string;
+
+  /**
+   * Optional shared media conversion Lambda (ffmpeg) used for audio/video transcoding.
+   * When provided, avatar runtime lambdas can invoke it (e.g., to produce Telegram-friendly OGG/Opus).
+   */
+  mediaConvertFunction?: lambda.IFunction;
 }
 
 export class AvatarConstruct extends Construct {
@@ -105,6 +111,7 @@ export class AvatarConstruct extends Construct {
       cdnUrl,
       discordCluster,
       replicateApiKeyArn,
+      mediaConvertFunction,
     } = props;
 
     // Create or import secrets
@@ -173,6 +180,10 @@ export class AvatarConstruct extends Construct {
       ENVIRONMENT: environment,
     };
 
+    if (mediaConvertFunction) {
+      commonEnv.MEDIA_CONVERT_FUNCTION = mediaConvertFunction.functionName;
+    }
+
     if (replicateApiKeyArn) {
       commonEnv.REPLICATE_API_KEY_SECRET_ARN = replicateApiKeyArn;
     }
@@ -210,6 +221,13 @@ export class AvatarConstruct extends Construct {
       ],
       resources: ['*'],
     }));
+
+    if (mediaConvertFunction) {
+      lambdaRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['lambda:InvokeFunction'],
+        resources: [mediaConvertFunction.functionArn],
+      }));
+    }
 
     // Create API Gateway
     this.api = new apigateway.RestApi(this, 'Api', {

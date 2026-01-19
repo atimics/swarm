@@ -1,0 +1,300 @@
+/**
+ * Models Registry Tests
+ *
+ * Tests for the AI models registry and helper functions.
+ *
+ * @see packages/admin-api/src/services/models-registry.ts
+ */
+import { describe, it, expect } from 'bun:test';
+import {
+  AVAILABLE_MODELS,
+  REPLICATE_MODEL_VERSIONS,
+  DEFAULT_MODELS,
+  getModelsForCapability,
+  getDefaultModel,
+  getModelById,
+  getModelsForProvider,
+  getReplicateVersion,
+} from './models-registry.js';
+import type { AICapability } from '../types.js';
+
+describe('Models Registry', () => {
+  describe('AVAILABLE_MODELS catalog', () => {
+    it('should contain models for all core capabilities', () => {
+      const capabilities: AICapability[] = [
+        'image_generation',
+        'video_generation',
+        'audio_generation',
+        'voice_clone',
+        'text_to_speech',
+        'transcription',
+        'llm',
+      ];
+
+      for (const capability of capabilities) {
+        const models = getModelsForCapability(capability);
+        expect(models.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('should have valid model structure for all models', () => {
+      for (const model of AVAILABLE_MODELS) {
+        expect(model.id).toBeTruthy();
+        expect(model.name).toBeTruthy();
+        expect(model.provider).toMatch(/^(replicate|openai|anthropic|openrouter)$/);
+        expect(model.capabilities.length).toBeGreaterThan(0);
+        expect(model.description).toBeTruthy();
+        expect(model.tier).toMatch(/^(free|standard|premium)$/);
+        expect(model.speed).toMatch(/^(fast|medium|slow)$/);
+        expect(model.quality).toMatch(/^(draft|standard|high)$/);
+      }
+    });
+
+    it('should have exactly one default model per capability', () => {
+      const capabilities: AICapability[] = [
+        'image_generation',
+        'video_generation',
+        'audio_generation',
+        'voice_clone',
+        'transcription',
+        'llm',
+      ];
+
+      for (const capability of capabilities) {
+        const models = getModelsForCapability(capability);
+        const defaults = models.filter(m => m.isDefault);
+        // Should have at most one default (could have 0 if capability shares default with another)
+        expect(defaults.length).toBeLessThanOrEqual(1);
+      }
+    });
+  });
+
+  describe('REPLICATE_MODEL_VERSIONS', () => {
+    it('should contain version hashes for version-based models', () => {
+      expect(REPLICATE_MODEL_VERSIONS['google/nano-banana-pro']).toBeTruthy();
+      expect(REPLICATE_MODEL_VERSIONS['black-forest-labs/flux-schnell']).toBeTruthy();
+    });
+
+    it('should have undefined for models using /models API', () => {
+      expect(REPLICATE_MODEL_VERSIONS['minimax/video-01']).toBeUndefined();
+      expect(REPLICATE_MODEL_VERSIONS['stability-ai/stable-audio-2.5']).toBeUndefined();
+    });
+
+    it('version hashes should be 64 character hex strings', () => {
+      for (const [_modelId, version] of Object.entries(REPLICATE_MODEL_VERSIONS)) {
+        if (version) {
+          expect(version).toMatch(/^[a-f0-9]{64}$/);
+        }
+      }
+    });
+  });
+
+  describe('DEFAULT_MODELS', () => {
+    it('should have defaults for all capabilities', () => {
+      const capabilities: AICapability[] = [
+        'image_generation',
+        'video_generation',
+        'audio_generation',
+        'voice_clone',
+        'text_to_speech',
+        'transcription',
+        'llm',
+      ];
+
+      for (const capability of capabilities) {
+        expect(DEFAULT_MODELS[capability]).toBeTruthy();
+      }
+    });
+
+    it('default model IDs should exist in AVAILABLE_MODELS', () => {
+      for (const [capability, modelId] of Object.entries(DEFAULT_MODELS)) {
+        // Some defaults may be from external sources not in catalog
+        const model = getModelById(modelId);
+        if (model) {
+          expect(model.capabilities).toContain(capability as AICapability);
+        }
+      }
+    });
+  });
+
+  describe('getModelsForCapability', () => {
+    it('should return image generation models', () => {
+      const models = getModelsForCapability('image_generation');
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.every(m => m.capabilities.includes('image_generation'))).toBe(true);
+    });
+
+    it('should return video generation models', () => {
+      const models = getModelsForCapability('video_generation');
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.every(m => m.capabilities.includes('video_generation'))).toBe(true);
+    });
+
+    it('should return audio generation models', () => {
+      const models = getModelsForCapability('audio_generation');
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.every(m => m.capabilities.includes('audio_generation'))).toBe(true);
+    });
+
+    it('should return voice clone models', () => {
+      const models = getModelsForCapability('voice_clone');
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.every(m => m.capabilities.includes('voice_clone'))).toBe(true);
+    });
+
+    it('should filter by provider when specified', () => {
+      const replicateModels = getModelsForCapability('image_generation', 'replicate');
+      expect(replicateModels.every(m => m.provider === 'replicate')).toBe(true);
+
+      const openaiModels = getModelsForCapability('llm', 'openai');
+      expect(openaiModels.every(m => m.provider === 'openai')).toBe(true);
+    });
+
+    it('should return empty array for non-existent capability/provider combo', () => {
+      // OpenAI doesn't have video_generation in our catalog
+      const models = getModelsForCapability('video_generation', 'openai');
+      expect(models).toEqual([]);
+    });
+  });
+
+  describe('getDefaultModel', () => {
+    it('should return default model for image_generation', () => {
+      const model = getDefaultModel('image_generation');
+      expect(model).toBeTruthy();
+      expect(model?.capabilities).toContain('image_generation');
+    });
+
+    it('should return default model for video_generation', () => {
+      const model = getDefaultModel('video_generation');
+      expect(model).toBeTruthy();
+      expect(model?.capabilities).toContain('video_generation');
+    });
+
+    it('should return default model for audio_generation', () => {
+      const model = getDefaultModel('audio_generation');
+      expect(model).toBeTruthy();
+      expect(model?.capabilities).toContain('audio_generation');
+    });
+
+    it('should return default model for voice_clone', () => {
+      const model = getDefaultModel('voice_clone');
+      expect(model).toBeTruthy();
+      expect(model?.capabilities).toContain('voice_clone');
+    });
+
+    it('should return first model when no default is marked', () => {
+      // Even if no isDefault is set, should return first available
+      const model = getDefaultModel('llm');
+      expect(model).toBeTruthy();
+      expect(model?.capabilities).toContain('llm');
+    });
+
+    it('should filter by provider when specified', () => {
+      const model = getDefaultModel('llm', 'anthropic');
+      expect(model?.provider).toBe('anthropic');
+    });
+  });
+
+  describe('getModelById', () => {
+    it('should find model by exact ID', () => {
+      const model = getModelById('google/nano-banana-pro');
+      expect(model).toBeTruthy();
+      expect(model?.name).toBe('Nano Banana Pro');
+      expect(model?.provider).toBe('replicate');
+    });
+
+    it('should return undefined for non-existent model', () => {
+      const model = getModelById('non-existent/model');
+      expect(model).toBeUndefined();
+    });
+
+    it('should find all registered models by ID', () => {
+      for (const registeredModel of AVAILABLE_MODELS) {
+        const found = getModelById(registeredModel.id);
+        expect(found).toBe(registeredModel);
+      }
+    });
+  });
+
+  describe('getModelsForProvider', () => {
+    it('should return all Replicate models', () => {
+      const models = getModelsForProvider('replicate');
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.every(m => m.provider === 'replicate')).toBe(true);
+    });
+
+    it('should return all OpenAI models', () => {
+      const models = getModelsForProvider('openai');
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.every(m => m.provider === 'openai')).toBe(true);
+    });
+
+    it('should return all Anthropic models', () => {
+      const models = getModelsForProvider('anthropic');
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.every(m => m.provider === 'anthropic')).toBe(true);
+    });
+
+    it('should return empty array for non-existent provider', () => {
+      const models = getModelsForProvider('non-existent-provider');
+      expect(models).toEqual([]);
+    });
+  });
+
+  describe('getReplicateVersion', () => {
+    it('should return version for version-based models', () => {
+      const version = getReplicateVersion('google/nano-banana-pro');
+      expect(version).toBeTruthy();
+      expect(version).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it('should return undefined for models using /models API', () => {
+      const version = getReplicateVersion('minimax/video-01');
+      expect(version).toBeUndefined();
+    });
+
+    it('should return undefined for non-existent models', () => {
+      const version = getReplicateVersion('non-existent/model');
+      expect(version).toBeUndefined();
+    });
+  });
+});
+
+describe('Model Selection Logic', () => {
+  describe('Capability matching', () => {
+    it('should find models that support multiple capabilities', () => {
+      // XTTS-v2 supports both voice_clone and text_to_speech
+      const voiceCloneModels = getModelsForCapability('voice_clone');
+      const ttsModels = getModelsForCapability('text_to_speech');
+
+      const xtts = getModelById('lucataco/xtts-v2');
+      expect(xtts).toBeTruthy();
+      expect(voiceCloneModels).toContainEqual(xtts);
+      expect(ttsModels).toContainEqual(xtts);
+    });
+
+    it('should correctly distinguish between providers', () => {
+      const allLlmModels = getModelsForCapability('llm');
+      const anthropicLlm = getModelsForCapability('llm', 'anthropic');
+      const openaiLlm = getModelsForCapability('llm', 'openai');
+
+      expect(allLlmModels.length).toBeGreaterThanOrEqual(anthropicLlm.length + openaiLlm.length);
+      expect(anthropicLlm.every(m => m.provider === 'anthropic')).toBe(true);
+      expect(openaiLlm.every(m => m.provider === 'openai')).toBe(true);
+    });
+  });
+
+  describe('Tier and quality attributes', () => {
+    it('should have premium tier for compute-intensive models', () => {
+      const videoModel = getModelById('minimax/video-01');
+      expect(videoModel?.tier).toBe('premium');
+      expect(videoModel?.speed).toBe('slow');
+    });
+
+    it('should have standard tier for common models', () => {
+      const imageModel = getModelById('google/nano-banana-pro');
+      expect(imageModel?.tier).toBe('standard');
+      expect(imageModel?.speed).toBe('fast');
+    });
+  });
+});

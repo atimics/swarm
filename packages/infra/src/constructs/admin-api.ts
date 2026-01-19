@@ -147,6 +147,7 @@ export class AdminApiConstruct extends Construct {
   public readonly table: dynamodb.Table;
   public readonly encryptionKey: kms.Key;
   public readonly chatHandler: lambda.Function;
+  public readonly mediaConvertHandler?: lambda.Function;
 
   constructor(scope: Construct, id: string, props: AdminApiConstructProps) {
     super(scope, id);
@@ -485,10 +486,13 @@ export class AdminApiConstruct extends Construct {
         },
         bundling: {
           externalModules: ['@aws-sdk/*'],
+          nodeModules: ['ffmpeg-static'],
           minify: true,
           sourceMap: true,
         },
       });
+
+      this.mediaConvertHandler = mediaConvertHandler;
 
       if (mediaBucket) {
         mediaBucket.grantReadWrite(mediaConvertHandler);

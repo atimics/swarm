@@ -470,12 +470,29 @@ describe('Twitter OAuth - Connection Status', () => {
     expect(sk).toBe('TWITTER#CONNECTION');
   });
 
-  it('getConnectionStatus returns connected=false when no record', async () => {
+  it('getConnectionStatus returns connected=false when no record and no tokens', async () => {
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({ Item: undefined }));
+    // Also mock secrets to return null - no tokens in Secrets Manager
+    mockDeps.mockGetSecretValue.mockImplementation(() => Promise.resolve(null));
 
     const result = await getConnectionStatus('avatar-123', mockDeps);
 
     expect(result).toEqual({ connected: false });
+  });
+
+  it('getConnectionStatus repairs metadata when DynamoDB empty but tokens exist', async () => {
+    mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({ Item: undefined }));
+    // Tokens exist in Secrets Manager
+    mockDeps.mockGetSecretValue
+      .mockImplementationOnce(() => Promise.resolve('access-token'))
+      .mockImplementationOnce(() => Promise.resolve('access-secret'));
+
+    const result = await getConnectionStatus('avatar-123', mockDeps);
+
+    // Should be connected and repair the metadata
+    expect(result.connected).toBe(true);
+    expect(result.username).toBe('testuser');
+    expect(result.userId).toBe('12345');
   });
 
   it('getConnectionStatus returns full status when connected', async () => {
@@ -592,7 +609,7 @@ describe('Twitter OAuth - Get Avatar Credentials', () => {
     expect(result).toEqual({ configured: false });
   });
 
-  it('getAvatarTwitterCredentials returns configured=false when not connected', async () => {
+  it('getAvatarTwitterCredentials returns configured=false when no tokens exist', async () => {
     mockDeps.mockSecretsSend.mockImplementation(() => Promise.resolve({
       SecretString: JSON.stringify({
         TWITTER_APP_KEY: 'test-app-key',
@@ -600,10 +617,39 @@ describe('Twitter OAuth - Get Avatar Credentials', () => {
       }),
     }));
     mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({ Item: undefined }));
+    // No tokens in Secrets Manager
+    mockDeps.mockGetSecretValue.mockImplementation(() => Promise.resolve(null));
 
     const result = await getAvatarTwitterCredentials('avatar-123', mockDeps);
 
     expect(result).toEqual({ configured: false });
+  });
+
+  it('getAvatarTwitterCredentials returns credentials when DynamoDB empty but tokens exist', async () => {
+    mockDeps.mockSecretsSend.mockImplementation(() => Promise.resolve({
+      SecretString: JSON.stringify({
+        TWITTER_APP_KEY: 'test-app-key',
+        TWITTER_APP_SECRET: 'test-app-secret',
+      }),
+    }));
+    mockDeps.mockDynamoSend.mockImplementation(() => Promise.resolve({ Item: undefined }));
+    // Tokens exist in Secrets Manager - fallback should repair and return credentials
+    mockDeps.mockGetSecretValue
+      .mockImplementationOnce(() => Promise.resolve('user-access-token'))
+      .mockImplementationOnce(() => Promise.resolve('user-access-secret'))
+      // Called again after repair by getAvatarTwitterCredentials
+      .mockImplementationOnce(() => Promise.resolve('user-access-token'))
+      .mockImplementationOnce(() => Promise.resolve('user-access-secret'));
+
+    const result = await getAvatarTwitterCredentials('avatar-123', mockDeps);
+
+    expect(result).toEqual({
+      configured: true,
+      appKey: 'test-app-key',
+      appSecret: 'test-app-secret',
+      accessToken: 'user-access-token',
+      accessSecret: 'user-access-secret',
+    });
   });
 
   it('getAvatarTwitterCredentials fetches tokens from Secrets Manager', async () => {

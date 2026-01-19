@@ -313,25 +313,27 @@ describe('VoiceServices - Service Mock Integration', () => {
     it('should send voice via Telegram API', async () => {
       const mockFetch = mock(async (url: string, options?: RequestInit) => {
         if (url.includes('api.telegram.org') && url.includes('sendVoice')) {
-          const body = JSON.parse(options?.body as string);
-          expect(body.chat_id).toBe('12345');
-          expect(body.voice).toBe('https://example.com/voice.ogg');
+          expect(options?.method).toBe('POST');
+          // We now upload via multipart/form-data (FormData instance)
+          expect(options?.body).toBeInstanceOf(FormData);
           return {
             ok: true,
             json: async () => ({ ok: true }),
+            text: async () => '{"ok":true}',
           };
         }
         throw new Error(`Unexpected URL: ${url}`);
       });
 
+      const form = new FormData();
+      form.append('chat_id', '12345');
+      form.append('voice', new Blob([new ArrayBuffer(1)], { type: 'audio/ogg' }), 'voice.ogg');
+
       const response = await mockFetch(
         'https://api.telegram.org/bottest-token/sendVoice',
         {
           method: 'POST',
-          body: JSON.stringify({
-            chat_id: '12345',
-            voice: 'https://example.com/voice.ogg',
-          }),
+          body: form,
         }
       );
 

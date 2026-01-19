@@ -3,11 +3,13 @@
  */
 import { randomUUID } from 'crypto';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // Default S3 client - lazy initialized
 let defaultS3Client: S3Client | null = null;
 const REPLICATE_ENDPOINT = 'https://api.replicate.com/v1/predictions';
+const MEDIA_CONVERT_FUNCTION = process.env.MEDIA_CONVERT_FUNCTION;
 
 function getDefaultS3Client(): S3Client {
   if (!defaultS3Client) {
@@ -33,6 +35,8 @@ const OFFICIAL_MODEL_PREFIXES = ['stability-ai', 'meta', 'openai', 'mistralai', 
 const FETCH_TIMEOUT_MS = 10_000;
 
 type AudioFormat = 'ogg' | 'mp3' | 'wav';
+
+type MediaConvertResponse = { success: boolean; url?: string; format?: string; error?: string };
 
 interface ReplicatePrediction {
   id: string;
@@ -76,7 +80,9 @@ function extractOutputUrl(output: ReplicatePrediction['output']): string | undef
 function parseS3Key(url: string): { bucket: string; key: string } | null {
   const match = url.match(/https:\/\/([^.]+)\.s3[^/]*\.amazonaws\.com\/(.+)/);
   if (!match) return null;
-  return { bucket: match[1], key: decodeURIComponent(match[2]) };
+  const keyWithQuery = decodeURIComponent(match[2]);
+  const key = keyWithQuery.split('?')[0] || keyWithQuery;
+  return { bucket: match[1], key };
 }
 
 function isUrl(value?: string): boolean {
@@ -111,6 +117,37 @@ async function makeUrlAccessible(url: string, cdnUrl?: string): Promise<string> 
 
   const command = new GetObjectCommand({ Bucket: parsed.bucket, Key: parsed.key });
   return getSignedUrl(getDefaultS3Client(), command, { expiresIn: 3600 });
+}
+
+async function convertAudioToOgg(params: { avatarId: string; sourceUrl: string }): Promise<string | null> {
+  if (!MEDIA_CONVERT_FUNCTION) return null;
+
+  const client = new LambdaClient({});
+  const payload = JSON.stringify({
+    avatarId: params.avatarId,
+    sourceUrl: params.sourceUrl,
+    mediaType: 'audio',
+    targetFormat: 'ogg',
+  });
+
+  const result = await client.send(new InvokeCommand({
+    FunctionName: MEDIA_CONVERT_FUNCTION,
+    InvocationType: 'RequestResponse',
+    Payload: new TextEncoder().encode(payload),
+  }));
+
+  if (!result.Payload) return null;
+  const raw = new TextDecoder().decode(result.Payload);
+
+  let parsed: MediaConvertResponse;
+  try {
+    parsed = JSON.parse(raw) as MediaConvertResponse;
+  } catch {
+    return null;
+  }
+
+  if (!parsed.success || !parsed.url) return null;
+  return parsed.url;
 }
 
 // Cache for model versions (community models need version hash)
@@ -512,14 +549,41 @@ export function createVoiceServices(config: {
           throw new Error('TELEGRAM_BOT_TOKEN not configured');
         }
 
+        // Telegram wants OGG/Opus for "voice" notes and often fails to fetch signed/redirecting URLs
+        // ("failed to get HTTP URL content").
+        // We (1) transcode to OGG/Opus via MediaConvertHandler when available, (2) download ourselves,
+        // (3) upload bytes via multipart/form-data.
+        let telegramSourceUrl = accessibleUrl;
+        if (detectedFormat !== 'ogg') {
+          try {
+            const converted = await convertAudioToOgg({ avatarId: params.avatarId, sourceUrl: accessibleUrl });
+            if (converted) telegramSourceUrl = converted;
+          } catch (err) {
+            console.warn('[Voice] Media convert failed, falling back to original audio:', err);
+          }
+        }
+
+        const audioResponse = await fetchWithTimeout(telegramSourceUrl);
+        if (!audioResponse.ok) {
+          const errorText = await audioResponse.text();
+          throw new Error(`Failed to download voice audio for Telegram upload: ${audioResponse.status} - ${errorText}`);
+        }
+
+        const buffer = Buffer.from(await audioResponse.arrayBuffer());
+        const contentType = audioResponse.headers.get('content-type');
+        const uploadType = contentType || 'audio/ogg';
+        const fileName = 'voice.ogg';
+
+        const form = new FormData();
+        form.append('chat_id', params.conversationId.toString());
+        form.append('voice', new Blob([buffer], { type: uploadType }), fileName);
+        if (params.replyToMessageId) {
+          form.append('reply_to_message_id', Number(params.replyToMessageId).toString());
+        }
+
         const response = await fetch(`https://api.telegram.org/bot${telegramToken}/sendVoice`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: params.conversationId,
-            voice: accessibleUrl,
-            reply_to_message_id: params.replyToMessageId ? Number(params.replyToMessageId) : undefined,
-          }),
+          body: form,
         });
 
         if (!response.ok) {

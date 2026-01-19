@@ -321,6 +321,7 @@ export class SwarmStack extends cdk.Stack {
           environment,
           discordCluster: this.shared.discordCluster,
           replicateApiKeyArn,
+          mediaConvertFunction: this.adminApi?.mediaConvertHandler,
         });
 
         this.avatars.set(avatarId, avatar);
