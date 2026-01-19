@@ -209,7 +209,11 @@ function App() {
       if (backendConnected === false) {
         addMessage(targetAvatarId, {
           role: 'assistant',
-          content: 'X/Twitter OAuth completed, but backend still reports disconnected. Please refresh and try again.',
+          content: JSON.stringify({
+            connected: false,
+            error: true,
+            message: 'X/Twitter OAuth completed, but backend still reports disconnected. Please refresh and try again.',
+          }),
         });
         return;
       }
@@ -229,7 +233,11 @@ function App() {
 
       addMessage(targetAvatarId, {
         role: 'assistant',
-        content: `X/Twitter connected as @${displayUsername}`,
+        content: JSON.stringify({
+          connected: true,
+          username: displayUsername,
+          message: `Connected as @${displayUsername}`,
+        }),
       });
 
       if (backendUsername && backendUsername !== result.username) {
@@ -244,7 +252,11 @@ function App() {
     } else {
       addMessage(targetAvatarId, {
         role: 'assistant',
-        content: `X/Twitter connection failed: ${result.error}`,
+        content: JSON.stringify({
+          connected: false,
+          error: true,
+          message: `X/Twitter connection failed: ${result.error}`,
+        }),
       });
     }
   }, [activeAvatarId, addMessage, chats, fetchAvatars, setActiveAvatar, syncChatHistory, updateMessage]);
