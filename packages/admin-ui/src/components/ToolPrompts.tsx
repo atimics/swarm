@@ -2,7 +2,7 @@
  * Tool Prompt Components - Interactive UI for avatar tools
  * These render inline with chat messages when the avatar needs user input
  */
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import type { ToolCall } from '../types';
 import { useActiveAvatar } from '../store';
 
@@ -1035,6 +1035,8 @@ export function ModelSelectorPrompt({ toolCall, onSubmit, disabled }: ToolPrompt
   const models = args.models || [];
   const currentModel = args.currentModel || '';
 
+  type ProviderModel = (typeof models)[number];
+
   // Initialize with current model and expand its provider
   useEffect(() => {
     if (currentModel && !selectedModel) {
@@ -1047,24 +1049,23 @@ export function ModelSelectorPrompt({ toolCall, onSubmit, disabled }: ToolPrompt
   }, [currentModel, selectedModel]);
 
   // Filter models by search query
-  const filteredModels = models.filter(m =>
+  const filteredModels = models.filter((m) =>
     m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     m.id.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Group models by provider with counts
-  const groupedModels = useMemo(() => {
-    return filteredModels.reduce((acc, model) => {
+  const groupedModels = useMemo<Record<string, ProviderModel[]>>(() => {
+    return filteredModels.reduce<Record<string, ProviderModel[]>>((acc, model) => {
       const provider = model.provider || model.id.split('/')[0] || 'other';
-      if (!acc[provider]) acc[provider] = [];
-      acc[provider].push(model);
+      (acc[provider] ??= []).push(model);
       return acc;
-    }, {} as Record<string, typeof models>);
+    }, {});
   }, [filteredModels]);
 
   // Sort providers: prioritize popular ones, then alphabetically
   const priorityProviders = ['anthropic', 'openai', 'google', 'meta-llama', 'mistralai', 'cohere', 'deepseek'];
-  const sortedProviders = useMemo(() => {
+  const sortedProviders = useMemo<string[]>(() => {
     return Object.keys(groupedModels).sort((a, b) => {
       const aIdx = priorityProviders.indexOf(a);
       const bIdx = priorityProviders.indexOf(b);
