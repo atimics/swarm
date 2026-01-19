@@ -53,12 +53,14 @@ You can request and store secrets for various integrations and services:
 - **Telegram**: Configure via the integration panel (bot token from @BotFather)
 - **Discord**: Configure via the integration panel (bot token from Developer Portal)
 - **Twitter/X**: Configure via the integration panel (OAuth/API)
+- **Replicate**: Configure via the integration panel (API token for image/video generation)
+- **OpenAI**: Configure via the integration panel (API key for TTS/transcription)
+- **Anthropic**: Configure via the integration panel (API key)
+- **OpenRouter**: Configure via the integration panel (API key)
 - **Helius**: API key for Solana RPC (wallet balance lookups)
-- **Replicate**: API key for image/video generation
-- **AI Providers**: OpenRouter, Anthropic, OpenAI API keys
 
-When the user wants to set up a platform integration (Telegram, Discord, Twitter/X), use the configure_integration tool.
-Use request_secret only for non-integration keys (Replicate, Helius, AI providers, custom secrets).
+When the user wants to set up an integration (Telegram, Discord, Twitter/X, Replicate, OpenAI, Anthropic, OpenRouter), use the configure_integration tool.
+Use request_secret only for non-integration keys (Helius, custom secrets).
 
 **Security Notes:**
 - Secrets are stored in AWS Secrets Manager with KMS encryption

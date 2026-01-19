@@ -278,7 +278,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const config = integrationConfig[args.integration];
 
   useEffect(() => {
-    if (!activeAgent?.id || !config.isAiProvider) return;
+    if (!activeAgent?.id || !config?.isAiProvider) return;
     if (didInitFromStatus.current) return;
 
     const run = async () => {
@@ -318,7 +318,18 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     };
 
     void run();
-  }, [activeAgent?.id, args.integration, config.isAiProvider]);
+  }, [activeAgent?.id, args.integration, config?.isAiProvider]);
+
+  // Guard: If integration type is unknown, show fallback UI (after hooks)
+  if (!config) {
+    return (
+      <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg p-4">
+        <p className="text-[var(--color-text-secondary)]">
+          Unknown integration type: {args.integration || '(not specified)'}
+        </p>
+      </div>
+    );
+  }
 
   const handleTest = async () => {
     if (!token.trim() || isTesting) return;
