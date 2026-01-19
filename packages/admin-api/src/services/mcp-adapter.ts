@@ -915,6 +915,22 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           return null;
         }
 
+        // Security: Require a verified connection record (userId) and ensure the access tokens
+        // belong to that exact user before posting. This prevents posting from an unintended
+        // account if stale/wrong tokens are present.
+        const expectedConnection = await twitterOAuth.getConnectionStatus(_avatarId);
+        if (!expectedConnection.connected || !expectedConnection.userId) {
+          console.error(JSON.stringify({
+            level: 'ERROR',
+            subsystem: 'twitter',
+            event: 'twitter_connection_unverified',
+            avatarId: _avatarId,
+            connected: expectedConnection.connected,
+            message: 'Twitter connection is not verified (missing userId). Reconnect required before posting.',
+          }));
+          return null;
+        }
+
         // Resolve gallery IDs to URLs (preferred over raw URLs)
         let resolvedMediaUrls: string[] = [];
         
@@ -952,6 +968,22 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         });
 
         try {
+          const me = await client.v2.me();
+          if (me.data.id !== expectedConnection.userId) {
+            console.error(JSON.stringify({
+              level: 'ERROR',
+              subsystem: 'twitter',
+              event: 'twitter_identity_mismatch',
+              avatarId: _avatarId,
+              expectedUserId: expectedConnection.userId,
+              expectedUsername: expectedConnection.username,
+              actualUserId: me.data.id,
+              actualUsername: me.data.username,
+              message: 'Refusing to post: access tokens belong to a different Twitter account than the stored connection record.',
+            }));
+            return null;
+          }
+
           // Handle media uploads if provided
           const twitterMediaIds = resolvedMediaUrls.length > 0 
             ? await uploadMediaToTwitter(client, resolvedMediaUrls, _avatarId)
