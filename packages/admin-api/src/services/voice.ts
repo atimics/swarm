@@ -184,7 +184,7 @@ async function makeUrlAccessible(url: string): Promise<string> {
 async function getSecret(avatarId: string, type: 'openai_api_key' | 'replicate_api_key'): Promise<string | null> {
   const key = await _getSecretValueInternal(avatarId, type, 'default');
   if (key) return key;
-  return _getSecretValueInternal('GLOBAL', type, 'default');
+  return _getSecretValueInternal(null, type, 'default');
 }
 
 // Cache for model versions (community models need version hash)

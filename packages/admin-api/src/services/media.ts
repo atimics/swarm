@@ -169,7 +169,7 @@ async function getSystemReplicateKey(): Promise<string | null> {
   }
 
   // Fall back to GLOBAL secret in DynamoDB
-  const globalKey = await _getSecretValueInternal('GLOBAL', 'replicate_api_key', 'default');
+  const globalKey = await _getSecretValueInternal(null, 'replicate_api_key', 'default');
   if (globalKey) {
     cachedSystemReplicateKey = globalKey;
     console.log('[Media] Loaded system Replicate API key from GLOBAL secret');
@@ -428,7 +428,7 @@ export async function getProviderApiKey(
   // Try avatar-specific key first, then global
   let key = await _getSecretValueInternal(avatarId, secretTypes[provider], 'default');
   if (!key) {
-    key = await _getSecretValueInternal('GLOBAL', secretTypes[provider], 'default');
+    key = await _getSecretValueInternal(null, secretTypes[provider], 'default');
   }
 
   // Replicate can also be configured via env var or a Secrets Manager ARN.

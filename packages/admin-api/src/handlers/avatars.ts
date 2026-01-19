@@ -440,6 +440,72 @@ export async function handler(
       }
     }
 
+    // POST /avatars/{id}/validate-ai-key - Validate AI provider keys server-side (avoids browser CORS)
+    const validateAiKeyMatch = path.match(/^\/avatars\/([^/]+)\/validate-ai-key$/);
+    if (method === 'POST' && validateAiKeyMatch) {
+      const avatarId = validateAiKeyMatch[1];
+      const body = JSON.parse(event.body || '{}') as { integration?: string; value?: string };
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const integration = typeof body.integration === 'string' ? body.integration.trim().toLowerCase() : '';
+      const value = typeof body.value === 'string' ? body.value.trim() : '';
+
+      if (!integration || !value) {
+        return jsonResponse(corsHeaders, 400, { error: 'integration and value are required' });
+      }
+
+      if (integration === 'replicate') {
+        const validation = await validateReplicateApiKey(value);
+        return jsonResponse(corsHeaders, validation.valid ? 200 : 400, validation);
+      }
+
+      if (integration === 'openai') {
+        try {
+          const resp = await fetch('https://api.openai.com/v1/models', {
+            headers: { Authorization: `Bearer ${value}` },
+          });
+          if (resp.status === 401) {
+            return jsonResponse(corsHeaders, 400, { valid: false, error: 'Invalid API key. Please check your OpenAI dashboard.' });
+          }
+          if (!resp.ok) {
+            return jsonResponse(corsHeaders, 400, { valid: false, error: `OpenAI API error: ${resp.status} ${resp.statusText}` });
+          }
+          return jsonResponse(corsHeaders, 200, { valid: true });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Unknown error';
+          return jsonResponse(corsHeaders, 400, { valid: false, error: `Could not validate API key: ${msg}` });
+        }
+      }
+
+      // Best-effort validation for other providers (format-only).
+      if (integration === 'anthropic') {
+        const looksValid = value.startsWith('sk-ant-') || value.length > 20;
+        return jsonResponse(corsHeaders, looksValid ? 200 : 400, {
+          valid: looksValid,
+          error: looksValid ? undefined : 'API key format looks invalid. Expected something like sk-ant-...'
+        });
+      }
+
+      if (integration === 'openrouter') {
+        const looksValid = value.length > 20;
+        return jsonResponse(corsHeaders, looksValid ? 200 : 400, {
+          valid: looksValid,
+          error: looksValid ? undefined : 'API key format looks invalid.'
+        });
+      }
+
+      return jsonResponse(corsHeaders, 400, { valid: false, error: `Unsupported integration: ${integration}` });
+    }
+
     // POST /avatars/{id}/tools/{toolCallId} - Submit a tool result and resume chat
     const toolsMatch = path.match(/^\/avatars\/([^/]+)\/tools\/([^/]+)$/);
     if (method === 'POST' && toolsMatch) {

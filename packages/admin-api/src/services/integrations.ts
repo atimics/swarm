@@ -213,7 +213,7 @@ export async function getIntegrationStatus(
   const secretStatuses = await Promise.all(
     metadata.requiredSecrets.map(async (secretType) => {
       const hasAvatar = await secretExists(avatarId, secretType, 'default');
-      const hasGlobal = await secretExists('GLOBAL', secretType, 'default');
+      const hasGlobal = await secretExists(null, secretType, 'default');
       return { secretType, hasAvatar, hasGlobal };
     })
   );
@@ -588,7 +588,7 @@ export async function getApiKey(avatarId: string, secretType: SecretType): Promi
   if (avatarKey) return avatarKey;
 
   // Fall back to global
-  return _getSecretValueInternal('GLOBAL', secretType, 'default');
+  return _getSecretValueInternal(null, secretType, 'default');
 }
 
 /**

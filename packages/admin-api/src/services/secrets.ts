@@ -88,6 +88,9 @@ export async function storeSecret(
       SecretId: secretName,
       SecretString: value,
     }));
+
+    // Invalidate cache for this secret
+    secretValueCache.delete(secretArn);
   } catch (error: unknown) {
     if ((error as { name?: string }).name === 'ResourceNotFoundException') {
       // Create new secret
@@ -324,6 +327,7 @@ export async function secretExists(
   const result = await dynamoClient.send(new GetCommand({
     TableName: SECRETS_TABLE,
     Key: { pk, sk },
+    ConsistentRead: true,
   }));
 
   return !!result.Item;
@@ -344,6 +348,7 @@ export async function getSecretArn(
   const result = await dynamoClient.send(new GetCommand({
     TableName: SECRETS_TABLE,
     Key: { pk, sk },
+    ConsistentRead: true,
   }));
 
   return (result.Item as SecretMetadata)?.secretArn || null;
@@ -384,16 +389,19 @@ async function getLatestSecretArnForType(
  * @internal
  */
 export async function _getSecretValueInternal(
-  avatarId: string,
+  avatarId: string | null,
   secretType: SecretType,
   name: string
 ): Promise<string | null> {
   // Log access for audit purposes
-  console.warn(`[AUDIT] Secret value accessed: avatar=${avatarId}, type=${secretType}, name=${name}`);
+  console.warn(`[AUDIT] Secret value accessed: avatar=${avatarId ?? 'GLOBAL'}, type=${secretType}, name=${name}`);
 
   let secretArn = await getSecretArn(avatarId, secretType, name);
   if (!secretArn && name === 'default') {
-    secretArn = await getLatestSecretArnForType(avatarId, secretType);
+    // For global secrets, we always use an explicit name and skip the “latest” fallback.
+    if (avatarId !== null) {
+      secretArn = await getLatestSecretArnForType(avatarId, secretType);
+    }
   }
   if (!secretArn) return null;
 

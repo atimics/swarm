@@ -161,7 +161,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [testResult, setTestResult] = useState<{ botUsername?: string; username?: string; error?: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ botUsername?: string; username?: string; message?: string; error?: string } | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [useGlobalKey, setUseGlobalKey] = useState(true);
@@ -326,28 +326,36 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     setTestResult(null);
 
     try {
-      // For AI providers, test directly with their API
-      if (config.isAiProvider && config.testEndpoint) {
-        const headers: Record<string, string> = {};
-
-        if (args.integration === 'replicate') {
-          headers['Authorization'] = `Token ${token.trim()}`;
-        } else if (args.integration === 'openai') {
-          headers['Authorization'] = `Bearer ${token.trim()}`;
-        }
-
-        const testResponse = await fetch(config.testEndpoint, { headers });
-
-        if (testResponse.ok) {
-          const data = await testResponse.json().catch(() => ({}));
-          setStatus('success');
-          setTestResult({
-            username: data.username || data.name || 'Connected',
-          });
-        } else {
+      // For AI providers, validate via backend to avoid browser CORS issues.
+      if (config.isAiProvider) {
+        if (!activeAgent?.id) {
           setStatus('error');
-          setTestResult({ error: `API error: ${testResponse.status} ${testResponse.statusText}` });
+          setTestResult({ error: 'No active avatar selected' });
+          return;
         }
+        const response = await fetch(`${API_BASE}/avatars/${activeAgent?.id}/validate-ai-key`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ integration: args.integration, value: token.trim() }),
+        });
+
+        const result = await response.json().catch(() => ({} as Record<string, unknown>));
+        const valid = Boolean((result as { valid?: boolean }).valid);
+        const error = (result as { error?: string }).error;
+        const warning = (result as { warning?: string }).warning;
+        const accountType = (result as { accountType?: string }).accountType;
+
+        if (!response.ok || !valid) {
+          setStatus('error');
+          setTestResult({ error: error || 'Validation failed' });
+          return;
+        }
+
+        setStatus('success');
+        setTestResult({
+          message: warning || (accountType ? `Connected (${accountType})` : 'Connected'),
+        });
         return;
       }
 
@@ -603,7 +611,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
                 <span className="text-sm text-green-300">
-                  Connected! {testResult.username && `(${testResult.username})`}
+                  Connected! {(testResult.message || testResult.username) && `(${testResult.message || testResult.username})`}
                 </span>
               </div>
             )}

@@ -392,13 +392,14 @@ export async function getConnectionStatus(avatarId: string, deps: TwitterOAuthSe
   userId?: string;
   connectedAt?: number;
 }> {
-  // First check DynamoDB metadata record
+  // First check DynamoDB metadata record (use consistent read to avoid stale data after reconnect)
   const result = await deps.dynamoClient.send(new GetCommand({
     TableName: deps.tableName,
     Key: {
       pk: `AVATAR#${avatarId}`,
       sk: 'TWITTER#CONNECTION',
     },
+    ConsistentRead: true,
   })) as { Item?: { username?: string; userId?: string; connectedAt?: number } };
 
   if (result.Item) {
