@@ -965,14 +965,10 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
 
           const result = await client.v2.tweet(tweetParams);
           const tweetId = result.data.id;
-
-          // Get connection status for username
-          const status = await twitterOAuth.getConnectionStatus(_avatarId);
-          const username = status.username || 'unknown';
-
           return {
             tweetId,
-            url: `https://x.com/${username}/status/${tweetId}`,
+            // Username in the path can drift (or be wrong) during reconnects; this URL is canonical for the tweet ID.
+            url: `https://x.com/i/web/status/${tweetId}`,
           };
         } catch (error) {
           console.error('Failed to post tweet:', error);
@@ -1159,10 +1155,9 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           }
 
           const result = await client.v2.tweet(tweetParams);
-          const status = await twitterOAuth.getConnectionStatus(_avatarId);
           return {
             tweetId: result.data.id,
-            url: `https://x.com/${status.username || 'unknown'}/status/${result.data.id}`,
+            url: `https://x.com/i/web/status/${result.data.id}`,
           };
         } catch (error) {
           console.error('Failed to reply to tweet:', error);
@@ -1305,10 +1300,9 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           }
 
           const result = await client.v2.tweet(tweetParams);
-          const status = await twitterOAuth.getConnectionStatus(_avatarId);
           return {
             tweetId: result.data.id,
-            url: `https://x.com/${status.username || 'unknown'}/status/${result.data.id}`,
+            url: `https://x.com/i/web/status/${result.data.id}`,
           };
         } catch (error) {
           console.error('Failed to quote tweet:', error);

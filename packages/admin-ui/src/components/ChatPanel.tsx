@@ -130,7 +130,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         // Note: messages is from the closure before we called addMessage, 
         // so it doesn't include the user message we just added
         const history = messages
-          .filter((m) => m.id !== 'welcome' && !m.isLoading)
+          .filter((m) => m.id !== 'welcome' && !m.isLoading && !m.isToolResult)
           .map((m) => ({
             role: m.role,
             content: m.content,
@@ -209,10 +209,44 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             purpose: j.purpose,
           }));
 
-          updateMessage(targetAvatar.id, loadingMessage.id, {
+          // Pull tool-result messages (role=tool) from the backend response history
+          // so rich cards (Twitter Connected / Tweet Posted) show immediately.
+          const historyFromServer = Array.isArray(response.history) ? response.history : [];
+          const lastUserIndex = (() => {
+            for (let i = historyFromServer.length - 1; i >= 0; i--) {
+              const msg = historyFromServer[i];
+              if (msg && msg.role === 'user' && msg.content === content) return i;
+            }
+            return -1;
+          })();
+          const toolResultContents: string[] = [];
+          if (lastUserIndex >= 0) {
+            for (const msg of historyFromServer.slice(lastUserIndex + 1)) {
+              if (msg && msg.role === 'tool' && typeof msg.content === 'string') {
+                toolResultContents.push(msg.content);
+              }
+            }
+          }
+
+          // Replace the loading message in-place (preserve messageId for job polling),
+          // and splice tool-result messages right before it.
+          const current = useAvatarStore.getState().chats[targetAvatar.id] || [];
+          const loadingIndex = current.findIndex(m => m.id === loadingMessage.id);
+          const toolMessages = toolResultContents.map((toolContent) => ({
+            id: (globalThis.crypto && 'randomUUID' in globalThis.crypto)
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              ? (globalThis.crypto as any).randomUUID()
+              : `tool-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            role: 'assistant' as const,
+            content: toolContent,
+            timestamp: Date.now(),
+            isToolResult: true,
+          }));
+
+          const updatedLoading = {
+            ...loadingMessage,
             content: response.response,
             isLoading: false,
-            // Only add tool calls that need user input (pendingToolCall)
             toolCalls: pendingToolCall
               ? [{
                   id: pendingToolCall.id,
@@ -223,11 +257,35 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
               : injectedTwitterToolCall
                 ? [injectedTwitterToolCall]
                 : undefined,
-            // Track pending jobs for status display
             pendingJobs: pendingJobsForState.length > 0 ? pendingJobsForState : undefined,
-            // Media items from tool results (gallery, generated images)
             media: response.media,
-          });
+          };
+
+          if (loadingIndex >= 0) {
+            const next = [
+              ...current.slice(0, loadingIndex),
+              ...toolMessages,
+              updatedLoading,
+              ...current.slice(loadingIndex + 1),
+            ];
+            useAvatarStore.getState().setChat(targetAvatar.id, next);
+          } else {
+            // Fallback: if loading message vanished, just append.
+            for (const tm of toolMessages) {
+              addMessage(targetAvatar.id, {
+                role: tm.role,
+                content: tm.content,
+                isToolResult: true,
+              });
+            }
+            addMessage(targetAvatar.id, {
+              role: 'assistant',
+              content: updatedLoading.content,
+              toolCalls: updatedLoading.toolCalls,
+              pendingJobs: updatedLoading.pendingJobs,
+              media: updatedLoading.media,
+            });
+          }
           
           // Start polling for all pending jobs
           for (const pendingJob of pendingJobsList) {

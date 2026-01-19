@@ -3,6 +3,7 @@ import { useAvatarStore } from './store';
 import { useWalletAuth } from './store/walletAuth';
 import { useAuth } from './store/auth';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
+import { getTwitterConnectionStatus } from './api/twitter';
 import { AvatarSidebar, AvatarLogsPanel, ChatPanel, LandingPage } from './components';
 
 const TWITTER_OAUTH_STORAGE_KEY = 'swarm:oauth:twitter:lastResult';
@@ -190,15 +191,54 @@ function App() {
     const targetAvatarId = result.avatarId || activeAvatarId;
     if (!targetAvatarId) return;
 
+    // Source of truth: fetch backend connection status and use that username.
+    // This avoids displaying stale/incorrect usernames from query params or cached config.
+    let backendUsername: string | undefined;
+    let backendUserId: string | undefined;
+    let backendConnected: boolean | undefined;
+    try {
+      const status = await getTwitterConnectionStatus(targetAvatarId);
+      backendConnected = status.connected;
+      backendUsername = status.username;
+      backendUserId = status.userId;
+    } catch (err) {
+      console.warn('[App] Failed to fetch Twitter connection status', err);
+    }
+
     if (result.status === 'connected') {
+      const displayUsername = backendUsername || result.username;
+
+      if (backendConnected === false) {
+        addMessage(targetAvatarId, {
+          role: 'assistant',
+          content: JSON.stringify({
+            error: true,
+            message: 'Twitter OAuth completed, but backend still reports disconnected. Please refresh and try again.',
+          }),
+        });
+        return;
+      }
+
       addMessage(targetAvatarId, {
         role: 'assistant',
         content: JSON.stringify({
           connected: true,
-          username: result.username,
-          message: `Connected as @${result.username}`,
+          username: displayUsername,
+          userId: backendUserId,
+          message: `Connected as @${displayUsername}`,
         }),
       });
+
+      if (backendUsername && backendUsername !== result.username) {
+        addMessage(targetAvatarId, {
+          role: 'assistant',
+          content: JSON.stringify({
+            warning: true,
+            message: `Note: OAuth redirect reported @${result.username}, but backend status reports @${backendUsername}. Using backend status as the source of truth.`,
+          }),
+        });
+      }
+
       // If we have an active chat, re-sync history so subsequent tool calls see updated config.
       await syncChatHistory(targetAvatarId).catch(console.error);
     } else {

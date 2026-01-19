@@ -276,8 +276,9 @@ export const useAvatarStore = create<Avatartate>()(
             // Convert backend history to ChatMessage format
             const messages: ChatMessage[] = history.map((msg, index) => ({
               id: `synced-${index}`,
-              role: msg.role as 'user' | 'assistant',
+              role: (msg.role === 'tool' ? 'assistant' : msg.role) as 'user' | 'assistant',
               content: msg.content,
+              isToolResult: msg.role === 'tool',
               timestamp: Date.now() - (history.length - index) * 1000,
               // Include media if present (for images to persist across refresh)
               media: msg.media,
