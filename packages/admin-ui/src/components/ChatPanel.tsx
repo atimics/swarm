@@ -172,29 +172,12 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
           // Check for pending jobs from the response (explicit pendingJobs array)
           const pendingJobsList = response.pendingJobs || [];
           
-          // Also try to extract job IDs from the response text as fallback
-          const responseText = response.response;
-
-          // If the assistant asks to connect Twitter/X but the backend didn't include a pendingToolCall,
-          // inject a local pending tool call so the UI shows the connect dialog reliably.
-          const shouldInjectTwitterConnect =
-            !pendingToolCall &&
-            /please\s+connect\s+your\s+(x\/?twitter|twitter\/?x)\s+account\s*:/i.test(responseText);
-
-          const injectedTwitterToolCall = shouldInjectTwitterConnect
-            ? {
-                id: (globalThis.crypto && 'randomUUID' in globalThis.crypto)
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  ? (globalThis.crypto as any).randomUUID()
-                  : `twitter-connect-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-                name: 'request_twitter_connection',
-                arguments: {
-                  type: 'twitter_connect',
-                  message: 'Authorize this avatar to post and manage tweets.',
-                },
-                status: 'pending' as const,
-              }
-            : null;
+          // Filter out stale "Please connect your X/Twitter account:" text from responses
+          // This text can appear when the model repeats from chat history after a connection attempt
+          const responseText = response.response.replace(
+            /please\s+connect\s+your\s+(x\/?twitter|twitter\/?x)\s+account\s*:/gi,
+            ''
+          ).trim();
           const jobIdMatch = responseText.match(/jobId[:\s]+["']?([a-f0-9-]{36})["']?/i);
           if (jobIdMatch && !pendingJobsList.find(j => j.jobId === jobIdMatch[1])) {
             pendingJobsList.push({ jobId: jobIdMatch[1], type: 'image' });
@@ -245,7 +228,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
 
           const updatedLoading = {
             ...loadingMessage,
-            content: response.response,
+            content: responseText,
             isLoading: false,
             toolCalls: pendingToolCall
               ? [{
@@ -254,9 +237,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
                   arguments: pendingToolCall.arguments,
                   status: 'pending' as const,
                 }]
-              : injectedTwitterToolCall
-                ? [injectedTwitterToolCall]
-                : undefined,
+              : undefined,
             pendingJobs: pendingJobsForState.length > 0 ? pendingJobsForState : undefined,
             media: response.media,
           };

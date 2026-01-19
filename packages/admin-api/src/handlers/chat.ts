@@ -1422,43 +1422,13 @@ async function processChat(
     response = 'I apologize, but I couldn\'t generate a response. Please try again.';
   }
 
-  // Backend fallback: sometimes the model emits the Twitter connect prompt as plain text
-  // without an explicit pause tool call. If that happens, synthesize a pending tool call
-  // so UIs can reliably render the connect dialog and submit the tool result.
-  const shouldSynthesizeTwitterConnect =
-    !pendingToolCall &&
-    typeof response === 'string' &&
-    /please\s+connect\s+your\s+(x\/?twitter|twitter\/?x)\s+account\s*:/i.test(response) &&
-    !!avatarId;
-
-  if (shouldSynthesizeTwitterConnect) {
-    const syntheticArgs: Record<string, unknown> = {
-      integration: 'twitter',
-    };
-
-    pendingToolCall = {
-      id: `synthetic-twitter-connect-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      name: 'configure_integration',
-      arguments: syntheticArgs,
-    };
-
-    messages.push({
-      role: 'assistant',
-      content: response,
-      tool_calls: [
-        {
-          id: pendingToolCall.id,
-          type: 'function' as const,
-          function: {
-            name: pendingToolCall.name,
-            arguments: JSON.stringify(pendingToolCall.arguments),
-          },
-        },
-      ],
-    });
-  } else {
-    messages.push({ role: 'assistant', content: response });
+  // Filter out stale "Please connect your X/Twitter account:" text from LLM responses
+  // This text can appear when the model repeats from chat history after a connection attempt
+  if (typeof response === 'string') {
+    response = response.replace(/please\s+connect\s+your\s+(x\/?twitter|twitter\/?x)\s+account\s*:/gi, '').trim();
   }
+
+  messages.push({ role: 'assistant', content: response });
 
   const toolCallNames = new Map(toolCalls.map(tc => [tc.id, tc.name]));
   for (const result of toolResults) {
