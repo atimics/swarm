@@ -762,47 +762,66 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
             {/* Render Twitter status/connection results */}
             {twitterStatusResults.length > 0 && (
               <div className={`space-y-2 ${cleanedContent || walletResults.length > 0 || tweetResults.length > 0 ? 'mt-3' : ''}`}>
-                {twitterStatusResults.map((result, idx) => (
-                  <div
-                    key={idx}
-                    className={`rounded-lg border px-4 py-3 ${
-                      result.twitterConnected 
-                        ? 'border-green-500/30 bg-gradient-to-br from-green-500/10 to-emerald-500/10' 
-                        : 'border-yellow-500/30 bg-gradient-to-br from-yellow-500/10 to-orange-500/10'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        result.twitterConnected ? 'bg-green-500/20' : 'bg-yellow-500/20'
-                      }`}>
-                        <svg className={`w-4 h-4 ${result.twitterConnected ? 'text-green-400' : 'text-yellow-400'}`} fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M13.95 10.85L20.54 3h-1.56l-5.74 6.84L8.5 3H3.1l6.92 10.09L3.1 21h1.56l5.97-7.11L15.5 21h5.4l-6.95-10.15zm-2.45 2.92l-.7-1.03L5.8 4.5h2.46l4.06 5.98.7 1.02 5.24 7.71h-2.46l-4.3-6.44z" />
-                        </svg>
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-sm font-medium text-[var(--color-text)]">
-                          {result.twitterConnected ? 'Twitter Connected' : 'Twitter Connection'}
-                          {result.twitterUsername && (
-                            <span className="ml-2 text-blue-400">@{result.twitterUsername}</span>
+                {twitterStatusResults.map((result, idx) => {
+                  // Determine styling: error (red), connected (green), or pending (yellow)
+                  const isError = result.twitterError && !result.twitterConnected;
+                  const borderClass = result.twitterConnected
+                    ? 'border-green-500/30 bg-gradient-to-br from-green-500/10 to-emerald-500/10'
+                    : isError
+                    ? 'border-red-500/30 bg-gradient-to-br from-red-500/10 to-rose-500/10'
+                    : 'border-yellow-500/30 bg-gradient-to-br from-yellow-500/10 to-orange-500/10';
+                  const iconBgClass = result.twitterConnected
+                    ? 'bg-green-500/20'
+                    : isError
+                    ? 'bg-red-500/20'
+                    : 'bg-yellow-500/20';
+                  const iconColorClass = result.twitterConnected
+                    ? 'text-green-400'
+                    : isError
+                    ? 'text-red-400'
+                    : 'text-yellow-400';
+
+                  return (
+                    <div key={idx} className={`rounded-lg border px-4 py-3 ${borderClass}`}>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${iconBgClass}`}>
+                          <svg className={`w-4 h-4 ${iconColorClass}`} fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M13.95 10.85L20.54 3h-1.56l-5.74 6.84L8.5 3H3.1l6.92 10.09L3.1 21h1.56l5.97-7.11L15.5 21h5.4l-6.95-10.15zm-2.45 2.92l-.7-1.03L5.8 4.5h2.46l4.06 5.98.7 1.02 5.24 7.71h-2.46l-4.3-6.44z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-[var(--color-text)]">
+                            {result.twitterConnected ? 'Twitter Connected' : isError ? 'Twitter Connection Failed' : 'Twitter Connection'}
+                            {result.twitterUsername && (
+                              <span className="ml-2 text-blue-400">@{result.twitterUsername}</span>
+                            )}
+                          </div>
+                          {result.message && (
+                            <div className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                              {result.message}
+                            </div>
                           )}
                         </div>
-                        {result.message && (
-                          <div className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                            {result.message}
+                        {result.twitterConnected && (
+                          <div className="flex items-center gap-1 text-xs text-green-400">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Connected
+                          </div>
+                        )}
+                        {isError && (
+                          <div className="flex items-center gap-1 text-xs text-red-400">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            Failed
                           </div>
                         )}
                       </div>
-                      {result.twitterConnected && (
-                        <div className="flex items-center gap-1 text-xs text-green-400">
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          Connected
-                        </div>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
