@@ -15,6 +15,7 @@ import {
   DEFAULT_LLM_PROVIDER,
   type AvatarConfig,
 } from '@swarm/core';
+import { ensureReplicateKey } from './utils/system-replicate-key.js';
 
 // Environment variables
 const STATE_TABLE = process.env.STATE_TABLE!;
@@ -58,6 +59,25 @@ async function initialize(): Promise<void> {
   secrets = await secretsService.getSecretJson<Record<string, string>>(
     process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
   );
+
+  // Scheduled media generation should work even if the avatar secret JSON omits Replicate.
+  try {
+    const ok = await ensureReplicateKey(secrets, secretsService);
+    if (ok && secrets.REPLICATE_API_KEY) {
+      logger.info('Loaded system Replicate key for tweet poster', { subsystem: 'twitter' });
+    } else if (!ok) {
+      logger.warn('System Replicate key not configured for tweet poster', {
+        subsystem: 'twitter',
+        hasEnvKey: Boolean(process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY),
+        hasSecretArn: Boolean(process.env.REPLICATE_API_KEY_SECRET_ARN),
+      });
+    }
+  } catch (err) {
+    logger.warn('Failed to load system Replicate key for tweet poster', {
+      subsystem: 'twitter',
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   twitterAdapter = new TwitterAdapter(avatarConfig, {
     appKey: secrets.TWITTER_API_KEY,

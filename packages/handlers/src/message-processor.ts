@@ -141,6 +141,11 @@ async function initialize(): Promise<void> {
     const ok = await ensureReplicateKey(secrets, secretsService);
     if (ok && !secrets.REPLICATE_API_TOKEN && secrets.REPLICATE_API_KEY) {
       logger.info('Loaded system Replicate key for runtime handler');
+    } else if (!ok) {
+      logger.warn('System Replicate key not configured for runtime handler', {
+        hasEnvKey: Boolean(process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY),
+        hasSecretArn: Boolean(process.env.REPLICATE_API_KEY_SECRET_ARN),
+      });
     }
   } catch (err) {
     logger.warn('Failed to load system Replicate key', {

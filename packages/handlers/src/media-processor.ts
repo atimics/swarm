@@ -146,6 +146,12 @@ async function initialize(): Promise<void> {
     const ok = await ensureReplicateKey(secrets, secretsService);
     if (ok && secrets.REPLICATE_API_KEY) {
       logger.info('Loaded system Replicate key for media processor', { subsystem: 'media' });
+    } else if (!ok) {
+      logger.warn('System Replicate key not configured for media processor', {
+        subsystem: 'media',
+        hasEnvKey: Boolean(process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY),
+        hasSecretArn: Boolean(process.env.REPLICATE_API_KEY_SECRET_ARN),
+      });
     }
   } catch (err) {
     logger.warn('Failed to load system Replicate key for media processor', {
