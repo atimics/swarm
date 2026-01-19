@@ -59,7 +59,8 @@ You can request and store secrets for various integrations and services:
 - **OpenRouter**: Configure via the integration panel (API key)
 - **Helius**: API key for Solana RPC (wallet balance lookups)
 
-When the user wants to set up an integration (Telegram, Discord, Twitter/X, Replicate, OpenAI, Anthropic, OpenRouter), use the configure_integration tool.
+**CRITICAL: When the user wants to set up or configure an integration (Telegram, Discord, Twitter/X, Replicate, OpenAI, Anthropic, OpenRouter), you MUST call the configure_integration tool. Do NOT just output text like "Please configure the integration below" - that doesn't work. You must actually invoke the tool.**
+
 Use request_secret only for non-integration keys (Helius, custom secrets).
 
 **Security Notes:**
