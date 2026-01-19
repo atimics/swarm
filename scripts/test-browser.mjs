@@ -342,8 +342,10 @@ async function getPageElements(page) {
     const buttonElements = await page.locator('button:visible').evaluateAll(els =>
       els.map(e => {
         // Prefer aria-label for accessibility and cleaner text
-        const ariaLabel = e.getAttribute('aria-label');
-        if (ariaLabel) return ariaLabel;
+        const ariaLabel = (e.getAttribute('aria-label') || '').trim();
+        // Some aria-labels can be very long (tooltips, slot counts, etc.) and get filtered out later.
+        // Only use aria-label when it's reasonably short; otherwise fall back to visible text.
+        if (ariaLabel && ariaLabel.length <= 80) return ariaLabel;
         
         // Get text of direct children only, excluding nested badges/spans with slot counts
         const directText = Array.from(e.childNodes)
@@ -384,9 +386,10 @@ async function getPageElements(page) {
     );
     
     // Clean up - remove empty strings and duplicates
-    const cleanButtons = [...new Set(buttonElements.map(b => b.trim()).filter(b => b && b.length < 50 && b.length > 0))];
-    const cleanLinks = [...new Set(links.map(l => l.trim()).filter(l => l && l.length < 50))];
-    const cleanInputs = [...new Set(inputs.filter(i => i && i.length < 50))];
+    const MAX_LABEL_LEN = 80;
+    const cleanButtons = [...new Set(buttonElements.map(b => b.trim()).filter(b => b && b.length <= MAX_LABEL_LEN && b.length > 0))];
+    const cleanLinks = [...new Set(links.map(l => l.trim()).filter(l => l && l.length <= MAX_LABEL_LEN))];
+    const cleanInputs = [...new Set(inputs.filter(i => i && i.length <= MAX_LABEL_LEN))];
     
     return { buttons: cleanButtons, links: cleanLinks, inputs: cleanInputs };
   } catch {
@@ -433,6 +436,11 @@ CRITICAL RULES:
 2. For FILL: Use a value from the "Input fields" list as the first part
 3. If no suitable button exists, try NAVIGATE to /avatars/new or /avatars
 4. Don't invent button names - use only what's in the lists above
+
+OUTPUT REQUIREMENTS:
+- Output MUST be exactly 3 lines.
+- Each line MUST start with one of: OBSERVATION:, REASONING:, ACTION:
+- Do NOT use markdown, bullets, code blocks, or extra lines.
 
 RESPONSE FORMAT (use exactly this format on separate lines):
 OBSERVATION: [What you see on screen]
@@ -496,25 +504,67 @@ function parseAction(response) {
   let reasoning = '';
   let action = null;
   
+  const actionTypeMatch = (text) => text.match(/^(CLICK|TYPE|FILL|PRESS|SCROLL|NAVIGATE|DONE|ABORT)\s*:\s*(.*)$/i);
+
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.startsWith('OBSERVATION:')) {
-      observation = trimmed.replace('OBSERVATION:', '').trim();
-    } else if (trimmed.startsWith('REASONING:')) {
-      reasoning = trimmed.replace('REASONING:', '').trim();
-    } else if (trimmed.startsWith('ACTION:')) {
-      action = trimmed.replace('ACTION:', '').trim();
+    if (!trimmed) continue;
+
+    // Tolerate minor format drift (case, markdown bold, leading bullets)
+    const obsMatch = trimmed.match(/^(?:[-*]\s*)?(?:\*\*)?\s*OBSERVATION\s*(?:\*\*)?\s*:\s*(.*)$/i);
+    if (obsMatch) {
+      observation = obsMatch[1].trim();
+      continue;
+    }
+
+    const reasonMatch = trimmed.match(/^(?:[-*]\s*)?(?:\*\*)?\s*REASONING\s*(?:\*\*)?\s*:\s*(.*)$/i);
+    if (reasonMatch) {
+      reasoning = reasonMatch[1].trim();
+      continue;
+    }
+
+    const actionMatch = trimmed.match(/^(?:[-*]\s*)?(?:\*\*)?\s*ACTION\s*(?:\*\*)?\s*:\s*(.*)$/i);
+    if (actionMatch) {
+      action = actionMatch[1].trim();
+      continue;
+    }
+  }
+
+  // Fallback: sometimes the model outputs a bare action line without ACTION:
+  if (!action) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const m = actionTypeMatch(trimmed);
+      if (m) {
+        action = `${m[1]}: ${m[2]}`;
+        break;
+      }
     }
   }
   
   if (action) {
-    const match = action.match(/^(\w+):\s*(.*)$/);
+    const match = action.match(/^(\w+)\s*:\s*(.*)$/);
     if (match) {
       return {
         observation,
         reasoning,
         type: match[1].toUpperCase(),
         params: match[2].trim(),
+        raw: action
+      };
+    }
+
+    // Last-chance fallback: allow "CLICK <text>" style (no colon)
+    const parts = action.trim().split(/\s+/);
+    const maybeType = (parts[0] || '').toUpperCase();
+    const allowed = new Set(['CLICK', 'TYPE', 'FILL', 'PRESS', 'SCROLL', 'NAVIGATE', 'DONE', 'ABORT']);
+    if (allowed.has(maybeType)) {
+      return {
+        observation,
+        reasoning,
+        type: maybeType,
+        params: action.trim().slice(parts[0].length).trim(),
         raw: action
       };
     }

@@ -254,6 +254,22 @@ function App() {
       // If we have an active chat, re-sync history so subsequent tool calls see updated config.
       await syncChatHistory(targetAvatarId).catch(console.error);
     } else {
+      // On error, also clear the pending tool call so the "Please connect" prompt disappears
+      const avatarChats = chats[targetAvatarId] || [];
+      for (const msg of avatarChats) {
+        if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' && tc.status === 'pending')) {
+          const updatedToolCalls = msg.toolCalls.map(tc =>
+            tc.name === 'request_twitter_connection' && tc.status === 'pending'
+              ? { ...tc, status: 'completed' as const }
+              : tc
+          );
+          updateMessage(targetAvatarId, msg.id, {
+            toolCalls: updatedToolCalls,
+            content: '', // Clear the old message
+          });
+        }
+      }
+
       addMessage(targetAvatarId, {
         role: 'assistant',
         content: JSON.stringify({

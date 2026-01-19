@@ -73,6 +73,7 @@ interface ParsedToolResult {
   tweetUrl?: string;
   twitterUsername?: string;
   twitterConnected?: boolean;
+  twitterError?: boolean;
 }
 
 /**
@@ -135,14 +136,15 @@ function processMessageContent(content: string): {
       };
     }
 
-    // Check for Twitter status/connection result
-    if ('connected' in parsed && (parsed.username || 'username' in parsed)) {
+    // Check for Twitter status/connection result (including errors)
+    if ('connected' in parsed && (parsed.username || 'username' in parsed || parsed.error === true)) {
       return {
         type: 'twitter_status',
         data: parsed,
         twitterConnected: parsed.connected === true,
+        twitterError: parsed.error === true,
         twitterUsername: typeof parsed.username === 'string' ? parsed.username : undefined,
-        message: typeof parsed.message === 'string' ? parsed.message : 
+        message: typeof parsed.message === 'string' ? parsed.message :
           parsed.connected ? `Connected as @${parsed.username}` : 'X not connected',
       };
     }
