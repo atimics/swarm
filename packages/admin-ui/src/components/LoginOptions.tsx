@@ -235,26 +235,45 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   );
 }
 
+interface WalletLike {
+  address?: string;
+  publicKey?: string;
+}
+
+interface LinkedAccountLike {
+  type?: string;
+  address?: string;
+}
+
+interface PrivyUserLike {
+  wallet?: WalletLike;
+  embeddedWallet?: WalletLike;
+  wallets?: WalletLike[];
+  linkedWallets?: WalletLike[];
+  linkedAccounts?: LinkedAccountLike[];
+  linked_accounts?: LinkedAccountLike[];
+}
+
 function getSolanaWalletAddressFromPrivyUser(user: unknown): string | null {
   if (!user || typeof user !== 'object') return null;
-  const anyUser = user as any;
+  const privyUser = user as PrivyUserLike;
 
   const direct =
-    anyUser?.wallet?.address ||
-    anyUser?.wallet?.publicKey ||
-    anyUser?.embeddedWallet?.address ||
-    anyUser?.embeddedWallet?.publicKey;
+    privyUser?.wallet?.address ||
+    privyUser?.wallet?.publicKey ||
+    privyUser?.embeddedWallet?.address ||
+    privyUser?.embeddedWallet?.publicKey;
   if (typeof direct === 'string' && direct.length >= 32) return direct;
 
-  const wallets = anyUser?.wallets || anyUser?.linkedWallets;
+  const wallets = privyUser?.wallets || privyUser?.linkedWallets;
   if (Array.isArray(wallets)) {
-    const first = wallets.find((w: any) => typeof w?.address === 'string')?.address;
+    const first = wallets.find((w) => typeof w?.address === 'string')?.address;
     if (typeof first === 'string' && first.length >= 32) return first;
   }
 
-  const linked = anyUser?.linkedAccounts || anyUser?.linked_accounts;
+  const linked = privyUser?.linkedAccounts || privyUser?.linked_accounts;
   if (Array.isArray(linked)) {
-    const walletAccount = linked.find((a: any) => a?.type === 'wallet' && typeof a?.address === 'string');
+    const walletAccount = linked.find((a) => a?.type === 'wallet' && typeof a?.address === 'string');
     if (typeof walletAccount?.address === 'string' && walletAccount.address.length >= 32) {
       return walletAccount.address;
     }
