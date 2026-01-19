@@ -91,6 +91,134 @@ export interface VoiceConfig {
   referenceUrl?: string;
 }
 
+// =============================================================================
+// Unified Integration Configuration
+// =============================================================================
+
+/**
+ * All supported integration types
+ */
+export type IntegrationType =
+  // Platform integrations
+  | 'telegram'
+  | 'twitter'
+  | 'discord'
+  | 'web'
+  // AI providers
+  | 'replicate'
+  | 'openai'
+  | 'anthropic'
+  | 'openrouter'
+  // Blockchain
+  | 'solana'
+  | 'ethereum';
+
+/**
+ * Capabilities that AI providers can offer
+ */
+export type AICapability =
+  | 'image_generation'
+  | 'video_generation'
+  | 'audio_generation'    // abstract audio/music/sound effects
+  | 'voice_clone'         // clone voice from reference audio
+  | 'text_to_speech'      // generate speech from text
+  | 'transcription'       // speech to text
+  | 'llm';                // text generation
+
+/**
+ * Configuration for AI provider integrations (Replicate, OpenAI, etc.)
+ */
+export interface AIProviderConfig {
+  enabled: boolean;
+
+  // Whether to use global (system-wide) API key or avatar-specific
+  useGlobalKey: boolean;
+
+  // Model preferences per capability (overrides system defaults)
+  models?: {
+    image_generation?: string;     // e.g., 'google/nano-banana-pro'
+    video_generation?: string;     // e.g., 'minimax/video-01'
+    audio_generation?: string;     // e.g., 'stability-ai/stable-audio-2.5'
+    voice_clone?: string;          // e.g., 'lucataco/xtts-v2'
+    text_to_speech?: string;       // e.g., 'lucataco/xtts-v2' or 'gpt-4o-mini-tts'
+    transcription?: string;        // e.g., 'openai/whisper'
+    llm?: string;                  // e.g., 'anthropic/claude-3-opus'
+  };
+
+  // Provider-specific settings
+  webhookUrl?: string;             // For async predictions (Replicate)
+  pollIntervalMs?: number;         // For sync prediction polling
+}
+
+/**
+ * Configuration for platform integrations (Telegram, Twitter, Discord)
+ */
+export interface PlatformIntegrationConfig {
+  enabled: boolean;
+
+  // Platform-specific settings (varies by platform)
+  settings?: Record<string, unknown>;
+
+  // Connection status
+  status?: 'not_configured' | 'configured' | 'connected' | 'error';
+  statusMessage?: string;
+  lastCheckedAt?: number;
+}
+
+/**
+ * Telegram-specific integration config
+ */
+export interface TelegramIntegrationConfig extends PlatformIntegrationConfig {
+  botUsername?: string;
+  botId?: number;
+  webhookConfigured?: boolean;
+}
+
+/**
+ * Twitter-specific integration config
+ */
+export interface TwitterIntegrationConfig extends PlatformIntegrationConfig {
+  username?: string;
+  userId?: string;
+}
+
+/**
+ * Discord-specific integration config
+ */
+export interface DiscordIntegrationConfig extends PlatformIntegrationConfig {
+  guildId?: string;
+  mode?: 'webhook' | 'bot' | 'hybrid';
+  useGateway?: boolean;
+  intents?: number;
+  respondToMentions?: boolean;
+  respondInDMs?: boolean;
+  allowedChannels?: string[];
+  allowedGuilds?: string[];
+  applicationId?: string;
+  publicKey?: string;
+}
+
+/**
+ * Unified integrations configuration for an avatar
+ */
+export interface IntegrationsConfig {
+  // AI Providers
+  replicate?: AIProviderConfig;
+  openai?: AIProviderConfig;
+  anthropic?: AIProviderConfig;
+  openrouter?: AIProviderConfig;
+
+  // Platform integrations
+  telegram?: TelegramIntegrationConfig;
+  twitter?: TwitterIntegrationConfig;
+  discord?: DiscordIntegrationConfig;
+  web?: PlatformIntegrationConfig;
+
+  // Blockchain integrations
+  solana?: PlatformIntegrationConfig;
+  ethereum?: PlatformIntegrationConfig;
+}
+
 // MCP Server Configuration
 export type ToolsetId =
   | 'core' | 'media' | 'voice' | 'wallet' | 'profile' | 'gallery'
@@ -222,7 +350,11 @@ export interface AvatarRecord {
 
   // MCP server configuration - all toolsets disabled by default
   mcpConfig?: McpConfig;
-  
+
+  // Unified integrations configuration (AI providers + platforms)
+  // This is the new unified config - mediaConfig, voiceConfig, platforms will be migrated here
+  integrations?: IntegrationsConfig;
+
   // Creation tracking - who created this avatar (permanent, for slot counting)
   creatorWallet?: string;
 

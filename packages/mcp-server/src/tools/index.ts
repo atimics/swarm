@@ -9,7 +9,17 @@ export { createWalletTools, type WalletServices, type WalletInfo } from './walle
 export { createModelTools, type ModelServices, type ModelInfo } from './models.js';
 export { createProfileTools, type ProfileServices } from './profile.js';
 export { createSecretTools, type SecretServices, type SecretType, type SecretInfo } from './secrets.js';
-export { createAdminTools, type AdminToolServices, type ToggleableFeature, type ConfigurableIntegration, CONFIGURABLE_INTEGRATIONS } from './admin.js';
+export {
+  createAdminTools,
+  type AdminToolServices,
+  type ToggleableFeature,
+  type ConfigurableIntegration,
+  type IntegrationStatus,
+  type ModelInfo as AdminModelInfo,
+  type TestConnectionResult,
+  CONFIGURABLE_INTEGRATIONS,
+  AI_CAPABILITIES,
+} from './admin.js';
 export { createJobTools, type JobServices, type JobInfo, type CreditServices as JobCreditServices, type CreditStatus, type EnergyStatus } from './jobs.js';
 export { createReferenceImageTools, type ReferenceImageServices, type ReferenceImage, type ReferenceImageCategory } from './reference.js';
 export { createDiagnosticsTools, type IssueSeverity, type IssueCategory, type DiagnosticsServices } from './diagnostics.js';
@@ -114,6 +124,8 @@ export interface AllServices {
   claudeCode?: import('./claude-code.js').ClaudeCodeServices;
   diagnostics?: import('./diagnostics.js').DiagnosticsServices;
   mcpAdmin?: import('./mcp-admin.js').McpAdminServices;
+  // Unified integrations configuration service
+  integrations?: import('./admin.js').AdminToolServices['integrations'];
 }
 
 /**
@@ -129,7 +141,7 @@ export function registerAllTools(
   registry.registerAll(createModelTools(services.models));
   registry.registerAll(createProfileTools(services.profile));
   registry.registerAll(createSecretTools(services.secrets));
-  registry.registerAll(createAdminTools({ twitter: services.twitter }));
+  registry.registerAll(createAdminTools({ twitter: services.twitter, integrations: services.integrations }));
   registry.registerAll(createJobTools(services.jobs, services.jobCredits));
   registry.registerAll(createReferenceImageTools(services.reference));
   registry.registerAll(createDiagnosticsTools(services.diagnostics));

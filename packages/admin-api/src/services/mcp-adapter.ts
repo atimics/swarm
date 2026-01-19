@@ -31,6 +31,9 @@ import { createWebSearch } from '../services/web-search.js';
 import { createMcpAdminServices } from '../services/mcp-config.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
 import { validateReplicateApiKey } from '../services/replicate.js';
+import * as integrations from '../services/integrations.js';
+import type { IntegrationType, AICapability } from '../services/integrations.js';
+import { getModelsForCapability, AVAILABLE_MODELS } from '../services/models-registry.js';
 
 // Timeout for external API calls
 const API_TIMEOUT_MS = 10_000;
@@ -1352,6 +1355,44 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
 
       removeReaction: async (channelId, messageId, emoji) => {
         return discord.removeReaction(_avatarId, channelId, messageId, emoji);
+      },
+    },
+
+    // =========================================================================
+    // Integrations Services (Unified Configuration)
+    // =========================================================================
+    integrations: {
+      getStatus: async (integration: IntegrationType) => {
+        return integrations.getIntegrationStatus(_avatarId, integration);
+      },
+
+      getAllStatuses: async () => {
+        return integrations.getAllIntegrationStatuses(_avatarId);
+      },
+
+      testConnection: async (integration: IntegrationType) => {
+        return integrations.testIntegrationConnection(_avatarId, integration);
+      },
+
+      getAvailableModels: (integration?: string, capability?: string) => {
+        if (capability && integration) {
+          return getModelsForCapability(capability as AICapability, integration);
+        } else if (capability) {
+          return getModelsForCapability(capability as AICapability);
+        } else if (integration) {
+          return AVAILABLE_MODELS.filter(m => m.provider === integration);
+        }
+        return AVAILABLE_MODELS;
+      },
+
+      setModelPreference: async (integration: string, capability: string, modelId: string) => {
+        return integrations.setModelPreference(
+          _avatarId,
+          integration as IntegrationType,
+          capability as AICapability,
+          modelId,
+          session
+        );
       },
     },
 
