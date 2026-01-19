@@ -1,6 +1,7 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
+import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
   js.configs.recommended,
@@ -23,6 +24,16 @@ export default tseslint.config(
       }],
       '@typescript-eslint/no-explicit-any': 'warn',
       'no-console': 'off',
+    },
+  },
+  // React Hooks rules (admin UI only)
+  {
+    files: ['packages/admin-ui/src/**/*.{ts,tsx}'],
+    plugins: {
+      'react-hooks': reactHooks,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
     },
   },
   // Suppress no-explicit-any in test files (mocking often requires any)

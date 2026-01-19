@@ -396,6 +396,22 @@ export class AdminApiConstruct extends Construct {
       resources: ['*'],
     }));
 
+    // KMS permissions for Secrets Manager (AWS-managed key)
+    this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'kms:Decrypt',
+        'kms:GenerateDataKey',
+        'kms:GenerateDataKeyWithoutPlaintext',
+      ],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'kms:ViaService': `secretsmanager.${cdk.Stack.of(this).region}.amazonaws.com`,
+        },
+      },
+    }));
+
     // HTTP API Gateway
     this.api = new apigateway.HttpApi(this, 'AdminApi', {
       apiName: `SwarmAdminApi-${environment}`,
@@ -579,6 +595,22 @@ export class AdminApiConstruct extends Construct {
       effect: iam.Effect.ALLOW,
       actions: ['secretsmanager:ListSecrets'],
       resources: ['*'],
+    }));
+
+    // KMS permissions for Secrets Manager (AWS-managed key)
+    avatarsHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'kms:Decrypt',
+        'kms:GenerateDataKey',
+        'kms:GenerateDataKeyWithoutPlaintext',
+      ],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'kms:ViaService': `secretsmanager.${cdk.Stack.of(this).region}.amazonaws.com`,
+        },
+      },
     }));
 
     (avatarsHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
@@ -1176,6 +1208,22 @@ export class AdminApiConstruct extends Construct {
       resources: [
         `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:swarm/*`,
       ],
+    }));
+
+    // KMS permissions for Secrets Manager (AWS-managed key)
+    twitterOAuthHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'kms:Decrypt',
+        'kms:GenerateDataKey',
+        'kms:GenerateDataKeyWithoutPlaintext',
+      ],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'kms:ViaService': `secretsmanager.${cdk.Stack.of(this).region}.amazonaws.com`,
+        },
+      },
     }));
 
     const twitterOAuthIntegration = new integrations.HttpLambdaIntegration(

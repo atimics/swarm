@@ -61,8 +61,30 @@ function App() {
     () => getChatAvatarId(window.location.pathname)
   );
   const [pendingInhabitPrompt, setPendingInhabitPrompt] = useState(Boolean(inhabitAvatarId));
+  const [pendingOAuthResult, setPendingOAuthResult] = useState<TwitterOAuthResult | null>(
+    () => parseTwitterOAuthResultFromLocation(window.location)
+  );
+  const [chatSynced, setChatSynced] = useState(false);
 
   const isLogsRoute = useMemo(() => Boolean(logsAvatarId), [logsAvatarId]);
+
+  // Clean up OAuth query params immediately on mount (before anything else)
+  useEffect(() => {
+    if (pendingOAuthResult) {
+      try {
+        const cleanUrl = `${window.location.pathname}`;
+        window.history.replaceState({}, '', cleanUrl);
+      } catch {
+        // ignore
+      }
+      // Also store in localStorage for cross-tab communication
+      try {
+        localStorage.setItem(TWITTER_OAUTH_STORAGE_KEY, JSON.stringify(pendingOAuthResult));
+      } catch {
+        // ignore
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check auth status on mount (run once)
   useEffect(() => {
@@ -115,6 +137,9 @@ function App() {
       const sync = async () => {
         // Always sync from backend - it's the source of truth for cross-device
         await syncChatHistory(activeAvatarId).catch(console.error);
+
+        // Mark chat as synced so OAuth result can be processed
+        setChatSynced(true);
 
         if (pendingInhabitPrompt && inhabitAvatarId === activeAvatarId) {
           addMessage(activeAvatarId, {
@@ -281,46 +306,36 @@ function App() {
     }
   }, [activeAvatarId, addMessage, chats, fetchAvatars, setActiveAvatar, syncChatHistory, updateMessage]);
 
-  // Consume OAuth redirect query params
+  // If we're in a popup window (OAuth redirect), close it
+  // The main window will handle the result via localStorage storage event
   useEffect(() => {
-    const parsed = parseTwitterOAuthResultFromLocation(window.location);
-    if (!parsed) return;
-
-    // Clean up query params immediately so refresh doesn't re-trigger
-    try {
-      const cleanUrl = `${window.location.pathname}`;
-      window.history.replaceState({}, '', cleanUrl);
-    } catch {
-      // ignore
-    }
-
-    // Store in localStorage for cross-tab communication
-    try {
-      localStorage.setItem(TWITTER_OAUTH_STORAGE_KEY, JSON.stringify(parsed));
-    } catch (err) {
-      console.warn('[App] Failed to persist Twitter OAuth result', err);
-    }
-
-    // If this is a popup, try to close it (main window will get storage event)
-    // If this is the main window (same-tab navigation), handle the result directly
-    if (window.opener) {
-      // We're in a popup - close it, main window will handle via storage event
+    if (pendingOAuthResult && window.opener) {
       window.close();
-    } else {
-      // We're in the main window - handle directly since storage events don't fire in same tab
-      void handleTwitterOAuthResult(parsed);
     }
-  }, [handleTwitterOAuthResult]);
+  }, [pendingOAuthResult]);
+
+  // Process pending OAuth result AFTER chat history is synced
+  // This ensures the result isn't wiped out by syncChatHistory
+  useEffect(() => {
+    if (pendingOAuthResult && chatSynced && !window.opener) {
+      void handleTwitterOAuthResult(pendingOAuthResult);
+      setPendingOAuthResult(null);
+    }
+  }, [pendingOAuthResult, chatSynced, handleTwitterOAuthResult]);
 
   // Listen for cross-tab OAuth result events.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== TWITTER_OAUTH_STORAGE_KEY || !e.newValue) return;
       try {
-        const parsed = JSON.parse(e.newValue) as TwitterOAuthResult;
+        const raw: unknown = JSON.parse(e.newValue);
+        if (!raw || typeof raw !== 'object') return;
+
+        const maybe = raw as { ts?: unknown };
         // Ignore stale/invalid payloads
-        if (!parsed || typeof (parsed as any).ts !== 'number') return;
-        void handleTwitterOAuthResult(parsed);
+        if (typeof maybe.ts !== 'number') return;
+
+        void handleTwitterOAuthResult(raw as TwitterOAuthResult);
       } catch {
         // ignore
       }
