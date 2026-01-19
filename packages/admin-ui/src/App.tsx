@@ -218,19 +218,19 @@ function App() {
         return;
       }
 
-      // Mark any pending twitter connection tool calls as completed and update message content
+      // Clear any twitter connection tool call messages (pending OR completed - status may have changed when user clicked Connect)
       const avatarChats = chats[targetAvatarId] || [];
       for (const msg of avatarChats) {
-        if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' && tc.status === 'pending')) {
+        if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' || tc.name === 'configure_integration')) {
           const updatedToolCalls = msg.toolCalls.map(tc =>
-            tc.name === 'request_twitter_connection' && tc.status === 'pending'
+            (tc.name === 'request_twitter_connection' || tc.name === 'configure_integration')
               ? { ...tc, status: 'completed' as const }
               : tc
           );
-          // Update both toolCalls and content - clear the "Please connect" message
+          // Clear the message content - the panel handles its own UI
           updateMessage(targetAvatarId, msg.id, {
             toolCalls: updatedToolCalls,
-            content: '', // Clear the old message, success message is added separately
+            content: '',
           });
         }
       }
@@ -254,18 +254,18 @@ function App() {
       // If we have an active chat, re-sync history so subsequent tool calls see updated config.
       await syncChatHistory(targetAvatarId).catch(console.error);
     } else {
-      // On error, also clear the pending tool call so the "Please connect" prompt disappears
+      // On error, clear the tool call message (check both pending AND completed status)
       const avatarChats = chats[targetAvatarId] || [];
       for (const msg of avatarChats) {
-        if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' && tc.status === 'pending')) {
+        if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' || tc.name === 'configure_integration')) {
           const updatedToolCalls = msg.toolCalls.map(tc =>
-            tc.name === 'request_twitter_connection' && tc.status === 'pending'
+            (tc.name === 'request_twitter_connection' || tc.name === 'configure_integration')
               ? { ...tc, status: 'completed' as const }
               : tc
           );
           updateMessage(targetAvatarId, msg.id, {
             toolCalls: updatedToolCalls,
-            content: '', // Clear the old message
+            content: '',
           });
         }
       }

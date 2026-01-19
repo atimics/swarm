@@ -690,7 +690,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
           if (resultObj.feature === 'twitter' && resultObj.enabled && !resumed.pendingToolCall) {
             addMessage(activeAvatar.id, {
               role: 'assistant',
-              content: 'Please connect your X/Twitter account:',
+              content: '', // TwitterConnectPrompt renders its own UI
               toolCalls: [{
                 id: crypto.randomUUID(),
                 name: 'request_twitter_connection',

@@ -1308,7 +1308,7 @@ export function PropertyAuthPrompt({ toolCall, onSubmit, disabled }: ToolPromptP
 /**
  * Twitter/X Connection Prompt
  */
-export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
+export function TwitterConnectPrompt({ toolCall, onSubmit: _onSubmit, disabled }: ToolPromptProps) {
   const activeAgent = useActiveAvatar();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [started, setStarted] = useState(false);
@@ -1332,26 +1332,35 @@ export function TwitterConnectPrompt({ toolCall, onSubmit, disabled }: ToolPromp
       return;
     }
 
-    try {
-      await onSubmit(toolCall.id, { started: true });
-      setStarted(true);
-      setIsSubmitting(false);
-    } catch {
-      setIsSubmitting(false);
-    }
+    // Don't call onSubmit here - OAuth is still in progress
+    // The tool call will be marked completed when OAuth finishes (via handleTwitterOAuthResult in App.tsx)
+    setStarted(true);
+    setIsSubmitting(false);
   };
 
-  // Show nothing when completed - the success message is shown separately
+  // Only hide when completed - the success/error message will be shown separately by App.tsx
   if (toolCall.status === 'completed') {
     return null;
   }
 
+  // Show waiting state while user is in OAuth popup
   if (started) {
     return (
-      <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]">
-        <span className="text-[var(--color-text-secondary)]">
-          X connection started. Complete authorization in the new tab.
-        </span>
+      <div className="bg-[var(--color-bg-secondary)] border border-yellow-500/30 rounded-lg p-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-yellow-500/20 rounded-lg">
+            <svg className="w-5 h-5 text-yellow-400 animate-pulse" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M13.95 10.85L20.54 3h-1.56l-5.74 6.84L8.5 3H3.1l6.92 10.09L3.1 21h1.56l5.97-7.11L15.5 21h5.4l-6.95-10.15zm-2.45 2.92l-.7-1.03L5.8 4.5h2.46l4.06 5.98.7 1.02 5.24 7.71h-2.46l-4.3-6.44z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <h4 className="font-medium text-[var(--color-text)]">Waiting for Authorization</h4>
+            <p className="text-sm text-[var(--color-text-secondary)] mt-1">
+              Complete the X/Twitter authorization in the popup window.
+            </p>
+          </div>
+          <div className="w-5 h-5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+        </div>
       </div>
     );
   }

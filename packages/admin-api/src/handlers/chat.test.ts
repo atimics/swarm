@@ -38,16 +38,15 @@ describe('Admin Chat - Tool Call Flow', () => {
 
     it('should build pending tool response message', () => {
       const toolResponses: Record<string, string> = {
-        configure_integration: 'Please configure the integration below:',
+        configure_integration: '', // UI renders its own panel
         request_model_selection: 'Please select a model:',
         request_feature_toggle: 'Please choose your preference below:',
         request_secret: 'Please enter the requested secret.',
-        request_twitter_connection: 'Please connect your X/Twitter account:',
+        request_twitter_connection: '', // TwitterConnectPrompt renders its own UI
         get_profile_upload_url: 'Please upload your image:',
       };
 
       for (const [_tool, expectedMsg] of Object.entries(toolResponses)) {
-        expect(expectedMsg).toBeTruthy();
         expect(typeof expectedMsg).toBe('string');
       }
     });
@@ -344,9 +343,9 @@ describe('Admin Chat - Tool-Call Flow Integration', () => {
   function buildPendingToolResponse(toolName: string, args: Record<string, unknown>): string {
     if (toolName === 'configure_integration') {
       if (args.integration === 'twitter') {
-        return 'Please connect your X/Twitter account:';
+        return ''; // TwitterConnectPrompt renders its own UI
       }
-      return 'Please configure the integration below:';
+      return ''; // IntegrationConfigPrompt renders its own UI
     }
     if (toolName === 'request_model_selection') {
       return 'Please select a model:';
@@ -359,7 +358,7 @@ describe('Admin Chat - Tool-Call Flow Integration', () => {
       return `Please enter ${label}.`;
     }
     if (toolName === 'request_twitter_connection') {
-      return 'Please connect your X/Twitter account:';
+      return ''; // TwitterConnectPrompt renders its own UI
     }
     if (toolName === 'request_property_research') {
       return 'Please grant property research access:';
@@ -596,7 +595,7 @@ describe('Admin Chat - Tool-Call Flow Integration', () => {
 
     expect(result.pendingToolCall).toBeDefined();
     expect(result.pendingToolCall!.name).toBe('configure_integration');
-    expect(result.response).toBe('Please connect your X/Twitter account:');
+    expect(result.response).toBe(''); // TwitterConnectPrompt renders its own UI
   });
 
   it('should handle request_property_research tool', () => {

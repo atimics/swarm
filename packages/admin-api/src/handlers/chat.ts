@@ -542,9 +542,9 @@ async function buildFeatureTogglePayload(
 function buildPendingToolResponse(toolName: string, args: Record<string, unknown>): string {
   if (toolName === 'configure_integration') {
     if (args.integration === 'twitter') {
-      return 'Please connect your X/Twitter account:';
+      return ''; // TwitterConnectPrompt renders its own UI
     }
-    return 'Please configure the integration below:';
+    return ''; // IntegrationConfigPrompt renders its own UI
   }
   if (toolName === 'request_model_selection') {
     return 'Please select a model:';
@@ -561,7 +561,7 @@ function buildPendingToolResponse(toolName: string, args: Record<string, unknown
     return `Please enter ${label}.`;
   }
   if (toolName === 'request_twitter_connection' || toolName === 'twitter_request_integration') {
-    return 'Please connect your X/Twitter account:';
+    return ''; // TwitterConnectPrompt renders its own UI
   }
   if (toolName === 'request_property_research') {
     return 'Please grant property research access:';
