@@ -13,7 +13,6 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import type { AudioAsset, VoiceProfile } from '../types.js';
 import { _getSecretValueInternal } from './secrets.js';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { syncAvatarConfig } from './config-sync.js';
 import { getAvatar } from './avatars.js';
 import * as credits from './credits.js';
@@ -27,8 +26,6 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET!;
 const CDN_URL = process.env.CDN_URL;
 const REPLICATE_ENDPOINT = 'https://api.replicate.com/v1/predictions';
-const MEDIA_CONVERT_FUNCTION = process.env.MEDIA_CONVERT_FUNCTION;
-const lambdaClient = new LambdaClient({});
 
 // Replicate models for voice generation
 // STABLE_AUDIO_MODEL: Used for generating abstract audio seed from text prompts
@@ -43,9 +40,6 @@ const VOICE_TTS_MODEL = process.env.VOICE_TTS_MODEL || 'lucataco/xtts-v2';
 
 // Official models (like stability-ai) use a different endpoint than community models
 const OFFICIAL_MODEL_PREFIXES = ['stability-ai', 'meta', 'openai', 'mistralai', 'resemble-ai'];
-
-const _OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
-const _OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'alloy';
 
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -125,39 +119,6 @@ async function makeUrlAccessible(url: string): Promise<string> {
 
   const command = new GetObjectCommand({ Bucket: parsed.bucket, Key: parsed.key });
   return getSignedUrl(s3Client, command, { expiresIn: 3600 });
-}
-
-async function _convertAudioForTelegram(params: {
-  avatarId: string;
-  sourceUrl: string;
-  targetFormat: 'ogg';
-}): Promise<string> {
-  if (!MEDIA_CONVERT_FUNCTION) {
-    console.warn('[Voice] MEDIA_CONVERT_FUNCTION not configured; using source audio');
-    return params.sourceUrl;
-  }
-
-  const payload = {
-    avatarId: params.avatarId,
-    sourceUrl: params.sourceUrl,
-    mediaType: 'audio',
-    targetFormat: params.targetFormat,
-  };
-
-  const response = await lambdaClient.send(new InvokeCommand({
-    FunctionName: MEDIA_CONVERT_FUNCTION,
-    Payload: Buffer.from(JSON.stringify(payload)),
-  }));
-
-  const decoded = response.Payload
-    ? JSON.parse(Buffer.from(response.Payload).toString('utf-8')) as { success: boolean; url?: string; error?: string }
-    : null;
-
-  if (!decoded?.success || !decoded.url) {
-    throw new Error(decoded?.error || 'Failed to convert audio for Telegram');
-  }
-
-  return decoded.url;
 }
 
 async function getSecret(avatarId: string, type: 'openai_api_key' | 'replicate_api_key'): Promise<string | null> {
@@ -855,7 +816,6 @@ export async function generateVoiceMessage(params: {
   }
 
   const voiceConfig = avatar.voiceConfig;
-  const _format = params.format || voiceConfig?.format || 'ogg';
   const voiceId = params.voiceId || voiceConfig?.defaultVoiceId;
   const referenceUrl = voiceConfig?.referenceUrl;
 
@@ -916,4 +876,63 @@ export async function generateVoiceMessage(params: {
   await credits.consumeEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
 
   return { assetId: asset.assetId, url: asset.url, format: detectedFormat };
+}
+
+export async function sendVoiceMessage(params: {
+  avatarId: string;
+  platform: string;
+  text: string;
+  conversationId?: string;
+  voiceId?: string;
+  format?: AudioFormat;
+  speed?: number;
+  replyToMessageId?: string;
+}): Promise<{ success: boolean; assetId?: string; url?: string; sent?: boolean }> {
+  // Generate the voice message first
+  const generated = await generateVoiceMessage({
+    avatarId: params.avatarId,
+    text: params.text,
+    voiceId: params.voiceId,
+    format: params.format,
+    speed: params.speed,
+  });
+
+  const voiceUrl = await makeUrlAccessible(generated.url);
+
+  // For Telegram, send directly to the chat
+  if (params.platform === 'telegram') {
+    if (!params.conversationId) {
+      throw new Error('conversationId is required for Telegram voice messages');
+    }
+
+    const botToken = await _getSecretValueInternal(params.avatarId, 'telegram_bot_token', 'default');
+    if (!botToken) {
+      throw new Error('Telegram bot token not configured');
+    }
+
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendVoice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: params.conversationId,
+        voice: voiceUrl,
+        reply_to_message_id: params.replyToMessageId ? Number(params.replyToMessageId) : undefined,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Telegram sendVoice failed: ${response.status} - ${errorText}`);
+    }
+
+    return { success: true, assetId: generated.assetId, url: generated.url, sent: true };
+  }
+
+  // For web and other platforms, return the audio URL for playback
+  return {
+    success: true,
+    assetId: generated.assetId,
+    url: generated.url,
+    sent: false,
+  };
 }
