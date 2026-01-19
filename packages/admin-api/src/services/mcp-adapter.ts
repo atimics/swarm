@@ -999,8 +999,7 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           const tweetId = result.data.id;
           return {
             tweetId,
-            // Username in the path can drift (or be wrong) during reconnects; this URL is canonical for the tweet ID.
-            url: `https://x.com/i/web/status/${tweetId}`,
+            url: `https://x.com/${me.data.username}/status/${tweetId}`,
           };
         } catch (error) {
           console.error('Failed to post tweet:', error);
@@ -1174,7 +1173,10 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         });
 
         try {
-          const twitterMediaIds = resolvedMediaUrls.length > 0 
+          // Get authenticated user for URL construction
+          const me = await client.v2.me();
+
+          const twitterMediaIds = resolvedMediaUrls.length > 0
             ? await uploadMediaToTwitter(client, resolvedMediaUrls, _avatarId)
             : undefined;
 
@@ -1189,7 +1191,7 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           const result = await client.v2.tweet(tweetParams);
           return {
             tweetId: result.data.id,
-            url: `https://x.com/i/web/status/${result.data.id}`,
+            url: `https://x.com/${me.data.username}/status/${result.data.id}`,
           };
         } catch (error) {
           console.error('Failed to reply to tweet:', error);
@@ -1319,7 +1321,10 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         });
 
         try {
-          const twitterMediaIds = resolvedMediaUrls.length > 0 
+          // Get authenticated user for URL construction
+          const me = await client.v2.me();
+
+          const twitterMediaIds = resolvedMediaUrls.length > 0
             ? await uploadMediaToTwitter(client, resolvedMediaUrls, _avatarId)
             : undefined;
 
@@ -1334,7 +1339,7 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           const result = await client.v2.tweet(tweetParams);
           return {
             tweetId: result.data.id,
-            url: `https://x.com/i/web/status/${result.data.id}`,
+            url: `https://x.com/${me.data.username}/status/${result.data.id}`,
           };
         } catch (error) {
           console.error('Failed to quote tweet:', error);

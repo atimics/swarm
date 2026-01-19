@@ -430,6 +430,13 @@ export async function getProviderApiKey(
   if (!key) {
     key = await _getSecretValueInternal('GLOBAL', secretTypes[provider], 'default');
   }
+
+  // Replicate can also be configured via env var or a Secrets Manager ARN.
+  // Reuse the system key resolver so status checks and background polling can still work.
+  if (!key && provider === 'replicate') {
+    key = await getSystemReplicateKey();
+  }
+
   return key;
 }
 

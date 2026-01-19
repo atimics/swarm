@@ -44,7 +44,7 @@ function parseTwitterOAuthResultFromLocation(location: Location): TwitterOAuthRe
 }
 
 function App() {
-  const { avatars, fetchAvatars, activeAvatarId, syncChatHistory, setActiveAvatar, addMessage } = useAvatarStore();
+  const { avatars, fetchAvatars, activeAvatarId, syncChatHistory, setActiveAvatar, addMessage, chats, updateMessage } = useAvatarStore();
   const { checkAuth } = useWalletAuth();
   // Use unified auth to check both wallet and Crossmint authentication
   const { isAuthenticated } = useAuth();
@@ -194,13 +194,11 @@ function App() {
     // Source of truth: fetch backend connection status and use that username.
     // This avoids displaying stale/incorrect usernames from query params or cached config.
     let backendUsername: string | undefined;
-    let backendUserId: string | undefined;
     let backendConnected: boolean | undefined;
     try {
       const status = await getTwitterConnectionStatus(targetAvatarId);
       backendConnected = status.connected;
       backendUsername = status.username;
-      backendUserId = status.userId;
     } catch (err) {
       console.warn('[App] Failed to fetch Twitter connection status', err);
     }
@@ -211,31 +209,33 @@ function App() {
       if (backendConnected === false) {
         addMessage(targetAvatarId, {
           role: 'assistant',
-          content: JSON.stringify({
-            error: true,
-            message: 'Twitter OAuth completed, but backend still reports disconnected. Please refresh and try again.',
-          }),
+          content: 'X/Twitter OAuth completed, but backend still reports disconnected. Please refresh and try again.',
         });
         return;
       }
 
+      // Mark any pending twitter connection tool calls as completed
+      const avatarChats = chats[targetAvatarId] || [];
+      for (const msg of avatarChats) {
+        if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' && tc.status === 'pending')) {
+          const updatedToolCalls = msg.toolCalls.map(tc =>
+            tc.name === 'request_twitter_connection' && tc.status === 'pending'
+              ? { ...tc, status: 'completed' as const }
+              : tc
+          );
+          updateMessage(targetAvatarId, msg.id, { toolCalls: updatedToolCalls });
+        }
+      }
+
       addMessage(targetAvatarId, {
         role: 'assistant',
-        content: JSON.stringify({
-          connected: true,
-          username: displayUsername,
-          userId: backendUserId,
-          message: `Connected as @${displayUsername}`,
-        }),
+        content: `X/Twitter connected as @${displayUsername}`,
       });
 
       if (backendUsername && backendUsername !== result.username) {
         addMessage(targetAvatarId, {
           role: 'assistant',
-          content: JSON.stringify({
-            warning: true,
-            message: `Note: OAuth redirect reported @${result.username}, but backend status reports @${backendUsername}. Using backend status as the source of truth.`,
-          }),
+          content: `Note: OAuth redirect reported @${result.username}, but backend status reports @${backendUsername}. Using backend status as the source of truth.`,
         });
       }
 
@@ -244,13 +244,10 @@ function App() {
     } else {
       addMessage(targetAvatarId, {
         role: 'assistant',
-        content: JSON.stringify({
-          error: true,
-          message: `Twitter connection failed: ${result.error}`,
-        }),
+        content: `X/Twitter connection failed: ${result.error}`,
       });
     }
-  }, [activeAvatarId, addMessage, fetchAvatars, setActiveAvatar, syncChatHistory]);
+  }, [activeAvatarId, addMessage, chats, fetchAvatars, setActiveAvatar, syncChatHistory, updateMessage]);
 
   // Consume OAuth redirect query params (in the OAuth window/tab) and broadcast to the main app via localStorage.
   useEffect(() => {

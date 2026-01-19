@@ -16,6 +16,7 @@ import * as telegramService from '../services/telegram.js';
 import * as discordService from '../services/discord.js';
 import * as avatarventsService from '../services/avatar-events.js';
 import * as galleryService from '../services/gallery.js';
+import * as integrationsService from '../services/integrations.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
 import { validateReplicateApiKey } from '../services/replicate.js';
@@ -257,6 +258,25 @@ export async function handler(
         statusCode: 204,
         headers: corsHeaders,
       };
+    }
+
+    // GET /avatars/{id}/integrations - List integration statuses
+    const avatarIntegrationsMatch = path.match(/^\/avatars\/([^/]+)\/integrations$/);
+    if (method === 'GET' && avatarIntegrationsMatch) {
+      const avatarId = avatarIntegrationsMatch[1];
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const statuses = await integrationsService.getAllIntegrationStatuses(avatarId);
+      return jsonResponse(corsHeaders, 200, { integrations: statuses });
     }
 
     // POST /avatars/{id}/secrets - Save a secret for an avatar

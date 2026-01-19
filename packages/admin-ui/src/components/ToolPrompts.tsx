@@ -166,6 +166,8 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const [saveError, setSaveError] = useState<string | null>(null);
   const [useGlobalKey, setUseGlobalKey] = useState(true);
   const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
+  const [globalKeyAvailable, setGlobalKeyAvailable] = useState<boolean | null>(null);
+  const didInitFromStatus = useRef(false);
 
   const args = toolCall.arguments as {
     integration: 'telegram' | 'twitter' | 'discord' | 'replicate' | 'openai' | 'anthropic' | 'openrouter';
@@ -273,6 +275,49 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
   const config = integrationConfig[args.integration];
 
+  useEffect(() => {
+    if (!activeAgent?.id || !config.isAiProvider) return;
+    if (didInitFromStatus.current) return;
+
+    const run = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/avatars/${activeAgent.id}/integrations`, {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (!response.ok) return;
+
+        const payload = (await response.json().catch(() => ({}))) as {
+          integrations?: Array<{
+            type: string;
+            hasGlobalKey: boolean;
+            useGlobalKey: boolean;
+            models?: Record<string, string>;
+          }>;
+        };
+
+        const match = payload.integrations?.find((s) => s.type === args.integration);
+        if (!match) return;
+
+        setGlobalKeyAvailable(Boolean(match.hasGlobalKey));
+
+        // Initialize UI state from backend config once.
+        if (!didInitFromStatus.current) {
+          // If backend says "use global" but there is no global/system key, force local key mode.
+          setUseGlobalKey(match.useGlobalKey && match.hasGlobalKey);
+          if (match.models) {
+            setSelectedModels(match.models);
+          }
+          didInitFromStatus.current = true;
+        }
+      } catch {
+        // Ignore status fetch errors; prompt remains usable.
+      }
+    };
+
+    void run();
+  }, [activeAgent?.id, args.integration, config.isAiProvider]);
+
   const handleTest = async () => {
     if (!token.trim() || isTesting) return;
 
@@ -345,6 +390,10 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     // For AI providers with global key, token is optional
     if (!config.isAiProvider && !token.trim()) return;
     if (config.isAiProvider && !useGlobalKey && !token.trim()) return;
+    if (config.isAiProvider && useGlobalKey && globalKeyAvailable === false) {
+      setSaveError('No system/global API key is configured for this provider. Turn off “Use System API Key” and provide your own key.');
+      return;
+    }
 
     setIsSubmitting(true);
     setSaveError(null);
@@ -454,6 +503,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                 <p className="text-xs text-[var(--color-text-muted)]">
                   Use the shared system key instead of your own
                 </p>
+                {globalKeyAvailable === false && (
+                  <p className="text-xs text-yellow-400 mt-1">
+                    No system key detected for {config.name}. Add a key in the backend (env/Secrets Manager) or enter your own.
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => setUseGlobalKey(!useGlobalKey)}

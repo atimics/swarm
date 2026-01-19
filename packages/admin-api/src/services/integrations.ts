@@ -219,8 +219,18 @@ export async function getIntegrationStatus(
   );
 
   const hasApiKey = secretStatuses.some((s) => s.hasAvatar);
-  const hasGlobalKey = secretStatuses.some((s) => s.hasGlobal);
-  const allSecretsConfigured = secretStatuses.every((s) => s.hasAvatar || s.hasGlobal);
+  const hasSystemReplicateKey = integration === 'replicate' && Boolean(
+    process.env.REPLICATE_API_TOKEN ||
+    process.env.REPLICATE_API_KEY ||
+    process.env.REPLICATE_API_KEY_SECRET_ARN
+  );
+
+  const hasGlobalKey = secretStatuses.some((s) => s.hasGlobal) || hasSystemReplicateKey;
+  const allSecretsConfigured = secretStatuses.every((s) =>
+    s.hasAvatar ||
+    s.hasGlobal ||
+    (hasSystemReplicateKey && s.secretType === 'replicate_api_key')
+  );
 
   // Get integration config from avatar
   const config = avatar?.integrations?.[integration];

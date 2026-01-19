@@ -554,6 +554,7 @@ export class AdminApiConstruct extends Construct {
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         KMS_KEY_ID: this.encryptionKey.keyId,
         SECRET_PREFIX: 'swarm',
+        REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
         // Internal testing (non-production only)
         INTERNAL_TEST_KEY: internalTestKey,
       },
@@ -659,6 +660,12 @@ export class AdminApiConstruct extends Construct {
     this.api.addRoutes({
       path: '/avatars/{avatarId}/secrets',
       methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/integrations',
+      methods: [apigateway.HttpMethod.GET],
       integration: avatarsIntegration,
     });
 

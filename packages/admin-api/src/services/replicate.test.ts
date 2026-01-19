@@ -16,8 +16,9 @@ describe('replicate api key validation', () => {
       fetchFn: async () => new Response(JSON.stringify({ type: 'free', billing_enabled: false }), { status: 200 }),
     });
 
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain('billing');
+    expect(result.valid).toBe(true);
+    expect(result.billingEnabled).toBe(false);
+    expect(result.warning).toContain('Billing');
   });
 
   it('accepts billed accounts', async () => {
