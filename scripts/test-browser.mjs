@@ -421,7 +421,7 @@ AVAILABLE ACTIONS:
 - FILL: placeholder | text - Fill an input field (e.g., "Enter avatar name | MyAgent")
 - PRESS: key - Press a keyboard key (Enter, Tab, Escape)
 - SCROLL: down/up - Scroll the page
-- NAVIGATE: /path - Navigate to a URL path (e.g., "/avatars/new")
+- NAVIGATE: /path - Navigate to a URL path (prefer "/"; avoid guessing deep routes)
 - DONE: summary - Task complete, provide summary
 - ABORT: reason - End test early due to blocking issue (auth wall, crash, wrong app, etc.)
 
@@ -434,8 +434,17 @@ WHEN TO USE ABORT:
 CRITICAL RULES:
 1. For CLICK: Copy the EXACT text from the "Buttons" or "Links" list above
 2. For FILL: Use a value from the "Input fields" list as the first part
-3. If no suitable button exists, try NAVIGATE to /avatars/new or /avatars
-4. Don't invent button names - use only what's in the lists above
+3. NEVER CLICK an item from "Input fields" (inputs are not clickable buttons). Use FILL or TYPE instead.
+4. If you need to send a chat message, prefer: FILL: Message input | <text> then PRESS: Enter.
+5. Prefer creation via existing UI controls (e.g., "Create new avatar" / "Create Avatar"). If stuck, NAVIGATE: / and retry.
+6. Avoid guessing routes like /avatars/new (it may not exist).
+7. Don't invent button names - use only what's in the lists above.
+
+ANTI-STUCK RULES:
+- Do NOT click "Preview" or "System Prompt" unless the goal explicitly asks to inspect prompts.
+- Do NOT open "Account" unless you need wallet/account actions.
+- If you accidentally open a modal/panel you don't need, use PRESS: Escape to close it.
+- If the last action caused no visible change, choose a different action next.
 
 OUTPUT REQUIREMENTS:
 - Output MUST be exactly 3 lines.
