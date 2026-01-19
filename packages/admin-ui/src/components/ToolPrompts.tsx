@@ -111,22 +111,83 @@ export function SecretPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) 
  * Shows a complete configuration panel for platform integrations (Telegram, Twitter, Discord)
  * Includes: enable/disable, credential input, test, status
  */
+// Model info for AI provider configuration
+interface ModelOption {
+  id: string;
+  name: string;
+  description: string;
+  isDefault?: boolean;
+}
+
+// Available models by capability (matches models-registry.ts)
+const AVAILABLE_MODELS: Record<string, ModelOption[]> = {
+  image_generation: [
+    { id: 'google/nano-banana-pro', name: 'Nano Banana Pro', description: 'Fast with character reference support', isDefault: true },
+    { id: 'black-forest-labs/flux-schnell', name: 'FLUX Schnell', description: 'High-quality, fast' },
+    { id: 'black-forest-labs/flux-dev', name: 'FLUX Dev', description: 'Development version with more features' },
+  ],
+  video_generation: [
+    { id: 'minimax/video-01', name: 'Minimax Video', description: 'Text and image to video', isDefault: true },
+    { id: 'luma/ray', name: 'Luma Ray', description: 'High-quality video generation' },
+  ],
+  audio_generation: [
+    { id: 'stability-ai/stable-audio-2.5', name: 'Stable Audio 2.5', description: 'Music and sound effects', isDefault: true },
+  ],
+  voice_clone: [
+    { id: 'lucataco/xtts-v2', name: 'XTTS v2', description: 'Voice cloning from reference audio', isDefault: true },
+  ],
+  text_to_speech: [
+    { id: 'lucataco/xtts-v2', name: 'XTTS v2 (Replicate)', description: 'Voice cloning TTS', isDefault: true },
+    { id: 'gpt-4o-mini-tts', name: 'GPT-4o Mini TTS', description: 'OpenAI text-to-speech' },
+  ],
+  transcription: [
+    { id: 'whisper-1', name: 'Whisper', description: 'OpenAI speech-to-text', isDefault: true },
+  ],
+};
+
+// Capability labels for display
+const CAPABILITY_LABELS: Record<string, string> = {
+  image_generation: 'Image Generation',
+  video_generation: 'Video Generation',
+  audio_generation: 'Audio Generation',
+  voice_clone: 'Voice Cloning',
+  text_to_speech: 'Text to Speech',
+  transcription: 'Transcription',
+};
+
 export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
   const activeAgent = useActiveAvatar();
   const [token, setToken] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [testResult, setTestResult] = useState<{ botUsername?: string; error?: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ botUsername?: string; username?: string; error?: string } | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [useGlobalKey, setUseGlobalKey] = useState(true);
+  const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
 
   const args = toolCall.arguments as {
-    integration: 'telegram' | 'twitter' | 'discord';
+    integration: 'telegram' | 'twitter' | 'discord' | 'replicate' | 'openai' | 'anthropic' | 'openrouter';
     reason?: string;
   };
 
-  const integrationConfig = {
+  type IntegrationConfigType = {
+    name: string;
+    icon: string;
+    color: string;
+    tokenLabel: string;
+    tokenPlaceholder: string;
+    helpText: string;
+    helpUrl: string | null;
+    secretType: string;
+    usesOAuth?: boolean;
+    isAiProvider?: boolean;
+    capabilities?: string[];
+    testEndpoint?: string;
+  };
+
+  const integrationConfig: Record<string, IntegrationConfigType> = {
     telegram: {
       name: 'Telegram',
       icon: '🤖',
@@ -158,19 +219,94 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
       helpUrl: 'https://discord.com/developers/applications',
       secretType: 'discord_bot_token',
     },
+    replicate: {
+      name: 'Replicate',
+      icon: '🎨',
+      color: 'purple',
+      tokenLabel: 'API Token',
+      tokenPlaceholder: 'Enter your Replicate API token',
+      helpText: 'Get your API token from Replicate dashboard',
+      helpUrl: 'https://replicate.com/account/api-tokens',
+      secretType: 'replicate_api_key',
+      isAiProvider: true,
+      capabilities: ['image_generation', 'video_generation', 'audio_generation', 'voice_clone', 'text_to_speech'],
+      testEndpoint: 'https://api.replicate.com/v1/account',
+    },
+    openai: {
+      name: 'OpenAI',
+      icon: '🧠',
+      color: 'emerald',
+      tokenLabel: 'API Key',
+      tokenPlaceholder: 'Enter your OpenAI API key (sk-...)',
+      helpText: 'Get your API key from OpenAI platform',
+      helpUrl: 'https://platform.openai.com/api-keys',
+      secretType: 'openai_api_key',
+      isAiProvider: true,
+      capabilities: ['text_to_speech', 'transcription'],
+      testEndpoint: 'https://api.openai.com/v1/models',
+    },
+    anthropic: {
+      name: 'Anthropic',
+      icon: '🔮',
+      color: 'orange',
+      tokenLabel: 'API Key',
+      tokenPlaceholder: 'Enter your Anthropic API key (sk-ant-...)',
+      helpText: 'Get your API key from Anthropic console',
+      helpUrl: 'https://console.anthropic.com/settings/keys',
+      secretType: 'anthropic_api_key',
+      isAiProvider: true,
+      capabilities: [],
+    },
+    openrouter: {
+      name: 'OpenRouter',
+      icon: '🔀',
+      color: 'cyan',
+      tokenLabel: 'API Key',
+      tokenPlaceholder: 'Enter your OpenRouter API key',
+      helpText: 'Get your API key from OpenRouter',
+      helpUrl: 'https://openrouter.ai/keys',
+      secretType: 'openrouter_api_key',
+      isAiProvider: true,
+      capabilities: [],
+    },
   };
 
   const config = integrationConfig[args.integration];
 
   const handleTest = async () => {
     if (!token.trim() || isTesting) return;
-    
+
     setIsTesting(true);
     setStatus('testing');
     setTestResult(null);
 
     try {
-      // Test the token by calling the appropriate validation endpoint
+      // For AI providers, test directly with their API
+      if (config.isAiProvider && config.testEndpoint) {
+        const headers: Record<string, string> = {};
+
+        if (args.integration === 'replicate') {
+          headers['Authorization'] = `Token ${token.trim()}`;
+        } else if (args.integration === 'openai') {
+          headers['Authorization'] = `Bearer ${token.trim()}`;
+        }
+
+        const testResponse = await fetch(config.testEndpoint, { headers });
+
+        if (testResponse.ok) {
+          const data = await testResponse.json().catch(() => ({}));
+          setStatus('success');
+          setTestResult({
+            username: data.username || data.name || 'Connected',
+          });
+        } else {
+          setStatus('error');
+          setTestResult({ error: `API error: ${testResponse.status} ${testResponse.statusText}` });
+        }
+        return;
+      }
+
+      // For platform integrations, use the backend validation endpoint
       const response = await fetch(`${API_BASE}/avatars/${activeAgent?.id}/validate-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -188,7 +324,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         setTestResult({ error: result.error || result.message || `Validation failed (HTTP ${response.status})` });
         return;
       }
-      
+
       if (result.valid) {
         setStatus('success');
         setTestResult({ botUsername: result.botInfo?.username });
@@ -205,33 +341,48 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   };
 
   const handleSave = async () => {
-    if (!token.trim() || isSubmitting || !activeAgent?.id) return;
+    if (isSubmitting || !activeAgent?.id) return;
+    // For AI providers with global key, token is optional
+    if (!config.isAiProvider && !token.trim()) return;
+    if (config.isAiProvider && !useGlobalKey && !token.trim()) return;
 
     setIsSubmitting(true);
     setSaveError(null);
     try {
-      // Store the secret
-      const response = await fetch(`${API_BASE}/avatars/${activeAgent.id}/secrets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          key: config.secretType,
-          value: token.trim(),
-        }),
-      });
+      // Store the secret if provided (not using global key or platform integration)
+      if (token.trim()) {
+        const response = await fetch(`${API_BASE}/avatars/${activeAgent.id}/secrets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            key: config.secretType,
+            value: token.trim(),
+          }),
+        });
 
-      const payload = await response.json().catch(() => ({}));
+        const payload = await response.json().catch(() => ({}));
 
-      if (!response.ok) {
-        throw new Error(payload.error || payload.message || 'Failed to save');
+        if (!response.ok) {
+          throw new Error(payload.error || payload.message || 'Failed to save');
+        }
+      }
+
+      // Build result with AI provider specific config
+      const result: Record<string, unknown> = {
+        configured: true,
+        integration: args.integration,
+      };
+
+      if (config.isAiProvider) {
+        result.useGlobalKey = useGlobalKey;
+        if (Object.keys(selectedModels).length > 0) {
+          result.models = selectedModels;
+        }
       }
 
       // Submit the tool result
-      await onSubmit(toolCall.id, { 
-        configured: true, 
-        integration: args.integration,
-      });
+      await onSubmit(toolCall.id, result);
       setSaved(true);
       setToken(''); // Clear sensitive data
     } catch (err) {
@@ -279,7 +430,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
       {/* Content */}
       <div className="p-4 space-y-4">
-        {'usesOAuth' in config && config.usesOAuth ? (
+        {config.usesOAuth ? (
           // OAuth-based integration (Twitter)
           <div className="space-y-3">
             <p className="text-sm text-[var(--color-text-secondary)]">
@@ -293,8 +444,156 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
               Connect {config.name}
             </button>
           </div>
+        ) : config.isAiProvider ? (
+          // AI Provider integration (Replicate, OpenAI, etc.)
+          <>
+            {/* Global Key Toggle */}
+            <div className="flex items-center justify-between p-3 bg-[var(--color-bg-tertiary)] rounded-lg">
+              <div>
+                <p className="text-sm font-medium text-[var(--color-text)]">Use System API Key</p>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  Use the shared system key instead of your own
+                </p>
+              </div>
+              <button
+                onClick={() => setUseGlobalKey(!useGlobalKey)}
+                disabled={disabled}
+                className={`relative w-12 h-6 rounded-full transition-colors ${
+                  useGlobalKey ? 'bg-brand-600' : 'bg-[var(--color-bg-elevated)]'
+                }`}
+              >
+                <span
+                  className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                    useGlobalKey ? 'left-7' : 'left-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* API Key Input (only if not using global) */}
+            {!useGlobalKey && (
+              <div>
+                <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
+                  {config.tokenLabel}
+                </label>
+                <input
+                  type="password"
+                  value={token}
+                  onChange={(e) => {
+                    setToken(e.target.value);
+                    setStatus('idle');
+                    setTestResult(null);
+                    setSaveError(null);
+                  }}
+                  placeholder={config.tokenPlaceholder}
+                  className="w-full px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  disabled={disabled || isSubmitting}
+                />
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                  {config.helpText}
+                  {config.helpUrl && (
+                    <>
+                      {' · '}
+                      <a
+                        href={config.helpUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-brand-400 hover:text-brand-300"
+                      >
+                        Get API Key →
+                      </a>
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {/* Model Selection */}
+            {config.capabilities && config.capabilities.length > 0 && (
+              <div className="space-y-3">
+                <h5 className="text-sm font-medium text-[var(--color-text)]">Model Preferences</h5>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  Choose which AI models to use for each capability
+                </p>
+                {config.capabilities.map((capability) => {
+                  const models = AVAILABLE_MODELS[capability] || [];
+                  if (models.length === 0) return null;
+                  const defaultModel = models.find(m => m.isDefault)?.id || models[0]?.id;
+                  return (
+                    <div key={capability} className="space-y-1">
+                      <label className="block text-xs font-medium text-[var(--color-text-secondary)]">
+                        {CAPABILITY_LABELS[capability] || capability}
+                      </label>
+                      <select
+                        value={selectedModels[capability] || defaultModel}
+                        onChange={(e) => setSelectedModels(prev => ({ ...prev, [capability]: e.target.value }))}
+                        disabled={disabled}
+                        className="w-full px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      >
+                        {models.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name} {model.isDefault ? '(Default)' : ''} - {model.description}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Test Result */}
+            {status === 'success' && testResult && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg">
+                <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-sm text-green-300">
+                  Connected! {testResult.username && `(${testResult.username})`}
+                </span>
+              </div>
+            )}
+
+            {status === 'error' && testResult && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span className="text-sm text-red-300">{testResult.error}</span>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-2">
+              {!useGlobalKey && (
+                <button
+                  onClick={handleTest}
+                  disabled={!token.trim() || disabled || isTesting}
+                  className="flex-1 px-4 py-2 bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] disabled:opacity-50 disabled:cursor-not-allowed text-[var(--color-text)] rounded-lg transition-colors"
+                >
+                  {isTesting ? 'Testing...' : 'Test Connection'}
+                </button>
+              )}
+              <button
+                onClick={handleSave}
+                disabled={(!useGlobalKey && !token.trim()) || disabled || isSubmitting}
+                className={`${useGlobalKey ? 'w-full' : 'flex-1'} px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-[var(--color-bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors`}
+              >
+                {isSubmitting ? 'Saving...' : 'Save & Enable'}
+              </button>
+            </div>
+
+            {saveError && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span className="text-sm text-red-300">{saveError}</span>
+              </div>
+            )}
+          </>
         ) : (
-          // Token-based integration (Telegram, Discord)
+          // Token-based platform integration (Telegram, Discord)
           <>
             <div>
               <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
