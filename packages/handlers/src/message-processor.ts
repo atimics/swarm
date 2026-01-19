@@ -44,6 +44,34 @@ const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'https://openrouter.ai/api/v1/c
 const LLM_TIMEOUT_MS = 60_000;
 const MAX_TOOL_ITERATIONS = 5;
 
+function parseMaybeJsonSecret(raw: string): { apiKey?: string } {
+  try {
+    const parsed = JSON.parse(raw) as { api_key?: string; apiKey?: string };
+    return { apiKey: parsed.api_key || parsed.apiKey };
+  } catch {
+    return {};
+  }
+}
+
+async function getSystemReplicateKey(secretsService: ReturnType<typeof createSecretsService>): Promise<string | undefined> {
+  const envKey = process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY;
+  if (envKey) return envKey;
+
+  const arn = process.env.REPLICATE_API_KEY_SECRET_ARN;
+  if (!arn) return undefined;
+
+  try {
+    const raw = await secretsService.getSecret(arn);
+    const parsed = parseMaybeJsonSecret(raw);
+    return parsed.apiKey || raw;
+  } catch (err) {
+    logger.warn('Failed to load system Replicate key', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
 // Environment variable validation helper
 function getRequiredEnv(name: string): string {
   const value = process.env[name];
@@ -132,6 +160,16 @@ async function initialize(): Promise<void> {
   secrets = await secretsService.getSecretJson<Record<string, string>>(
     process.env.SECRETS_ARN || `swarm/${getAvatarId()}/secrets`
   );
+
+  // If avatar secrets don't include Replicate, fall back to a system key (if configured).
+  if (!secrets.REPLICATE_API_TOKEN && !secrets.REPLICATE_API_KEY && !secrets.replicate_api_key) {
+    const systemKey = await getSystemReplicateKey(secretsService);
+    if (systemKey) {
+      // Prefer the canonical name used across the repo.
+      secrets.REPLICATE_API_KEY = systemKey;
+      logger.info('Loaded system Replicate key for runtime handler');
+    }
+  }
 }
 
 /**

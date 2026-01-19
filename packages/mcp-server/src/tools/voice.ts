@@ -141,7 +141,7 @@ export const createVoiceTools = (services: VoiceServices) => [
 
   defineTool({
     name: 'send_voice_message',
-    description: 'Speak! Generate a voice message from text and send it. On Telegram, sends directly to the chat. On web, returns the audio URL for playback. Requires a voice profile (use create_my_voice first) or will use OpenAI TTS as fallback.',
+    description: 'Speak! Generate a voice message from text and send it. On Telegram, sends directly to the chat. On web, returns the audio URL for playback. Requires a voice profile (use create_my_voice first) and replicate_api_key.',
     category: 'media',
     toolset: 'voice',
     inputSchema: z.object({
@@ -158,7 +158,7 @@ export const createVoiceTools = (services: VoiceServices) => [
         if (status.hasVoice) {
           return `🎤 Your voice is ready (${status.voiceStyle || 'voice-clone'}). Speak your message!`;
         }
-        return '🎤 No custom voice configured - will use OpenAI TTS with default voice. Use create_my_voice to set up a personalized voice.';
+        return '🎤 No custom voice configured. Use create_my_voice to set up your voice first.';
       } catch {
         return undefined;
       }
@@ -196,9 +196,11 @@ export const createVoiceTools = (services: VoiceServices) => [
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
-        if (msg.includes('API key not configured')) {
-          const keyType = msg.includes('Replicate') ? 'replicate_api_key' : 'openai_api_key';
-          return { success: false, error: `Voice generation requires ${keyType} to be configured. Ask an admin to set it up.` };
+        if (msg.includes('Replicate API key not configured')) {
+          return { success: false, error: 'Voice generation requires replicate_api_key to be configured. Ask an admin to set it up.' };
+        }
+        if (msg.includes('Voice reference URL not configured') || msg.includes('Voice reference audio not found')) {
+          return { success: false, error: 'No voice reference audio is configured. Run create_my_voice to set up your voice, then try again.' };
         }
         if (msg.includes('Not enough energy')) {
           return { success: false, error: msg };

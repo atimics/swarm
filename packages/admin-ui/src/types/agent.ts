@@ -83,7 +83,7 @@ export interface ChatMessage {
   /** Sender identity (for user messages) */
   sender?: MessageSender;
   /** Media items returned from tool execution (gallery, generated images, etc) */
-  media?: Array<{ type: 'image' | 'video' | 'sticker'; url: string; prompt?: string; id?: string }>;
+  media?: Array<{ type: 'image' | 'video' | 'sticker' | 'audio'; url: string; prompt?: string; id?: string }>;
 }
 
 export interface AvatarChat {

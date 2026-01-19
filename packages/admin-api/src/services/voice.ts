@@ -44,8 +44,8 @@ const VOICE_TTS_MODEL = process.env.VOICE_TTS_MODEL || 'lucataco/xtts-v2';
 // Official models (like stability-ai) use a different endpoint than community models
 const OFFICIAL_MODEL_PREFIXES = ['stability-ai', 'meta', 'openai', 'mistralai', 'resemble-ai'];
 
-const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
-const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'alloy';
+const _OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
+const _OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'alloy';
 
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -127,7 +127,7 @@ async function makeUrlAccessible(url: string): Promise<string> {
   return getSignedUrl(s3Client, command, { expiresIn: 3600 });
 }
 
-async function convertAudioForTelegram(params: {
+async function _convertAudioForTelegram(params: {
   avatarId: string;
   sourceUrl: string;
   targetFormat: 'ogg';
@@ -855,178 +855,65 @@ export async function generateVoiceMessage(params: {
   }
 
   const voiceConfig = avatar.voiceConfig;
-  const format = params.format || voiceConfig?.format || 'ogg';
+  const _format = params.format || voiceConfig?.format || 'ogg';
   const voiceId = params.voiceId || voiceConfig?.defaultVoiceId;
   const referenceUrl = voiceConfig?.referenceUrl;
 
-  if (voiceConfig?.ttsProvider === 'voice-clone' && VOICE_TTS_MODEL && (voiceId || referenceUrl)) {
-    const apiKey = await getSecret(params.avatarId, 'replicate_api_key');
-    if (!apiKey) {
-      throw new Error('Replicate API key not configured');
-    }
-
-    let seedUrl = referenceUrl;
-    if (!seedUrl && voiceId) {
-      const profile = await getVoiceProfile(voiceId);
-      const assetId = profile?.cloneAssetId || profile?.seedAssetId;
-      if (assetId) {
-        const asset = await getAudioAsset(assetId);
-        seedUrl = asset?.url;
-      }
-    }
-
-    if (!seedUrl && voiceId?.startsWith('http')) {
-      seedUrl = voiceId;
-    }
-
-    if (!seedUrl) {
-      throw new Error('Voice reference audio not found');
-    }
-
-    // Make URL accessible (signed URL for S3)
-    const accessibleSeedUrl = await makeUrlAccessible(seedUrl);
-
-    const outputUrl = await runReplicatePrediction(apiKey, VOICE_TTS_MODEL, {
-      text: params.text,
-      speaker: accessibleSeedUrl, // XTTS-v2 uses 'speaker' not 'speaker_wav'
-      language: 'en',
-    });
-
-    const audioResponse = await fetchWithTimeout(outputUrl);
-    if (!audioResponse.ok) {
-      const errorText = await audioResponse.text();
-      throw new Error(`Failed to download TTS audio: ${audioResponse.status} - ${errorText}`);
-    }
-
-    const buffer = Buffer.from(await audioResponse.arrayBuffer());
-    const contentType = audioResponse.headers.get('content-type');
-    const detectedFormat = detectAudioFormat(contentType, outputUrl);
-
-    const asset = await uploadAudioAsset({
-      avatarId: params.avatarId,
-      buffer,
-      source: 'tts',
-      format: detectedFormat,
-    });
-
-    // Consume energy after successful generation
-    await credits.consumeEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
-
-    return { assetId: asset.assetId, url: asset.url, format: detectedFormat };
+  if (voiceConfig?.ttsProvider !== 'voice-clone' || !VOICE_TTS_MODEL) {
+    throw new Error('Voice cloning not enabled');
   }
 
-  const apiKey = await getSecret(params.avatarId, 'openai_api_key');
+  const apiKey = await getSecret(params.avatarId, 'replicate_api_key');
   if (!apiKey) {
-    throw new Error('OpenAI API key not configured');
+    throw new Error('Replicate API key not configured');
   }
 
-  const voice = voiceId && !voiceId.startsWith('http') ? voiceId : OPENAI_TTS_VOICE;
-  const responseFormat = format === 'ogg' ? 'opus' : format;
+  let seedUrl = referenceUrl;
+  if (!seedUrl && voiceId) {
+    const profile = await getVoiceProfile(voiceId);
+    const assetId = profile?.cloneAssetId || profile?.seedAssetId;
+    if (assetId) {
+      const asset = await getAudioAsset(assetId);
+      seedUrl = asset?.url;
+    }
+  }
 
-  const response = await fetch('https://api.openai.com/v1/audio/speech', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: OPENAI_TTS_MODEL,
-      voice,
-      input: params.text,
-      response_format: responseFormat,
-      ...(params.speed ? { speed: params.speed } : {}),
-    }),
+  if (!seedUrl && voiceId?.startsWith('http')) {
+    seedUrl = voiceId;
+  }
+
+  if (!seedUrl) {
+    throw new Error('Voice reference audio not found');
+  }
+
+  // Make URL accessible (signed URL for S3)
+  const accessibleSeedUrl = await makeUrlAccessible(seedUrl);
+
+  const outputUrl = await runReplicatePrediction(apiKey, VOICE_TTS_MODEL, {
+    text: params.text,
+    speaker: accessibleSeedUrl, // XTTS-v2 uses 'speaker' not 'speaker_wav'
+    language: 'en',
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI TTS failed: ${response.status} - ${errorText}`);
+  const audioResponse = await fetchWithTimeout(outputUrl);
+  if (!audioResponse.ok) {
+    const errorText = await audioResponse.text();
+    throw new Error(`Failed to download TTS audio: ${audioResponse.status} - ${errorText}`);
   }
 
-  const buffer = Buffer.from(await response.arrayBuffer());
+  const buffer = Buffer.from(await audioResponse.arrayBuffer());
+  const contentType = audioResponse.headers.get('content-type');
+  const detectedFormat = detectAudioFormat(contentType, outputUrl);
 
   const asset = await uploadAudioAsset({
     avatarId: params.avatarId,
     buffer,
     source: 'tts',
-    format,
+    format: detectedFormat,
   });
 
   // Consume energy after successful generation
   await credits.consumeEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
 
-  return { assetId: asset.assetId, url: asset.url, format };
-}
-
-/**
- * Send a voice message - generates audio and sends/returns it
- *
- * On Telegram: generates voice and sends directly to chat
- * On Web/other: generates voice and returns URL for playback
- */
-export async function sendVoiceMessage(params: {
-  avatarId: string;
-  platform: string;
-  text: string;
-  conversationId?: string;
-  voiceId?: string;
-  format?: 'ogg' | 'mp3' | 'wav';
-  speed?: number;
-  replyToMessageId?: string;
-}): Promise<{ success: boolean; assetId?: string; url?: string; sent?: boolean }> {
-  // Generate the voice message first
-  const generated = await generateVoiceMessage({
-    avatarId: params.avatarId,
-    text: params.text,
-    voiceId: params.voiceId,
-    format: params.format || 'ogg',
-    speed: params.speed,
-  });
-
-  let voiceUrl = await makeUrlAccessible(generated.url);
-
-  // For Telegram, send directly to the chat
-  if (params.platform === 'telegram') {
-    if (!params.conversationId) {
-      throw new Error('conversationId is required for Telegram voice messages');
-    }
-
-    if (generated.format !== 'ogg') {
-      voiceUrl = await convertAudioForTelegram({
-        avatarId: params.avatarId,
-        sourceUrl: voiceUrl,
-        targetFormat: 'ogg',
-      });
-    }
-
-    const botToken = await _getSecretValueInternal(params.avatarId, 'telegram_bot_token', 'default');
-    if (!botToken) {
-      throw new Error('Telegram bot token not configured');
-    }
-
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendVoice`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: params.conversationId,
-        voice: voiceUrl,
-        reply_to_message_id: params.replyToMessageId ? Number(params.replyToMessageId) : undefined,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Telegram sendVoice failed: ${response.status} - ${errorText}`);
-    }
-
-    return { success: true, assetId: generated.assetId, url: generated.url, sent: true };
-  }
-
-  // For web and other platforms, return the audio URL for playback
-  return {
-    success: true,
-    assetId: generated.assetId,
-    url: generated.url,
-    sent: false, // Not sent directly, client should play the URL
-  };
+  return { assetId: asset.assetId, url: asset.url, format: detectedFormat };
 }

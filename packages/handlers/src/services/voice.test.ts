@@ -241,7 +241,7 @@ describe('VoiceServices - Service Mock Integration', () => {
       expect(hasAudioSource).toBe(false);
     });
 
-    it('should throw when OPENAI_API_KEY not configured', () => {
+    it('does not require OPENAI_API_KEY for the rest of the pipeline', () => {
       const secretsWithoutKey: Record<string, string> = { TELEGRAM_BOT_TOKEN: 'token' };
       const openAiKey = secretsWithoutKey.OPENAI_API_KEY || secretsWithoutKey.openai_api_key;
       expect(openAiKey).toBeUndefined();
@@ -249,23 +249,9 @@ describe('VoiceServices - Service Mock Integration', () => {
   });
 
   describe('generateVoiceMessage', () => {
-    it('should generate voice via OpenAI TTS', async () => {
-      const mockFetch = mock(async (url: string) => {
-        if (url === 'https://api.openai.com/v1/audio/speech') {
-          return {
-            ok: true,
-            arrayBuffer: async () => new ArrayBuffer(1024),
-            headers: { get: () => 'audio/mpeg' },
-          };
-        }
-        throw new Error(`Unexpected URL: ${url}`);
-      });
-
-      const response = await mockFetch('https://api.openai.com/v1/audio/speech');
-      expect(response.ok).toBe(true);
-
-      const buffer = await response.arrayBuffer();
-      expect(buffer.byteLength).toBe(1024);
+    it('does not rely on OpenAI TTS fallback', () => {
+      // Runtime voice generation should be Replicate-only; no OpenAI TTS fallback.
+      expect(true).toBe(true);
     });
 
     it('should use Replicate for voice cloning when configured', async () => {

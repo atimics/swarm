@@ -627,7 +627,7 @@ function toAdminToolCall(toolCall: SdkToolCall): ToolCall {
 
 /** Media item generated during chat */
 interface MediaItem {
-  type: 'image' | 'video' | 'sticker';
+  type: 'image' | 'video' | 'sticker' | 'audio';
   url: string;
   prompt?: string;
   id?: string;
@@ -638,6 +638,18 @@ interface MediaItem {
  */
 function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
   const media: MediaItem[] = [];
+
+  const isAudioUrl = (url: string) => {
+    const lowerUrl = url.toLowerCase();
+    return (
+      lowerUrl.includes('.mp3') ||
+      lowerUrl.includes('.wav') ||
+      lowerUrl.includes('.ogg') ||
+      lowerUrl.includes('.opus') ||
+      lowerUrl.includes('/audio/') ||
+      lowerUrl.includes('/voice/')
+    );
+  };
 
   for (const result of toolResults) {
     try {
@@ -651,8 +663,11 @@ function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
       const isSuccess = parsed.success || (parsed.status === 'completed' && mediaUrl);
       if (isSuccess && mediaUrl && typeof mediaUrl === 'string') {
         // Determine type from context, parsed.type, or file extension
-        let mediaType: 'image' | 'video' | 'sticker' = parsed.type || 'image';
-        if (mediaUrl.includes('.mp4') || mediaUrl.includes('.webm') || mediaUrl.includes('/video')) {
+        let mediaType: 'image' | 'video' | 'sticker' | 'audio' = parsed.type || 'image';
+
+        if (isAudioUrl(mediaUrl)) {
+          mediaType = 'audio';
+        } else if (mediaUrl.includes('.mp4') || mediaUrl.includes('.webm') || mediaUrl.includes('/video')) {
           mediaType = 'video';
         } else if (mediaUrl.includes('/sticker')) {
           mediaType = 'sticker';
@@ -674,7 +689,7 @@ function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
         for (const item of itemsArray) {
           if (item.url) {
             media.push({
-              type: item.type || 'image',
+              type: (isAudioUrl(String(item.url)) ? 'audio' : (item.type || 'image')),
               url: item.url,
               prompt: item.prompt,
               id: item.id,

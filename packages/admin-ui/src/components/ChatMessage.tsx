@@ -203,6 +203,10 @@ function processMessageContent(content: string): {
     // Check for image URL
     if (parsed.url && typeof parsed.url === 'string') {
       const url = parsed.url;
+      if (isAudioUrl(url)) {
+        // Avoid treating voice/audio URLs as images
+        return { type: 'audio', data: parsed, audioUrl: url };
+      }
       // Image generation result
       const isImage = url.includes('.png') || url.includes('.jpg') || 
                       url.includes('.webp') || url.includes('rati.chat') || 
@@ -358,6 +362,13 @@ function extractImagesFromToolCalls(toolCalls?: ChatMessageType['toolCalls']): s
 
   const images: string[] = [];
 
+  const isAudioUrl = (url: string) => {
+    const lowerUrl = url.toLowerCase();
+    return lowerUrl.includes('.ogg') || lowerUrl.includes('.mp3') || 
+           lowerUrl.includes('.wav') || lowerUrl.includes('.opus') ||
+           lowerUrl.includes('/audio/') || lowerUrl.includes('/voice/');
+  };
+
   for (const tc of toolCalls) {
     if (tc.result && typeof tc.result === 'object') {
       const result = tc.result as Record<string, unknown>;
@@ -365,6 +376,9 @@ function extractImagesFromToolCalls(toolCalls?: ChatMessageType['toolCalls']): s
       // Support both 'url' and 'resultUrl' fields (from get_job_status)
       const url = (result.url || result.resultUrl) as string | undefined;
       if (url && typeof url === 'string') {
+        if (isAudioUrl(url)) {
+          continue;
+        }
         // Include URLs that are images (by extension or by being from our CDN/S3)
         const isImage = url.includes('.png') || url.includes('.jpg') ||
                         url.includes('.webp') || url.includes('.jpeg') ||
@@ -441,13 +455,17 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
   const imagesFromMedia = (message.media || [])
     .filter(m => m.type === 'image' || m.type === 'sticker')
     .map(m => m.url);
+
+  const audiosFromMedia = (message.media || [])
+    .filter(m => m.type === 'audio')
+    .map(m => m.url);
   
   // Combine all image sources, deduplicate
   const allImages = [...imagesFromTools, ...imagesFromJobs, ...embeddedImages, ...imagesFromMedia];
   const images = [...new Set(allImages)];
   
   // Combine all audio sources, deduplicate
-  const allAudios = [...audiosFromTools, ...embeddedAudios];
+  const allAudios = [...audiosFromTools, ...embeddedAudios, ...audiosFromMedia];
   const audios = [...new Set(allAudios)];
   
   const activeJobs = getActiveJobs(message.pendingJobs);

@@ -7,7 +7,7 @@ interface PendingToolCall {
 }
 
 interface MediaItem {
-  type: 'image' | 'video' | 'sticker';
+  type: 'image' | 'video' | 'sticker' | 'audio';
   url: string;
   prompt?: string;
   id?: string;

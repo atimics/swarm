@@ -320,6 +320,7 @@ export class SwarmStack extends cdk.Stack {
           cdnUrl: this.shared.cdnUrl,
           environment,
           discordCluster: this.shared.discordCluster,
+          replicateApiKeyArn,
         });
 
         this.avatars.set(avatarId, avatar);

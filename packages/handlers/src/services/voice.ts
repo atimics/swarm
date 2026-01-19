@@ -30,9 +30,6 @@ const VOICE_TTS_MODEL = process.env.VOICE_TTS_MODEL || 'lucataco/xtts-v2';
 
 // Official models (like stability-ai) use a different endpoint than community models
 const OFFICIAL_MODEL_PREFIXES = ['stability-ai', 'meta', 'openai', 'mistralai', 'resemble-ai'];
-
-const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
-const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'alloy';
 const FETCH_TIMEOUT_MS = 10_000;
 
 type AudioFormat = 'ogg' | 'mp3' | 'wav';
@@ -294,8 +291,10 @@ export function createVoiceServices(config: {
       model?: string;
       diarize?: boolean;
     }) => {
+      // Transcription is optional in runtime handlers. If no provider is configured,
+      // return an empty transcript so callers can proceed without hard-failing.
       if (!openAiKey) {
-        throw new Error('OPENAI_API_KEY not configured');
+        return { text: '', language: params.language };
       }
 
       let audioUrl = params.url;
@@ -377,100 +376,62 @@ export function createVoiceServices(config: {
 
     generateVoiceMessage: async (params: {
       avatarId: string;
-      platform: string;
       text: string;
       voiceId?: string;
       format?: AudioFormat;
       speed?: number;
-      pitch?: number;
-      emotion?: string;
-      maxDurationMs?: number;
-    }) => {
+    }): Promise<{ assetId: string; url: string; durationMs?: number; format: AudioFormat }> => {
       if (!config.mediaBucket) {
         throw new Error('MEDIA_BUCKET not configured');
       }
 
-      const format = params.format || config.voiceConfig?.format || 'ogg';
       const referenceUrl = config.voiceConfig?.referenceUrl;
       const voiceId = params.voiceId;
 
-      if (config.voiceConfig?.ttsProvider === 'voice-clone' && VOICE_TTS_MODEL && replicateKey && (referenceUrl || isUrl(voiceId))) {
-        const seedUrl = referenceUrl || (isUrl(voiceId) ? voiceId : undefined);
-        if (!seedUrl) {
-          throw new Error('Voice reference URL not configured');
-        }
-
-        const accessibleSeedUrl = await makeUrlAccessible(seedUrl, config.cdnUrl);
-        const outputUrl = await runReplicatePrediction(
-          replicateKey,
-          VOICE_TTS_MODEL,
-          {
-            text: params.text,
-            speaker: accessibleSeedUrl, // XTTS-v2 uses 'speaker' not 'speaker_wav'
-            language: 'en',
-          },
-          { pollIntervalMs: config.replicatePollIntervalMs }
-        );
-
-        const audioResponse = await fetchWithTimeout(outputUrl);
-        if (!audioResponse.ok) {
-          const errorText = await audioResponse.text();
-          throw new Error(`Failed to download TTS audio: ${audioResponse.status} - ${errorText}`);
-        }
-
-        const buffer = Buffer.from(await audioResponse.arrayBuffer());
-        const contentType = audioResponse.headers.get('content-type');
-        const detectedFormat = detectAudioFormat(contentType, outputUrl);
-
-        const asset = await uploadAudioAsset({
-          avatarId: config.avatarId,
-          buffer,
-          format: detectedFormat,
-          mediaBucket: config.mediaBucket,
-          cdnUrl: config.cdnUrl,
-        });
-
-        return { assetId: asset.assetId, url: asset.url, durationMs: undefined, format: detectedFormat };
+      if (!replicateKey) {
+        throw new Error('Replicate API key not configured');
       }
 
-      if (!openAiKey) {
-        throw new Error('OPENAI_API_KEY not configured');
+      if (config.voiceConfig?.ttsProvider !== 'voice-clone' || !VOICE_TTS_MODEL) {
+        throw new Error('Voice cloning not enabled');
       }
 
-      const voice = voiceId && !isUrl(voiceId) ? voiceId : OPENAI_TTS_VOICE;
-      const responseFormat = format === 'ogg' ? 'opus' : format;
+      const seedUrl = referenceUrl || (isUrl(voiceId) ? voiceId : undefined);
+      if (!seedUrl) {
+        throw new Error('Voice reference URL not configured');
+      }
 
-      const response = await fetch('https://api.openai.com/v1/audio/speech', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openAiKey}`,
+      const accessibleSeedUrl = await makeUrlAccessible(seedUrl, config.cdnUrl);
+      const outputUrl = await runReplicatePrediction(
+        replicateKey,
+        VOICE_TTS_MODEL,
+        {
+          text: params.text,
+          speaker: accessibleSeedUrl, // XTTS-v2 uses 'speaker' not 'speaker_wav'
+          language: 'en',
         },
-        body: JSON.stringify({
-          model: OPENAI_TTS_MODEL,
-          voice,
-          input: params.text,
-          response_format: responseFormat,
-          ...(params.speed ? { speed: params.speed } : {}),
-        }),
-      });
+        { pollIntervalMs: config.replicatePollIntervalMs }
+      );
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OpenAI TTS failed: ${response.status} - ${errorText}`);
+      const audioResponse = await fetchWithTimeout(outputUrl);
+      if (!audioResponse.ok) {
+        const errorText = await audioResponse.text();
+        throw new Error(`Failed to download TTS audio: ${audioResponse.status} - ${errorText}`);
       }
 
-      const buffer = Buffer.from(await response.arrayBuffer());
+      const buffer = Buffer.from(await audioResponse.arrayBuffer());
+      const contentType = audioResponse.headers.get('content-type');
+      const detectedFormat = detectAudioFormat(contentType, outputUrl);
 
       const asset = await uploadAudioAsset({
         avatarId: config.avatarId,
         buffer,
-        format,
+        format: detectedFormat,
         mediaBucket: config.mediaBucket,
         cdnUrl: config.cdnUrl,
       });
 
-      return { assetId: asset.assetId, url: asset.url, durationMs: undefined, format };
+      return { assetId: asset.assetId, url: asset.url, durationMs: undefined, format: detectedFormat };
     },
 
     sendVoiceMessage: async (params: {
@@ -488,91 +449,56 @@ export function createVoiceServices(config: {
       }
 
       // Generate the voice message first
-      const format = params.format || config.voiceConfig?.format || 'ogg';
       const referenceUrl = config.voiceConfig?.referenceUrl;
       const voiceId = params.voiceId;
       let assetId: string;
       let url: string;
 
-      if (config.voiceConfig?.ttsProvider === 'voice-clone' && VOICE_TTS_MODEL && replicateKey && (referenceUrl || isUrl(voiceId))) {
-        const seedUrl = referenceUrl || (isUrl(voiceId) ? voiceId : undefined);
-        if (!seedUrl) {
-          throw new Error('Voice reference URL not configured');
-        }
-
-        const accessibleSeedUrl = await makeUrlAccessible(seedUrl, config.cdnUrl);
-        const outputUrl = await runReplicatePrediction(
-          replicateKey,
-          VOICE_TTS_MODEL,
-          {
-            text: params.text,
-            speaker: accessibleSeedUrl, // XTTS-v2 uses 'speaker' not 'speaker_wav'
-            language: 'en',
-          },
-          { pollIntervalMs: config.replicatePollIntervalMs }
-        );
-
-        const audioResponse = await fetchWithTimeout(outputUrl);
-        if (!audioResponse.ok) {
-          const errorText = await audioResponse.text();
-          throw new Error(`Failed to download TTS audio: ${audioResponse.status} - ${errorText}`);
-        }
-
-        const buffer = Buffer.from(await audioResponse.arrayBuffer());
-        const contentType = audioResponse.headers.get('content-type');
-        const detectedFormat = detectAudioFormat(contentType, outputUrl);
-
-        const asset = await uploadAudioAsset({
-          avatarId: config.avatarId,
-          buffer,
-          format: detectedFormat,
-          mediaBucket: config.mediaBucket,
-          cdnUrl: config.cdnUrl,
-        });
-
-        assetId = asset.assetId;
-        url = asset.url;
-      } else {
-        if (!openAiKey) {
-          throw new Error('OPENAI_API_KEY not configured');
-        }
-
-        const voice = voiceId && !isUrl(voiceId) ? voiceId : OPENAI_TTS_VOICE;
-        const responseFormat = format === 'ogg' ? 'opus' : format;
-
-        const response = await fetch('https://api.openai.com/v1/audio/speech', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${openAiKey}`,
-          },
-          body: JSON.stringify({
-            model: OPENAI_TTS_MODEL,
-            voice,
-            input: params.text,
-            response_format: responseFormat,
-            ...(params.speed ? { speed: params.speed } : {}),
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`OpenAI TTS failed: ${response.status} - ${errorText}`);
-        }
-
-        const buffer = Buffer.from(await response.arrayBuffer());
-
-        const asset = await uploadAudioAsset({
-          avatarId: config.avatarId,
-          buffer,
-          format,
-          mediaBucket: config.mediaBucket,
-          cdnUrl: config.cdnUrl,
-        });
-
-        assetId = asset.assetId;
-        url = asset.url;
+      if (!replicateKey) {
+        throw new Error('Replicate API key not configured');
       }
+
+      if (config.voiceConfig?.ttsProvider !== 'voice-clone' || !VOICE_TTS_MODEL) {
+        throw new Error('Voice cloning not enabled');
+      }
+
+      const seedUrl = referenceUrl || (isUrl(voiceId) ? voiceId : undefined);
+      if (!seedUrl) {
+        throw new Error('Voice reference URL not configured');
+      }
+
+      const accessibleSeedUrl = await makeUrlAccessible(seedUrl, config.cdnUrl);
+      const outputUrl = await runReplicatePrediction(
+        replicateKey,
+        VOICE_TTS_MODEL,
+        {
+          text: params.text,
+          speaker: accessibleSeedUrl, // XTTS-v2 uses 'speaker' not 'speaker_wav'
+          language: 'en',
+        },
+        { pollIntervalMs: config.replicatePollIntervalMs }
+      );
+
+      const audioResponse = await fetchWithTimeout(outputUrl);
+      if (!audioResponse.ok) {
+        const errorText = await audioResponse.text();
+        throw new Error(`Failed to download TTS audio: ${audioResponse.status} - ${errorText}`);
+      }
+
+      const buffer = Buffer.from(await audioResponse.arrayBuffer());
+      const contentType = audioResponse.headers.get('content-type');
+      const detectedFormat = detectAudioFormat(contentType, outputUrl);
+
+      const asset = await uploadAudioAsset({
+        avatarId: config.avatarId,
+        buffer,
+        format: detectedFormat,
+        mediaBucket: config.mediaBucket,
+        cdnUrl: config.cdnUrl,
+      });
+
+      assetId = asset.assetId;
+      url = asset.url;
 
       const accessibleUrl = await makeUrlAccessible(url, config.cdnUrl);
 

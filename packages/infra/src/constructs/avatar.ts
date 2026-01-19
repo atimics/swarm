@@ -75,6 +75,13 @@ export interface AvatarConstructProps {
    * ECS cluster for Discord gateway workers (optional)
    */
   discordCluster?: ecs.ICluster;
+
+  /**
+   * Optional shared Replicate API key secret ARN.
+   * When provided, runtime handlers can fall back to this if the per-avatar secrets
+   * JSON does not include Replicate credentials.
+   */
+  replicateApiKeyArn?: string;
 }
 
 export class AvatarConstruct extends Construct {
@@ -97,6 +104,7 @@ export class AvatarConstruct extends Construct {
       environment = 'dev',
       cdnUrl,
       discordCluster,
+      replicateApiKeyArn,
     } = props;
 
     // Create or import secrets
@@ -165,6 +173,10 @@ export class AvatarConstruct extends Construct {
       ENVIRONMENT: environment,
     };
 
+    if (replicateApiKeyArn) {
+      commonEnv.REPLICATE_API_KEY_SECRET_ARN = replicateApiKeyArn;
+    }
+
     // Lambda role
     const lambdaRole = new iam.Role(this, 'LambdaRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
@@ -178,6 +190,11 @@ export class AvatarConstruct extends Construct {
     activityTable.grantReadWriteData(lambdaRole);
     mediaBucket.grantReadWrite(lambdaRole);
     this.secrets.grantRead(lambdaRole);
+
+    if (replicateApiKeyArn) {
+      const replicateSecret = secretsmanager.Secret.fromSecretCompleteArn(this, 'ReplicateApiKey', replicateApiKeyArn);
+      replicateSecret.grantRead(lambdaRole);
+    }
     this.messageQueue.grantSendMessages(lambdaRole);
     this.messageQueue.grantConsumeMessages(lambdaRole);
     this.responseQueue.grantSendMessages(lambdaRole);
