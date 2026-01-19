@@ -17,11 +17,63 @@ export type { IntegrationType, AICapability };
 import { getAvatar } from './avatars.js';
 import { _getSecretValueInternal, secretExists, storeSecret } from './secrets.js';
 import { getDefaultModel, getModelsForCapability, type ModelInfo } from './models-registry.js';
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
+
+// =============================================================================
+// System Replicate Key Detection (env/Secrets Manager)
+// =============================================================================
+
+let cachedSystemReplicateKeyAvailable: boolean | null = null;
+
+function parseReplicateApiKeyFromJson(raw: string): string | undefined {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const candidate =
+      parsed.api_key ||
+      parsed.apiKey ||
+      parsed.REPLICATE_API_KEY ||
+      parsed.REPLICATE_API_TOKEN ||
+      parsed.token ||
+      parsed.value;
+    return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function hasSystemReplicateKeyConfigured(): Promise<boolean> {
+  if (cachedSystemReplicateKeyAvailable !== null) return cachedSystemReplicateKeyAvailable;
+
+  const envKey = process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY;
+  if (envKey && envKey.trim()) {
+    cachedSystemReplicateKeyAvailable = true;
+    return true;
+  }
+
+  const arn = process.env.REPLICATE_API_KEY_SECRET_ARN;
+  if (!arn) {
+    cachedSystemReplicateKeyAvailable = false;
+    return false;
+  }
+
+  try {
+    const client = new SecretsManagerClient({});
+    const resp = await client.send(new GetSecretValueCommand({ SecretId: arn }));
+    const raw = (resp.SecretString || '').trim();
+    const parsed = raw ? parseReplicateApiKeyFromJson(raw) : undefined;
+    cachedSystemReplicateKeyAvailable = Boolean(parsed || raw);
+    return cachedSystemReplicateKeyAvailable;
+  } catch {
+    // If we can't read it (missing secret / access denied), treat as not available.
+    cachedSystemReplicateKeyAvailable = false;
+    return false;
+  }
+}
 
 // =============================================================================
 // Integration Metadata
@@ -219,11 +271,9 @@ export async function getIntegrationStatus(
   );
 
   const hasApiKey = secretStatuses.some((s) => s.hasAvatar);
-  const hasSystemReplicateKey = integration === 'replicate' && Boolean(
-    process.env.REPLICATE_API_TOKEN ||
-    process.env.REPLICATE_API_KEY ||
-    process.env.REPLICATE_API_KEY_SECRET_ARN
-  );
+  const hasSystemReplicateKey = integration === 'replicate'
+    ? await hasSystemReplicateKeyConfigured()
+    : false;
 
   const hasGlobalKey = secretStatuses.some((s) => s.hasGlobal) || hasSystemReplicateKey;
   const allSecretsConfigured = secretStatuses.every((s) =>
