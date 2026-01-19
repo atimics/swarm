@@ -219,9 +219,10 @@ function processMessageContent(content: string): {
       }
     }
     
-    // Success message (profile update, wallet created, etc)
+    // Success/error message (profile update, wallet created, tool failures, etc)
     if (parsed.message && typeof parsed.message === 'string' && hasSignalKey) {
-      if (parsed.error === true) {
+      // Check for error: can be boolean true, a string error message, OR success === false
+      if (parsed.error === true || typeof parsed.error === 'string' || parsed.success === false) {
         return { type: 'error', data: parsed, message: parsed.message };
       }
       return { type: 'success', data: parsed, message: parsed.message };

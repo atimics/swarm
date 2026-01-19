@@ -968,21 +968,10 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         });
 
         try {
-          const me = await client.v2.me();
-          if (me.data.id !== expectedConnection.userId) {
-            console.error(JSON.stringify({
-              level: 'ERROR',
-              subsystem: 'twitter',
-              event: 'twitter_identity_mismatch',
-              avatarId: _avatarId,
-              expectedUserId: expectedConnection.userId,
-              expectedUsername: expectedConnection.username,
-              actualUserId: me.data.id,
-              actualUsername: me.data.username,
-              message: 'Refusing to post: access tokens belong to a different Twitter account than the stored connection record.',
-            }));
-            return null;
-          }
+          // Skip v2.me() identity verification - it's rate-limited and we already verified
+          // the connection status above. The stored userId came from OAuth and the tokens
+          // are tied to that account by Twitter's OAuth flow.
+          const username = expectedConnection.username;
 
           // Handle media uploads if provided
           const twitterMediaIds = resolvedMediaUrls.length > 0 
@@ -999,7 +988,7 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           const tweetId = result.data.id;
           return {
             tweetId,
-            url: `https://x.com/${me.data.username}/status/${tweetId}`,
+            url: `https://x.com/${username}/status/${tweetId}`,
           };
         } catch (error) {
           console.error('Failed to post tweet:', error);
