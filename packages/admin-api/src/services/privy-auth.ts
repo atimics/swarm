@@ -126,12 +126,40 @@ function generateSessionToken(): string {
   return randomBytes(48).toString('base64url');
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+type SolanaWalletLinkedAccount = {
+  type: 'wallet';
+  chain_type: 'solana';
+  address: string;
+  wallet_client?: string;
+};
+
+function isSolanaWalletLinkedAccount(value: unknown): value is SolanaWalletLinkedAccount {
+  if (!isRecord(value)) return false;
+  return (
+    value.type === 'wallet' &&
+    value.chain_type === 'solana' &&
+    typeof value.address === 'string' &&
+    (value.wallet_client === undefined || typeof value.wallet_client === 'string')
+  );
+}
+
+type EmailLinkedAccount = {
+  type: 'email';
+  address: string;
+};
+
+function isEmailLinkedAccount(value: unknown): value is EmailLinkedAccount {
+  if (!isRecord(value)) return false;
+  return value.type === 'email' && typeof value.address === 'string';
+}
+
 function pickSolanaWalletAddressFromPrivyUser(user: PrivyUser): string | null {
   const linkedAccounts = (user.linked_accounts ?? []) as unknown[];
-  const solanaWallets = linkedAccounts.filter((a) => {
-    const account = a as any;
-    return account?.type === 'wallet' && account?.chain_type === 'solana' && typeof account?.address === 'string';
-  }) as Array<{ address: string; wallet_client?: string }>;
+  const solanaWallets = linkedAccounts.filter(isSolanaWalletLinkedAccount);
 
   if (solanaWallets.length === 0) return null;
 
@@ -141,11 +169,7 @@ function pickSolanaWalletAddressFromPrivyUser(user: PrivyUser): string | null {
 
 function pickEmailFromPrivyUser(user: PrivyUser): string | undefined {
   const linkedAccounts = (user.linked_accounts ?? []) as unknown[];
-  const email = linkedAccounts.find((a) => {
-    const account = a as any;
-    return account?.type === 'email' && typeof account?.address === 'string';
-  }) as { address?: string } | undefined;
-
+  const email = linkedAccounts.find(isEmailLinkedAccount);
   return email?.address;
 }
 

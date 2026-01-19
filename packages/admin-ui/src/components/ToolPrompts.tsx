@@ -119,6 +119,8 @@ interface ModelOption {
   isDefault?: boolean;
 }
 
+const PRIORITY_MODEL_PROVIDERS = ['anthropic', 'openai', 'google', 'meta-llama', 'mistralai', 'cohere', 'deepseek'] as const;
+
 // Available models by capability (matches models-registry.ts)
 const AVAILABLE_MODELS: Record<string, ModelOption[]> = {
   image_generation: [
@@ -1064,11 +1066,10 @@ export function ModelSelectorPrompt({ toolCall, onSubmit, disabled }: ToolPrompt
   }, [filteredModels]);
 
   // Sort providers: prioritize popular ones, then alphabetically
-  const priorityProviders = ['anthropic', 'openai', 'google', 'meta-llama', 'mistralai', 'cohere', 'deepseek'];
   const sortedProviders = useMemo<string[]>(() => {
     return Object.keys(groupedModels).sort((a, b) => {
-      const aIdx = priorityProviders.indexOf(a);
-      const bIdx = priorityProviders.indexOf(b);
+      const aIdx = PRIORITY_MODEL_PROVIDERS.indexOf(a as (typeof PRIORITY_MODEL_PROVIDERS)[number]);
+      const bIdx = PRIORITY_MODEL_PROVIDERS.indexOf(b as (typeof PRIORITY_MODEL_PROVIDERS)[number]);
       if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
       if (aIdx !== -1) return -1;
       if (bIdx !== -1) return 1;
