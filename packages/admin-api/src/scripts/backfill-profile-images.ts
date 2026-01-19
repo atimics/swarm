@@ -179,7 +179,12 @@ async function run() {
       ExclusiveStartKey: lastEvaluatedKey,
     }));
 
-    const items = (resp.Items ?? []) as Array<any>;
+    type AvatarConfigItem = {
+      avatarId?: string;
+      profileImage?: { url?: string };
+    } & Record<string, unknown>;
+
+    const items = (resp.Items ?? []) as AvatarConfigItem[];
     for (const item of items) {
       if (limit && updated >= limit) break;
 

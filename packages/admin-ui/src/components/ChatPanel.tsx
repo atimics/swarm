@@ -455,7 +455,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         setLoading(false);
       }
     },
-    [activeAvatar, accessMode, handleSendMessage, setLoading, setError]
+      [activeAvatar, accessMode, createAvatar, handleSendMessage, setLoading, setError]
   );
 
   // Handle tool submissions (secrets, confirmations, uploads, etc.)
@@ -743,7 +743,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       // Generic tool result - just update status
       updateToolCallStatus();
     },
-    [activeAvatar, updateMessage, setError, handleSendMessage, addMessage, updateAvatar]
+    [activeAvatar, updateMessage, setError, addMessage, updateAvatar]
   );
 
   if (!activeAvatar) {

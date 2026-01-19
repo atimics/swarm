@@ -1044,7 +1044,7 @@ export function ModelSelectorPrompt({ toolCall, onSubmit, disabled }: ToolPrompt
         setExpandedProvider(provider);
       }
     }
-  }, [currentModel]);
+  }, [currentModel, selectedModel]);
 
   // Filter models by search query
   const filteredModels = models.filter(m =>
@@ -1053,23 +1053,27 @@ export function ModelSelectorPrompt({ toolCall, onSubmit, disabled }: ToolPrompt
   );
 
   // Group models by provider with counts
-  const groupedModels = filteredModels.reduce((acc, model) => {
-    const provider = model.provider || model.id.split('/')[0] || 'other';
-    if (!acc[provider]) acc[provider] = [];
-    acc[provider].push(model);
-    return acc;
-  }, {} as Record<string, typeof models>);
+  const groupedModels = useMemo(() => {
+    return filteredModels.reduce((acc, model) => {
+      const provider = model.provider || model.id.split('/')[0] || 'other';
+      if (!acc[provider]) acc[provider] = [];
+      acc[provider].push(model);
+      return acc;
+    }, {} as Record<string, typeof models>);
+  }, [filteredModels]);
 
   // Sort providers: prioritize popular ones, then alphabetically
   const priorityProviders = ['anthropic', 'openai', 'google', 'meta-llama', 'mistralai', 'cohere', 'deepseek'];
-  const sortedProviders = Object.keys(groupedModels).sort((a, b) => {
-    const aIdx = priorityProviders.indexOf(a);
-    const bIdx = priorityProviders.indexOf(b);
-    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-    if (aIdx !== -1) return -1;
-    if (bIdx !== -1) return 1;
-    return a.localeCompare(b);
-  });
+  const sortedProviders = useMemo(() => {
+    return Object.keys(groupedModels).sort((a, b) => {
+      const aIdx = priorityProviders.indexOf(a);
+      const bIdx = priorityProviders.indexOf(b);
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [groupedModels]);
 
   const toggleProvider = (provider: string) => {
     setExpandedProvider(prev => (prev === provider ? null : provider));
@@ -1080,7 +1084,7 @@ export function ModelSelectorPrompt({ toolCall, onSubmit, disabled }: ToolPrompt
     if (sortedProviders.length === 0) return;
     if (expandedProvider && sortedProviders.includes(expandedProvider)) return;
     setExpandedProvider(sortedProviders[0]);
-  }, [expandedProvider, sortedProviders.join(',')]);
+  }, [expandedProvider, sortedProviders]);
 
   const handleSubmit = async () => {
     if (!selectedModel || isSubmitting) return;
@@ -1433,7 +1437,7 @@ export function FeatureTogglePrompt({ toolCall, onSubmit, disabled }: ToolPrompt
     if (enabled === null) {
       setEnabled(args.currentState);
     }
-  }, [args.currentState]);
+  }, [args.currentState, enabled]);
 
   const handleToggle = async () => {
     if (isSubmitting || enabled === null) return;

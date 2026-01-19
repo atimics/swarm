@@ -42,6 +42,12 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   // Track Solana wallet login attempts
   const solanaLoginAttemptedRef = useRef<string | null>(null);
 
+  const {
+    isLoading: walletAuthIsLoading,
+    isAuthenticated: walletAuthIsAuthenticated,
+    login: walletAuthLogin,
+  } = walletAuth;
+
   // Handle Solana wallet connection (Phantom, etc.)
   // This triggers when user connects wallet from the modal
   useEffect(() => {
@@ -50,14 +56,14 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
       return;
     }
 
-    if (connected && publicKey && !walletAuth.isLoading && !walletAuth.isAuthenticated) {
+    if (connected && publicKey && !walletAuthIsLoading && !walletAuthIsAuthenticated) {
       const publicKeyStr = publicKey.toBase58();
       
       // Only attempt login if we haven't already tried for this wallet
       if (solanaLoginAttemptedRef.current !== publicKeyStr) {
         console.log('[LoginOptions] 🔐 Solana wallet connected, triggering login:', publicKeyStr);
         solanaLoginAttemptedRef.current = publicKeyStr;
-        walletAuth.login(signMessage, publicKeyStr).catch((err) => {
+        walletAuthLogin(signMessage, publicKeyStr).catch((err) => {
           console.error('[LoginOptions] ❌ Solana wallet login failed:', err);
           // Keep ref set to prevent retry loop
         });
@@ -68,7 +74,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     if (!connected) {
       solanaLoginAttemptedRef.current = null;
     }
-  }, [connected, publicKey, signMessage, walletAuth.isLoading, walletAuth.isAuthenticated, walletAuth.login]);
+  }, [connected, publicKey, signMessage, walletAuthIsLoading, walletAuthIsAuthenticated, walletAuthLogin]);
 
   // When Privy auth completes, sync with our backend.
   // Don't block on embedded wallet creation: Privy may be authenticated before wallet is ready.
