@@ -281,18 +281,12 @@ function App() {
     }
   }, [activeAvatarId, addMessage, chats, fetchAvatars, setActiveAvatar, syncChatHistory, updateMessage]);
 
-  // Consume OAuth redirect query params (in the OAuth window/tab) and broadcast to the main app via localStorage.
+  // Consume OAuth redirect query params
   useEffect(() => {
     const parsed = parseTwitterOAuthResultFromLocation(window.location);
     if (!parsed) return;
 
-    try {
-      localStorage.setItem(TWITTER_OAUTH_STORAGE_KEY, JSON.stringify(parsed));
-    } catch (err) {
-      console.warn('[App] Failed to persist Twitter OAuth result', err);
-    }
-
-    // Clean up query params so refresh doesn't re-trigger handling.
+    // Clean up query params immediately so refresh doesn't re-trigger
     try {
       const cleanUrl = `${window.location.pathname}`;
       window.history.replaceState({}, '', cleanUrl);
@@ -300,9 +294,23 @@ function App() {
       // ignore
     }
 
-    // Close popup/tab if this window was opened by script (noop in normal tabs).
-    window.close();
-  }, []);
+    // Store in localStorage for cross-tab communication
+    try {
+      localStorage.setItem(TWITTER_OAUTH_STORAGE_KEY, JSON.stringify(parsed));
+    } catch (err) {
+      console.warn('[App] Failed to persist Twitter OAuth result', err);
+    }
+
+    // If this is a popup, try to close it (main window will get storage event)
+    // If this is the main window (same-tab navigation), handle the result directly
+    if (window.opener) {
+      // We're in a popup - close it, main window will handle via storage event
+      window.close();
+    } else {
+      // We're in the main window - handle directly since storage events don't fire in same tab
+      void handleTwitterOAuthResult(parsed);
+    }
+  }, [handleTwitterOAuthResult]);
 
   // Listen for cross-tab OAuth result events.
   useEffect(() => {
