@@ -5,6 +5,12 @@ import { useAuth } from './store/auth';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
 import { AvatarSidebar, AvatarLogsPanel, ChatPanel, LandingPage } from './components';
 
+const TWITTER_OAUTH_STORAGE_KEY = 'swarm:oauth:twitter:lastResult';
+
+type TwitterOAuthResult =
+  | { status: 'connected'; avatarId?: string; username: string; ts: number }
+  | { status: 'error'; avatarId?: string; error: string; ts: number };
+
 function getLogsAvatarId(pathname: string): string | null {
   const match = pathname.match(/^\/avatars\/([^/]+)\/logs\/?$/);
   return match?.[1] || null;
@@ -13,6 +19,27 @@ function getLogsAvatarId(pathname: string): string | null {
 function getInhabitAvatarId(pathname: string): string | null {
   const match = pathname.match(/^\/inhabit\/([^/]+)\/?$/);
   return match?.[1] || null;
+}
+
+function getChatAvatarId(pathname: string): string | null {
+  // Chat deep link: /avatars/:id (excluding /avatars/:id/logs)
+  const match = pathname.match(/^\/avatars\/([^/]+)\/?$/);
+  return match?.[1] || null;
+}
+
+function parseTwitterOAuthResultFromLocation(location: Location): TwitterOAuthResult | null {
+  const params = new URLSearchParams(location.search);
+  const connected = params.get('twitter_connected');
+  const error = params.get('twitter_error');
+  if (!connected && !error) return null;
+
+  const avatarIdFromPath = getChatAvatarId(location.pathname);
+  const ts = Date.now();
+
+  if (connected) {
+    return { status: 'connected', avatarId: avatarIdFromPath || undefined, username: connected, ts };
+  }
+  return { status: 'error', avatarId: avatarIdFromPath || undefined, error: error || 'unknown', ts };
 }
 
 function App() {
@@ -28,6 +55,9 @@ function App() {
   );
   const [inhabitAvatarId, setInhabitAvatarId] = useState<string | null>(
     () => getInhabitAvatarId(window.location.pathname)
+  );
+  const [chatAvatarId, setChatAvatarId] = useState<string | null>(
+    () => getChatAvatarId(window.location.pathname)
   );
   const [pendingInhabitPrompt, setPendingInhabitPrompt] = useState(Boolean(inhabitAvatarId));
 
@@ -125,11 +155,21 @@ function App() {
       const nextInhabitAvatarId = getInhabitAvatarId(window.location.pathname);
       setInhabitAvatarId(nextInhabitAvatarId);
       setPendingInhabitPrompt(Boolean(nextInhabitAvatarId));
+      setChatAvatarId(getChatAvatarId(window.location.pathname));
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Support deep-linking to /avatars/:id by selecting that avatar once avatars are loaded.
+  useEffect(() => {
+    if (!initialized || !chatAvatarId) return;
+    const hasAvatar = avatars.some((avatar) => avatar.id === chatAvatarId);
+    if (hasAvatar && activeAvatarId !== chatAvatarId) {
+      setActiveAvatar(chatAvatarId);
+    }
+  }, [avatars, activeAvatarId, chatAvatarId, initialized, setActiveAvatar]);
 
   useEffect(() => {
     if (!initialized || !inhabitAvatarId) return;
@@ -138,6 +178,80 @@ function App() {
       setActiveAvatar(inhabitAvatarId);
     }
   }, [avatars, activeAvatarId, inhabitAvatarId, initialized, setActiveAvatar]);
+
+  const handleTwitterOAuthResult = useCallback(async (result: TwitterOAuthResult) => {
+    if (result.avatarId) {
+      setActiveAvatar(result.avatarId);
+    }
+
+    // Refresh avatars so UI reflects connected username/state.
+    await fetchAvatars().catch(console.error);
+
+    const targetAvatarId = result.avatarId || activeAvatarId;
+    if (!targetAvatarId) return;
+
+    if (result.status === 'connected') {
+      addMessage(targetAvatarId, {
+        role: 'assistant',
+        content: JSON.stringify({
+          connected: true,
+          username: result.username,
+          message: `Connected as @${result.username}`,
+        }),
+      });
+      // If we have an active chat, re-sync history so subsequent tool calls see updated config.
+      await syncChatHistory(targetAvatarId).catch(console.error);
+    } else {
+      addMessage(targetAvatarId, {
+        role: 'assistant',
+        content: JSON.stringify({
+          error: true,
+          message: `Twitter connection failed: ${result.error}`,
+        }),
+      });
+    }
+  }, [activeAvatarId, addMessage, fetchAvatars, setActiveAvatar, syncChatHistory]);
+
+  // Consume OAuth redirect query params (in the OAuth window/tab) and broadcast to the main app via localStorage.
+  useEffect(() => {
+    const parsed = parseTwitterOAuthResultFromLocation(window.location);
+    if (!parsed) return;
+
+    try {
+      localStorage.setItem(TWITTER_OAUTH_STORAGE_KEY, JSON.stringify(parsed));
+    } catch (err) {
+      console.warn('[App] Failed to persist Twitter OAuth result', err);
+    }
+
+    // Clean up query params so refresh doesn't re-trigger handling.
+    try {
+      const cleanUrl = `${window.location.pathname}`;
+      window.history.replaceState({}, '', cleanUrl);
+    } catch {
+      // ignore
+    }
+
+    // Close popup/tab if this window was opened by script (noop in normal tabs).
+    window.close();
+  }, []);
+
+  // Listen for cross-tab OAuth result events.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== TWITTER_OAUTH_STORAGE_KEY || !e.newValue) return;
+      try {
+        const parsed = JSON.parse(e.newValue) as TwitterOAuthResult;
+        // Ignore stale/invalid payloads
+        if (!parsed || typeof (parsed as any).ts !== 'number') return;
+        void handleTwitterOAuthResult(parsed);
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [handleTwitterOAuthResult]);
 
   const openLogs = useCallback((avatarId: string) => {
     const nextPath = `/avatars/${avatarId}/logs`;
