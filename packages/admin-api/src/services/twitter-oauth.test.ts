@@ -35,6 +35,8 @@ class MockTwitterApi {
       client: { v2: { me: this.mockMe } },
       accessToken: 'new-access-token',
       accessSecret: 'new-access-secret',
+      screenName: 'testuser',
+      userId: '12345',
     }));
     this.mockMe = mock(() => Promise.resolve({
       data: { username: 'testuser', id: '12345' },
