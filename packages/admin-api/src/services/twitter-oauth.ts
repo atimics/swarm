@@ -307,12 +307,12 @@ export async function completeOAuthFlow(
       accessSecret: oauthTokenSecret,
     });
 
-    const { client: loggedClient, accessToken, accessSecret } = await client.login(oauthVerifier);
+    // login() returns screenName and userId from the OAuth response itself
+    // This avoids hitting the v2.me() endpoint which has stricter rate limits
+    const { accessToken, accessSecret, screenName, userId } = await client.login(oauthVerifier);
 
-    // Get user info to verify and store username
-    const me = await loggedClient.v2.me();
-    const username = me.data.username;
-    const userId = me.data.id;
+    // Use screenName from OAuth response (avoids rate-limited v2.me() call)
+    const username = screenName;
 
     // Store the access tokens in Secrets Manager
     await deps.secretsService.storeSecret(
