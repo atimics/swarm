@@ -20,6 +20,7 @@ import {
   type ResponseAction,
   type SwarmResponse,
 } from '@swarm/core/types';
+import { ensureReplicateKey } from './utils/system-replicate-key.js';
 
 // Schema for media queue items
 const MediaQueueItemSchema = z.object({
@@ -139,6 +140,19 @@ async function initialize(): Promise<void> {
   secrets = await secretsService.getSecretJson<Record<string, string>>(
     process.env.SECRETS_ARN || `swarm/${getAvatarId()}/secrets`
   );
+
+  // Media jobs may run for avatars without per-avatar Replicate creds; allow fallback to system key.
+  try {
+    const ok = await ensureReplicateKey(secrets, secretsService);
+    if (ok && secrets.REPLICATE_API_KEY) {
+      logger.info('Loaded system Replicate key for media processor', { subsystem: 'media' });
+    }
+  } catch (err) {
+    logger.warn('Failed to load system Replicate key for media processor', {
+      subsystem: 'media',
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   mediaService = createMediaService(secrets, getMediaBucket(), process.env.CDN_URL);
 }

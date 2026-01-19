@@ -120,7 +120,11 @@ async function executeImageGeneration(
   args: { prompt: string; style?: string },
   deps: ToolExecutorDependencies
 ): Promise<ToolExecutionResult> {
-  const apiKey = deps.secrets['REPLICATE_API_KEY'] || deps.secrets['replicate_api_key'];
+  const apiKey =
+    deps.secrets['REPLICATE_API_TOKEN'] ||
+    deps.secrets['REPLICATE_API_KEY'] ||
+    deps.secrets['replicate_api_key'] ||
+    (deps.secrets as Record<string, string | undefined>)['replicate_api_token'];
   
   if (!apiKey) {
     return {
