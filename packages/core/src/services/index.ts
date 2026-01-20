@@ -12,6 +12,7 @@ export {
   createMediaDependencies,
   createModelResolver,
   createApiKeyResolver,
+  createTrialCreditConsumer,
   createCreditChecker,
   createCreditConsumer,
   createGallerySaver,

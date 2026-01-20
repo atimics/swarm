@@ -158,17 +158,16 @@ const TRIAL_MAX_CREDITS = 3;
 const TRIAL_DAILY_RECHARGE = 1;
 
 /**
- * Get and update trial credits
+ * Get current trial credits (with recharge calculation) WITHOUT consuming
  */
-async function consumeTrialCredit(
+async function getTrialCredits(
   docClient: DynamoDBDocumentClient,
   tableName: string,
   avatarId: string
-): Promise<{ allowed: boolean; remaining: number }> {
+): Promise<{ available: number; lastRecharge: number }> {
   const now = Date.now();
   const msPerDay = 24 * 60 * 60 * 1000;
 
-  // Get current state
   let credits = TRIAL_MAX_CREDITS;
   let lastRecharge = now;
 
@@ -191,12 +190,24 @@ async function consumeTrialCredit(
     credits = Math.min(credits + daysSinceRecharge * TRIAL_DAILY_RECHARGE, TRIAL_MAX_CREDITS);
   }
 
-  if (credits <= 0) {
-    return { allowed: false, remaining: 0 };
-  }
+  return { available: credits, lastRecharge };
+}
+
+/**
+ * Actually consume a trial credit (called after successful operation)
+ */
+async function consumeTrialCreditInternal(
+  docClient: DynamoDBDocumentClient,
+  tableName: string,
+  avatarId: string
+): Promise<{ remaining: number }> {
+  const now = Date.now();
+
+  // Get current state (with recharge)
+  const { available } = await getTrialCredits(docClient, tableName, avatarId);
 
   // Consume one credit
-  const newCredits = credits - 1;
+  const newCredits = Math.max(0, available - 1);
   try {
     await docClient.send(new PutCommand({
       TableName: tableName,
@@ -213,11 +224,13 @@ async function consumeTrialCredit(
   }
 
   console.log(`[MediaResolver] Consumed trial credit: avatar=${avatarId}, remaining=${newCredits}`);
-  return { allowed: true, remaining: newCredits };
+  return { remaining: newCredits };
 }
 
 /**
  * Create an API key resolver with avatar -> system -> trial fallback
+ * Note: For trial usage, this only CHECKS credits, does not consume.
+ * The caller must call consumeTrialCredit after successful operation.
  */
 export function createApiKeyResolver(config: ResolverConfig): MediaServiceDependencies['resolveApiKey'] {
   const docClient = config.dynamoClient || createDocClient(config.region);
@@ -246,17 +259,28 @@ export function createApiKeyResolver(config: ResolverConfig): MediaServiceDepend
       throw new Error('No Replicate API key configured. Set up an avatar or system key.');
     }
 
-    // System key exists - check trial credits
-    const trial = await consumeTrialCredit(docClient, config.tableName, avatarId);
-    if (!trial.allowed) {
+    // System key exists - check trial credits (but don't consume yet)
+    const { available } = await getTrialCredits(docClient, config.tableName, avatarId);
+    if (available <= 0) {
       throw new Error('Free image credits exhausted. Credits recharge at 1/day (max 3). Set your own Replicate API key for unlimited use.');
     }
 
     return {
       key: systemKey,
       source: 'trial',
-      trialCreditsRemaining: trial.remaining,
+      trialCreditsAvailable: available,
     };
+  };
+}
+
+/**
+ * Create a trial credit consumer (called after successful operation)
+ */
+export function createTrialCreditConsumer(config: ResolverConfig): MediaServiceDependencies['consumeTrialCredit'] {
+  const docClient = config.dynamoClient || createDocClient(config.region);
+
+  return async (avatarId: string): Promise<{ remaining: number }> => {
+    return consumeTrialCreditInternal(docClient, config.tableName, avatarId);
   };
 }
 
@@ -396,6 +420,7 @@ export function createMediaDependencies(config: ResolverConfig): MediaServiceDep
     resolveApiKey: createApiKeyResolver(config),
     checkCredits: createCreditChecker(config),
     consumeCredits: createCreditConsumer(config),
+    consumeTrialCredit: createTrialCreditConsumer(config),
     saveToGallery: createGallerySaver(config),
   };
 }

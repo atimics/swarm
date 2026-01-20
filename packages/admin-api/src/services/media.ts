@@ -13,6 +13,7 @@ import { v4 as uuid } from 'uuid';
 import {
   createModelResolver,
   createApiKeyResolver,
+  createTrialCreditConsumer,
   type ResolverConfig,
 } from '@swarm/core/services';
 import * as mediaJobs from './media-jobs.js';
@@ -41,6 +42,7 @@ const resolverConfig: ResolverConfig = {
 // These functions always return defined resolvers, so we can use non-null assertion
 const coreModelResolver = createModelResolver(resolverConfig)!;
 const coreApiKeyResolver = createApiKeyResolver(resolverConfig)!;
+const coreTrialCreditConsumer = createTrialCreditConsumer(resolverConfig)!;
 
 // Log CDN configuration on cold start
 if (!CDN_URL) {
@@ -179,16 +181,33 @@ function shouldRetryAsModelEndpoint(status: number, errorText: string, hadVersio
 // These replace the duplicated getImageGenerationApiKey, getSystemReplicateKey,
 // consumeImageGenerationTrial, and getConfiguredModel functions
 
+interface ResolvedApiKeyWithSource {
+  key: string;
+  isTrialUsage: boolean;
+}
+
 /**
  * Get Replicate API key for image generation using core resolver
  * Handles avatar key -> system key -> trial credits fallback
+ * Note: For trial usage, credits are checked but NOT consumed here.
+ * Caller must call consumeTrialCreditAfterSuccess() after successful operation.
  */
-async function getImageGenerationApiKey(avatarId: string): Promise<string> {
+async function getImageGenerationApiKey(avatarId: string): Promise<ResolvedApiKeyWithSource> {
   const resolved = await coreApiKeyResolver(avatarId, 'replicate');
-  if (resolved.trialCreditsRemaining !== undefined) {
-    console.log(`[Media] Using system Replicate key for image generation: avatar=${avatarId}, remaining=${resolved.trialCreditsRemaining}`);
+  const isTrialUsage = resolved.source === 'trial';
+  if (isTrialUsage && resolved.trialCreditsAvailable !== undefined) {
+    console.log(`[Media] Using system Replicate key for image generation: avatar=${avatarId}, credits available=${resolved.trialCreditsAvailable}`);
   }
-  return resolved.key;
+  return { key: resolved.key, isTrialUsage };
+}
+
+/**
+ * Consume trial credit after successful image generation
+ * Only call this when getImageGenerationApiKey returned isTrialUsage=true
+ */
+async function consumeTrialCreditAfterSuccess(avatarId: string): Promise<number> {
+  const result = await coreTrialCreditConsumer(avatarId);
+  return result.remaining;
 }
 
 /**
@@ -359,7 +378,8 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
   }
 
   // Get Replicate API key (avatar key or system trial)
-  const apiKey = await getImageGenerationApiKey(avatarId);
+  // Note: For trial usage, credits are checked but NOT consumed yet
+  const { key: apiKey, isTrialUsage } = await getImageGenerationApiKey(avatarId);
 
   // Build the prompt with reference context if images provided
   let finalPrompt = prompt;
@@ -555,8 +575,18 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
   }));
   console.log(`S3 upload successful`);
 
-  // Consume credit
-  await credits.consumeCredit(avatarId, 'generate_image');
+  // Consume trial credit AFTER successful generation (only for trial users)
+  if (isTrialUsage) {
+    const remaining = await consumeTrialCreditAfterSuccess(avatarId);
+    console.log(`[Media] Trial credit consumed after success: avatar=${avatarId}, remaining=${remaining}`);
+  }
+
+  // Consume rate-limit credit (for non-trial users only to avoid double-charging)
+  if (!isTrialUsage) {
+    await credits.consumeCredit(avatarId, 'generate_image');
+  }
+
+  // Consume energy (applies to all users)
   if (chargeEnergy) {
     const energyConsumed = await credits.consumeEnergy(avatarId, credits.ENERGY_COSTS.image);
     if (!energyConsumed) {
@@ -627,7 +657,17 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
   }
 
   // Get Replicate API key
-  const apiKey = apiKeyOverride || await getImageGenerationApiKey(avatarId);
+  // Note: For async jobs, we consume trial credits at job start (not ideal, but webhook
+  // handler would need significant changes to consume on completion)
+  let apiKey: string;
+  let isTrialUsage = false;
+  if (apiKeyOverride) {
+    apiKey = apiKeyOverride;
+  } else {
+    const resolved = await getImageGenerationApiKey(avatarId);
+    apiKey = resolved.key;
+    isTrialUsage = resolved.isTrialUsage;
+  }
 
   // Build the prompt with reference context if images provided
   let finalPrompt = prompt;
@@ -767,8 +807,16 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
   // Update job with external ID
   await mediaJobs.updateJobStatus(jobId, 'processing', { externalId: prediction.id });
 
-  // Consume credit
-  await credits.consumeCredit(avatarId, 'generate_image');
+  // Consume credits - trial users consume trial credits, non-trial users consume rate-limit credits
+  // Note: For async jobs, we consume at job submission (not ideal, but webhook handler
+  // would need significant changes to consume on completion)
+  if (isTrialUsage) {
+    const remaining = await consumeTrialCreditAfterSuccess(avatarId);
+    console.log(`[Media] Trial credit consumed for async job: avatar=${avatarId}, remaining=${remaining}`);
+  } else {
+    await credits.consumeCredit(avatarId, 'generate_image');
+  }
+
   if (chargeEnergy) {
     const energyConsumed = await credits.consumeEnergy(avatarId, credits.ENERGY_COSTS.image);
     if (!energyConsumed) {

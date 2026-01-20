@@ -60,7 +60,7 @@ export class SwarmMediaService implements MediaService {
   ): Promise<GeneratedMediaExtended> {
     const avatarId = options?.avatarId;
 
-    // Check credits if enabled and dependencies available
+    // Check rate-limit credits if enabled and dependencies available
     if (options?.checkCredits !== false && avatarId && this.deps?.checkCredits) {
       const creditCheck = await this.deps.checkCredits(avatarId, 'generate_image');
       if (!creditCheck.allowed) {
@@ -70,7 +70,6 @@ export class SwarmMediaService implements MediaService {
 
     // Resolve model if dependencies available and avatarId provided
     let resolvedConfig = config;
-    let trialCreditsRemaining: number | undefined;
 
     if (avatarId && this.deps?.resolveModel) {
       const resolved = await this.deps.resolveModel(avatarId, 'image_generation');
@@ -82,12 +81,14 @@ export class SwarmMediaService implements MediaService {
     }
 
     // Resolve API key if dependencies available
+    // Note: For trial usage, this only checks credits, doesn't consume yet
     let apiKeyOverride: string | undefined;
+    let isTrialUsage = false;
     if (avatarId && this.deps?.resolveApiKey && resolvedConfig.provider === 'replicate') {
       try {
         const resolved = await this.deps.resolveApiKey(avatarId, 'replicate');
         apiKeyOverride = resolved.key;
-        trialCreditsRemaining = resolved.trialCreditsRemaining;
+        isTrialUsage = resolved.source === 'trial';
       } catch (err) {
         // Fall back to secrets if resolver fails
         console.warn('[MediaService] API key resolver failed, using secrets:', err);
@@ -119,8 +120,17 @@ export class SwarmMediaService implements MediaService {
         throw new Error(`Unknown image provider: ${resolvedConfig.provider}`);
     }
 
-    // Consume credits if enabled
-    if (options?.checkCredits !== false && avatarId && this.deps?.consumeCredits) {
+    // === POST-SUCCESS CREDIT CONSUMPTION ===
+    // Consume trial credit if this was a trial usage (only after success)
+    let trialCreditsRemaining: number | undefined;
+    if (isTrialUsage && avatarId && this.deps?.consumeTrialCredit) {
+      const consumed = await this.deps.consumeTrialCredit(avatarId);
+      trialCreditsRemaining = consumed.remaining;
+    }
+
+    // Consume rate-limit credits for non-trial users only
+    // (trial users are already limited by trial credits)
+    if (!isTrialUsage && options?.checkCredits !== false && avatarId && this.deps?.consumeCredits) {
       await this.deps.consumeCredits(avatarId, 'generate_image');
     }
 

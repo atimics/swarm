@@ -39,11 +39,14 @@ export interface ResolvedModel {
 
 /**
  * Result of API key resolution
+ * Note: For trial source, trialCreditsAvailable shows credits BEFORE consumption.
+ * The caller must call consumeTrialCredit after successful operation.
  */
 export interface ResolvedApiKey {
   key: string;
   source: 'avatar' | 'system' | 'trial';
-  trialCreditsRemaining?: number;
+  /** Credits available (before consumption). Only present for trial source. */
+  trialCreditsAvailable?: number;
 }
 
 /**
@@ -100,10 +103,17 @@ export interface MediaServiceDependencies {
   checkCredits?: (avatarId: string, operation: string) => Promise<CreditCheckResult>;
 
   /**
-   * Consume credits after successful operation
+   * Consume credits after successful operation (rate limiting)
    * If not provided, no-op
    */
   consumeCredits?: (avatarId: string, operation: string) => Promise<void>;
+
+  /**
+   * Consume a trial credit after successful operation
+   * Only called when resolveApiKey returned source='trial'
+   * If not provided, no-op
+   */
+  consumeTrialCredit?: (avatarId: string) => Promise<{ remaining: number }>;
 
   /**
    * Save generated media to gallery
