@@ -168,9 +168,14 @@ async function executeImageGeneration(
 
   try {
     // Prefer running via the /models endpoint to avoid stale pinned version hashes.
-    const modelId = deps.avatarConfig.media?.image?.provider === 'replicate'
-      ? deps.avatarConfig.media.image.model
-      : 'black-forest-labs/flux-schnell';
+    if (deps.avatarConfig.media.image.provider !== 'replicate') {
+      return {
+        success: false,
+        error: 'Image generation is not configured to use Replicate',
+      };
+    }
+
+    const modelId = deps.avatarConfig.media.image.model;
 
     const endpoint = `https://api.replicate.com/v1/models/${modelId}/predictions`;
 

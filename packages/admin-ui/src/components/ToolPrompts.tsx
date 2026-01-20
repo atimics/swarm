@@ -121,32 +121,6 @@ interface ModelOption {
 
 const PRIORITY_MODEL_PROVIDERS = ['anthropic', 'openai', 'google', 'meta-llama', 'mistralai', 'cohere', 'deepseek'] as const;
 
-// Available models by capability (matches models-registry.ts)
-const AVAILABLE_MODELS: Record<string, ModelOption[]> = {
-  image_generation: [
-    { id: 'google/nano-banana-pro', name: 'Nano Banana Pro', description: 'Fast with character reference support', isDefault: true },
-    { id: 'black-forest-labs/flux-schnell', name: 'FLUX Schnell', description: 'High-quality, fast' },
-    { id: 'black-forest-labs/flux-dev', name: 'FLUX Dev', description: 'Development version with more features' },
-  ],
-  video_generation: [
-    { id: 'minimax/video-01', name: 'Minimax Video', description: 'Text and image to video', isDefault: true },
-    { id: 'luma/ray', name: 'Luma Ray', description: 'High-quality video generation' },
-  ],
-  audio_generation: [
-    { id: 'stability-ai/stable-audio-2.5', name: 'Stable Audio 2.5', description: 'Music and sound effects', isDefault: true },
-  ],
-  voice_clone: [
-    { id: 'lucataco/xtts-v2', name: 'XTTS v2', description: 'Voice cloning from reference audio', isDefault: true },
-  ],
-  text_to_speech: [
-    { id: 'lucataco/xtts-v2', name: 'XTTS v2 (Replicate)', description: 'Voice cloning TTS', isDefault: true },
-    { id: 'gpt-4o-mini-tts', name: 'GPT-4o Mini TTS', description: 'OpenAI text-to-speech' },
-  ],
-  transcription: [
-    { id: 'whisper-1', name: 'Whisper', description: 'OpenAI speech-to-text', isDefault: true },
-  ],
-};
-
 // Capability labels for display
 const CAPABILITY_LABELS: Record<string, string> = {
   image_generation: 'Image Generation',
@@ -169,6 +143,8 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const [useGlobalKey, setUseGlobalKey] = useState(true);
   const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
   const [globalKeyAvailable, setGlobalKeyAvailable] = useState<boolean | null>(null);
+  const [availableModelsByCapability, setAvailableModelsByCapability] = useState<Record<string, ModelOption[]> | null>(null);
+  const [modelsLoadError, setModelsLoadError] = useState<string | null>(null);
   const didInitFromStatus = useRef(false);
 
   const args = toolCall.arguments as {
@@ -276,6 +252,46 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   };
 
   const config = integrationConfig[args.integration];
+
+  useEffect(() => {
+    if (!config?.isAiProvider) return;
+
+    const run = async () => {
+      setModelsLoadError(null);
+      setAvailableModelsByCapability(null);
+
+      try {
+        const response = await fetch(
+          `${API_BASE}/integrations/models?integration=${encodeURIComponent(args.integration)}`,
+          {
+            method: 'GET',
+            credentials: 'include',
+          }
+        );
+
+        if (!response.ok) {
+          setModelsLoadError(`Failed to load model catalog (HTTP ${response.status})`);
+          return;
+        }
+
+        const payload = (await response.json().catch(() => ({}))) as {
+          integration?: string;
+          modelsByCapability?: Record<string, ModelOption[]>;
+        };
+
+        if (!payload.modelsByCapability) {
+          setModelsLoadError('Model catalog unavailable');
+          return;
+        }
+
+        setAvailableModelsByCapability(payload.modelsByCapability);
+      } catch {
+        setModelsLoadError('Failed to load model catalog');
+      }
+    };
+
+    void run();
+  }, [args.integration, config?.isAiProvider]);
 
   useEffect(() => {
     if (!activeAgent?.id || !config?.isAiProvider) return;
@@ -598,8 +614,13 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                 <p className="text-xs text-[var(--color-text-muted)]">
                   Choose which AI models to use for each capability
                 </p>
+                {modelsLoadError && (
+                  <div className="text-xs text-[var(--color-text-muted)]">
+                    {modelsLoadError} (you can still save; defaults will be used)
+                  </div>
+                )}
                 {config.capabilities.map((capability) => {
-                  const models = AVAILABLE_MODELS[capability] || [];
+                  const models = (availableModelsByCapability?.[capability] || []) as ModelOption[];
                   if (models.length === 0) return null;
                   const defaultModel = models.find(m => m.isDefault)?.id || models[0]?.id;
                   return (

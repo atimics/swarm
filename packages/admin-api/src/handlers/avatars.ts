@@ -117,6 +117,38 @@ export async function handler(
         ? rawPath.slice('/api'.length)
         : rawPath;
 
+    // GET /integrations/models - Centralized model catalog for configuration UI
+    if (method === 'GET' && path === '/integrations/models') {
+      const integrationParam = event.queryStringParameters?.integration;
+      const allowed = ['replicate', 'openai', 'anthropic', 'openrouter'] as const;
+
+      if (integrationParam && !allowed.includes(integrationParam as (typeof allowed)[number])) {
+        return jsonResponse(corsHeaders, 400, {
+          error: `Unknown integration: ${integrationParam}`,
+        });
+      }
+
+      if (integrationParam) {
+        const modelsByCapability = integrationsService.getAvailableModelsForIntegration(
+          integrationParam as (typeof allowed)[number]
+        );
+        return jsonResponse(corsHeaders, 200, {
+          integration: integrationParam,
+          modelsByCapability,
+        });
+      }
+
+      const integrations = allowed.reduce<Record<string, ReturnType<typeof integrationsService.getAvailableModelsForIntegration>>>(
+        (acc, integration) => {
+          acc[integration] = integrationsService.getAvailableModelsForIntegration(integration);
+          return acc;
+        },
+        {}
+      );
+
+      return jsonResponse(corsHeaders, 200, { integrations });
+    }
+
     // POST /avatars - Create a new avatar
     if (method === 'POST' && path === '/avatars') {
       const body = JSON.parse(event.body || '{}');

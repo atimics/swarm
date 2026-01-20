@@ -684,6 +684,12 @@ export class AdminApiConstruct extends Construct {
     });
 
     this.api.addRoutes({
+      path: '/integrations/models',
+      methods: [apigateway.HttpMethod.GET],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
       path: '/avatars/{avatarId}/logs',
       methods: [apigateway.HttpMethod.GET],
       integration: avatarsIntegration,
