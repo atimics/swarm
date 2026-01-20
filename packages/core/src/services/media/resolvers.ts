@@ -10,6 +10,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import type {
@@ -195,36 +196,93 @@ async function getTrialCredits(
 
 /**
  * Actually consume a trial credit (called after successful operation)
+ * Uses atomic operations with optimistic locking to prevent race conditions.
  */
 async function consumeTrialCreditInternal(
   docClient: DynamoDBDocumentClient,
   tableName: string,
-  avatarId: string
+  avatarId: string,
+  maxRetries: number = 3
 ): Promise<{ remaining: number }> {
   const now = Date.now();
+  const msPerDay = 24 * 60 * 60 * 1000;
 
-  // Get current state (with recharge)
-  const { available } = await getTrialCredits(docClient, tableName, avatarId);
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Get current state
+      const result = await docClient.send(new GetCommand({
+        TableName: tableName,
+        Key: { pk: `AVATAR#${avatarId}`, sk: 'IMAGE_TRIAL' },
+      }));
 
-  // Consume one credit
-  const newCredits = Math.max(0, available - 1);
-  try {
-    await docClient.send(new PutCommand({
-      TableName: tableName,
-      Item: {
-        pk: `AVATAR#${avatarId}`,
-        sk: 'IMAGE_TRIAL',
-        credits: newCredits,
-        lastRecharge: now,
-        updatedAt: now,
-      },
-    }));
-  } catch (err) {
-    console.warn('[MediaResolver] Failed to save trial credits:', err);
+      if (!result.Item) {
+        // First time user - create record with initial credits minus 1
+        const initialCredits = TRIAL_MAX_CREDITS - 1;
+        await docClient.send(new PutCommand({
+          TableName: tableName,
+          Item: {
+            pk: `AVATAR#${avatarId}`,
+            sk: 'IMAGE_TRIAL',
+            credits: initialCredits,
+            lastRecharge: now,
+            updatedAt: now,
+            version: 1,
+          },
+          // Only succeed if record still doesn't exist (prevent race on first create)
+          ConditionExpression: 'attribute_not_exists(pk)',
+        }));
+        console.log(`[MediaResolver] Created trial credits for new user: avatar=${avatarId}, remaining=${initialCredits}`);
+        return { remaining: initialCredits };
+      }
+
+      // Calculate recharged credits
+      const storedCredits = result.Item.credits ?? TRIAL_MAX_CREDITS;
+      const lastRecharge = result.Item.lastRecharge ?? now;
+      const storedVersion = result.Item.version ?? 0;
+      const daysSinceRecharge = Math.floor((now - lastRecharge) / msPerDay);
+
+      let availableCredits = storedCredits;
+      if (daysSinceRecharge > 0) {
+        availableCredits = Math.min(storedCredits + daysSinceRecharge * TRIAL_DAILY_RECHARGE, TRIAL_MAX_CREDITS);
+      }
+
+      // Consume one credit
+      const newCredits = Math.max(0, availableCredits - 1);
+      const newVersion = storedVersion + 1;
+
+      // Atomic update with version check (optimistic locking)
+      await docClient.send(new UpdateCommand({
+        TableName: tableName,
+        Key: { pk: `AVATAR#${avatarId}`, sk: 'IMAGE_TRIAL' },
+        UpdateExpression: 'SET credits = :newCredits, lastRecharge = :now, updatedAt = :now, version = :newVersion',
+        ConditionExpression: 'attribute_not_exists(version) OR version = :oldVersion',
+        ExpressionAttributeValues: {
+          ':newCredits': newCredits,
+          ':now': now,
+          ':newVersion': newVersion,
+          ':oldVersion': storedVersion,
+        },
+      }));
+
+      console.log(`[MediaResolver] Consumed trial credit: avatar=${avatarId}, remaining=${newCredits}`);
+      return { remaining: newCredits };
+
+    } catch (err: unknown) {
+      const error = err as { name?: string };
+      // ConditionalCheckFailedException means someone else modified the record - retry
+      if (error.name === 'ConditionalCheckFailedException') {
+        console.warn(`[MediaResolver] Trial credit conflict, retrying (attempt ${attempt + 1}/${maxRetries}): avatar=${avatarId}`);
+        // Small random backoff to reduce contention
+        await new Promise(resolve => setTimeout(resolve, 10 + Math.random() * 50));
+        continue;
+      }
+      console.error('[MediaResolver] Failed to consume trial credit:', err);
+      throw err;
+    }
   }
 
-  console.log(`[MediaResolver] Consumed trial credit: avatar=${avatarId}, remaining=${newCredits}`);
-  return { remaining: newCredits };
+  // If we exhausted retries, throw an error
+  throw new Error(`Failed to consume trial credit after ${maxRetries} retries due to concurrent modifications`);
 }
 
 /**

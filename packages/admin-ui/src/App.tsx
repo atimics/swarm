@@ -356,6 +356,13 @@ function App() {
     setLogsAvatarId(null);
   }, []);
 
+  // Handle avatar selection from sidebar - updates store, URL, and chatAvatarId state
+  const handleSelectAvatar = useCallback((avatarId: string) => {
+    setActiveAvatar(avatarId);
+    setChatAvatarId(avatarId);
+    window.history.pushState({}, '', `/avatars/${avatarId}`);
+  }, [setActiveAvatar]);
+
   // Show loading state while checking auth (only use local authChecked state)
   if (!authChecked) {
     return (
@@ -399,7 +406,7 @@ function App() {
         `}
           style={{ top: 'env(safe-area-inset-top, 0px)' }}
         >
-          <AvatarSidebar onClose={() => setSidebarOpen(false)} />
+          <AvatarSidebar onClose={() => setSidebarOpen(false)} onSelectAvatar={handleSelectAvatar} />
         </div>
 
         {/* Main Chat Area */}

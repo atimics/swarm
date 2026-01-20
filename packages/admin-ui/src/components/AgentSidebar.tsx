@@ -95,9 +95,10 @@ function AvatarListItem({ avatar, isActive, onClick }: AvatarListItemProps) {
 interface AvatarSidebarProps {
   className?: string;
   onClose?: () => void;
+  onSelectAvatar?: (avatarId: string) => void;
 }
 
-export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
+export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSidebarProps) {
   const { avatars, activeAvatarId, createAvatar, setActiveAvatar, isLoading, error } = useAvatarStore();
   const { isAuthenticated, user, gateStatus } = useWalletAuth();
 
@@ -138,7 +139,12 @@ export function AvatarSidebar({ className, onClose }: AvatarSidebarProps) {
   };
 
   const handleSelectAvatar = (avatarId: string) => {
-    setActiveAvatar(avatarId);
+    if (onSelectAvatar) {
+      // Use callback from parent to handle URL state sync
+      onSelectAvatar(avatarId);
+    } else {
+      setActiveAvatar(avatarId);
+    }
     onClose?.();
   };
 

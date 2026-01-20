@@ -312,21 +312,30 @@ export async function syncAvatarConfig(record: AvatarRecord): Promise<void> {
   const config = convertToAvatarConfig(record);
 
   // Fetch Twitter connection data to include charLimit for premium accounts
-  if (config.platforms.twitter?.enabled && ADMIN_TABLE) {
-    try {
-      const connectionResult = await dynamoClient.send(new GetCommand({
-        TableName: ADMIN_TABLE,
-        Key: {
-          pk: `AVATAR#${record.avatarId}`,
-          sk: 'TWITTER#CONNECTION',
-        },
-      }));
-      if (connectionResult.Item) {
-        config.platforms.twitter.charLimit = connectionResult.Item.charLimit ?? 280;
-        config.platforms.twitter.verifiedType = connectionResult.Item.verifiedType;
+  if (config.platforms.twitter?.enabled) {
+    // Always set a default charLimit to ensure it's never undefined
+    config.platforms.twitter.charLimit = 280;
+
+    if (ADMIN_TABLE) {
+      try {
+        const connectionResult = await dynamoClient.send(new GetCommand({
+          TableName: ADMIN_TABLE,
+          Key: {
+            pk: `AVATAR#${record.avatarId}`,
+            sk: 'TWITTER#CONNECTION',
+          },
+        }));
+        if (connectionResult.Item) {
+          // Use stored charLimit or default to 280 (handles legacy records without charLimit)
+          config.platforms.twitter.charLimit = connectionResult.Item.charLimit || 280;
+          config.platforms.twitter.verifiedType = connectionResult.Item.verifiedType;
+        }
+      } catch (err) {
+        console.warn(`Failed to fetch Twitter connection for ${record.avatarId}:`, err);
+        // charLimit remains at default 280
       }
-    } catch (err) {
-      console.warn(`Failed to fetch Twitter connection for ${record.avatarId}:`, err);
+    } else {
+      console.warn('ADMIN_TABLE not configured, using default Twitter charLimit=280');
     }
   }
 
