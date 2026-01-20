@@ -126,7 +126,7 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE;
 /**
  * Convert AdminAPI AvatarRecord to Core AvatarConfig format
  */
-function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
+export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
   const defaultVoiceConfig = {
     enabled: true,
     ttsProvider: 'voice-clone' as const,

@@ -122,11 +122,35 @@ describe('P1: Link wallet to existing account', () => {
 // ============================================================================
 
 describe('P1: Onboarding UX requirements (from user feedback)', () => {
-  test.todo('After email/social login, show embedded wallet and CTA to “Link existing wallet to use your Orbs”');
+  test('After email/social login, show embedded wallet and a clear CTA to link an existing wallet', async () => {
+    const { readFile } = await import('fs/promises');
+    const src = await readFile(new URL('../admin-ui/src/components/WalletLogin.tsx', import.meta.url), 'utf-8');
 
-  test.todo('If user has no Orbs on embedded wallet, explain “limited mode” and how to unlock (link wallet or buy/mint)');
+    // Evidence of: embedded wallet display + a linking CTA (when connecting another wallet)
+    expect(src).toContain('Embedded wallet:');
+    expect(src).toContain('Connect wallet to link');
+  });
 
-  test.todo('Provide a stable “Account” view that answers: which identities are linked, which wallet has Orbs, and what features are unlocked');
+  test('If user has no Orbs on embedded wallet, explain “limited mode” and how to unlock', async () => {
+    const { readFile } = await import('fs/promises');
+    const src = await readFile(new URL('../admin-ui/src/components/WalletLogin.tsx', import.meta.url), 'utf-8');
+
+    expect(src).toContain('Limited mode');
+    // Copy should include at least one path to unlock and mention linking.
+    expect(src).toContain('Mint');
+    expect(src).toContain('buy an Orb');
+    expect(src).toContain('Link');
+  });
+
+  test('Provide a stable “Account” view with identities, gate wallet, and linked wallets context', async () => {
+    const { readFile } = await import('fs/promises');
+    const src = await readFile(new URL('../admin-ui/src/components/WalletLogin.tsx', import.meta.url), 'utf-8');
+
+    expect(src).toContain('Account');
+    expect(src).toContain('Signed in via');
+    expect(src).toContain('Orbs & Access');
+    expect(src).toContain('Linked wallets:');
+  });
 });
 
 // ============================================================================

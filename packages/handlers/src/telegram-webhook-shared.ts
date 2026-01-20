@@ -42,6 +42,31 @@ const CONFIG_TTL_MS = 60_000;
 const TOKEN_TTL_MS = 5 * 60_000;
 const WEBHOOK_SECRET_TTL_MS = 5 * 60_000;
 
+export function isTelegramChatAllowed(
+  envelope: {
+    conversationId: string;
+    sender: { id: string | number; platformUserId?: string | number };
+    metadata: { chatType: string };
+  },
+  telegramCfg: { allowedChatIds?: string[]; allowedDmUserIds?: string[] } | undefined
+): boolean {
+  // DMs: allow only if user is allowlisted
+  if (envelope.metadata.chatType === 'private') {
+    const allowedDmUserIds = telegramCfg?.allowedDmUserIds;
+    const userId = envelope.sender.platformUserId ?? envelope.sender.id;
+
+    return !!allowedDmUserIds && allowedDmUserIds.length > 0 && allowedDmUserIds.includes(String(userId));
+  }
+
+  // Groups/channels: optional allowlist by chat ID
+  const allowedChatIds = telegramCfg?.allowedChatIds;
+  if (allowedChatIds && allowedChatIds.length > 0) {
+    return allowedChatIds.includes(envelope.conversationId);
+  }
+
+  return true;
+}
+
 async function initialize(): Promise<void> {
   if (stateService && secretsService) return;
   stateService = createStateService(STATE_TABLE);
@@ -181,26 +206,14 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     if (!envelope) return ok();
 
     const telegramCfg = avatarConfig.platforms.telegram;
-
-    // DMs: allow only if user is allowlisted
-    if (envelope.metadata.chatType === 'private') {
-      const allowedDmUserIds = telegramCfg?.allowedDmUserIds;
-      const userId = envelope.sender.platformUserId || envelope.sender.id;
-
-      if (!allowedDmUserIds || allowedDmUserIds.length === 0 || !allowedDmUserIds.includes(String(userId))) {
+    if (!isTelegramChatAllowed(envelope, telegramCfg)) {
+      if (envelope.metadata.chatType === 'private') {
+        const userId = envelope.sender.platformUserId ?? envelope.sender.id;
         logger.info('DM blocked (not allowlisted)', { event: 'chat_blocked', chatType: 'private', userId });
-        return ok();
+      } else {
+        logger.info('Chat not allowlisted', { event: 'chat_blocked', chatId: envelope.conversationId });
       }
-    } else {
-      // Groups/channels: optional allowlist by chat ID
-      const allowedChatIds = telegramCfg?.allowedChatIds;
-      if (allowedChatIds && allowedChatIds.length > 0) {
-        const chatId = envelope.conversationId;
-        if (!allowedChatIds.includes(chatId)) {
-          logger.info('Chat not allowlisted', { event: 'chat_blocked', chatId });
-          return ok();
-        }
-      }
+      return ok();
     }
 
     // Idempotency
