@@ -286,6 +286,34 @@ async function consumeTrialCreditInternal(
 }
 
 /**
+ * Get avatar-specific Replicate API key from Secrets Manager
+ * Tries the admin-api path format: swarm/{avatarId}/replicate_api_key/default
+ */
+async function getAvatarReplicateKey(avatarId: string): Promise<string | null> {
+  const secretPrefix = process.env.SECRET_PREFIX || 'swarm';
+  const secretName = `${secretPrefix}/${avatarId}/replicate_api_key/default`;
+
+  try {
+    const secretsClient = new SecretsManagerClient({});
+    const response = await secretsClient.send(new GetSecretValueCommand({
+      SecretId: secretName,
+    }));
+    if (response.SecretString) {
+      console.log(`[MediaResolver] Found avatar-specific Replicate API key for ${avatarId}`);
+      return response.SecretString.trim();
+    }
+  } catch (err: unknown) {
+    const error = err as { name?: string };
+    // ResourceNotFoundException is expected if avatar hasn't configured their own key
+    if (error.name !== 'ResourceNotFoundException') {
+      console.warn(`[MediaResolver] Failed to get avatar Replicate key: ${err}`);
+    }
+  }
+
+  return null;
+}
+
+/**
  * Create an API key resolver with avatar -> system -> trial fallback
  * Note: For trial usage, this only CHECKS credits, does not consume.
  * The caller must call consumeTrialCredit after successful operation.
@@ -298,17 +326,24 @@ export function createApiKeyResolver(config: ResolverConfig): MediaServiceDepend
       throw new Error(`API key resolution not implemented for provider: ${provider}`);
     }
 
-    // Check avatar-specific secret
+    // Check avatar-specific secret from Secrets Manager (admin-api path format)
+    const avatarKey = await getAvatarReplicateKey(avatarId);
+    if (avatarKey) {
+      return { key: avatarKey, source: 'avatar' };
+    }
+
+    // Fallback: Check DynamoDB for legacy format (value stored directly in table)
     try {
       const result = await docClient.send(new GetCommand({
         TableName: config.tableName,
         Key: { pk: `AVATAR#${avatarId}`, sk: 'SECRET#replicate_api_key#default' },
       }));
       if (result.Item?.value) {
+        console.log(`[MediaResolver] Found legacy DynamoDB secret for ${avatarId}`);
         return { key: result.Item.value, source: 'avatar' };
       }
     } catch (err) {
-      console.warn('[MediaResolver] Failed to get avatar secret:', err);
+      console.warn('[MediaResolver] Failed to get avatar secret from DynamoDB:', err);
     }
 
     // Check system key
