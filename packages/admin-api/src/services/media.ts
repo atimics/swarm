@@ -122,6 +122,44 @@ async function makeUrlsAccessible(urls: string[]): Promise<string[]> {
 
 // Provider configuration
 const REPLICATE_ENDPOINT = 'https://api.replicate.com/v1/predictions';
+
+function summarizeReplicateError(errorText: string, status?: number): string {
+  const raw = (errorText || '').trim();
+  if (!raw) return status ? `Replicate request failed (HTTP ${status}).` : 'Replicate request failed.';
+
+  // Try to extract a useful message from JSON error bodies.
+  if (raw.startsWith('{') || raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        const obj = parsed as Record<string, unknown>;
+        const detail = typeof obj.detail === 'string' ? obj.detail : undefined;
+        const title = typeof obj.title === 'string' ? obj.title : undefined;
+        const error = typeof obj.error === 'string' ? obj.error : undefined;
+        const message = typeof obj.message === 'string' ? obj.message : undefined;
+        const candidate = detail || error || message || title;
+        if (candidate && candidate.trim()) return candidate.trim();
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  // Common Replicate error we see when version hashes drift.
+  if (/invalid version or not permitted/i.test(raw)) {
+    return 'Replicate rejected the configured model version. Please switch to a different model or remove the pinned version.';
+  }
+
+  // Prevent raw JSON blobs from leaking into chat.
+  if (raw.length > 240) return `${raw.slice(0, 240)}…`;
+  return raw;
+}
+
+function shouldRetryAsModelEndpoint(status: number, errorText: string, hadVersion: boolean): boolean {
+  if (!hadVersion) return false;
+  if (status !== 422) return false;
+  return /invalid version or not permitted/i.test(errorText);
+}
 const IMAGE_TRIAL_MAX_CREDITS = 3;      // Maximum credits that can be stored
 const IMAGE_TRIAL_DAILY_RECHARGE = 1;   // Credits recharged per day
 const REPLICATE_API_KEY_SECRET_ARN = process.env.REPLICATE_API_KEY_SECRET_ARN;
@@ -541,11 +579,12 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
     requestBody.version = version;
   }
 
-  const response = await fetch(endpoint, {
+  let response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': version ? `Token ${apiKey}` : `Bearer ${apiKey}`,
+      // Replicate expects Token auth for both endpoints
+      'Authorization': `Token ${apiKey}`,
       'Prefer': 'wait', // Wait for completion (up to 60s for fast models)
     },
     body: JSON.stringify(requestBody),
@@ -555,7 +594,31 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
     const errorText = await response.text();
     const status = response.status;
     console.error(`Replicate API error: ${status}`, errorText);
-    throw new Error(`Image generation failed: HTTP ${status} - ${errorText || 'Empty response from Replicate'}`);
+
+    // If version-based run fails due to stale/invalid version, retry via /models endpoint.
+    if (shouldRetryAsModelEndpoint(status, errorText, Boolean(version))) {
+      const fallbackEndpoint = `https://api.replicate.com/v1/models/${modelId}/predictions`;
+      const fallbackBody = { input: requestBody.input };
+      console.warn(`[Media] Retrying image generation via model endpoint: ${fallbackEndpoint}`);
+      response = await fetch(fallbackEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${apiKey}`,
+          'Prefer': 'wait',
+        },
+        body: JSON.stringify(fallbackBody),
+      });
+
+      if (!response.ok) {
+        const fallbackErrorText = await response.text();
+        const fallbackStatus = response.status;
+        console.error(`Replicate API error (fallback): ${fallbackStatus}`, fallbackErrorText);
+        throw new Error(`Image generation failed: ${summarizeReplicateError(fallbackErrorText, fallbackStatus)}`);
+      }
+    } else {
+      throw new Error(`Image generation failed: ${summarizeReplicateError(errorText, status)}`);
+    }
   }
 
   // Parse initial response
@@ -804,20 +867,49 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
     requestBody.webhook_events_filter = ['completed'];
   }
 
-  const response = await fetch(asyncEndpoint, {
+  let response = await fetch(asyncEndpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': version ? `Token ${apiKey}` : `Bearer ${apiKey}`,
+      // Replicate expects Token auth for both endpoints
+      'Authorization': `Token ${apiKey}`,
       // Note: NOT using 'Prefer: wait' - we want async processing
     },
     body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    await mediaJobs.updateJobStatus(jobId, 'failed', { error });
-    throw new Error(`Image generation failed to start: ${error}`);
+    const errorText = await response.text();
+    const status = response.status;
+
+    if (shouldRetryAsModelEndpoint(status, errorText, Boolean(version))) {
+      const fallbackEndpoint = `https://api.replicate.com/v1/models/${modelId}/predictions`;
+      const fallbackBody: Record<string, unknown> = { input: requestBody.input };
+      if (webhookUrl) {
+        fallbackBody.webhook = requestBody.webhook;
+        fallbackBody.webhook_events_filter = requestBody.webhook_events_filter;
+      }
+
+      console.warn(`[Media] Retrying async image generation via model endpoint: ${fallbackEndpoint}`);
+      response = await fetch(fallbackEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${apiKey}`,
+        },
+        body: JSON.stringify(fallbackBody),
+      });
+
+      if (!response.ok) {
+        const fallbackErrorText = await response.text();
+        const fallbackStatus = response.status;
+        await mediaJobs.updateJobStatus(jobId, 'failed', { error: summarizeReplicateError(fallbackErrorText, fallbackStatus) });
+        throw new Error(`Image generation failed to start: ${summarizeReplicateError(fallbackErrorText, fallbackStatus)}`);
+      }
+    } else {
+      await mediaJobs.updateJobStatus(jobId, 'failed', { error: summarizeReplicateError(errorText, status) });
+      throw new Error(`Image generation failed to start: ${summarizeReplicateError(errorText, status)}`);
+    }
   }
 
   const prediction = await response.json() as { id: string };
@@ -907,16 +999,18 @@ export async function generateVideo(options: GenerateVideoOptions): Promise<Medi
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,  // Use Bearer for model predictions API
+      // Replicate expects Token auth for model predictions API
+      'Authorization': `Token ${apiKey}`,
       'Prefer': 'wait=5',  // Short wait to get initial status
     },
     body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    await mediaJobs.updateJobStatus(jobId, 'failed', { error });
-    throw new Error(`Video generation failed to start: ${error}`);
+    const errorText = await response.text();
+    const status = response.status;
+    await mediaJobs.updateJobStatus(jobId, 'failed', { error: summarizeReplicateError(errorText, status) });
+    throw new Error(`Video generation failed to start: ${summarizeReplicateError(errorText, status)}`);
   }
 
   const prediction = await response.json() as { id: string };

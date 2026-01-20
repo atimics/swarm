@@ -25,7 +25,8 @@ export interface ModelInfo {
  * Models using the /models/{owner}/{name}/predictions endpoint don't need versions
  */
 export const REPLICATE_MODEL_VERSIONS: Record<string, string | undefined> = {
-  'google/nano-banana-pro': '58b32e7d9b4e25d727c98ee665e1aabdf9673a3ab6693ce5fe4b68f8cd5dc8f5',
+  // Prefer model endpoint for Nano Banana Pro to avoid stale version hashes.
+  'google/nano-banana-pro': undefined,
   'black-forest-labs/flux-schnell': 'f2ab8a5bfe79f02f0789a146cf5e73d2a4ff2684a98c2b303d1e1ff3814271db',
   // Models below use the model API endpoint, not version-based predictions
   'minimax/video-01': undefined,

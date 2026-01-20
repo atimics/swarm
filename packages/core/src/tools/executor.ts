@@ -144,9 +144,37 @@ async function executeImageGeneration(
     finalPrompt = `${deps.avatarConfig.name}: ${finalPrompt}`;
   }
 
+  function summarizeReplicateErrorText(errorText: string, status?: number): string {
+    const raw = (errorText || '').trim();
+    if (!raw) return status ? `Replicate request failed (HTTP ${status}).` : 'Replicate request failed.';
+
+    if (raw.startsWith('{') || raw.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const detail = typeof parsed.detail === 'string' ? parsed.detail : undefined;
+        const error = typeof parsed.error === 'string' ? parsed.error : undefined;
+        const message = typeof parsed.message === 'string' ? parsed.message : undefined;
+        const title = typeof parsed.title === 'string' ? parsed.title : undefined;
+        const candidate = detail || error || message || title;
+        if (candidate && candidate.trim()) return candidate.trim();
+      } catch {
+        // fall through
+      }
+    }
+
+    if (raw.length > 300) return `${raw.slice(0, 300)}…`;
+    return raw;
+  }
+
   try {
-    // Use Replicate's Flux model
-    const response = await fetch('https://api.replicate.com/v1/predictions', {
+    // Prefer running via the /models endpoint to avoid stale pinned version hashes.
+    const modelId = deps.avatarConfig.media?.image?.provider === 'replicate'
+      ? deps.avatarConfig.media.image.model
+      : 'black-forest-labs/flux-schnell';
+
+    const endpoint = `https://api.replicate.com/v1/models/${modelId}/predictions`;
+
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -154,7 +182,6 @@ async function executeImageGeneration(
         'Prefer': 'wait',
       },
       body: JSON.stringify({
-        version: 'f2ab8a5bfe79f02f0789a146cf5e73d2a4ff2684a98c2b303d1e1ff3814271db', // flux-schnell
         input: {
           prompt: finalPrompt,
           width: 1024,
@@ -167,7 +194,7 @@ async function executeImageGeneration(
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Replicate API error: ${response.status} - ${errorText}`);
+      throw new Error(`Replicate API error (HTTP ${response.status}): ${summarizeReplicateErrorText(errorText, response.status)}`);
     }
 
     let prediction = await response.json() as {

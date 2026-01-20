@@ -196,7 +196,7 @@ async function getModelVersion(apiKey: string, model: string): Promise<string> {
   }
   
   const response = await fetch(`https://api.replicate.com/v1/models/${model}`, {
-    headers: { 'Authorization': `Bearer ${apiKey}` },
+    headers: { 'Authorization': `Token ${apiKey}` },
   });
   
   if (!response.ok) {
@@ -211,6 +211,28 @@ async function getModelVersion(apiKey: string, model: string): Promise<string> {
   
   modelVersionCache.set(model, version);
   return version;
+}
+
+function summarizeReplicateErrorText(errorText: string, status?: number): string {
+  const raw = (errorText || '').trim();
+  if (!raw) return status ? `Replicate request failed (HTTP ${status}).` : 'Replicate request failed.';
+
+  if (raw.startsWith('{') || raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const detail = typeof parsed.detail === 'string' ? parsed.detail : undefined;
+      const error = typeof parsed.error === 'string' ? parsed.error : undefined;
+      const message = typeof parsed.message === 'string' ? parsed.message : undefined;
+      const title = typeof parsed.title === 'string' ? parsed.title : undefined;
+      const candidate = detail || error || message || title;
+      if (candidate && candidate.trim()) return candidate.trim();
+    } catch {
+      // fall through
+    }
+  }
+
+  if (raw.length > 300) return `${raw.slice(0, 300)}…`;
+  return raw;
 }
 
 function isOfficialModel(model: string): boolean {
@@ -242,7 +264,7 @@ async function runReplicatePrediction(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Token ${apiKey}`,
       'Prefer': 'wait',
     },
     body: JSON.stringify(body),
@@ -250,7 +272,7 @@ async function runReplicatePrediction(
 
   if (!createResponse.ok) {
     const errorText = await createResponse.text();
-    throw new Error(`Replicate prediction failed: ${createResponse.status} - ${errorText}`);
+    throw new Error(`Replicate prediction failed: ${summarizeReplicateErrorText(errorText, createResponse.status)}`);
   }
 
   let prediction = await createResponse.json() as ReplicatePrediction;
@@ -263,12 +285,12 @@ async function runReplicatePrediction(
     attempts++;
 
     const pollResponse = await fetch(`${REPLICATE_ENDPOINT}/${prediction.id}`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` },
+      headers: { 'Authorization': `Token ${apiKey}` },
     });
 
     if (!pollResponse.ok) {
       const errorText = await pollResponse.text();
-      throw new Error(`Replicate poll failed: ${pollResponse.status} - ${errorText}`);
+      throw new Error(`Replicate poll failed: ${summarizeReplicateErrorText(errorText, pollResponse.status)}`);
     }
 
     prediction = await pollResponse.json() as ReplicatePrediction;

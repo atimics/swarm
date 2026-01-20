@@ -354,13 +354,54 @@ function resolveAllowedToolsets(categories?: ToolCategory[]): ToolsetId[] | unde
   return Array.from(toolsets);
 }
 
+function sanitizeToolError(value: unknown): string {
+  if (typeof value !== 'string') {
+    return value instanceof Error ? value.message : 'Tool failed';
+  }
+
+  const raw = value.trim();
+  if (!raw) return 'Tool failed';
+
+  // Try to extract a readable message from JSON error bodies (common for provider APIs).
+  if (raw.startsWith('{') || raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        const obj = parsed as Record<string, unknown>;
+        const detail = typeof obj.detail === 'string' ? obj.detail : undefined;
+        const title = typeof obj.title === 'string' ? obj.title : undefined;
+        const error = typeof obj.error === 'string' ? obj.error : undefined;
+        const message = typeof obj.message === 'string' ? obj.message : undefined;
+        const candidate = detail || error || message || title;
+        if (candidate && candidate.trim()) return candidate.trim();
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  // Avoid dumping long JSON/stack traces into user-visible chat.
+  if (raw.length > 300) return `${raw.slice(0, 300)}…`;
+  return raw;
+}
+
+function stringifyToolResultForModel(result: unknown): string {
+  if (typeof result === 'string') return result;
+  if (!result || typeof result !== 'object') return JSON.stringify({ data: result });
+
+  const obj = { ...(result as Record<string, unknown>) };
+  if (typeof obj.error === 'string') obj.error = sanitizeToolError(obj.error);
+  if (typeof obj.message === 'string') obj.message = sanitizeToolError(obj.message);
+  return JSON.stringify(obj);
+}
+
 function normalizeToolResult(result: McpToolResult, toolName: string): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     success: result.success,
   };
 
   if (result.error) {
-    payload.error = result.error;
+    payload.error = sanitizeToolError(result.error);
   }
 
   if (result.data !== undefined) {
@@ -388,7 +429,7 @@ function normalizeToolResult(result: McpToolResult, toolName: string): Record<st
   }
 
   if (!result.success && !payload.message) {
-    payload.message = `Tool ${toolName} failed${result.error ? `: ${result.error}` : ''}`;
+    payload.message = `Tool ${toolName} failed${result.error ? `: ${sanitizeToolError(result.error)}` : ''}`;
   }
 
   return payload;
@@ -1216,7 +1257,7 @@ async function processChat(
           if (tool && hasExecuteFunction(tool)) {
             logger.info('Executing tool', { toolName, toolCallId: toolCall.id, fallbackStep });
             const result = await tool.function.execute(toolArgs);
-            const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+            const resultStr = stringifyToolResultForModel(result);
             toolResults.push({
               tool_call_id: String(toolCall.id),
               role: 'tool',
@@ -1246,7 +1287,7 @@ async function processChat(
           }
         } catch (error) {
           logger.error('Tool execution failed', error, { toolName, toolCallId: toolCall.id, fallbackStep });
-          const errStr = JSON.stringify({ error: error instanceof Error ? error.message : 'Tool execution failed' });
+          const errStr = JSON.stringify({ error: sanitizeToolError(error instanceof Error ? error.message : 'Tool execution failed') });
           toolResults.push({
             tool_call_id: String(toolCall.id),
             role: 'tool',

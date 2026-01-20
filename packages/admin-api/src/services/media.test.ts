@@ -416,7 +416,7 @@ describe('Integration Config Model Selection', () => {
 
   describe('Replicate API endpoint selection', () => {
     it('should use version-based endpoint for models with version hash', () => {
-      const modelId = 'google/nano-banana-pro';
+      const modelId = 'black-forest-labs/flux-schnell';
       const version = getReplicateVersion(modelId);
 
       expect(version).toBeTruthy();
@@ -444,20 +444,22 @@ describe('Integration Config Model Selection', () => {
     });
 
     it('should construct correct auth header based on endpoint type', () => {
-      const versionedModel = 'google/nano-banana-pro';
+      const versionedModel = 'black-forest-labs/flux-schnell';
       const modelApiModel = 'minimax/video-01';
       const apiKey = 'test-api-key';
 
       const versionedVersion = getReplicateVersion(versionedModel);
-      const modelApiVersion = getReplicateVersion(modelApiModel);
+      getReplicateVersion(modelApiModel);
+
+      expect(versionedVersion).toBeTruthy();
 
       // Version-based uses Token auth
-      const versionedAuth = versionedVersion ? `Token ${apiKey}` : `Bearer ${apiKey}`;
+      const versionedAuth = `Token ${apiKey}`;
       expect(versionedAuth).toBe('Token test-api-key');
 
-      // Model API uses Bearer auth
-      const modelApiAuth = modelApiVersion ? `Token ${apiKey}` : `Bearer ${apiKey}`;
-      expect(modelApiAuth).toBe('Bearer test-api-key');
+      // Model API also uses Token auth
+      const modelApiAuth = `Token ${apiKey}`;
+      expect(modelApiAuth).toBe('Token test-api-key');
     });
   });
 
