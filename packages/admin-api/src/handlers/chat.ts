@@ -41,6 +41,7 @@ import { isPauseForInputTool } from '../tools/index.js';
 import * as avatars from '../services/avatars.js';
 import * as voice from '../services/voice.js';
 import * as memory from '../services/memory.js';
+import { formatDreamForPrompt, getDreamForResponse } from '../services/dreams.js';
 import { configureIntegration } from '../services/integrations.js';
 import { syncAvatarConfig } from '../services/config-sync.js';
 import { resolveChatModel } from '../services/llm-model-resolution.js';
@@ -54,6 +55,8 @@ const LLM_MAX_TOKENS = Number.isFinite(Number.parseInt(process.env.LLM_MAX_TOKEN
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const isProdLike = NODE_ENV === 'production' || NODE_ENV === 'staging';
+
+const DREAMS_ENABLED = process.env.DREAMS_ENABLED === 'true';
 
 const CHAT_QUEUE_URL = process.env.CHAT_QUEUE_URL;
 const sqsClient = CHAT_QUEUE_URL ? new SQSClient({}) : null;
@@ -877,6 +880,29 @@ export async function processChat(
   
   // Use custom system prompt if provided (for e.g. browser automation avatars)
   let systemPrompt = options?.customSystemPrompt || buildSystemPrompt(avatar);
+
+  // Inject dream context if enabled (adds continuity without response latency impact)
+  if (!options?.customSystemPrompt && DREAMS_ENABLED && avatarId && avatar?.persona) {
+    try {
+      const { dream, isGenerating } = await getDreamForResponse(avatarId, avatar.persona);
+      const dreamSection = formatDreamForPrompt(dream);
+      if (dreamSection) {
+        systemPrompt = dreamSection + systemPrompt;
+      }
+      logger.info('Dream context evaluated', {
+        event: 'dream_context_evaluated',
+        avatarId,
+        hasDream: Boolean(dream),
+        isGenerating,
+      });
+    } catch (err) {
+      logger.warn('Failed to inject dream context', {
+        event: 'dream_context_error',
+        avatarId,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  }
 
   // Inject memory context if memory is enabled for this avatar
   if (avatarId && avatar?.enabledCategories?.includes('memory')) {

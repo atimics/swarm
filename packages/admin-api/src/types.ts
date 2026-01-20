@@ -499,6 +499,51 @@ export interface ChatJob {
   ttl: number;
 }
 
+// Dream generation job (async, processed by dream worker)
+export interface DreamJob {
+  pk: string;              // DREAMJOB#{jobId}
+  sk: string;              // STATUS
+  jobId: string;
+  avatarId: string;
+  type: 'dream';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'skipped';
+
+  // Inputs
+  persona: string;
+  previousDream?: string;
+  previousIteration: number;
+
+  // Idempotency / queue processing
+  slotReserved?: boolean;
+  skippedReason?: string;
+
+  // Results
+  result?: {
+    dream: string;
+    iteration: number;
+    reinforcedMemoryIds?: string[];
+  };
+  error?: string;
+
+  // Timestamps
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  ttl: number;             // DynamoDB TTL for auto-cleanup
+}
+
+// System counter for limiting dreams/day
+export interface DailyCounter {
+  pk: string;              // SYSTEM#dreams
+  sk: string;              // DAILY#YYYY-MM-DD
+  feature: string;         // 'dreams'
+  date: string;            // YYYY-MM-DD
+  count: number;
+  limit: number;
+  updatedAt: number;
+  ttl: number;             // DynamoDB TTL for auto-cleanup
+}
+
 // Credit bucket for rate limiting
 export interface CreditBucket {
   pk: string;              // AVATAR#{avatarId}

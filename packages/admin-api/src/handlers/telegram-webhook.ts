@@ -32,6 +32,7 @@ import * as sharedChannel from '../services/shared-channel.js';
 import * as initiative from '../services/initiative.js';
 import { decideReaction } from '../services/reactions.js';
 import { generateAvatarStats } from '../services/avatar-stats.js';
+import { formatDreamForPrompt, getDreamForResponse } from '../services/dreams.js';
 import type { AvatarRecord, SharedChannelRecord } from '../types.js';
 import {
   ToolRegistry,
@@ -54,6 +55,7 @@ const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'https://openrouter.ai/api/v1/c
 const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
 const ENFORCE_IP_CHECK = process.env.ENFORCE_TELEGRAM_IP_CHECK !== 'false';
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
+const DREAMS_ENABLED = process.env.DREAMS_ENABLED === 'true';
 // === CONFIG ===
 // NOTE: Channel-aware config is in services/channel-state.ts (CHANNEL_CONFIG)
 const DEDUP_TTL_SECONDS = 300; // 5 minutes - prevent reprocessing same message on retries
@@ -1168,6 +1170,28 @@ async function processChannelResponse(
 
   // Build system prompt: persona + platform guidelines
   let systemPrompt = avatar.persona || `You are ${avatar.name}, a helpful AI assistant on Telegram.`;
+
+  if (DREAMS_ENABLED && avatar.persona) {
+    try {
+      const { dream, isGenerating } = await getDreamForResponse(avatarId, avatar.persona);
+      const dreamSection = formatDreamForPrompt(dream);
+      if (dreamSection) {
+        systemPrompt = dreamSection + systemPrompt;
+      }
+      logger.info('Dream context evaluated', {
+        event: 'dream_context_evaluated',
+        avatarId,
+        hasDream: Boolean(dream),
+        isGenerating,
+      });
+    } catch (err) {
+      logger.warn('Failed to inject dream context', {
+        event: 'dream_context_error',
+        avatarId,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  }
 
   // Add platform-specific prompt from markdown file
   systemPrompt += getPlatformPromptSection('telegram');

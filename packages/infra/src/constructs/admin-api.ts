@@ -244,6 +244,27 @@ export class AdminApiConstruct extends Construct {
       },
     });
 
+    // Dreams queue (FIFO) for async dream generation jobs
+    const dreamDlq = new sqs.Queue(this, 'DreamDLQ', {
+      queueName: `swarm-dream-dlq-${environment}.fifo`,
+      fifo: true,
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
+    const dreamQueue = new sqs.Queue(this, 'DreamQueue', {
+      queueName: `swarm-dream-queue-${environment}.fifo`,
+      fifo: true,
+      // We provide explicit MessageDeduplicationId (jobId)
+      contentBasedDeduplication: false,
+      // Allow enough time for LLM + Dynamo + memory resonance work
+      visibilityTimeout: cdk.Duration.minutes(5),
+      retentionPeriod: cdk.Duration.days(1),
+      deadLetterQueue: {
+        queue: dreamDlq,
+        maxReceiveCount: 3,
+      },
+    });
+
     // Secret for OpenRouter API key
     const llmApiKey = props.openRouterApiKeyArn
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'LLMApiKey', props.openRouterApiKeyArn)
@@ -314,6 +335,8 @@ export class AdminApiConstruct extends Construct {
       environment: {
         ADMIN_TABLE: this.table.tableName,
         STATE_TABLE: stateTable?.tableName || '',
+        DREAM_QUEUE_URL: dreamQueue.queueUrl,
+        DREAMS_ENABLED: isProd ? 'false' : 'true',
         SECRET_PREFIX: 'swarm',
         CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
@@ -363,6 +386,7 @@ export class AdminApiConstruct extends Construct {
     // Grant permissions
     this.table.grantReadWriteData(this.chatHandler);
     llmApiKey.grantRead(this.chatHandler);
+    dreamQueue.grantSendMessages(this.chatHandler);
     if (replicateApiKey) {
       replicateApiKey.grantRead(this.chatHandler);
     }
@@ -469,6 +493,8 @@ export class AdminApiConstruct extends Construct {
       environment: {
         ADMIN_TABLE: this.table.tableName,
         STATE_TABLE: stateTable?.tableName || '',
+        DREAM_QUEUE_URL: dreamQueue.queueUrl,
+        DREAMS_ENABLED: isProd ? 'false' : 'true',
         SECRET_PREFIX: 'swarm',
         // LLM config (worker is not API-gateway constrained)
         LLM_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions',
@@ -509,6 +535,7 @@ export class AdminApiConstruct extends Construct {
     // Worker permissions
     this.table.grantReadWriteData(chatWorkerHandler);
     llmApiKey.grantRead(chatWorkerHandler);
+    dreamQueue.grantSendMessages(chatWorkerHandler);
     if (replicateApiKey) {
       replicateApiKey.grantRead(chatWorkerHandler);
     }
@@ -1155,6 +1182,8 @@ export class AdminApiConstruct extends Construct {
       environment: {
         ADMIN_TABLE: this.table.tableName,
         STATE_TABLE: stateTable?.tableName || '',
+        DREAM_QUEUE_URL: dreamQueue.queueUrl,
+        DREAMS_ENABLED: isProd ? 'false' : 'true',
         LLM_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions',
         LLM_MODEL: 'anthropic/claude-haiku-4.5',
         LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
@@ -1193,6 +1222,7 @@ export class AdminApiConstruct extends Construct {
         stateTable.grantReadData(fn);
       }
       llmApiKey.grantRead(fn);
+      dreamQueue.grantSendMessages(fn);
       if (replicateApiKey) {
         replicateApiKey.grantRead(fn);
       }
@@ -1228,6 +1258,43 @@ export class AdminApiConstruct extends Construct {
         replicateWebhookUrl
       );
     }
+
+    // Dream worker: consumes from dreamQueue and writes dream state
+    const dreamWorker = new nodejs.NodejsFunction(this, 'DreamWorkerHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/dream-worker.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
+      reservedConcurrentExecutions: 1,
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
+      environment: {
+        ADMIN_TABLE: this.table.tableName,
+        STATE_TABLE: stateTable?.tableName || '',
+        LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
+        // Match chat/telegram model unless overridden at runtime
+        LLM_MODEL: 'anthropic/claude-haiku-4.5',
+        NODE_ENV: environment,
+        NODE_OPTIONS: '--enable-source-maps',
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    this.table.grantReadWriteData(dreamWorker);
+    if (stateTable) {
+      stateTable.grantReadWriteData(dreamWorker);
+    }
+    llmApiKey.grantRead(dreamWorker);
+    dreamQueue.grantConsumeMessages(dreamWorker);
+
+    // Ensure the worker processes one SQS message per invocation (avoid whole-batch retries)
+    dreamWorker.addEventSource(new lambdaEventSources.SqsEventSource(dreamQueue, {
+      batchSize: 1,
+    }));
 
     const telegramIntegration = new integrations.HttpLambdaIntegration(
       'TelegramWebhookIntegration',
