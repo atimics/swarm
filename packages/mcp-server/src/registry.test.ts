@@ -67,6 +67,9 @@ describe('ToolRegistry - execute', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/Validation error/);
+    expect(result.data).toBeTruthy();
+    expect((result.data as any).retryable).toBe(true);
+    expect((result.data as any).errorType).toBe('validation_error');
   });
 
   it('returns uiAction mapping for manual tools', async () => {

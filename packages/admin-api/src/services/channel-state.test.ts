@@ -223,6 +223,65 @@ describe('Channel State Service', () => {
       const decision = evaluateResponseTrigger(state);
       expect(decision.shouldRespond).toBe(false);
     });
+
+    it('should respond to follow-up messages after a mention (sticky)', () => {
+      const now = Date.now();
+      const state: ChannelStateRecord = {
+        pk: 'CHANNEL#avatar#123',
+        sk: 'STATE',
+        avatarId: 'avatar',
+        chatId: 123,
+        chatType: 'supergroup',
+        state: 'COOLDOWN',
+        stateChangedAt: now - 1000,
+        lastResponseAt: now - 2000,
+        stickyEngagementUserId: 42,
+        stickyEngagementUntil: now + 60_000,
+        stickyEngagementRemaining: 2,
+        messageBuffer: [
+          { messageId: 1, userId: 42, userName: 'Alice', text: '@Bot hey', timestamp: now - 10_000, isMention: true },
+          { messageId: 2, userId: 42, userName: 'Alice', text: 'followup 1', timestamp: now - 1500 },
+        ],
+        bufferSize: 2,
+        lastActivityAt: now,
+        ttl: Math.floor(now / 1000) + 3600,
+        updatedAt: now,
+      };
+
+      const decision = evaluateResponseTrigger(state);
+      expect(decision.shouldRespond).toBe(true);
+      expect(decision.trigger).toBe('sticky_followup');
+
+      const target = getResponseTarget(state);
+      expect(target?.messageId).toBe(2);
+    });
+
+    it('should not sticky-followup when sticky window expired', () => {
+      const now = Date.now();
+      const state: ChannelStateRecord = {
+        pk: 'CHANNEL#avatar#123',
+        sk: 'STATE',
+        avatarId: 'avatar',
+        chatId: 123,
+        chatType: 'supergroup',
+        state: 'IDLE',
+        stateChangedAt: now,
+        lastResponseAt: now - 10_000,
+        stickyEngagementUserId: 42,
+        stickyEngagementUntil: now - 1,
+        stickyEngagementRemaining: 2,
+        messageBuffer: [
+          { messageId: 1, userId: 42, userName: 'Alice', text: 'followup', timestamp: now - 1000 },
+        ],
+        bufferSize: 1,
+        lastActivityAt: now,
+        ttl: Math.floor(now / 1000) + 3600,
+        updatedAt: now,
+      };
+
+      const decision = evaluateResponseTrigger(state);
+      expect(decision.shouldRespond).toBe(false);
+    });
   });
 
   describe('Context Building', () => {

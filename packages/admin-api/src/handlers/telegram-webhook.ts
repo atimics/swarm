@@ -1114,7 +1114,7 @@ async function processChannelMessage(
 
   if (responseMessageId) {
     // Mark response sent and transition to COOLDOWN
-    await channelState.markResponseSent(avatarId, chatId, responseMessageId);
+    await channelState.markResponseSent(avatarId, chatId, responseMessageId, { trigger: decision.trigger });
     return { responded: true, reason: decision.trigger };
   }
 
@@ -1171,7 +1171,7 @@ async function processChannelResponse(
     }
   }
 
-  if (trigger === 'direct_engagement') {
+  if (trigger === 'direct_engagement' || trigger === 'sticky_followup') {
     systemPrompt += `\n\nSomeone just mentioned you or replied to you - respond to them directly!`;
   } else if (trigger === 'message_threshold') {
     systemPrompt += `\n\nThe conversation has been active - feel free to chime in naturally if you have something to add.`;
@@ -1546,7 +1546,7 @@ async function handleMultiAvatarMessage(
           avatarId, 
           chatId, 
           responseMessageId,
-          isFromBot ? senderBotUsername : undefined
+          { trigger: 'initiative_winner', respondedToBotUsername: isFromBot ? senderBotUsername : undefined }
         );
         // Mark that winner responded (for reaction coordination)
         await initiative.markWinnerResponded(chatId, messageId);

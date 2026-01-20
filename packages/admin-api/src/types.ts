@@ -718,6 +718,11 @@ export interface ChannelStateRecord {
 
   // Engagement tracking
   directEngagementAt?: number;  // Last mention/reply
+
+  // Sticky engagement window (after mention/reply, stay responsive to the engager)
+  stickyEngagementUserId?: number;
+  stickyEngagementUntil?: number;
+  stickyEngagementRemaining?: number;
   lastActivityAt: number;
 
   // TTL for cleanup
@@ -728,6 +733,7 @@ export interface ChannelStateRecord {
 // Response trigger types
 export type ResponseTrigger =
   | 'direct_engagement'    // Mention or reply to bot
+  | 'sticky_followup'      // Follow-up messages after a mention/reply
   | 'message_threshold'    // N messages accumulated
   | 'conversation_gap'     // Silence after activity
   | 'scheduled'            // Scheduled evaluation

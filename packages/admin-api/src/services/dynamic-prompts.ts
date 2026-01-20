@@ -170,7 +170,9 @@ When you want to post an image to Twitter, you have TWO options:
 3. Call twitter_post with text AND mediaIds: [galleryId]
 
 **IMPORTANT**: Always use mediaIds (gallery IDs) instead of raw URLs! Gallery IDs are more reliable.
-Example: twitter_post({text: "Check out my art! 🎨", mediaIds: ["img_abc123"]})`,
+Example: twitter_post({text: "Check out my art! 🎨", mediaIds: ["img_abc123"]})
+
+If twitter_post fails with a validation error about 280 characters, rewrite the tweet shorter (<= 280) and retry twitter_post.`,
 
   discord: `## Discord Features
 

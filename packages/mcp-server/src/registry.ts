@@ -208,9 +208,37 @@ export class ToolRegistry {
     // Validate input
     const parseResult = tool.inputSchema.safeParse(input);
     if (!parseResult.success) {
+      const issues = parseResult.error.errors.map(e => ({
+        path: e.path.map(p => String(p)),
+        message: e.message,
+      }));
+
+      // Provide structured hints for common, easily-fixable validation failures.
+      const extra: Record<string, unknown> = {
+        errorType: 'validation_error',
+        tool: name,
+        retryable: true,
+        issues,
+      };
+
+      if (name === 'twitter_post' && input && typeof input === 'object') {
+        const obj = input as Record<string, unknown>;
+        const text = typeof obj.text === 'string' ? obj.text : undefined;
+        if (typeof text === 'string') {
+          const maxChars = 280;
+          extra.constraints = { maxChars };
+          extra.textLength = text.length;
+          if (text.length > maxChars) {
+            extra.overBy = text.length - maxChars;
+            extra.hint = 'Tweet too long. Rewrite to <= 280 characters and retry twitter_post (keep any important URLs/mentions).';
+          }
+        }
+      }
+
       return {
         success: false,
         error: `Validation error: ${parseResult.error.errors.map(e => e.message).join(', ')}`,
+        data: extra as T,
       };
     }
 

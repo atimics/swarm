@@ -38,6 +38,11 @@ export const CHANNEL_CONFIG = {
   // Context retention
   POST_RESPONSE_CONTEXT_KEEP_MESSAGES: 20, // Keep last N messages for continuity after responding
 
+  // Sticky engagement (after mention/reply, respond to next few messages)
+  STICKY_ENGAGEMENT_WINDOW_MS: 120000,      // 2 minutes
+  STICKY_ENGAGEMENT_MAX_MESSAGES: 3,        // respond to next N messages from engager
+  STICKY_MIN_REPLY_INTERVAL_MS: 1500,       // avoid rapid-fire replies
+
   // State machine timings
   COOLDOWN_DURATION_MS: 60000,   // 60 seconds cooldown after response (prevents spam)
   ACTIVE_TIMEOUT_MS: 120000,     // 2 minutes before ACTIVE → IDLE
@@ -304,6 +309,9 @@ export async function addMessageToBuffer(
   const ttl = Math.floor(now / 1000) + CHANNEL_CONFIG.BUFFER_TTL_SECONDS;
 
   const isDirect = Boolean(message.isMention || message.isReplyToBot);
+  const stickyUntil = isDirect
+    ? now + CHANNEL_CONFIG.STICKY_ENGAGEMENT_WINDOW_MS
+    : undefined;
   const updateParts = [
     'messageBuffer = list_append(if_not_exists(messageBuffer, :emptyList), :newMessage)',
     'bufferSize = if_not_exists(bufferSize, :zero) + :one',
@@ -320,7 +328,14 @@ export async function addMessageToBuffer(
   }
 
   if (isDirect) {
-    updateParts.push('#state = :active', 'stateChangedAt = :now', 'directEngagementAt = :now');
+    updateParts.push(
+      '#state = :active',
+      'stateChangedAt = :now',
+      'directEngagementAt = :now',
+      'stickyEngagementUserId = :stickyUserId',
+      'stickyEngagementUntil = :stickyUntil',
+      'stickyEngagementRemaining = :stickyRemaining'
+    );
   } else {
     updateParts.push('#state = if_not_exists(#state, :idle)', 'stateChangedAt = if_not_exists(stateChangedAt, :now)');
   }
@@ -348,6 +363,11 @@ export async function addMessageToBuffer(
       ':chatType': chatType,
       ...(chatTitle ? { ':chatTitle': chatTitle } : {}),
       ...(isDirect ? { ':active': 'ACTIVE' } : { ':idle': 'IDLE' }),
+      ...(isDirect ? {
+        ':stickyUserId': message.userId,
+        ':stickyUntil': stickyUntil,
+        ':stickyRemaining': CHANNEL_CONFIG.STICKY_ENGAGEMENT_MAX_MESSAGES,
+      } : {}),
     },
     ReturnValues: 'ALL_NEW',
   }));
@@ -445,7 +465,7 @@ export async function markResponseSent(
   avatarId: string,
   chatId: number,
   responseMessageId: number,
-  respondedToBotUsername?: string
+  options?: { trigger?: string; respondedToBotUsername?: string }
 ): Promise<ChannelStateRecord | null> {
   const current = await getChannelState(avatarId, chatId);
   if (!current) return null;
@@ -461,6 +481,23 @@ export async function markResponseSent(
     ? current.messageBuffer.slice(-keepCount)
     : [];
 
+  const trigger = options?.trigger;
+  const respondedToBotUsername = options?.respondedToBotUsername;
+
+  const stickyActive =
+    typeof current.stickyEngagementUntil === 'number' &&
+    current.stickyEngagementUntil > now &&
+    (current.stickyEngagementRemaining ?? 0) > 0;
+
+  const shouldConsumeSticky = trigger === 'sticky_followup';
+  const nextStickyRemaining = stickyActive && shouldConsumeSticky
+    ? Math.max(0, (current.stickyEngagementRemaining ?? 0) - 1)
+    : current.stickyEngagementRemaining;
+
+  const stickyExpired =
+    (typeof current.stickyEngagementUntil === 'number' && current.stickyEngagementUntil <= now) ||
+    (typeof nextStickyRemaining === 'number' && nextStickyRemaining <= 0);
+
   const updated: ChannelStateRecord = {
     ...current,
     state: 'COOLDOWN',
@@ -472,6 +509,9 @@ export async function markResponseSent(
     bufferSize: keptBuffer.length,
     updatedAt: now,
     ttl: Math.floor(now / 1000) + CHANNEL_CONFIG.BUFFER_TTL_SECONDS,
+    stickyEngagementRemaining: stickyExpired ? undefined : nextStickyRemaining,
+    stickyEngagementUntil: stickyExpired ? undefined : current.stickyEngagementUntil,
+    stickyEngagementUserId: stickyExpired ? undefined : current.stickyEngagementUserId,
     // Track bot-to-bot interactions
     ...(respondedToBotUsername ? {
       lastBotResponseAt: now,
@@ -519,10 +559,19 @@ export function evaluateResponseTrigger(
 
   const pendingMessages = getPendingMessages(state);
   const pendingCount = pendingMessages.length;
+  const timeSinceLastResponse = state.lastResponseAt ? now - state.lastResponseAt : Infinity;
+
+  const stickyActive =
+    typeof state.stickyEngagementUntil === 'number' &&
+    state.stickyEngagementUntil > now &&
+    (state.stickyEngagementRemaining ?? 0) > 0 &&
+    typeof state.stickyEngagementUserId === 'number';
+
+  const hasStickyFollowup = stickyActive
+    ? pendingMessages.some(m => m.userId === state.stickyEngagementUserId && !m.isFromBot)
+    : false;
 
   // Check if we're in cooldown (applies to all chat types)
-  const timeSinceLastResponse = state.lastResponseAt ? now - state.lastResponseAt : Infinity;
-  
   // Private chats get quick responses but still have rate limiting
   if (state.chatType === 'private') {
     // Respect minimum cooldown even in private chats
@@ -559,6 +608,16 @@ export function evaluateResponseTrigger(
       };
     }
 
+    // Sticky follow-up: allow a few follow-up messages from the engager
+    if (hasStickyFollowup && timeSinceLastResponse >= CHANNEL_CONFIG.STICKY_MIN_REPLY_INTERVAL_MS) {
+      return {
+        shouldRespond: true,
+        trigger: 'sticky_followup',
+        delay: CHANNEL_CONFIG.DIRECT_ENGAGEMENT_DELAY_MS,
+        priority: 'high',
+      };
+    }
+
     return {
       shouldRespond: false,
       trigger: 'none',
@@ -576,6 +635,16 @@ export function evaluateResponseTrigger(
     return {
       shouldRespond: true,
       trigger: 'direct_engagement',
+      delay: CHANNEL_CONFIG.DIRECT_ENGAGEMENT_DELAY_MS,
+      priority: 'high',
+    };
+  }
+
+  // Sticky follow-up (outside cooldown)
+  if (hasStickyFollowup && timeSinceLastResponse >= CHANNEL_CONFIG.STICKY_MIN_REPLY_INTERVAL_MS) {
+    return {
+      shouldRespond: true,
+      trigger: 'sticky_followup',
       delay: CHANNEL_CONFIG.DIRECT_ENGAGEMENT_DELAY_MS,
       priority: 'high',
     };
@@ -701,6 +770,22 @@ export function getResponseTarget(
 ): BufferedMessage | null {
   const pending = getPendingMessages(state);
   const candidates = pending.length > 0 ? pending : state.messageBuffer;
+
+  // If sticky engagement is active, prefer replying to the engager's latest message
+  const stickyActive =
+    typeof state.stickyEngagementUntil === 'number' &&
+    state.stickyEngagementUntil > Date.now() &&
+    (state.stickyEngagementRemaining ?? 0) > 0 &&
+    typeof state.stickyEngagementUserId === 'number';
+
+  if (stickyActive) {
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const msg = candidates[i];
+      if (msg.userId === state.stickyEngagementUserId && !msg.isFromBot) {
+        return msg;
+      }
+    }
+  }
 
   // Find the last direct engagement message in the pending/candidate set
   for (let i = candidates.length - 1; i >= 0; i--) {
