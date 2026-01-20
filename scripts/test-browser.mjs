@@ -11,14 +11,11 @@
  * - Its own history of observations and actions
  * 
  * Authentication:
- * - Cloudflare Access: Uses service token headers (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET)
  * - Wallet Auth: Uses a test wallet keypair to sign challenges programmatically
  * 
  * Usage: node scripts/test-browser.mjs [env]
  * 
  * Environment Variables:
- *   CF_ACCESS_CLIENT_ID     - Cloudflare Access service token client ID
- *   CF_ACCESS_CLIENT_SECRET - Cloudflare Access service token client secret
  *   TEST_WALLET_PRIVATE_KEY - Base58 encoded private key for test wallet (optional)
  */
 
@@ -47,7 +44,6 @@ async function reportIssue(apiUrl, testKey, params) {
       headers: {
         'Content-Type': 'application/json',
         'x-internal-test-key': testKey,
-        ...getCloudflareAccessHeaders(),
       },
       body: JSON.stringify({
         error,
@@ -126,23 +122,6 @@ function getInternalTestKey() {
   } catch {
     return null;
   }
-}
-
-// ============================================================================
-// Cloudflare Access Authentication
-// ============================================================================
-
-const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID;
-const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET;
-
-function getCloudflareAccessHeaders() {
-  if (!CF_ACCESS_CLIENT_ID || !CF_ACCESS_CLIENT_SECRET) {
-    return {};
-  }
-  return {
-    'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
-    'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
-  };
 }
 
 // ============================================================================
@@ -261,16 +240,15 @@ async function authenticateWithWallet(apiUrl, testKey) {
     headers: {
       'Content-Type': 'application/json',
       'x-internal-test-key': testKey,
-      ...getCloudflareAccessHeaders(),
     },
     body: JSON.stringify({ walletAddress: wallet.publicKey }),
   });
   
   const challengeText = await challengeResponse.text();
   
-  // Check for HTML (CF Access login page)
+  // Check for HTML (auth wall / proxy page)
   if (challengeText.startsWith('<!DOCTYPE') || challengeText.startsWith('<html')) {
-    throw new Error(`CF Access blocked auth request - got login page. Status: ${challengeResponse.status}`);
+    throw new Error(`Auth request blocked (HTML response). Status: ${challengeResponse.status}`);
   }
   
   if (!challengeResponse.ok) {
@@ -297,7 +275,6 @@ async function authenticateWithWallet(apiUrl, testKey) {
     headers: {
       'Content-Type': 'application/json',
       'x-internal-test-key': testKey,
-      ...getCloudflareAccessHeaders(),
     },
     body: JSON.stringify({
       signature,
@@ -308,9 +285,9 @@ async function authenticateWithWallet(apiUrl, testKey) {
   
   const verifyText = await verifyResponse.text();
   
-  // Check for HTML
+  // Check for HTML (auth wall / proxy page)
   if (verifyText.startsWith('<!DOCTYPE') || verifyText.startsWith('<html')) {
-    throw new Error(`CF Access blocked verify request - got login page. Status: ${verifyResponse.status}`);
+    throw new Error(`Verify request blocked (HTML response). Status: ${verifyResponse.status}`);
   }
   
   if (!verifyResponse.ok) {
@@ -337,63 +314,151 @@ async function authenticateWithWallet(apiUrl, testKey) {
 }
 
 async function getPageElements(page) {
+  return annotatePageForVision(page);
+}
+
+async function clearVisionOverlay(page) {
   try {
-    // Extract button info, preferring aria-label over text content to avoid badge text pollution
-    const buttonElements = await page.locator('button:visible').evaluateAll(els =>
-      els.map(e => {
-        // Prefer aria-label for accessibility and cleaner text
-        const ariaLabel = (e.getAttribute('aria-label') || '').trim();
-        // Some aria-labels can be very long (tooltips, slot counts, etc.) and get filtered out later.
-        // Only use aria-label when it's reasonably short; otherwise fall back to visible text.
-        if (ariaLabel && ariaLabel.length <= 80) return ariaLabel;
-        
-        // Get text of direct children only, excluding nested badges/spans with slot counts
-        const directText = Array.from(e.childNodes)
-          .filter(n => n.nodeType === Node.TEXT_NODE || 
-                       (n.nodeType === Node.ELEMENT_NODE && 
-                        n.classList && 
-                        (n.classList.contains('font-medium') || n.tagName === 'SPAN' && !n.classList.contains('ml-auto'))))
-          .map(n => n.textContent?.trim())
-          .filter(t => t && t.length > 0 && !t.includes('slot') && !t.match(/^\d+/))
-          .join(' ')
-          .trim();
-        
-        if (directText) return directText;
-        
-        // Fallback to full text content but clean up common badge patterns
-        const fullText = (e.textContent || '').trim();
-        return fullText
-          .replace(/\d+\s*(free\s*)?slot(s)?/gi, '')
-          .replace(/\s+/g, ' ')
-          .trim();
-      }).filter(Boolean)
-    );
-    
-    const links = await page.locator('a:visible').allTextContents();
-    
-    // Extract input field info including aria-label, placeholder, name, and id
-    const inputs = await page.locator('input:visible, textarea:visible').evaluateAll(els => 
-      els.map(e => {
-        const ariaLabel = e.getAttribute('aria-label');
-        const placeholder = e.getAttribute('placeholder');
-        const name = e.getAttribute('name');
-        const id = e.id;
-        const dataTestId = e.getAttribute('data-testid');
-        
-        // Prefer aria-label, then placeholder, then name, then id, then data-testid
-        return ariaLabel || placeholder || name || id || dataTestId || e.type || '[unnamed]';
-      }).filter(Boolean)
-    );
-    
-    // Clean up - remove empty strings and duplicates
-    const MAX_LABEL_LEN = 80;
-    const cleanButtons = [...new Set(buttonElements.map(b => b.trim()).filter(b => b && b.length <= MAX_LABEL_LEN && b.length > 0))];
-    const cleanLinks = [...new Set(links.map(l => l.trim()).filter(l => l && l.length <= MAX_LABEL_LEN))];
-    const cleanInputs = [...new Set(inputs.filter(i => i && i.length <= MAX_LABEL_LEN))];
-    
-    return { buttons: cleanButtons, links: cleanLinks, inputs: cleanInputs };
+    await page.evaluate(() => {
+      const OVERLAY_ID = '__agent_overlay__';
+      const ATTR = 'data-agent-id';
+      document.getElementById(OVERLAY_ID)?.remove();
+      document.querySelectorAll(`[${ATTR}]`).forEach((el) => el.removeAttribute(ATTR));
+    });
   } catch {
-    return { buttons: [], links: [], inputs: [] };
+    // ignore
+  }
+}
+
+async function annotatePageForVision(page) {
+  try {
+    const result = await page.evaluate(() => {
+      const OVERLAY_ID = '__agent_overlay__';
+      const ATTR = 'data-agent-id';
+      const MAX_LABEL_LEN = 80;
+      const MAX_ELEMENTS = 70;
+
+      const existing = document.getElementById(OVERLAY_ID);
+      if (existing) existing.remove();
+      document.querySelectorAll(`[${ATTR}]`).forEach((el) => el.removeAttribute(ATTR));
+
+      const isVisible = (el) => {
+        if (!(el instanceof HTMLElement)) return false;
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 2 || rect.height < 2) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        const opacity = parseFloat(style.opacity || '1');
+        if (!Number.isNaN(opacity) && opacity <= 0.01) return false;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        return rect.bottom >= 0 && rect.right >= 0 && rect.top <= vh && rect.left <= vw;
+      };
+
+      const candidates = new Set();
+      const addAll = (selector) => document.querySelectorAll(selector).forEach((el) => candidates.add(el));
+      addAll('button');
+      addAll('a[href]');
+      addAll('[role="button"]');
+      addAll('[role="link"]');
+      addAll('input');
+      addAll('textarea');
+      addAll('select');
+      addAll('[contenteditable="true"]');
+
+      const items = [];
+      for (const node of candidates) {
+        if (items.length >= MAX_ELEMENTS) break;
+        const el = node;
+        if (!isVisible(el)) continue;
+
+        const tag = (el.tagName || '').toLowerCase();
+        const role = (el.getAttribute('role') || '').toLowerCase();
+        const isInput = tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+        const kind = role === 'link' || tag === 'a' ? 'link' : isInput ? 'input' : 'button';
+
+        const ariaLabel = (el.getAttribute('aria-label') || '').trim();
+        const title = (el.getAttribute('title') || '').trim();
+        const placeholder = (el.getAttribute('placeholder') || '').trim();
+        const name = (el.getAttribute('name') || '').trim();
+        const testId = (el.getAttribute('data-testid') || '').trim();
+        const idAttr = (el.id || '').trim();
+
+        let label = '';
+        if (kind === 'input') {
+          label = ariaLabel || placeholder || name || idAttr || testId || (tag === 'input' ? (el.getAttribute('type') || 'input') : 'input');
+        } else {
+          if (ariaLabel && ariaLabel.length <= MAX_LABEL_LEN) {
+            label = ariaLabel;
+          } else {
+            label = (el.innerText || el.textContent || '').trim();
+          }
+          if (!label) label = title || testId || ariaLabel || '';
+        }
+        label = label.replace(/\s+/g, ' ').trim();
+        if (label.length > MAX_LABEL_LEN) label = label.slice(0, MAX_LABEL_LEN - 1) + '…';
+
+        const id = items.length + 1;
+        el.setAttribute(ATTR, String(id));
+        const rect = el.getBoundingClientRect();
+        items.push({ id, kind, label, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } });
+      }
+
+      const overlay = document.createElement('div');
+      overlay.id = OVERLAY_ID;
+      overlay.style.position = 'fixed';
+      overlay.style.inset = '0';
+      overlay.style.zIndex = '2147483647';
+      overlay.style.pointerEvents = 'none';
+
+      for (const item of items) {
+        const color = item.kind === 'button' ? '#22c55e' : item.kind === 'link' ? '#60a5fa' : '#f59e0b';
+
+        const box = document.createElement('div');
+        box.style.position = 'absolute';
+        box.style.left = `${Math.max(0, item.rect.x)}px`;
+        box.style.top = `${Math.max(0, item.rect.y)}px`;
+        box.style.width = `${Math.max(0, item.rect.width)}px`;
+        box.style.height = `${Math.max(0, item.rect.height)}px`;
+        box.style.border = `2px solid ${color}`;
+        box.style.borderRadius = '6px';
+        box.style.boxSizing = 'border-box';
+        box.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.15)';
+
+        const badge = document.createElement('div');
+        badge.textContent = String(item.id);
+        badge.style.position = 'absolute';
+        badge.style.left = '-2px';
+        badge.style.top = '-18px';
+        badge.style.background = color;
+        badge.style.color = '#0b0b0b';
+        badge.style.font = '12px/14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+        badge.style.padding = '2px 6px';
+        badge.style.borderRadius = '6px';
+        badge.style.boxShadow = '0 1px 2px rgba(0,0,0,0.35)';
+        box.appendChild(badge);
+
+        overlay.appendChild(box);
+      }
+
+      document.documentElement.appendChild(overlay);
+
+      const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+      const buttons = uniq(items.filter((i) => i.kind === 'button').map((i) => i.label));
+      const links = uniq(items.filter((i) => i.kind === 'link').map((i) => i.label));
+      const inputs = uniq(items.filter((i) => i.kind === 'input').map((i) => i.label));
+
+      return {
+        buttons,
+        links,
+        inputs,
+        interactables: items.map(({ id, kind, label }) => ({ id, kind, label })),
+      };
+    });
+
+    return result;
+  } catch {
+    return { buttons: [], links: [], inputs: [], interactables: [] };
   }
 }
 
@@ -401,12 +466,17 @@ async function getNextAction(apiUrl, testKey, screenshotPath, history, goal, pag
   const imageData = fs.readFileSync(screenshotPath);
   const base64Image = imageData.toString('base64');
   
-  // Format available elements for the prompt
+  // Format available elements for the prompt (IDs are drawn on the screenshot)
+  const interactableList = (pageElements.interactables || [])
+    .slice(0, 30)
+    .map((i) => `${i.id}. [${i.kind}] ${i.label || '(no label)'}`)
+    .join('\n');
+
   const elementsSection = `
-AVAILABLE CLICKABLE ELEMENTS ON THIS PAGE:
-Buttons: ${pageElements.buttons.length > 0 ? pageElements.buttons.map(b => `"${b}"`).join(', ') : '(none visible)'}
-Links: ${pageElements.links.length > 0 ? pageElements.links.map(l => `"${l}"`).join(', ') : '(none visible)'}
-Input fields: ${pageElements.inputs.length > 0 ? pageElements.inputs.map(i => `"${i}"`).join(', ') : '(none visible)'}
+INTERACTIVE ELEMENTS (numbered on the screenshot):
+${interactableList || '(none detected)'}
+
+(If the list is incomplete, rely on the screenshot overlay numbers.)
 `;
 
   const systemPrompt = `You are an autonomous browser avatar exploring a web application.
@@ -416,7 +486,10 @@ YOUR GOAL: ${goal}
 You can see a screenshot of the current page state. Based on what you observe, decide on ONE action to take.
 ${elementsSection}
 AVAILABLE ACTIONS:
-- CLICK: text - Click a button/link using EXACT text from the lists above
+- CLICK_ID: number - Click the element with that number on the screenshot overlay
+- TYPE_ID: number | text - Focus that element (usually an input) and type text
+- FILL_ID: number | text - Fill that element (clears existing text, for inputs)
+- CLICK: text - Fallback: click by text if needed
 - TYPE: text - Type text into the currently focused input field  
 - FILL: placeholder | text - Fill an input field (e.g., "Enter avatar name | MyAgent")
 - PRESS: key - Press a keyboard key (Enter, Tab, Escape)
@@ -426,19 +499,19 @@ AVAILABLE ACTIONS:
 - ABORT: reason - End test early due to blocking issue (auth wall, crash, wrong app, etc.)
 
 WHEN TO USE ABORT:
-- You see a login/authentication page that blocks access (e.g., Cloudflare Access, SSO login)
+- You see a login/authentication page that blocks access (SSO login, auth wall)
 - The application shows an error page or has crashed
 - The page is clearly not the expected admin UI application
 - You're stuck in an unrecoverable state after multiple failed attempts
 
 CRITICAL RULES:
-1. For CLICK: Copy the EXACT text from the "Buttons" or "Links" list above
-2. For FILL: Use a value from the "Input fields" list as the first part
-3. NEVER CLICK an item from "Input fields" (inputs are not clickable buttons). Use FILL or TYPE instead.
-4. If you need to send a chat message, prefer: FILL: Message input | <text> then PRESS: Enter.
+1. Prefer CLICK_ID/TYPE_ID/FILL_ID using the numbered screenshot overlay
+2. If you must use CLICK by text, copy the EXACT text from the element list above
+3. NEVER CLICK an input. Use FILL_ID/FILL/TYPE_ID/TYPE instead.
+4. If you need to send a chat message, prefer: FILL_ID on the message box, then PRESS: Enter.
 5. Prefer creation via existing UI controls (e.g., "Create new avatar" / "Create Avatar"). If stuck, NAVIGATE: / and retry.
 6. Avoid guessing routes like /avatars/new (it may not exist).
-7. Don't invent button names - use only what's in the lists above.
+7. Don't invent button names.
 
 ANTI-STUCK RULES:
 - Do NOT click "Preview" or "System Prompt" unless the goal explicitly asks to inspect prompts.
@@ -480,16 +553,15 @@ ${history.length > 0 ? history.map((h, i) => `Step ${i + 1}: ${h}`).join('\n') :
     headers: {
       'Content-Type': 'application/json',
       'x-internal-test-key': testKey,
-      ...getCloudflareAccessHeaders(),
     },
     body: JSON.stringify(payload)
   });
   
   const text = await response.text();
   
-  // Check if we got HTML (CF Access login page) instead of JSON
+  // Check if we got HTML (auth wall / proxy page) instead of JSON
   if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
-    throw new Error(`CF Access blocked request - got login page instead of API response. Status: ${response.status}`);
+    throw new Error(`Request blocked (HTML response) - got a non-JSON page. Status: ${response.status}`);
   }
   
   if (!response.ok) {
@@ -513,7 +585,7 @@ function parseAction(response) {
   let reasoning = '';
   let action = null;
   
-  const actionTypeMatch = (text) => text.match(/^(CLICK|TYPE|FILL|PRESS|SCROLL|NAVIGATE|DONE|ABORT)\s*:\s*(.*)$/i);
+  const actionTypeMatch = (text) => text.match(/^(CLICK_ID|TYPE_ID|FILL_ID|CLICK|TYPE|FILL|PRESS|SCROLL|NAVIGATE|DONE|ABORT)\s*:\s*(.*)$/i);
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -555,11 +627,23 @@ function parseAction(response) {
   if (action) {
     const match = action.match(/^(\w+)\s*:\s*(.*)$/);
     if (match) {
+      // Normalize numeric clicks to CLICK_ID for robustness
+      const rawType = match[1].toUpperCase();
+      const rawParams = match[2].trim();
+      if (rawType === 'CLICK' && /^#?\d+$/.test(rawParams)) {
+        return {
+          observation,
+          reasoning,
+          type: 'CLICK_ID',
+          params: rawParams.replace(/^#/, ''),
+          raw: action
+        };
+      }
       return {
         observation,
         reasoning,
-        type: match[1].toUpperCase(),
-        params: match[2].trim(),
+        type: rawType,
+        params: rawParams,
         raw: action
       };
     }
@@ -600,21 +684,95 @@ function toTestId(text) {
   return text.toLowerCase().replace(/\s+/g, '-');
 }
 
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildLooseTextRegex(text) {
+  // Match words with flexible whitespace/newlines in between.
+  // Example: "Create new avatar" -> /Create\s+new\s+avatar/i
+  const tokens = text
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(escapeRegex);
+  const pattern = tokens.join('\\s+');
+  return new RegExp(pattern || escapeRegex(text), 'i');
+}
+
+function parseIdAndText(params) {
+  const raw = String(params || '').trim();
+  const sep = raw.indexOf('|');
+  if (sep === -1) {
+    return { id: raw.replace(/^#/, '').trim(), text: '' };
+  }
+  const id = raw.slice(0, sep).replace(/^#/, '').trim();
+  const text = raw.slice(sep + 1).trim();
+  return { id, text };
+}
+
 async function executeAction(page, action) {
   const { type, params } = action;
   
   try {
     switch (type) {
+      case 'CLICK_ID': {
+        const id = String(params || '').replace(/^#/, '').trim();
+        if (!id) return { success: false, error: 'Missing element id' };
+        await page.locator(`[data-agent-id="${id}"]`).first().click({ timeout: 2000 });
+        return { success: true };
+      }
+
+      case 'TYPE_ID': {
+        const { id, text } = parseIdAndText(params);
+        if (!id) return { success: false, error: 'Missing element id' };
+        await page.locator(`[data-agent-id="${id}"]`).first().click({ timeout: 2000 });
+        if (text) {
+          await page.keyboard.type(text, { delay: 50 });
+        }
+        return { success: true };
+      }
+
+      case 'FILL_ID': {
+        const { id, text } = parseIdAndText(params);
+        if (!id) return { success: false, error: 'Missing element id' };
+        const target = page.locator(`[data-agent-id="${id}"]`).first();
+        await target.click({ timeout: 2000 });
+
+        // Prefer element.fill when supported (input/textarea), fallback to select-all + type.
+        try {
+          await target.fill(text, { timeout: 2000 });
+        } catch {
+          try {
+            await page.keyboard.press('Control+A');
+          } catch {
+            // ignore
+          }
+          try {
+            await page.keyboard.press('Meta+A');
+          } catch {
+            // ignore
+          }
+          await page.keyboard.type(text, { delay: 50 });
+        }
+        return { success: true };
+      }
+
       case 'CLICK': {
+        const loose = buildLooseTextRegex(params);
         const strategies = [
           // Exact text match
           () => page.click(`text="${params}"`, { timeout: 2000 }),
           // Partial/fuzzy text match  
           () => page.click(`text=${params}`, { timeout: 2000 }),
+          // Robust text match (tolerates newlines / multiple spaces)
+          () => page.getByText(loose).first().click({ timeout: 2000 }),
           // Button with text
           () => page.click(`button:has-text("${params}")`, { timeout: 2000 }),
+          () => page.getByRole('button', { name: loose }).first().click({ timeout: 2000 }),
           // Link with text
           () => page.click(`a:has-text("${params}")`, { timeout: 2000 }),
+          () => page.getByRole('link', { name: loose }).first().click({ timeout: 2000 }),
           // Any element with text (div, span, etc)
           () => page.click(`*:has-text("${params}"):visible`, { timeout: 2000 }),
           // Role-based selectors
@@ -639,6 +797,28 @@ async function executeAction(page, action) {
           } catch { /* try next */ }
         }
         
+        // Debug aid: print a small sample of visible button labels to help diagnose mismatches.
+        try {
+          const sample = await page.$$eval('button:visible', (buttons) =>
+            buttons
+              .slice(0, 12)
+              .map((b) => {
+                const text = (b.innerText || b.textContent || '').trim();
+                const aria = b.getAttribute('aria-label') || '';
+                const title = b.getAttribute('title') || '';
+                const testId = b.getAttribute('data-testid') || '';
+                const label = text || aria || title || testId;
+                return label.replace(/\s+/g, ' ').trim();
+              })
+              .filter(Boolean)
+          );
+          if (sample.length) {
+            console.log(`   🔎 Visible button sample: ${sample.join(' | ')}`);
+          }
+        } catch {
+          // ignore
+        }
+
         return { success: false, error: `Could not find clickable element: ${params}` };
       }
       
@@ -848,16 +1028,15 @@ Be specific and actionable. Reference actual UI elements and behaviors observed.
     headers: {
       'Content-Type': 'application/json',
       'x-internal-test-key': testKey,
-      ...getCloudflareAccessHeaders()
     },
     body: JSON.stringify(payload)
   });
   
   const text = await response.text();
   
-  // Check if we got HTML instead of JSON
+  // Check if we got HTML instead of JSON (auth wall / proxy page)
   if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
-    console.log('   ⚠️  Report generation blocked by CF Access');
+    console.log('   ⚠️  Report generation blocked (HTML response)');
     return null;
   }
   
@@ -913,15 +1092,6 @@ async function runAutonomousBrowserTest() {
   console.log(`📍 Max Steps: ${MAX_STEPS}`);
   console.log();
   
-  // Check for Cloudflare Access credentials
-  if (!CF_ACCESS_CLIENT_ID || !CF_ACCESS_CLIENT_SECRET) {
-    console.warn('⚠️  No Cloudflare Access credentials found');
-    console.warn('   Set CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET env vars');
-    console.warn('   Create a service token at: Cloudflare Zero Trust > Access > Service Auth');
-  } else {
-    console.log('🔒 Cloudflare Access: Service token configured');
-  }
-  
   const runId = Date.now().toString(36);
   const screenshotsDir = path.join(process.cwd(), 'test-screenshots', `run-${runId}`);
   fs.mkdirSync(screenshotsDir, { recursive: true });
@@ -961,7 +1131,6 @@ async function runAutonomousBrowserTest() {
     deviceScaleFactor: 1, // No retina scaling needed for LLM
     isMobile: false,
     hasTouch: false,
-    extraHTTPHeaders: getCloudflareAccessHeaders(),
   };
   
   const context = await browser.newContext(contextOptions);
@@ -996,19 +1165,8 @@ async function runAutonomousBrowserTest() {
   
   const page = await context.newPage();
   
-  // Set Cloudflare Access headers for all page requests
-  const cfHeaders = getCloudflareAccessHeaders();
-  if (Object.keys(cfHeaders).length > 0) {
-    await page.setExtraHTTPHeaders(cfHeaders);
-    console.log('🔐 Cloudflare Access headers set for browser requests');
-    console.log(`   Client ID: ${CF_ACCESS_CLIENT_ID?.slice(0, 8)}...${CF_ACCESS_CLIENT_ID?.slice(-4)}`);
-  } else {
-    console.warn('⚠️  No Cloudflare Access credentials - browser may hit auth wall');
-    console.warn('   Ensure CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are set');
-  }
-  
   // Intercept API requests to add internal test key header
-  // This allows the browser to make authenticated API calls even without CF Access JWT
+  // This allows the browser to make authenticated API calls without relying on UI auth flows.
   const apiUrlParsed = new URL(apiUrl);
   await page.route(`${apiUrl}/**`, async (route, request) => {
     const headers = {
@@ -1042,75 +1200,28 @@ Verify the avatar responds to messages and any configuration changes are reflect
   try {
     console.log('📸 Loading application...');
     
-    // Debug: First make a fetch request to see what Cloudflare returns
-    if (Object.keys(cfHeaders).length > 0) {
-      console.log('🔍 Testing Cloudflare Access with service token...');
-      try {
-        const testResponse = await fetch(adminUrl, {
-          headers: cfHeaders,
-          redirect: 'manual', // Don't follow redirects
-        });
-        console.log(`   Response status: ${testResponse.status}`);
-        console.log(`   Location: ${testResponse.headers.get('location') || '(none)'}`);
-        const cfCookie = testResponse.headers.get('set-cookie');
-        if (cfCookie && cfCookie.includes('CF_Authorization')) {
-          console.log('   ✅ CF_Authorization cookie received');
-          // Extract and add the cookie to the browser context
-          const cfAuthMatch = cfCookie.match(/CF_Authorization=([^;]+)/);
-          if (cfAuthMatch) {
-            // Add cookie for admin UI domain
-            await context.addCookies([{
-              name: 'CF_Authorization',
-              value: cfAuthMatch[1],
-              domain: adminUrlParsed.hostname,
-              path: '/',
-              httpOnly: true,
-              secure: true,
-              sameSite: 'None',
-            }]);
-            console.log('   🍪 CF_Authorization cookie added for admin UI');
-            
-            // Also add cookie for API domain (different subdomain)
-            const apiUrlParsed = new URL(apiUrl);
-            await context.addCookies([{
-              name: 'CF_Authorization',
-              value: cfAuthMatch[1],
-              domain: apiUrlParsed.hostname,
-              path: '/',
-              httpOnly: true,
-              secure: true,
-              sameSite: 'None',
-            }]);
-            console.log('   🍪 CF_Authorization cookie added for API');
-          }
-        } else {
-          console.log(`   ⚠️  No CF_Authorization cookie - service token may not be valid for this app`);
-          console.log(`   Cookies received: ${cfCookie || '(none)'}`);
-        }
-      } catch (fetchErr) {
-        console.log(`   Fetch test failed: ${fetchErr.message}`);
-      }
-    }
-    
     // Use 'domcontentloaded' instead of 'networkidle' - the latter can timeout
     // if there are persistent connections (websockets, SSE) or slow resources
     await page.goto(adminUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     // Give the app time to hydrate and render
     await page.waitForTimeout(3000);
     
-    // Take initial screenshot for comparison
+    // Take initial raw screenshot for change detection
+    await clearVisionOverlay(page);
     let previousScreenshot = await takeScreenshotBase64(page);
     
     while (step < MAX_STEPS && !success) {
       step++;
       console.log(`\n--- Step ${step}/${MAX_STEPS} ---`);
-      
-      // Save screenshot to file for debugging
-      const screenshotPath = path.join(screenshotsDir, `step-${step.toString().padStart(2, '0')}.jpg`);
-      await fsPromises.writeFile(screenshotPath, Buffer.from(previousScreenshot, 'base64'));
-      
-      // Extract available elements from the page
+
+      // Add numbered overlay and extract available elements
       const pageElements = await getPageElements(page);
+      const annotatedScreenshot = await takeScreenshotBase64(page);
+
+      // Save annotated screenshot to file for debugging and for the LLM
+      const screenshotPath = path.join(screenshotsDir, `step-${step.toString().padStart(2, '0')}.jpg`);
+      await fsPromises.writeFile(screenshotPath, Buffer.from(annotatedScreenshot, 'base64'));
+
       const totalElements = pageElements.buttons.length + pageElements.links.length + pageElements.inputs.length;
       console.log(`📋 Found: ${pageElements.buttons.length} buttons, ${pageElements.links.length} links, ${pageElements.inputs.length} inputs`);
       
@@ -1275,6 +1386,7 @@ Verify the avatar responds to messages and any configuration changes are reflect
       }
       
       // Wait for page to change with exponential backoff before next LLM call
+      await clearVisionOverlay(page);
       const { screenshot: newScreenshot, changed } = await waitForPageChange(
         page, 
         previousScreenshot,
