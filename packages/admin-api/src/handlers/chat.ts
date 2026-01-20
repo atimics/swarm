@@ -637,6 +637,27 @@ function toSdkMessages(messages: AdminChatMessage[]): Array<{ role: 'user' | 'as
         toolCallId: message.tool_call_id,
       };
     }
+
+    // If a message has media (generated images/videos shown in UI), include image URLs as multimodal parts.
+    // This makes vision-capable models able to see what they previously generated.
+    const mediaImages = (message.media || []).filter(m => m.type === 'image' && typeof m.url === 'string');
+    if (mediaImages.length > 0) {
+      const baseText = Array.isArray(message.content)
+        ? (message.content.find(p => p.type === 'text') as { text?: string } | undefined)?.text || ''
+        : String(message.content || '');
+
+      return {
+        role: message.role,
+        content: [
+          { type: 'text', text: baseText },
+          ...mediaImages.map(img => ({
+            type: 'image_url',
+            image_url: { url: img.url },
+          })),
+        ],
+      };
+    }
+
     return {
       role: message.role,
       content: message.content as MessageContent,

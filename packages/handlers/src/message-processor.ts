@@ -177,13 +177,43 @@ function envelopeToContextMessage(envelope: SwarmEnvelope): ContextMessage {
  */
 interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string;
+  content?: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
   tool_calls?: Array<{
     id: string;
     type: 'function';
     function: { name: string; arguments: string };
   }>;
   tool_call_id?: string;
+}
+
+function messagesHaveImageContent(messages: LLMMessage[]): boolean {
+  return messages.some(m =>
+    Array.isArray(m.content) &&
+    m.content.some(part => (part as { type?: string }).type === 'image_url')
+  );
+}
+
+function toTextOnlyMessages(messages: LLMMessage[]): LLMMessage[] {
+  return messages.map(m => {
+    if (!Array.isArray(m.content)) return m;
+    const parts = m.content;
+    const textParts: string[] = [];
+    const imageUrls: string[] = [];
+    for (const part of parts) {
+      if (part.type === 'text') {
+        if (part.text?.trim()) textParts.push(part.text.trim());
+      } else if (part.type === 'image_url') {
+        if (part.image_url?.url) imageUrls.push(part.image_url.url);
+      }
+    }
+
+    const combined = [
+      ...textParts,
+      ...(imageUrls.length > 0 ? [`[images: ${imageUrls.join(', ')}]`] : []),
+    ].join('\n');
+
+    return { ...m, content: combined };
+  });
 }
 
 /**
@@ -218,7 +248,7 @@ async function callLLM(
   const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
 
   try {
-    const response = await fetch(LLM_ENDPOINT, {
+    const doRequest = async (body: Record<string, unknown>) => fetch(LLM_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -226,13 +256,35 @@ async function callLLM(
         'HTTP-Referer': 'https://swarm.platform',
         'X-Title': 'Swarm Platform',
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
 
+    let response = await doRequest(requestBody);
+
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`LLM API error: ${response.status} ${text.slice(0, 200)}`);
+      const hasImages = messagesHaveImageContent(messages);
+      const looksLikeUnsupportedImage = /image|images|multimodal|modalit|vision/i.test(text);
+
+      if (hasImages && looksLikeUnsupportedImage) {
+        logger.warn('LLM rejected image input; retrying text-only', {
+          status: response.status,
+          model: config.model,
+          errorPreview: text.slice(0, 200),
+        });
+        const fallbackBody = {
+          ...requestBody,
+          messages: toTextOnlyMessages(messages),
+        };
+        response = await doRequest(fallbackBody);
+        if (!response.ok) {
+          const retryText = await response.text();
+          throw new Error(`LLM API error: ${response.status} ${retryText.slice(0, 200)}`);
+        }
+      } else {
+        throw new Error(`LLM API error: ${response.status} ${text.slice(0, 200)}`);
+      }
     }
 
     const data = await response.json() as {
@@ -500,12 +552,25 @@ async function generateResponse(
 
       allToolResults.push({ name: toolCall.name, result });
 
-      // Add tool result message
+      // Add tool result message (include media so the model can reference outputs)
       messages.push({
         role: 'tool',
         tool_call_id: toolCall.id,
-        content: JSON.stringify(result.success ? result.data : { error: result.error }),
+        content: JSON.stringify(result.success
+          ? { data: result.data, media: result.media, pendingJob: result.pendingJob }
+          : { error: result.error }),
       });
+
+      // If a tool produced an image, feed it back into context so vision-capable models can see it.
+      if (result.success && result.media?.type === 'image' && result.media.url) {
+        messages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Here is the image you just generated. Please look at it and respond.' },
+            { type: 'image_url', image_url: { url: result.media.url } },
+          ],
+        });
+      }
 
       logger.info('Tool result', { tool: toolCall.name, success: result.success });
     }
