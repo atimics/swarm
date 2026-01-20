@@ -71,11 +71,11 @@ describe('Models Registry', () => {
 
   describe('REPLICATE_MODEL_VERSIONS', () => {
     it('should contain version hashes for version-based models', () => {
-      expect(REPLICATE_MODEL_VERSIONS['google/nano-banana-pro']).toBeTruthy();
       expect(REPLICATE_MODEL_VERSIONS['black-forest-labs/flux-schnell']).toBeTruthy();
     });
 
     it('should have undefined for models using /models API', () => {
+      expect(REPLICATE_MODEL_VERSIONS['google/nano-banana-pro']).toBeUndefined();
       expect(REPLICATE_MODEL_VERSIONS['minimax/video-01']).toBeUndefined();
       expect(REPLICATE_MODEL_VERSIONS['stability-ai/stable-audio-2.5']).toBeUndefined();
     });
@@ -243,13 +243,13 @@ describe('Models Registry', () => {
 
   describe('getReplicateVersion', () => {
     it('should return version for version-based models', () => {
-      const version = getReplicateVersion('google/nano-banana-pro');
+      const version = getReplicateVersion('black-forest-labs/flux-schnell');
       expect(version).toBeTruthy();
       expect(version).toMatch(/^[a-f0-9]{64}$/);
     });
 
     it('should return undefined for models using /models API', () => {
-      const version = getReplicateVersion('minimax/video-01');
+      const version = getReplicateVersion('google/nano-banana-pro');
       expect(version).toBeUndefined();
     });
 
