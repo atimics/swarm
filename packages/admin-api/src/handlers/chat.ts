@@ -64,9 +64,10 @@ function clampIntMinMax(value: number, min: number, max: number): number {
 // Timeout/retry settings
 // IMPORTANT: `/chat` is served behind API Gateway (and sometimes CloudFront), which effectively
 // caps end-to-end response time (typically ~29s). Keep defaults within that budget.
-const LLM_TIMEOUT_MS = parseIntEnv('LLM_TIMEOUT_MS', isProdLike ? 20_000 : 60_000);
+const LLM_TIMEOUT_MS = parseIntEnv('LLM_TIMEOUT_MS', isProdLike ? 27_000 : 60_000);
 const LLM_MAX_RETRIES = parseIntEnv('LLM_MAX_RETRIES', isProdLike ? 0 : 2); // total attempts = 1 + retries
 const LLM_MAX_STEPS = clampIntMinMax(parseIntEnv('LLM_MAX_STEPS', isProdLike ? 4 : 10), 1, 20);
+const LLM_TOOL_MAX_TOKENS = clampIntMinMax(parseIntEnv('LLM_TOOL_MAX_TOKENS', isProdLike ? 1200 : 2048), 256, 8192);
 const LLM_RETRY_BASE_DELAY_MS = 250;
 const LLM_RETRY_MAX_DELAY_MS = 2_000;
 
@@ -968,6 +969,9 @@ async function processChat(
   // Use provided model or fall back to default
   const effectiveModel = options?.model || LLM_MODEL;
   const maxOutputTokens = clampInt(options?.maxTokens ?? LLM_MAX_TOKENS, 1, 8192);
+  const effectiveMaxOutputTokens = tools.length > 0
+    ? Math.min(maxOutputTokens, LLM_TOOL_MAX_TOKENS)
+    : maxOutputTokens;
 
   logger.info('LLM request', {
     event: 'llm_request',
@@ -1001,7 +1005,7 @@ async function processChat(
         modelResult = getOpenRouterClient().callModel({
           model: effectiveModel,
           input,
-          maxOutputTokens,
+          maxOutputTokens: effectiveMaxOutputTokens,
           ...(tools.length > 0 ? { tools, stopWhen: stepCountIs(LLM_MAX_STEPS) } : {}),
         });
 
@@ -1034,7 +1038,7 @@ async function processChat(
         const fallbackResult = await callLlmDirectFallback(
           effectiveModel,
           apiMessages as Array<{ role: string; content: string }>,
-          maxOutputTokens,
+          effectiveMaxOutputTokens,
           tools.length > 0 ? tools : undefined
         );
 
@@ -1345,7 +1349,7 @@ async function processChat(
       const next = await callLlmDirectFallback(
         effectiveModel,
         baseApiMessages as unknown as Array<{ role: string; content: string }>,
-        maxOutputTokens,
+        effectiveMaxOutputTokens,
         tools.length > 0 ? tools : undefined
       );
 
