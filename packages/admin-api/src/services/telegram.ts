@@ -499,6 +499,86 @@ export async function sendChatAction(
 }
 
 // ============================================================================
+// Messaging
+// ============================================================================
+
+export interface SendMessageOptions {
+  replyToMessageId?: number;
+  disableWebPagePreview?: boolean;
+}
+
+export interface SendMessageResult {
+  messageId: number;
+}
+
+/**
+ * Send a text message.
+ */
+export async function sendMessage(
+  botToken: string,
+  chatId: number,
+  text: string,
+  options?: SendMessageOptions
+): Promise<SendMessageResult> {
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      ...(typeof options?.replyToMessageId === 'number'
+        ? { reply_to_message_id: options.replyToMessageId }
+        : {}),
+      ...(typeof options?.disableWebPagePreview === 'boolean'
+        ? { disable_web_page_preview: options.disableWebPagePreview }
+        : {}),
+    }),
+  });
+
+  const result = await response.json() as {
+    ok: boolean;
+    result?: { message_id: number };
+    description?: string;
+  };
+
+  if (!result.ok || !result.result) {
+    throw new Error(result.description || 'Failed to send message');
+  }
+
+  return { messageId: result.result.message_id };
+}
+
+/**
+ * React to a specific message with an emoji.
+ */
+export async function setMessageReaction(
+  botToken: string,
+  chatId: number,
+  messageId: number,
+  emoji: string
+): Promise<void> {
+  const url = `https://api.telegram.org/bot${botToken}/setMessageReaction`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      message_id: messageId,
+      reaction: [{ type: 'emoji', emoji }],
+    }),
+  });
+
+  const result = await response.json() as { ok: boolean; description?: string };
+
+  if (!result.ok) {
+    throw new Error(result.description || 'Failed to set message reaction');
+  }
+}
+
+// ============================================================================
 // Chat Modification (for voting system)
 // ============================================================================
 

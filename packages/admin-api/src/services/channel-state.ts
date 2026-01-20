@@ -49,7 +49,7 @@ export const CHANNEL_CONFIG = {
 
   // Response triggers
   DIRECT_ENGAGEMENT_DELAY_MS: 2000,   // 2 second delay even for mentions (more cosy)
-  MESSAGE_THRESHOLD: 8,                // Respond after N messages accumulated (was 5)
+  MESSAGE_THRESHOLD: 6,                // Respond after N messages accumulated
   CONVERSATION_GAP_MS: 45000,          // 45 seconds of silence triggers response
 
   // Response timing - increased for cosy vibes
@@ -725,10 +725,16 @@ export function buildConversationContext(
   const lines: string[] = [];
   let approxTokens = 0;
 
+  const truncate = (value: string, maxLen: number): string => {
+    if (value.length <= maxLen) return value;
+    return `${value.slice(0, Math.max(0, maxLen - 1))}…`;
+  };
+
   // Process messages oldest to newest
   for (const msg of state.messageBuffer) {
     const timestamp = new Date(msg.timestamp).toLocaleTimeString();
-    const userLabel = msg.username ? `@${msg.username}` : msg.userName;
+    const baseUserLabel = msg.username ? `@${msg.username}` : msg.userName;
+    const userLabel = msg.isFromBot ? `🤖 ${baseUserLabel}` : baseUserLabel;
     
     // Build message content with media indicators
     let content = msg.text;
@@ -746,7 +752,22 @@ export function buildConversationContext(
       content = content ? `${content} ${mediaLabels.join(' ')}` : mediaLabels.join(' ');
     }
     
-    const line = `[${timestamp}] ${userLabel}: ${content}`;
+    let replySuffix = '';
+    if (typeof msg.replyToMessageId === 'number') {
+      const repliedTo = state.messageBuffer.find(m => m.messageId === msg.replyToMessageId);
+      const replyUserLabel = repliedTo?.username
+        ? `@${repliedTo.username}`
+        : (msg.replyToUsername ? `@${msg.replyToUsername}` : (msg.replyToUserName ? `@${msg.replyToUserName}` : undefined));
+      const replyText = repliedTo?.text || msg.replyToText;
+
+      if (replyUserLabel && replyText) {
+        replySuffix = ` (reply to ${replyUserLabel}: "${truncate(replyText, 120)}")`;
+      } else if (replyUserLabel) {
+        replySuffix = ` (reply to ${replyUserLabel})`;
+      }
+    }
+
+    const line = `[${timestamp}] ${userLabel}${replySuffix}: ${content}`;
 
     // Rough token estimate (4 chars = 1 token)
     const lineTokens = Math.ceil(line.length / 4);

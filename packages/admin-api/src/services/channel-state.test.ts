@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import type { ChannelStateRecord, BufferedMessage } from '../types.js';
-import { evaluateResponseTrigger, getResponseTarget } from './channel-state.js';
+import { buildConversationContext, evaluateResponseTrigger, getResponseTarget } from './channel-state.js';
 
 describe('Channel State Service', () => {
   describe('State Machine', () => {
@@ -285,6 +285,31 @@ describe('Channel State Service', () => {
   });
 
   describe('Context Building', () => {
+    it('should include replied-to message snippet when available', () => {
+      const now = Date.now();
+      const state: ChannelStateRecord = {
+        pk: 'CHANNEL#avatar#123',
+        sk: 'STATE',
+        avatarId: 'avatar',
+        chatId: 123,
+        chatType: 'supergroup',
+        state: 'IDLE',
+        stateChangedAt: now,
+        messageBuffer: [
+          { messageId: 10, userId: 1, userName: 'Alice', username: 'alice', text: 'original message', timestamp: now - 2000 },
+          { messageId: 11, userId: 2, userName: 'Bob', username: 'bob', text: 'my reply', timestamp: now - 1000, replyToMessageId: 10 },
+        ],
+        bufferSize: 2,
+        lastActivityAt: now,
+        ttl: Math.floor(now / 1000) + 3600,
+        updatedAt: now,
+      };
+
+      const context = buildConversationContext(state);
+      expect(context).toContain('reply to @alice');
+      expect(context).toContain('original message');
+    });
+
     it('should format buffered messages for LLM context', () => {
       const messages: BufferedMessage[] = [
         { messageId: 1, userId: 100, userName: 'Alice', username: 'alice', text: 'Hello', timestamp: Date.now() - 5000 },

@@ -853,6 +853,16 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         await telegram.sendChatAction(botToken, chatId, action);
       },
 
+      replyToMessage: async (avatarId, chatId, replyToMessageId, text) => {
+        const botToken = await getBotToken(avatarId);
+        return telegram.sendMessage(botToken, chatId, text, { replyToMessageId });
+      },
+
+      reactToMessage: async (avatarId, chatId, messageId, emoji) => {
+        const botToken = await getBotToken(avatarId);
+        await telegram.setMessageReaction(botToken, chatId, messageId, emoji);
+      },
+
       // Chat Modification Voting System
       getChatBots: async (chatId) => {
         return chatVoting.getChatBots(chatId);

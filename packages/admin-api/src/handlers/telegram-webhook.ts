@@ -30,6 +30,7 @@ import * as credits from '../services/credits.js';
 import { getPlatformPromptSection } from '../services/platform-prompts.js';
 import * as sharedChannel from '../services/shared-channel.js';
 import * as initiative from '../services/initiative.js';
+import { decideReaction } from '../services/reactions.js';
 import { generateAvatarStats } from '../services/avatar-stats.js';
 import type { AvatarRecord, SharedChannelRecord } from '../types.js';
 import {
@@ -53,7 +54,6 @@ const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'https://openrouter.ai/api/v1/c
 const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
 const ENFORCE_IP_CHECK = process.env.ENFORCE_TELEGRAM_IP_CHECK !== 'false';
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
-
 // === CONFIG ===
 // NOTE: Channel-aware config is in services/channel-state.ts (CHANNEL_CONFIG)
 const DEDUP_TTL_SECONDS = 300; // 5 minutes - prevent reprocessing same message on retries
@@ -93,6 +93,7 @@ const TelegramMessageSchema = z.object({
   reply_to_message: z.object({
     message_id: z.number(),
     text: z.string().optional(),
+    caption: z.string().optional(),
     from: z.object({ id: z.number(), username: z.string().optional() }).optional(),
   }).optional(),
 });
@@ -819,6 +820,7 @@ async function executeTool(
   args: Record<string, unknown>,
   token: string,
   chatId: number,
+  replyToMessageId: number | undefined,
   toolClient: ReturnType<typeof createToolClient>
 ): Promise<ToolResult> {
   try {
@@ -834,7 +836,7 @@ async function executeTool(
     const mcpResult = await toolClient.execute(toolName, args, { 
       avatarId,
       conversationId: String(chatId),
-      replyToMessageId: undefined, // Will be set by response queue handler
+      replyToMessageId: typeof replyToMessageId === 'number' ? String(replyToMessageId) : undefined,
     });
 
     // Convert MCP result to Telegram handler format
@@ -1012,6 +1014,8 @@ async function processChannelMessage(
   const username = message.from?.username;
   const botUsername = avatar.platforms.telegram?.botUsername;
   const botId = avatar.platforms.telegram?.botId;
+  const isFromBot = message.from?.is_bot === true;
+  const senderBotUsername = isFromBot ? message.from?.username : undefined;
 
   // Extract media attachments
   const media: BufferedMedia[] = [];
@@ -1046,6 +1050,8 @@ async function processChannelMessage(
     (botUsername && message.reply_to_message?.from?.username === botUsername));
 
   // Create buffered message
+  const replyToText = message.reply_to_message?.text || message.reply_to_message?.caption;
+
   const bufferedMessage: BufferedMessage = {
     messageId,
     userId,
@@ -1055,9 +1061,14 @@ async function processChannelMessage(
     timestamp: Date.now(),
     replyToMessageId: message.reply_to_message?.message_id,
     replyToUserId: message.reply_to_message?.from?.id,
+    replyToUserName: message.reply_to_message?.from?.username,
+    replyToUsername: message.reply_to_message?.from?.username,
+    replyToText: replyToText || undefined,
     isMention,
     isReplyToBot,
     media: media.length > 0 ? media : undefined,
+    isFromBot,
+    senderBotUsername,
   };
 
   // Add message to buffer and get updated state
@@ -1151,12 +1162,13 @@ async function processChannelResponse(
   } else {
     conversationContext = channelState.buildConversationContext(state);
   }
+
   const participants = channelState.getActiveParticipants(state);
   const responseTarget = channelState.getResponseTarget(state);
 
-  // Build system prompt
+  // Build system prompt: persona + platform guidelines
   let systemPrompt = avatar.persona || `You are ${avatar.name}, a helpful AI assistant on Telegram.`;
-  
+
   // Add platform-specific prompt from markdown file
   systemPrompt += getPlatformPromptSection('telegram');
 
@@ -1261,7 +1273,7 @@ async function processChannelResponse(
           continue;
         }
 
-        const result = await executeTool(avatarId, toolName, parsedArgs.args, token, chatId, toolClient);
+        const result = await executeTool(avatarId, toolName, parsedArgs.args, token, chatId, replyToMessageId, toolClient);
 
         // Only add to failedTools for permanent failures, not rate limits or transient errors
         // Rate limits and "not found" errors should not block future attempts
@@ -1446,6 +1458,7 @@ async function handleMultiAvatarMessage(
     : null;
 
   // Create buffered message for interest check
+  const replyToText = message.reply_to_message?.text || message.reply_to_message?.caption;
   const bufferedMessage: BufferedMessage = {
     messageId,
     userId: message.from?.id || 0,
@@ -1455,6 +1468,9 @@ async function handleMultiAvatarMessage(
     timestamp: Date.now(),
     replyToMessageId: message.reply_to_message?.message_id,
     replyToUserId: message.reply_to_message?.from?.id,
+    replyToUserName: message.reply_to_message?.from?.username,
+    replyToUsername: message.reply_to_message?.from?.username,
+    replyToText: replyToText || undefined,
     isMention: false, // Already handled direct mentions before this
     isReplyToBot: false,
     media: msgMedia.length > 0 ? msgMedia : undefined,
@@ -1552,17 +1568,51 @@ async function handleMultiAvatarMessage(
     }
 
     case 'react': {
-      // This avatar lost initiative - SKIP silently instead of reacting
-      // The natural conversation flow will give this avatar a chance to respond 
-      // when it sees the winner's message (or other avatars' messages) come through.
-      // This prevents all bots from piling on a single user message.
-      logger.info('Lost initiative, skipping to allow natural flow', {
-        avatarId,
-        chatId,
-        messageId,
-        winnerId: initiativeResult.winnerId,
-      });
-      return { responded: false, reason: 'lost_initiative_skipped' };
+      // Lost initiative: may react, but coordinate/cap reactions per message.
+      const reaction = decideReaction(text);
+      if (!reaction.shouldReact || !reaction.emoji) {
+        return { responded: false, reason: 'lost_initiative_no_reaction' };
+      }
+
+      const maxReactions = channelState.MULTI_AGENT_CONFIG.MAX_REACTIONS_PER_MESSAGE;
+      const claimed = await initiative.tryClaimReactionSlot(chatId, messageId, avatarId, maxReactions);
+      if (!claimed) {
+        return { responded: false, reason: 'lost_initiative_reaction_capped' };
+      }
+
+      const delayMs = Math.min(Math.max(reaction.delay, 0), 15000);
+      if (delayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+
+      try {
+        await fetchWithRetry(
+          `https://api.telegram.org/bot${token}/setMessageReaction`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              message_id: messageId,
+              reaction: [{ type: 'emoji', emoji: reaction.emoji }],
+            }),
+          },
+          TELEGRAM_TIMEOUT_MS,
+          TELEGRAM_RETRY_COUNT
+        );
+
+        logger.info('Sent reaction after losing initiative', {
+          avatarId,
+          chatId,
+          messageId,
+          emoji: reaction.emoji,
+          isFromBot,
+        });
+        return { responded: false, reason: 'lost_initiative_reacted' };
+      } catch (err) {
+        logger.warn('Failed to send reaction', { avatarId, chatId, messageId, error: err });
+        return { responded: false, reason: 'lost_initiative_reaction_failed' };
+      }
     }
 
     case 'skip':
@@ -1676,8 +1726,18 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     if (!hasContent) return ok();
     const userId = message.from?.id;
 
-    // Skip bot messages
-    if (message.from?.username?.endsWith('bot')) return ok();
+    // Skip messages sent by *this* bot (prevents self-triggered loops).
+    // Do not skip other bots — multi-avatar channels rely on bot-to-bot interaction.
+    const thisBotId = avatar.platforms.telegram?.botId;
+    const thisBotUsername = avatar.platforms.telegram?.botUsername;
+    if (message.from?.is_bot) {
+      const fromId = message.from.id;
+      const fromUsername = message.from.username;
+      const isSelf =
+        (typeof thisBotId === 'number' && fromId === thisBotId) ||
+        (Boolean(thisBotUsername) && fromUsername === thisBotUsername);
+      if (isSelf) return ok();
+    }
 
     // Deduplication: Check if we already processed this update (prevents infinite loops on Lambda timeout/retry)
     const shouldProcess = await startMessageProcessing(avatarId, update.update_id);

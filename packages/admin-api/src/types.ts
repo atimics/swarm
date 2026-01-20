@@ -754,6 +754,9 @@ export interface BufferedMessage {
   timestamp: number;
   replyToMessageId?: number;
   replyToUserId?: number;
+  replyToUserName?: string;
+  replyToUsername?: string;
+  replyToText?: string;
   isMention?: boolean;
   isReplyToBot?: boolean;
   media?: BufferedMedia[];
@@ -911,6 +914,10 @@ export interface InitiativeRoundRecord {
   winnerId?: string;       // Avatar who won initiative
   winnerRoll?: number;     // Winning roll total
   winnerRespondedAt?: number;
+
+  // Reaction coordination (META record)
+  reactionCount?: number;         // Number of reactions already applied for this triggering message
+  reactionAvatars?: string[];     // Avatars that have already reacted (dedupe)
 
   // For ROLL records (sk: ROLL#{avatarId})
   avatarId?: string;

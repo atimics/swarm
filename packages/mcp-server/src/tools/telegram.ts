@@ -89,6 +89,12 @@ export interface TelegramServices {
     | 'record_voice' | 'upload_voice' | 'upload_document' | 'choose_sticker'
     | 'find_location' | 'record_video_note' | 'upload_video_note'
   ) => Promise<void>;
+
+  /** Reply to a specific message in a chat */
+  replyToMessage?: (avatarId: string, chatId: number, replyToMessageId: number, text: string) => Promise<{ messageId: number }>;
+
+  /** React to a specific message in a chat */
+  reactToMessage?: (avatarId: string, chatId: number, messageId: number, emoji: string) => Promise<void>;
   
   // === Chat Modification Voting System ===
   
@@ -277,6 +283,88 @@ export const createTelegramTools = (services: TelegramServices) => [
           input.action || 'typing'
         );
         return { success: true, data: { message: `Showing ${input.action || 'typing'} indicator` } };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
+    },
+  }),
+
+  defineTool({
+    name: 'reply_to_message',
+    description: 'Reply to a specific Telegram message (keeps context/threading correct in groups and channels).',
+    category: 'telegram',
+    platforms: ['telegram'],
+    inputSchema: z.object({
+      chatId: z.number().optional().describe('Chat ID. Defaults to current chat.'),
+      replyToMessageId: z.number().optional().describe('Message ID to reply to. Defaults to the current incoming message.'),
+      text: z.string().min(1).max(4096).describe('Reply text'),
+    }),
+    execute: async (input, context): Promise<ToolResult> => {
+      if (!services.replyToMessage) {
+        return { success: false, error: 'Reply tool is not available' };
+      }
+
+      const chatId = typeof input.chatId === 'number'
+        ? input.chatId
+        : (context.conversationId ? parseInt(context.conversationId) : NaN);
+      const replyTo = typeof input.replyToMessageId === 'number'
+        ? input.replyToMessageId
+        : (context.replyToMessageId ? parseInt(context.replyToMessageId) : NaN);
+
+      if (!Number.isFinite(chatId)) {
+        return { success: false, error: 'No chat context available' };
+      }
+      if (!Number.isFinite(replyTo)) {
+        return { success: false, error: 'No reply target message available' };
+      }
+
+      try {
+        const result = await services.replyToMessage(context.avatarId, chatId, replyTo, input.text);
+        return {
+          success: true,
+          data: {
+            message: 'Reply sent',
+            messageId: result.messageId,
+          },
+        };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
+    },
+  }),
+
+  defineTool({
+    name: 'react_to_message',
+    description: 'React to a Telegram message with an emoji (e.g. 👍, ❤️).',
+    category: 'telegram',
+    platforms: ['telegram'],
+    inputSchema: z.object({
+      chatId: z.number().optional().describe('Chat ID. Defaults to current chat.'),
+      messageId: z.number().optional().describe('Message ID to react to. Defaults to the current incoming message.'),
+      emoji: z.string().min(1).max(16).describe('Emoji reaction'),
+    }),
+    execute: async (input, context): Promise<ToolResult> => {
+      if (!services.reactToMessage) {
+        return { success: false, error: 'Reaction tool is not available' };
+      }
+
+      const chatId = typeof input.chatId === 'number'
+        ? input.chatId
+        : (context.conversationId ? parseInt(context.conversationId) : NaN);
+      const messageId = typeof input.messageId === 'number'
+        ? input.messageId
+        : (context.replyToMessageId ? parseInt(context.replyToMessageId) : NaN);
+
+      if (!Number.isFinite(chatId)) {
+        return { success: false, error: 'No chat context available' };
+      }
+      if (!Number.isFinite(messageId)) {
+        return { success: false, error: 'No message target available' };
+      }
+
+      try {
+        await services.reactToMessage(context.avatarId, chatId, messageId, input.emoji);
+        return { success: true, data: { message: `Reacted with ${input.emoji}` } };
       } catch (err) {
         return { success: false, error: String(err) };
       }

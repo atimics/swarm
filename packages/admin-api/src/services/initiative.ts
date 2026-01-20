@@ -377,6 +377,49 @@ export async function markWinnerResponded(
 }
 
 /**
+ * Attempt to claim a reaction slot for a given initiative round.
+ *
+ * This prevents many bots from reacting to the same message at once.
+ * Returns true if the caller is allowed to react.
+ */
+export async function tryClaimReactionSlot(
+  chatId: number,
+  messageId: number,
+  avatarId: string,
+  maxReactions: number
+): Promise<boolean> {
+  const pk = `INITIATIVE#${chatId}#${messageId}`;
+
+  try {
+    await dynamoClient.send(
+      new UpdateCommand({
+        TableName: ADMIN_TABLE,
+        Key: { pk, sk: 'META' },
+        UpdateExpression:
+          'SET reactionCount = if_not_exists(reactionCount, :zero) + :one, reactionAvatars = list_append(if_not_exists(reactionAvatars, :emptyList), :avatarList)',
+        ConditionExpression:
+          '(attribute_not_exists(reactionCount) OR reactionCount < :max) AND (attribute_not_exists(reactionAvatars) OR NOT contains(reactionAvatars, :avatarId))',
+        ExpressionAttributeValues: {
+          ':zero': 0,
+          ':one': 1,
+          ':max': maxReactions,
+          ':emptyList': [],
+          ':avatarList': [avatarId],
+          ':avatarId': avatarId,
+        },
+      })
+    );
+
+    return true;
+  } catch (err: unknown) {
+    if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+      return false;
+    }
+    throw err;
+  }
+}
+
+/**
  * Get the current state of an initiative round.
  */
 export async function getInitiativeRound(
