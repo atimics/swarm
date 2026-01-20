@@ -153,9 +153,14 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       // Send to message queue for processing
       await sqsClient.send(new SendMessageCommand({
         QueueUrl: MESSAGE_QUEUE_URL,
-        MessageBody: JSON.stringify(envelope),
-        MessageGroupId: envelope.conversationId,
-        MessageDeduplicationId: `twitter-mention-${envelope.messageId}`,
+        MessageBody: JSON.stringify({
+          envelope,
+          enqueuedAt: Date.now(),
+          attempts: 0,
+          maxAttempts: 3,
+        }),
+        MessageGroupId: `${AVATAR_ID}#${envelope.conversationId}`,
+        MessageDeduplicationId: `twitter-mention-${AVATAR_ID}-${envelope.messageId}`,
       }));
 
       logger.info('Queued mention for processing', {

@@ -624,8 +624,16 @@ export interface ToolCall {
   input: unknown;
 }
 
+export interface MediaServiceGenerateOptions {
+  avatarId?: string;
+  platform?: string;
+  aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9';
+  saveToGallery?: boolean;
+  checkCredits?: boolean;
+}
+
 export interface MediaService {
-  generateImage(prompt: string, config: MediaConfig['image']): Promise<GeneratedMedia>;
+  generateImage(prompt: string, config: MediaConfig['image'], options?: MediaServiceGenerateOptions): Promise<GeneratedMedia>;
   generateVideo(prompt: string, config: NonNullable<MediaConfig['video']>): Promise<GeneratedMedia>;
   uploadToS3(buffer: Buffer, key: string, contentType: string): Promise<string>;
 }

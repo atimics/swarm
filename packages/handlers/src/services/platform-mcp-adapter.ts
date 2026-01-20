@@ -46,7 +46,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // Media Services
     // =========================================================================
     media: {
-      generateImage: async (params: { prompt: string; aspectRatio?: string }) => {
+      generateImage: async (params: { prompt: string; aspectRatio?: string; platform?: string }) => {
         if (!mediaService) {
           throw new Error('Media service not configured');
         }
@@ -55,11 +55,16 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
         const aspectRatio = validRatios.includes(params.aspectRatio as typeof validRatios[number])
           ? params.aspectRatio as typeof validRatios[number]
           : '1:1';
-        const config = {
+        const mediaConfig = {
           ...avatarConfig.media.image,
           aspectRatio,
         };
-        const result = await mediaService.generateImage(params.prompt, config);
+        const result = await mediaService.generateImage(params.prompt, mediaConfig, {
+          avatarId,
+          platform: params.platform,
+          saveToGallery: true,
+          checkCredits: true,
+        });
         return { id: result.s3Key || 'generated', url: result.url };
       },
 
@@ -71,12 +76,17 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
         return { jobId: result.s3Key || `video-${Date.now()}`, status: 'processing' };
       },
 
-      generateSticker: async (params: { prompt?: string }) => {
+      generateSticker: async (params: { prompt?: string; platform?: string }) => {
         if (!mediaService) {
           throw new Error('Media service not configured');
         }
         const stickerPrompt = `sticker style, ${params.prompt || 'cute character'}, white background, simple design`;
-        const result = await mediaService.generateImage(stickerPrompt, avatarConfig.media.image);
+        const result = await mediaService.generateImage(stickerPrompt, avatarConfig.media.image, {
+          avatarId,
+          platform: params.platform,
+          saveToGallery: true,
+          checkCredits: true,
+        });
         return { id: result.s3Key || 'sticker', url: result.url };
       },
 

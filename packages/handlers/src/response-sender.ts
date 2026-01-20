@@ -36,42 +36,49 @@ const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 const MEDIA_QUEUE_URL = process.env.MEDIA_QUEUE_URL;
 const STATE_TABLE = process.env.STATE_TABLE!;
 const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE!;
-const AVATAR_ID = process.env.AVATAR_ID!;
+const LEGACY_AVATAR_ID = process.env.AVATAR_ID;
+const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
 const IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
 
 // Services
 let stateService: ReturnType<typeof createStateService>;
 let activityService: ReturnType<typeof createActivityService>;
 let secretsService: ReturnType<typeof createSecretsService>;
-let platformRegistry: PlatformRegistry;
-let outboundSender: ReturnType<typeof createOutboundSender>;
-let secrets: Record<string, string>;
-let avatarConfig: AvatarConfig;
+
+type AvatarOutboundRuntime = {
+  avatarId: string;
+  avatarConfig: AvatarConfig;
+  secrets: Record<string, string>;
+  platformRegistry: PlatformRegistry;
+  outboundSender: ReturnType<typeof createOutboundSender>;
+};
+
+const outboundCache = new Map<string, AvatarOutboundRuntime>();
 
 function getResponseKey(response: SwarmResponse, recordMessageId: string): string {
   const anchor = response.replyToMessageId ?? response.generatedAt ?? recordMessageId;
   return `${response.conversationId}#${anchor}`;
 }
 
-async function wasResponseHandled(responseKey: string): Promise<boolean> {
+async function wasResponseHandled(avatarId: string, responseKey: string): Promise<boolean> {
   const result = await dynamo.send(new GetCommand({
     TableName: STATE_TABLE,
     Key: {
-      pk: `AVATAR#${AVATAR_ID}`,
+      pk: `AVATAR#${avatarId}`,
       sk: `RESPONSE#${responseKey}`,
     },
   }));
   return Boolean(result.Item);
 }
 
-async function markResponseHandled(responseKey: string): Promise<void> {
+async function markResponseHandled(avatarId: string, responseKey: string): Promise<void> {
   const now = Date.now();
   const ttl = Math.floor(now / 1000) + IDEMPOTENCY_TTL_SECONDS;
   try {
     await dynamo.send(new PutCommand({
       TableName: STATE_TABLE,
       Item: {
-        pk: `AVATAR#${AVATAR_ID}`,
+        pk: `AVATAR#${avatarId}`,
         sk: `RESPONSE#${responseKey}`,
         createdAt: now,
         ttl,
@@ -84,6 +91,7 @@ async function markResponseHandled(responseKey: string): Promise<void> {
     }
     logger.warn('Failed to record response idempotency', {
       error: error instanceof Error ? error.message : String(error),
+      avatarId,
       responseKey,
     });
   }
@@ -95,11 +103,15 @@ async function initialize(): Promise<void> {
   stateService = createStateService(STATE_TABLE);
   activityService = createActivityService(ACTIVITY_TABLE);
   secretsService = createSecretsService();
+}
 
-  // Load config and secrets
-  avatarConfig = await stateService.getAvatarConfig(AVATAR_ID) || {
-    id: AVATAR_ID,
-    name: AVATAR_ID,
+async function getOutboundRuntime(avatarId: string): Promise<AvatarOutboundRuntime> {
+  const cached = outboundCache.get(avatarId);
+  if (cached) return cached;
+
+  const avatarConfig = await stateService.getAvatarConfig(avatarId) || {
+    id: avatarId,
+    name: avatarId,
     version: '1.0.0',
     persona: '',
     platforms: {},
@@ -111,12 +123,10 @@ async function initialize(): Promise<void> {
     secrets: [],
   };
 
-  secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
-  );
+  const secretsId = process.env.SECRETS_ARN || `${SECRET_PREFIX}/${avatarId}/secrets`;
+  const secrets = await secretsService.getSecretJson<Record<string, string>>(secretsId);
 
-  // Initialize platform adapters
-  platformRegistry = new PlatformRegistry();
+  const platformRegistry = new PlatformRegistry();
 
   if (avatarConfig.platforms.telegram?.enabled && secrets.TELEGRAM_BOT_TOKEN) {
     platformRegistry.register(new TelegramAdapter(avatarConfig, secrets.TELEGRAM_BOT_TOKEN));
@@ -146,7 +156,18 @@ async function initialize(): Promise<void> {
     }));
   }
 
-  outboundSender = createOutboundSender(platformRegistry, activityService);
+  const outboundSender = createOutboundSender(platformRegistry, activityService);
+
+  const runtime: AvatarOutboundRuntime = {
+    avatarId,
+    avatarConfig,
+    secrets,
+    platformRegistry,
+    outboundSender,
+  };
+
+  outboundCache.set(avatarId, runtime);
+  return runtime;
 }
 
 export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
@@ -154,7 +175,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
   context: Context
 ) => {
   logger.setContext({
-    avatarId: AVATAR_ID,
+    avatarId: LEGACY_AVATAR_ID || 'shared',
     requestId: context.awsRequestId,
   });
 
@@ -184,7 +205,18 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       }
 
       const responseKey = getResponseKey(response, record.messageId);
-      if (await wasResponseHandled(responseKey)) {
+      const avatarId = response.avatarId || LEGACY_AVATAR_ID;
+      if (!avatarId) {
+        logger.error('Missing avatarId in response (shared sender requires response.avatarId)', {
+          event: 'validation_error',
+          subsystem: 'outbound',
+          messageId: record.messageId,
+        });
+        batchItemFailures.push({ itemIdentifier: record.messageId });
+        continue;
+      }
+
+      if (await wasResponseHandled(avatarId, responseKey)) {
         logger.info('Skipping already handled response', {
           event: 'response_skipped',
           subsystem: 'outbound',
@@ -193,6 +225,8 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
         });
         continue;
       }
+
+      const outboundRuntime = await getOutboundRuntime(avatarId);
 
       logger.setContext({
         platform: response.platform,
@@ -226,7 +260,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
               QueueUrl: MEDIA_QUEUE_URL,
               MessageBody: JSON.stringify({
                 jobId,
-                avatarId: AVATAR_ID,
+                avatarId,
                 conversationId: response.conversationId,
                 action,
                 response,
@@ -259,7 +293,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       }
 
       if (actionsToSend && actionsToSend.length > 0) {
-        const result = await outboundSender.send({ ...response, actions: actionsToSend });
+        const result = await outboundRuntime.outboundSender.send({ ...response, actions: actionsToSend });
         sentMessages = result.sentMessages;
         sendSuccess = result.success;
 
@@ -274,12 +308,12 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       for (const text of sentMessages) {
         try {
           await stateService.addMessageToChannel(
-            AVATAR_ID,
+            avatarId,
             response.conversationId,
             response.platform,
             {
               messageId: `bot_${randomUUID()}`,
-              sender: avatarConfig.name,
+              sender: outboundRuntime.avatarConfig.name,
               isBot: true,
               content: text,
               timestamp: Date.now(),
@@ -310,7 +344,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       if (shouldMarkResponse) {
         try {
           await stateService.markResponseSent(
-            AVATAR_ID,
+            avatarId,
             response.conversationId,
             `resp_${response.replyToMessageId || Date.now()}_${Date.now()}`
           );
@@ -322,7 +356,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       }
 
       if (sendSuccess) {
-        await markResponseHandled(responseKey);
+        await markResponseHandled(avatarId, responseKey);
       }
 
       if (actionsToSend && actionsToSend.length > 0 && !sendSuccess) {

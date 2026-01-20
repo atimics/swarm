@@ -246,7 +246,7 @@ export async function handler(
         attempts: 0,
         maxAttempts: 3,
       }),
-      MessageGroupId: envelope.conversationId, // FIFO ordering by conversation
+      MessageGroupId: `${AVATAR_ID}#${envelope.conversationId}`, // FIFO ordering by avatar+conversation
       MessageDeduplicationId: envelope.metadata.idempotencyKey,
     }));
 

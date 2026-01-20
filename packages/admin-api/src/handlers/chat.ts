@@ -47,9 +47,26 @@ const LLM_MAX_TOKENS = Number.isFinite(Number.parseInt(process.env.LLM_MAX_TOKEN
   ? Number.parseInt(process.env.LLM_MAX_TOKENS ?? '', 10)
   : DEFAULT_LLM_MAX_TOKENS;
 
-// Timeout settings
-const LLM_TIMEOUT_MS = 60_000; // 60 seconds for LLM calls (can be slow)
-const LLM_MAX_RETRIES = 2; // Retries for transient/empty responses (total attempts = 1 + retries)
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const isProdLike = NODE_ENV === 'production' || NODE_ENV === 'staging';
+
+function parseIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function clampIntMinMax(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+// Timeout/retry settings
+// IMPORTANT: `/chat` is served behind API Gateway (and sometimes CloudFront), which effectively
+// caps end-to-end response time (typically ~29s). Keep defaults within that budget.
+const LLM_TIMEOUT_MS = parseIntEnv('LLM_TIMEOUT_MS', isProdLike ? 20_000 : 60_000);
+const LLM_MAX_RETRIES = parseIntEnv('LLM_MAX_RETRIES', isProdLike ? 0 : 2); // total attempts = 1 + retries
+const LLM_MAX_STEPS = clampIntMinMax(parseIntEnv('LLM_MAX_STEPS', isProdLike ? 4 : 10), 1, 20);
 const LLM_RETRY_BASE_DELAY_MS = 250;
 const LLM_RETRY_MAX_DELAY_MS = 2_000;
 
@@ -985,7 +1002,7 @@ async function processChat(
           model: effectiveModel,
           input,
           maxOutputTokens,
-          ...(tools.length > 0 ? { tools, stopWhen: stepCountIs(10) } : {}),
+          ...(tools.length > 0 ? { tools, stopWhen: stepCountIs(LLM_MAX_STEPS) } : {}),
         });
 
         toolCalls = await modelResult.getToolCalls();
@@ -1214,7 +1231,7 @@ async function processChat(
   
   // When using fallback, we need to manually execute tools since we don't have the SDK's streaming interface
   if (toolCalls.length > 0 && usedFallback) {
-    const MAX_FALLBACK_TOOL_STEPS = 8;
+    const MAX_FALLBACK_TOOL_STEPS = LLM_MAX_STEPS;
     let fallbackStep = 0;
     let currentToolCalls = toolCalls;
     let currentAdminToolCalls = adminToolCalls;

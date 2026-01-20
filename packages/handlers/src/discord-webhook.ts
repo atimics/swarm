@@ -221,7 +221,7 @@ export async function handler(
         attempts: 0,
         maxAttempts: 3,
       }),
-      MessageGroupId: envelope.conversationId,
+      MessageGroupId: `${AVATAR_ID}#${envelope.conversationId}`,
       MessageDeduplicationId: envelope.metadata.idempotencyKey,
     }));
 

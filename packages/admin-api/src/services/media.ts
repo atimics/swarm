@@ -1,19 +1,25 @@
 /**
  * Media Generation Service
  * Handles image, video, and sticker generation with multiple providers
+ *
+ * Uses core media resolvers for model/API key resolution to avoid duplication.
  */
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand, DeleteCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuid } from 'uuid';
+import {
+  createModelResolver,
+  createApiKeyResolver,
+  type ResolverConfig,
+} from '@swarm/core/services';
 import * as mediaJobs from './media-jobs.js';
 import * as gallery from './gallery.js';
 import * as credits from './credits.js';
 import { _getSecretValueInternal } from './secrets.js';
-import { getReplicateVersion, DEFAULT_MODELS } from './models-registry.js';
+import { getReplicateVersion } from './models-registry.js';
 import type { MediaJob, GalleryItem, SecretType, AICapability } from '../types.js';
 
 const s3Client = new S3Client({});
@@ -26,6 +32,15 @@ const MEDIA_BUCKET = process.env.MEDIA_BUCKET!;
 const MEDIA_QUEUE_URL = process.env.MEDIA_QUEUE_URL;
 const CDN_URL = process.env.CDN_URL;
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
+
+// Core resolvers - use ADMIN_TABLE for admin-api context
+const resolverConfig: ResolverConfig = {
+  tableName: ADMIN_TABLE,
+  dynamoClient: dynamoClient,
+};
+// These functions always return defined resolvers, so we can use non-null assertion
+const coreModelResolver = createModelResolver(resolverConfig)!;
+const coreApiKeyResolver = createApiKeyResolver(resolverConfig)!;
 
 // Log CDN configuration on cold start
 if (!CDN_URL) {
@@ -160,200 +175,31 @@ function shouldRetryAsModelEndpoint(status: number, errorText: string, hadVersio
   if (status !== 422) return false;
   return /invalid version or not permitted/i.test(errorText);
 }
-const IMAGE_TRIAL_MAX_CREDITS = 3;      // Maximum credits that can be stored
-const IMAGE_TRIAL_DAILY_RECHARGE = 1;   // Credits recharged per day
-const REPLICATE_API_KEY_SECRET_ARN = process.env.REPLICATE_API_KEY_SECRET_ARN;
-
-// Cached system Replicate API key (fetched from Secrets Manager on first use)
-let cachedSystemReplicateKey: string | null = null;
+// Use core resolvers for API key resolution (includes trial credits) and model resolution
+// These replace the duplicated getImageGenerationApiKey, getSystemReplicateKey,
+// consumeImageGenerationTrial, and getConfiguredModel functions
 
 /**
- * Get the system Replicate API key.
- * Checks in order: env var, Secrets Manager ARN, GLOBAL secret.
+ * Get Replicate API key for image generation using core resolver
+ * Handles avatar key -> system key -> trial credits fallback
  */
-async function getSystemReplicateKey(): Promise<string | null> {
-  // Check env var first (fastest)
-  const envKey = process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY;
-  if (envKey) {
-    return envKey;
-  }
-
-  // Check cached key from Secrets Manager
-  if (cachedSystemReplicateKey) {
-    return cachedSystemReplicateKey;
-  }
-
-  // Try to fetch from Secrets Manager ARN
-  if (REPLICATE_API_KEY_SECRET_ARN) {
-    try {
-      const secretsClient = new SecretsManagerClient({});
-      const response = await secretsClient.send(new GetSecretValueCommand({
-        SecretId: REPLICATE_API_KEY_SECRET_ARN,
-      }));
-      if (response.SecretString) {
-        // Try to parse as JSON (may be { api_key: '...' })
-        try {
-          const parsed = JSON.parse(response.SecretString);
-          cachedSystemReplicateKey = parsed.api_key || parsed.apiKey || response.SecretString;
-        } catch {
-          cachedSystemReplicateKey = response.SecretString;
-        }
-        console.log('[Media] Loaded system Replicate API key from Secrets Manager');
-        return cachedSystemReplicateKey;
-      }
-    } catch (err) {
-      console.warn('[Media] Failed to get Replicate key from Secrets Manager:', err);
-    }
-  }
-
-  // Fall back to GLOBAL secret in DynamoDB
-  const globalKey = await _getSecretValueInternal(null, 'replicate_api_key', 'default');
-  if (globalKey) {
-    cachedSystemReplicateKey = globalKey;
-    console.log('[Media] Loaded system Replicate API key from GLOBAL secret');
-    return cachedSystemReplicateKey;
-  }
-
-  return null;
-}
-
-/**
- * Get the current credits for an avatar's free image generation.
- * Credits recharge at 1 per day, up to a maximum of 3.
- */
-async function getImageTrialCredits(avatarId: string): Promise<{ credits: number; lastRecharge: number }> {
-  try {
-    const result = await dynamoClient.send(new GetCommand({
-      TableName: ADMIN_TABLE,
-      Key: { pk: `AVATAR#${avatarId}`, sk: 'IMAGE_TRIAL' },
-    }));
-    
-    if (!result.Item) {
-      // New avatar - start with max credits
-      return { credits: IMAGE_TRIAL_MAX_CREDITS, lastRecharge: Date.now() };
-    }
-    
-    const stored = result.Item as { credits?: number; lastRecharge?: number };
-    return {
-      credits: stored.credits ?? IMAGE_TRIAL_MAX_CREDITS,
-      lastRecharge: stored.lastRecharge ?? Date.now(),
-    };
-  } catch (err) {
-    console.error('[Media] Failed to get image trial credits:', err);
-    // Default to allowing one attempt on error
-    return { credits: 1, lastRecharge: Date.now() };
-  }
-}
-
-/**
- * Calculate recharged credits based on time elapsed.
- * Recharges 1 credit per day, up to max.
- */
-function calculateRechargedCredits(currentCredits: number, lastRecharge: number): number {
-  const now = Date.now();
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const daysSinceRecharge = Math.floor((now - lastRecharge) / msPerDay);
-  
-  if (daysSinceRecharge <= 0) {
-    return currentCredits;
-  }
-  
-  const rechargedCredits = daysSinceRecharge * IMAGE_TRIAL_DAILY_RECHARGE;
-  return Math.min(currentCredits + rechargedCredits, IMAGE_TRIAL_MAX_CREDITS);
-}
-
-/**
- * Consume one image generation trial credit.
- * Credits recharge at 1 per day, up to a maximum of 3.
- */
-async function consumeImageGenerationTrial(avatarId: string): Promise<{ allowed: boolean; remaining: number }> {
-  const now = Date.now();
-  
-  // Get current state
-  const { credits: storedCredits, lastRecharge } = await getImageTrialCredits(avatarId);
-  
-  // Calculate recharged credits
-  const currentCredits = calculateRechargedCredits(storedCredits, lastRecharge);
-  
-  if (currentCredits <= 0) {
-    console.log(`[Media] Image trial exhausted for avatar=${avatarId}, credits=${currentCredits}`);
-    return { allowed: false, remaining: 0 };
-  }
-  
-  // Consume one credit and update
-  const newCredits = currentCredits - 1;
-  
-  try {
-    await dynamoClient.send(new PutCommand({
-      TableName: ADMIN_TABLE,
-      Item: {
-        pk: `AVATAR#${avatarId}`,
-        sk: 'IMAGE_TRIAL',
-        credits: newCredits,
-        lastRecharge: now, // Reset recharge timer when we update
-        updatedAt: now,
-      },
-    }));
-    
-    console.log(`[Media] Consumed image trial credit: avatar=${avatarId}, remaining=${newCredits}`);
-    return { allowed: true, remaining: newCredits };
-  } catch (err) {
-    console.error('[Media] Failed to consume image trial credit:', err);
-    // Allow on write error (optimistic)
-    return { allowed: true, remaining: Math.max(0, newCredits) };
-  }
-}
-
 async function getImageGenerationApiKey(avatarId: string): Promise<string> {
-  // Check for avatar-specific key first
-  const avatarey = await _getSecretValueInternal(avatarId, 'replicate_api_key', 'default');
-  if (avatarey) {
-    return avatarey;
+  const resolved = await coreApiKeyResolver(avatarId, 'replicate');
+  if (resolved.trialCreditsRemaining !== undefined) {
+    console.log(`[Media] Using system Replicate key for image generation: avatar=${avatarId}, remaining=${resolved.trialCreditsRemaining}`);
   }
-
-  // Check for system key (env var, Secrets Manager, or GLOBAL secret)
-  const systemKey = await getSystemReplicateKey();
-  if (!systemKey) {
-    throw new Error('No system Replicate API key configured. Please set up a global or avatar Replicate API key.');
-  }
-
-  // System key exists - check trial credits
-  const trial = await consumeImageGenerationTrial(avatarId);
-  if (!trial.allowed) {
-    throw new Error('Free image credits exhausted. Credits recharge at 1 per day (max 3). Set your own Replicate API key for unlimited use.');
-  }
-
-  console.log(`[Media] Using system Replicate key for image generation: avatar=${avatarId}, remaining=${trial.remaining}`);
-  return systemKey;
+  return resolved.key;
 }
 
 /**
- * Get the configured model for an avatar's capability.
- * Checks avatar's integration config first, then falls back to system defaults.
+ * Get the configured model for an avatar's capability using core resolver
  */
 async function getConfiguredModel(
   avatarId: string,
   capability: AICapability
 ): Promise<string> {
-  // Try to get avatar's integration config
-  try {
-    const result = await dynamoClient.send(new GetCommand({
-      TableName: ADMIN_TABLE,
-      Key: { pk: `AVATAR#${avatarId}`, sk: 'CONFIG' },
-    }));
-
-    const avatar = result.Item;
-    if (avatar?.integrations?.replicate?.models?.[capability]) {
-      const configuredModel = avatar.integrations.replicate.models[capability];
-      console.log(`[Media] Using configured ${capability} model for ${avatarId}: ${configuredModel}`);
-      return configuredModel;
-    }
-  } catch (err) {
-    console.warn(`[Media] Failed to get avatar config for model preference: ${err}`);
-  }
-
-  // Fall back to system default
-  return DEFAULT_MODELS[capability];
+  const resolved = await coreModelResolver(avatarId, capability);
+  return resolved.model;
 }
 
 interface GenerateImageOptions {
@@ -457,9 +303,19 @@ export async function getProviderApiKey(
   avatarId: string,
   provider: 'openrouter' | 'replicate' | 'openai'
 ): Promise<string | null> {
-  const secretTypes: Record<'openrouter' | 'replicate' | 'openai', SecretType> = {
+  // For replicate, use core resolver which handles avatar key -> system key -> trial credits
+  if (provider === 'replicate') {
+    try {
+      const resolved = await coreApiKeyResolver(avatarId, 'replicate');
+      return resolved.key;
+    } catch {
+      return null;
+    }
+  }
+
+  // For other providers, use the secrets service
+  const secretTypes: Record<'openrouter' | 'openai', SecretType> = {
     openrouter: 'openrouter_api_key',
-    replicate: 'replicate_api_key',
     openai: 'openai_api_key',
   };
 
@@ -467,12 +323,6 @@ export async function getProviderApiKey(
   let key = await _getSecretValueInternal(avatarId, secretTypes[provider], 'default');
   if (!key) {
     key = await _getSecretValueInternal(null, secretTypes[provider], 'default');
-  }
-
-  // Replicate can also be configured via env var or a Secrets Manager ARN.
-  // Reuse the system key resolver so status checks and background polling can still work.
-  if (!key && provider === 'replicate') {
-    key = await getSystemReplicateKey();
   }
 
   return key;

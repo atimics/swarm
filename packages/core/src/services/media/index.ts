@@ -1,39 +1,148 @@
 /**
  * Media Service - Image and video generation via multiple providers
+ *
+ * This service can be used standalone with basic functionality, or enhanced
+ * with injected dependencies for model resolution, credits, and gallery.
  */
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import type { MediaService, MediaConfig, GeneratedMedia } from '../../types/index.js';
+import type {
+  MediaServiceDependencies,
+  GenerateImageOptions,
+  GalleryItemOutput,
+} from './types.js';
+
+// Re-export types and resolvers
+export * from './types.js';
+export * from './resolvers.js';
+
+/**
+ * Extended result that includes gallery info
+ */
+export interface GeneratedMediaExtended extends GeneratedMedia {
+  galleryItem?: GalleryItemOutput;
+  trialCreditsRemaining?: number;
+}
 
 export class SwarmMediaService implements MediaService {
   private s3Client: S3Client;
   private bucketName: string;
   private cdnUrl?: string;
+  private deps?: MediaServiceDependencies;
 
   constructor(
     private readonly secrets: Record<string, string>,
     bucketName: string,
     cdnUrl?: string,
-    region: string = 'us-east-1'
+    region: string = 'us-east-1',
+    deps?: MediaServiceDependencies
   ) {
     this.s3Client = new S3Client({ region });
     this.bucketName = bucketName;
     this.cdnUrl = normalizeCdnUrl(cdnUrl);
+    this.deps = deps;
   }
 
-  async generateImage(prompt: string, config: MediaConfig['image']): Promise<GeneratedMedia> {
-    switch (config.provider) {
-      case 'openrouter':
-        return this.generateImageOpenRouter(prompt, config.model);
-      
-      case 'replicate':
-        return this.generateImageReplicate(prompt, config.model, config.aspectRatio);
-      
-      case 'dalle':
-        return this.generateImageDalle(prompt, config.model);
-      
-      default:
-        throw new Error(`Unknown image provider: ${config.provider}`);
+  /**
+   * Set dependencies after construction (for lazy initialization)
+   */
+  setDependencies(deps: MediaServiceDependencies): void {
+    this.deps = deps;
+  }
+
+  /**
+   * Generate image with optional enhanced features
+   */
+  async generateImage(
+    prompt: string,
+    config: MediaConfig['image'],
+    options?: GenerateImageOptions
+  ): Promise<GeneratedMediaExtended> {
+    const avatarId = options?.avatarId;
+
+    // Check credits if enabled and dependencies available
+    if (options?.checkCredits !== false && avatarId && this.deps?.checkCredits) {
+      const creditCheck = await this.deps.checkCredits(avatarId, 'generate_image');
+      if (!creditCheck.allowed) {
+        throw new Error(creditCheck.reason || 'Credit check failed');
+      }
     }
+
+    // Resolve model if dependencies available and avatarId provided
+    let resolvedConfig = config;
+    let trialCreditsRemaining: number | undefined;
+
+    if (avatarId && this.deps?.resolveModel) {
+      const resolved = await this.deps.resolveModel(avatarId, 'image_generation');
+      resolvedConfig = {
+        ...config,
+        provider: resolved.provider as 'replicate' | 'openrouter' | 'dalle',
+        model: resolved.model,
+      };
+    }
+
+    // Resolve API key if dependencies available
+    let apiKeyOverride: string | undefined;
+    if (avatarId && this.deps?.resolveApiKey && resolvedConfig.provider === 'replicate') {
+      try {
+        const resolved = await this.deps.resolveApiKey(avatarId, 'replicate');
+        apiKeyOverride = resolved.key;
+        trialCreditsRemaining = resolved.trialCreditsRemaining;
+      } catch (err) {
+        // Fall back to secrets if resolver fails
+        console.warn('[MediaService] API key resolver failed, using secrets:', err);
+      }
+    }
+
+    // Generate the image
+    let result: GeneratedMedia;
+    switch (resolvedConfig.provider) {
+      case 'openrouter':
+        result = await this.generateImageOpenRouter(prompt, resolvedConfig.model);
+        break;
+
+      case 'replicate':
+        result = await this.generateImageReplicate(
+          prompt,
+          resolvedConfig.model,
+          options?.aspectRatio || resolvedConfig.aspectRatio,
+          avatarId,
+          apiKeyOverride
+        );
+        break;
+
+      case 'dalle':
+        result = await this.generateImageDalle(prompt, resolvedConfig.model);
+        break;
+
+      default:
+        throw new Error(`Unknown image provider: ${resolvedConfig.provider}`);
+    }
+
+    // Consume credits if enabled
+    if (options?.checkCredits !== false && avatarId && this.deps?.consumeCredits) {
+      await this.deps.consumeCredits(avatarId, 'generate_image');
+    }
+
+    // Save to gallery if enabled
+    let galleryItem: GalleryItemOutput | undefined;
+    if (options?.saveToGallery !== false && avatarId && this.deps?.saveToGallery && result.s3Key) {
+      galleryItem = await this.deps.saveToGallery(avatarId, {
+        id: result.s3Key.split('/').pop()?.split('.')[0] || `img_${Date.now()}`,
+        type: 'image',
+        url: result.url,
+        s3Key: result.s3Key,
+        prompt,
+        model: resolvedConfig.model,
+        platform: options?.platform,
+      });
+    }
+
+    return {
+      ...result,
+      galleryItem,
+      trialCreditsRemaining,
+    };
   }
 
   async generateVideo(prompt: string, config: NonNullable<MediaConfig['video']>): Promise<GeneratedMedia> {
@@ -56,7 +165,7 @@ export class SwarmMediaService implements MediaService {
     if (this.cdnUrl) {
       return `${this.cdnUrl}/${key}`;
     }
-    
+
     return `https://${this.bucketName}.s3.amazonaws.com/${key}`;
   }
 
@@ -100,7 +209,7 @@ export class SwarmMediaService implements MediaService {
       throw new Error(`Failed to download generated image: ${imageResponse.status} - ${errorText}`);
     }
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-    
+
     const s3Key = `generated/${Date.now()}_${Math.random().toString(36).slice(2)}.png`;
     const s3Url = await this.uploadToS3(imageBuffer, s3Key, 'image/png');
 
@@ -116,15 +225,27 @@ export class SwarmMediaService implements MediaService {
   /**
    * Generate image using Replicate
    */
-  private async generateImageReplicate(prompt: string, model: string, aspectRatio?: string): Promise<GeneratedMedia> {
-    // Check for various key names
-    const apiKey = this.secrets['REPLICATE_API_TOKEN'] || this.secrets['REPLICATE_API_KEY'] || this.secrets['replicate_api_key'];
+  private async generateImageReplicate(
+    prompt: string,
+    model: string,
+    aspectRatio?: string,
+    avatarId?: string,
+    apiKeyOverride?: string
+  ): Promise<GeneratedMedia> {
+    // Use override or check for various key names
+    const apiKey = apiKeyOverride
+      || this.secrets['REPLICATE_API_TOKEN']
+      || this.secrets['REPLICATE_API_KEY']
+      || this.secrets['replicate_api_key'];
+
     if (!apiKey) {
       throw new Error('REPLICATE_API_TOKEN or REPLICATE_API_KEY not found in secrets');
     }
 
-    // Start prediction
-    const createResponse = await fetch('https://api.replicate.com/v1/predictions', {
+    // Use models endpoint for flexibility (handles both versioned and unversioned models)
+    const endpoint = `https://api.replicate.com/v1/models/${model}/predictions`;
+
+    const createResponse = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -132,8 +253,7 @@ export class SwarmMediaService implements MediaService {
         'Prefer': 'wait',
       },
       body: JSON.stringify({
-        version: model,
-        input: { 
+        input: {
           prompt,
           num_outputs: 1,
           output_format: 'png',
@@ -190,15 +310,18 @@ export class SwarmMediaService implements MediaService {
       throw new Error('No output from Replicate');
     }
 
-    // Upload to S3
+    // Upload to S3 with avatar-specific path if available
     const imageResponse = await fetch(imageUrl);
     if (!imageResponse.ok) {
       const errorText = await imageResponse.text();
       throw new Error(`Failed to download generated image: ${imageResponse.status} - ${errorText}`);
     }
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-    
-    const s3Key = `generated/${Date.now()}_${Math.random().toString(36).slice(2)}.png`;
+
+    const imageId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const s3Key = avatarId
+      ? `avatars/${avatarId}/images/${imageId}.png`
+      : `generated/${imageId}.png`;
     const s3Url = await this.uploadToS3(imageBuffer, s3Key, 'image/png');
 
     return {
@@ -251,7 +374,7 @@ export class SwarmMediaService implements MediaService {
       throw new Error(`Failed to download generated image: ${imageResponse.status} - ${errorText}`);
     }
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-    
+
     const s3Key = `generated/${Date.now()}_${Math.random().toString(36).slice(2)}.png`;
     const s3Url = await this.uploadToS3(imageBuffer, s3Key, 'image/png');
 
@@ -273,17 +396,17 @@ export class SwarmMediaService implements MediaService {
       throw new Error('REPLICATE_API_TOKEN or REPLICATE_API_KEY not found in secrets');
     }
 
-    // Start prediction
-    const createResponse = await fetch('https://api.replicate.com/v1/predictions', {
+    // Use models endpoint
+    const endpoint = `https://api.replicate.com/v1/models/${model}/predictions`;
+
+    const createResponse = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Token ${apiKey}`,
       },
       body: JSON.stringify({
-        version: model,
         input: { prompt },
-        // webhook: webhookUrl, // For async processing
       }),
     });
 
@@ -305,11 +428,11 @@ export class SwarmMediaService implements MediaService {
     while (result.status !== 'succeeded' && result.status !== 'failed' && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 2000));
       attempts++;
-      
+
       const pollResponse = await fetch(`https://api.replicate.com/v1/predictions/${result.id}`, {
         headers: { 'Authorization': `Token ${apiKey}` },
       });
-      
+
       result = await pollResponse.json() as typeof prediction;
     }
 
@@ -329,7 +452,7 @@ export class SwarmMediaService implements MediaService {
       throw new Error(`Failed to download generated video: ${videoResponse.status} - ${errorText}`);
     }
     const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
-    
+
     const s3Key = `generated/${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`;
     const s3Url = await this.uploadToS3(videoBuffer, s3Key, 'video/mp4');
 
@@ -344,14 +467,26 @@ export class SwarmMediaService implements MediaService {
 }
 
 /**
- * Factory function
+ * Factory function - basic version without dependencies
  */
 export function createMediaService(
   secrets: Record<string, string>,
   bucketName: string,
   cdnUrl?: string
-): MediaService {
+): SwarmMediaService {
   return new SwarmMediaService(secrets, bucketName, cdnUrl);
+}
+
+/**
+ * Factory function - enhanced version with all dependencies
+ */
+export function createMediaServiceWithDeps(
+  secrets: Record<string, string>,
+  bucketName: string,
+  cdnUrl: string | undefined,
+  deps: MediaServiceDependencies
+): SwarmMediaService {
+  return new SwarmMediaService(secrets, bucketName, cdnUrl, 'us-east-1', deps);
 }
 
 function normalizeCdnUrl(cdnUrl?: string): string | undefined {

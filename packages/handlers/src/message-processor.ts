@@ -18,7 +18,8 @@ import { DEFAULT_LLM_MODEL } from '@swarm/core';
 import {
   createStateService,
   createSecretsService,
-  createMediaService,
+  createMediaServiceWithDeps,
+  createMediaDependencies,
   logger,
   MessageQueueItemSchema,
   extractThinking,
@@ -59,9 +60,9 @@ function getRequiredEnv(name: string): string {
 // Environment variables - validated on first use
 let _responseQueueUrl: string | undefined;
 let _stateTable: string | undefined;
-let _avatarId: string | undefined;
 let _mediaBucket: string | undefined;
 let _cdnUrl: string | undefined;
+let _secretPrefix: string | undefined;
 
 function getResponseQueueUrl(): string {
   if (!_responseQueueUrl) _responseQueueUrl = getRequiredEnv('RESPONSE_QUEUE_URL');
@@ -71,11 +72,6 @@ function getResponseQueueUrl(): string {
 function getStateTable(): string {
   if (!_stateTable) _stateTable = getRequiredEnv('STATE_TABLE');
   return _stateTable;
-}
-
-function getAvatarId(): string {
-  if (!_avatarId) _avatarId = getRequiredEnv('AVATAR_ID');
-  return _avatarId;
 }
 
 function getMediaBucket(): string | undefined {
@@ -88,22 +84,37 @@ function getCdnUrl(): string | undefined {
   return _cdnUrl || undefined;
 }
 
+function getSecretPrefix(): string {
+  if (_secretPrefix === undefined) _secretPrefix = process.env.SECRET_PREFIX || 'swarm';
+  return _secretPrefix;
+}
+
 // Services (lazy initialized)
 let stateService: ReturnType<typeof createStateService>;
 let secretsService: ReturnType<typeof createSecretsService>;
-let secrets: Record<string, string>;
-let avatarConfig: AvatarConfig;
+type AvatarRuntime = {
+  avatarId: string;
+  avatarConfig: AvatarConfig;
+  secrets: Record<string, string>;
+  registry: ToolRegistry;
+};
+
+const avatarRuntimeCache = new Map<string, AvatarRuntime>();
 
 async function initialize(): Promise<void> {
   if (stateService) return;
 
   stateService = createStateService(getStateTable());
   secretsService = createSecretsService();
+}
 
-  // Load avatar config from state (set via admin dashboard)
-  avatarConfig = await stateService.getAvatarConfig(getAvatarId()) || {
-    id: getAvatarId(),
-    name: process.env.AVATAR_NAME || getAvatarId(),
+async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
+  const cached = avatarRuntimeCache.get(avatarId);
+  if (cached) return cached;
+
+  const avatarConfig = await stateService.getAvatarConfig(avatarId) || {
+    id: avatarId,
+    name: process.env.AVATAR_NAME || avatarId,
     version: '1.0.0',
     persona: process.env.AGENT_PERSONA || 'You are a helpful AI assistant.',
     platforms: {},
@@ -131,10 +142,8 @@ async function initialize(): Promise<void> {
     secrets: ['OPENROUTER_API_KEY', 'REPLICATE_API_KEY'],
   };
 
-  // Load secrets
-  secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${getAvatarId()}/secrets`
-  );
+  const secretsId = process.env.SECRETS_ARN || `${getSecretPrefix()}/${avatarId}/secrets`;
+  const secrets = await secretsService.getSecretJson<Record<string, string>>(secretsId);
 
   // If avatar secrets don't include Replicate, fall back to a system key (if configured).
   try {
@@ -152,6 +161,35 @@ async function initialize(): Promise<void> {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+
+  const mediaBucket = getMediaBucket();
+  const mediaDeps = createMediaDependencies({ tableName: getStateTable() });
+  const mediaService = mediaBucket
+    ? createMediaServiceWithDeps(secrets, mediaBucket, getCdnUrl(), mediaDeps)
+    : undefined;
+
+  const mcpServices = createPlatformMCPServices({
+    avatarId,
+    avatarConfig,
+    stateService,
+    mediaService,
+    secrets,
+    mediaBucket,
+    cdnUrl: getCdnUrl(),
+  });
+
+  const registry = new ToolRegistry();
+  registerAllTools(registry, mcpServices);
+
+  const runtime: AvatarRuntime = {
+    avatarId,
+    avatarConfig,
+    secrets,
+    registry,
+  };
+
+  avatarRuntimeCache.set(avatarId, runtime);
+  return runtime;
 }
 
 /**
@@ -222,7 +260,8 @@ function toTextOnlyMessages(messages: LLMMessage[]): LLMMessage[] {
 async function callLLM(
   messages: LLMMessage[],
   tools: Array<{ type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }>,
-  config: LLMConfig
+  config: LLMConfig,
+  secrets: Record<string, string>
 ): Promise<{
   content?: string;
   toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
@@ -332,7 +371,7 @@ async function callLLM(
 /**
  * Build system prompt from avatar persona and context
  */
-function buildSystemPrompt(envelope: SwarmEnvelope): string {
+function buildSystemPrompt(envelope: SwarmEnvelope, avatarConfig: AvatarConfig): string {
   let prompt = avatarConfig.persona;
 
   prompt += `\n\n## Current Context
@@ -434,7 +473,8 @@ function toolResultsToActions(
 async function maybeTranscribeAudio(
   envelope: SwarmEnvelope,
   toolClient: ReturnType<typeof createToolClient>,
-  toolContext: ToolContext
+  toolContext: ToolContext,
+  avatarConfig: AvatarConfig
 ): Promise<void> {
   const audioAttachment = envelope.content.media?.find(m => m.type === 'audio');
   if (!audioAttachment?.fileId) return;
@@ -467,13 +507,14 @@ async function maybeTranscribeAudio(
 async function generateResponse(
   envelope: SwarmEnvelope,
   toolClient: ReturnType<typeof createToolClient>,
-  toolContext: ToolContext
+  toolContext: ToolContext,
+  avatarRuntime: AvatarRuntime
 ): Promise<SwarmResponse> {
-  await maybeTranscribeAudio(envelope, toolClient, toolContext);
-  const systemPrompt = buildSystemPrompt(envelope);
+  await maybeTranscribeAudio(envelope, toolClient, toolContext, avatarRuntime.avatarConfig);
+  const systemPrompt = buildSystemPrompt(envelope, avatarRuntime.avatarConfig);
   const toolDefinitions = toolClient
     .getToolDefinitions()
-    .filter((tool: { name: string }) => avatarConfig.tools.includes(tool.name));
+    .filter((tool: { name: string }) => avatarRuntime.avatarConfig.tools.includes(tool.name));
   const enabledTools = toolClient.getOpenAIToolsForTools(toolDefinitions);
 
   // Build initial messages
@@ -496,7 +537,7 @@ async function generateResponse(
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
 
-    const llmResponse = await callLLM(messages, enabledTools, avatarConfig.llm);
+    const llmResponse = await callLLM(messages, enabledTools, avatarRuntime.avatarConfig.llm, avatarRuntime.secrets);
     totalTokens += 100; // Approximate, would need actual count from API
 
     if (!llmResponse.toolCalls || llmResponse.toolCalls.length === 0) {
@@ -599,39 +640,20 @@ async function generateResponse(
     replyToMessageId: envelope.messageId,
     actions,
     generatedAt: Date.now(),
-    llmModel: avatarConfig.llm.model,
+    llmModel: avatarRuntime.avatarConfig.llm.model,
     tokensUsed: totalTokens,
   };
 }
 
 export const handler = async (event: SQSEvent, context: Context): Promise<{ batchItemFailures: { itemIdentifier: string }[] }> => {
   logger.setContext({
-    avatarId: getAvatarId(),
+    avatarId: process.env.AVATAR_ID || 'shared',
     requestId: context.awsRequestId,
   });
 
   await initialize();
 
   const batchItemFailures: { itemIdentifier: string }[] = [];
-
-  // Create MCP services and tool client
-  const mediaBucket = getMediaBucket();
-  const mediaService = mediaBucket 
-    ? createMediaService(secrets, mediaBucket, getCdnUrl())
-    : undefined;
-
-  const mcpServices = createPlatformMCPServices({
-    avatarId: getAvatarId(),
-    avatarConfig,
-    stateService,
-    mediaService,
-    secrets,
-    mediaBucket,
-    cdnUrl: getCdnUrl(),
-  });
-
-  const registry = new ToolRegistry();
-  registerAllTools(registry, mcpServices);
 
   for (const record of event.Records) {
     try {
@@ -661,8 +683,21 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       }
       const item = parseResult.data;
       const envelope = item.envelope as SwarmEnvelope;
+      const avatarId = envelope.avatarId || process.env.AVATAR_ID;
+      if (!avatarId) {
+        logger.error('Missing avatarId (shared handler requires envelope.avatarId)', {
+          event: 'validation_error',
+          subsystem: 'chat',
+          messageId: record.messageId,
+        });
+        batchItemFailures.push({ itemIdentifier: record.messageId });
+        continue;
+      }
+
+      const avatarRuntime = await getAvatarRuntime(avatarId);
 
       logger.setContext({
+        avatarId,
         messageId: envelope.messageId,
         platform: envelope.platform,
         conversationId: envelope.conversationId,
@@ -682,7 +717,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       // =========================================================
 
       await stateService.getOrCreateChannelState(
-        getAvatarId(),
+        avatarId,
         envelope.conversationId,
         envelope.platform,
         envelope.metadata.chatType,
@@ -690,7 +725,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       );
 
       const updatedState = await stateService.addMessageToChannel(
-        getAvatarId(),
+        avatarId,
         envelope.conversationId,
         envelope.platform,
         envelopeToContextMessage(envelope),
@@ -731,23 +766,23 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
         await new Promise(resolve => setTimeout(resolve, decision.delay));
       }
 
-      await stateService.transitionState(getAvatarId(), envelope.conversationId, 'ACTIVE');
+      await stateService.transitionState(avatarId, envelope.conversationId, 'ACTIVE');
 
       // =========================================================
       // GENERATE RESPONSE WITH MCP TOOLS
       // =========================================================
 
-      const toolClient = createToolClient(registry, envelope.platform as 'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api');
+      const toolClient = createToolClient(avatarRuntime.registry, envelope.platform as 'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api');
       
       const toolContext: ToolContext = {
-        avatarId: getAvatarId(),
+        avatarId,
         platform: envelope.platform as 'telegram' | 'discord' | 'twitter' | 'admin-ui' | 'api',
         userId: envelope.sender.id,
         conversationId: envelope.conversationId,
         replyToMessageId: envelope.messageId,
       };
 
-      const response = await generateResponse(envelope, toolClient, toolContext);
+      const response = await generateResponse(envelope, toolClient, toolContext, avatarRuntime);
 
       logger.info('Response generated', {
         event: 'response_generated',
@@ -760,20 +795,20 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       await sqs.send(new SendMessageCommand({
         QueueUrl: getResponseQueueUrl(),
         MessageBody: JSON.stringify(response),
-        MessageGroupId: envelope.conversationId,
-        MessageDeduplicationId: `resp_${envelope.conversationId}_${envelope.messageId}`,
+        MessageGroupId: `${avatarId}#${envelope.conversationId}`,
+        MessageDeduplicationId: `resp_${avatarId}_${envelope.conversationId}_${envelope.messageId}`,
       }));
 
       // =========================================================
       // POST-RESPONSE STATE UPDATES
       // =========================================================
 
-      if (avatarConfig.behavior.cooldownMinutes > 0) {
+      if (avatarRuntime.avatarConfig.behavior.cooldownMinutes > 0) {
         await stateService.setUserCooldown({
-          avatarId: getAvatarId(),
+          avatarId,
           platform: envelope.platform,
           userId: envelope.sender.id,
-          cooldownUntil: Date.now() + (avatarConfig.behavior.cooldownMinutes * 60 * 1000),
+          cooldownUntil: Date.now() + (avatarRuntime.avatarConfig.behavior.cooldownMinutes * 60 * 1000),
         });
       }
 

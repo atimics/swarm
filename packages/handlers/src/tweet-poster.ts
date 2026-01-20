@@ -9,7 +9,8 @@ import {
   createSecretsService,
   createActivityService,
   createLLMService,
-  createMediaService,
+  createMediaServiceWithDeps,
+  createMediaDependencies,
   logger,
   DEFAULT_LLM_MODEL,
   DEFAULT_LLM_PROVIDER,
@@ -151,8 +152,9 @@ Respond with ONLY the tweet text, nothing else.`;
     // 30% chance to include an image
     if (Math.random() < 0.3) {
       try {
-        const mediaService = createMediaService(secrets, MEDIA_BUCKET, CDN_URL);
-        
+        const mediaDeps = createMediaDependencies({ tableName: STATE_TABLE });
+        const mediaService = createMediaServiceWithDeps(secrets, MEDIA_BUCKET, CDN_URL, mediaDeps);
+
         const imagePromptResponse = await llmService.generateResponse({
           avatarId: AVATAR_ID,
           systemPrompt: `Generate a short image prompt (under 100 chars) for an image to accompany this tweet: "${tweetText}"
@@ -170,7 +172,12 @@ Respond with ONLY the image prompt, nothing else.`,
           prompt: imagePrompt,
         });
 
-        const media = await mediaService.generateImage(imagePrompt, avatarConfig.media.image);
+        const media = await mediaService.generateImage(imagePrompt, avatarConfig.media.image, {
+          avatarId: AVATAR_ID,
+          platform: 'twitter',
+          saveToGallery: true,
+          checkCredits: true,
+        });
         mediaUrl = media.url;
         
         logger.info('Image generated', {

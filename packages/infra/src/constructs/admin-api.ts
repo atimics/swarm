@@ -299,6 +299,11 @@ export class AdminApiConstruct extends Construct {
         ADMIN_EMAILS: adminEmails,
         LLM_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions',
         LLM_MODEL: 'anthropic/claude-haiku-4.5',
+        // Keep /chat under API Gateway/CloudFront response time limits.
+        // These can be overridden per-environment via Lambda env vars if needed.
+        LLM_TIMEOUT_MS: '20000',
+        LLM_MAX_RETRIES: '0',
+        LLM_MAX_STEPS: '4',
         LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
         WEB_SEARCH_PROVIDER: webSearchProvider || 'serpapi',
         WEB_SEARCH_API_KEY_SECRET_ARN: webSearchApiKey?.secretArn || '',

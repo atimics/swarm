@@ -1,0 +1,401 @@
+/**
+ * Media Service Resolvers
+ *
+ * Implementations for model resolution, API key resolution, credits, and gallery.
+ * These can be configured with different DynamoDB tables to work with both
+ * handlers (STATE_TABLE) and admin-api (ADMIN_TABLE).
+ */
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+} from '@aws-sdk/lib-dynamodb';
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import type {
+  AICapability,
+  ResolvedModel,
+  ResolvedApiKey,
+  CreditCheckResult,
+  GalleryItemInput,
+  GalleryItemOutput,
+  MediaServiceDependencies,
+} from './types.js';
+import { DEFAULT_MODELS } from './types.js';
+
+/**
+ * Configuration for creating resolvers
+ */
+export interface ResolverConfig {
+  tableName: string;
+  region?: string;
+  dynamoClient?: DynamoDBDocumentClient;
+}
+
+/**
+ * Create a DynamoDB document client
+ */
+function createDocClient(region: string = 'us-east-1'): DynamoDBDocumentClient {
+  return DynamoDBDocumentClient.from(new DynamoDBClient({ region }), {
+    marshallOptions: { removeUndefinedValues: true },
+  });
+}
+
+// ============================================================================
+// MODEL RESOLUTION
+// ============================================================================
+
+/**
+ * Create a model resolver that checks avatar config in DynamoDB
+ */
+export function createModelResolver(config: ResolverConfig): MediaServiceDependencies['resolveModel'] {
+  const docClient = config.dynamoClient || createDocClient(config.region);
+
+  return async (avatarId: string, capability: AICapability): Promise<ResolvedModel> => {
+    try {
+      // Check avatar's integration config
+      const result = await docClient.send(new GetCommand({
+        TableName: config.tableName,
+        Key: { pk: `AVATAR#${avatarId}`, sk: 'CONFIG' },
+      }));
+
+      // Check integrations.replicate.models.{capability} (admin-api format)
+      const item = result.Item;
+      const configuredModel = item?.integrations?.replicate?.models?.[capability]
+        || item?.config?.media?.image?.model;  // Also check synced config format
+
+      if (configuredModel) {
+        console.log(`[MediaResolver] Using configured ${capability} model for ${avatarId}: ${configuredModel}`);
+        return {
+          model: configuredModel,
+          provider: 'replicate',
+        };
+      }
+    } catch (err) {
+      console.warn(`[MediaResolver] Failed to get avatar config: ${err}`);
+    }
+
+    // Fall back to default
+    const defaultModel = DEFAULT_MODELS[capability];
+    console.log(`[MediaResolver] Using default ${capability} model: ${defaultModel}`);
+    return {
+      model: defaultModel,
+      provider: 'replicate',
+    };
+  };
+}
+
+// ============================================================================
+// API KEY RESOLUTION
+// ============================================================================
+
+// Cached system key
+let cachedSystemReplicateKey: string | null = null;
+
+/**
+ * Get system Replicate API key from env, Secrets Manager, or DynamoDB
+ */
+async function getSystemReplicateKey(
+  docClient: DynamoDBDocumentClient,
+  tableName: string
+): Promise<string | null> {
+  // Check env var first (fastest)
+  const envKey = process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY;
+  if (envKey) {
+    return envKey;
+  }
+
+  // Check cached key
+  if (cachedSystemReplicateKey) {
+    return cachedSystemReplicateKey;
+  }
+
+  // Try Secrets Manager ARN
+  const secretArn = process.env.REPLICATE_API_KEY_SECRET_ARN;
+  if (secretArn) {
+    try {
+      const secretsClient = new SecretsManagerClient({});
+      const response = await secretsClient.send(new GetSecretValueCommand({
+        SecretId: secretArn,
+      }));
+      if (response.SecretString) {
+        try {
+          const parsed = JSON.parse(response.SecretString);
+          cachedSystemReplicateKey = parsed.api_key || parsed.apiKey || response.SecretString;
+        } catch {
+          cachedSystemReplicateKey = response.SecretString;
+        }
+        console.log('[MediaResolver] Loaded system Replicate API key from Secrets Manager');
+        return cachedSystemReplicateKey;
+      }
+    } catch (err) {
+      console.warn('[MediaResolver] Failed to get Replicate key from Secrets Manager:', err);
+    }
+  }
+
+  // Try GLOBAL secret in DynamoDB
+  try {
+    const result = await docClient.send(new GetCommand({
+      TableName: tableName,
+      Key: { pk: 'GLOBAL', sk: 'SECRET#replicate_api_key#default' },
+    }));
+    if (result.Item?.value) {
+      cachedSystemReplicateKey = result.Item.value;
+      console.log('[MediaResolver] Loaded system Replicate API key from GLOBAL secret');
+      return cachedSystemReplicateKey;
+    }
+  } catch (err) {
+    console.warn('[MediaResolver] Failed to get GLOBAL secret:', err);
+  }
+
+  return null;
+}
+
+/**
+ * Trial credit constants
+ */
+const TRIAL_MAX_CREDITS = 3;
+const TRIAL_DAILY_RECHARGE = 1;
+
+/**
+ * Get and update trial credits
+ */
+async function consumeTrialCredit(
+  docClient: DynamoDBDocumentClient,
+  tableName: string,
+  avatarId: string
+): Promise<{ allowed: boolean; remaining: number }> {
+  const now = Date.now();
+  const msPerDay = 24 * 60 * 60 * 1000;
+
+  // Get current state
+  let credits = TRIAL_MAX_CREDITS;
+  let lastRecharge = now;
+
+  try {
+    const result = await docClient.send(new GetCommand({
+      TableName: tableName,
+      Key: { pk: `AVATAR#${avatarId}`, sk: 'IMAGE_TRIAL' },
+    }));
+    if (result.Item) {
+      credits = result.Item.credits ?? TRIAL_MAX_CREDITS;
+      lastRecharge = result.Item.lastRecharge ?? now;
+    }
+  } catch (err) {
+    console.warn('[MediaResolver] Failed to get trial credits:', err);
+  }
+
+  // Calculate recharged credits
+  const daysSinceRecharge = Math.floor((now - lastRecharge) / msPerDay);
+  if (daysSinceRecharge > 0) {
+    credits = Math.min(credits + daysSinceRecharge * TRIAL_DAILY_RECHARGE, TRIAL_MAX_CREDITS);
+  }
+
+  if (credits <= 0) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  // Consume one credit
+  const newCredits = credits - 1;
+  try {
+    await docClient.send(new PutCommand({
+      TableName: tableName,
+      Item: {
+        pk: `AVATAR#${avatarId}`,
+        sk: 'IMAGE_TRIAL',
+        credits: newCredits,
+        lastRecharge: now,
+        updatedAt: now,
+      },
+    }));
+  } catch (err) {
+    console.warn('[MediaResolver] Failed to save trial credits:', err);
+  }
+
+  console.log(`[MediaResolver] Consumed trial credit: avatar=${avatarId}, remaining=${newCredits}`);
+  return { allowed: true, remaining: newCredits };
+}
+
+/**
+ * Create an API key resolver with avatar -> system -> trial fallback
+ */
+export function createApiKeyResolver(config: ResolverConfig): MediaServiceDependencies['resolveApiKey'] {
+  const docClient = config.dynamoClient || createDocClient(config.region);
+
+  return async (avatarId: string, provider: string): Promise<ResolvedApiKey> => {
+    if (provider !== 'replicate') {
+      throw new Error(`API key resolution not implemented for provider: ${provider}`);
+    }
+
+    // Check avatar-specific secret
+    try {
+      const result = await docClient.send(new GetCommand({
+        TableName: config.tableName,
+        Key: { pk: `AVATAR#${avatarId}`, sk: 'SECRET#replicate_api_key#default' },
+      }));
+      if (result.Item?.value) {
+        return { key: result.Item.value, source: 'avatar' };
+      }
+    } catch (err) {
+      console.warn('[MediaResolver] Failed to get avatar secret:', err);
+    }
+
+    // Check system key
+    const systemKey = await getSystemReplicateKey(docClient, config.tableName);
+    if (!systemKey) {
+      throw new Error('No Replicate API key configured. Set up an avatar or system key.');
+    }
+
+    // System key exists - check trial credits
+    const trial = await consumeTrialCredit(docClient, config.tableName, avatarId);
+    if (!trial.allowed) {
+      throw new Error('Free image credits exhausted. Credits recharge at 1/day (max 3). Set your own Replicate API key for unlimited use.');
+    }
+
+    return {
+      key: systemKey,
+      source: 'trial',
+      trialCreditsRemaining: trial.remaining,
+    };
+  };
+}
+
+// ============================================================================
+// CREDITS (using existing credits service pattern)
+// ============================================================================
+
+/**
+ * Create a credit checker
+ */
+export function createCreditChecker(config: ResolverConfig): MediaServiceDependencies['checkCredits'] {
+  const docClient = config.dynamoClient || createDocClient(config.region);
+
+  return async (avatarId: string, operation: string): Promise<CreditCheckResult> => {
+    // Check rate limiting in credits table
+    const now = Date.now();
+    const windowMs = 60 * 60 * 1000; // 1 hour window
+    const maxPerWindow = operation === 'generate_image' ? 20 : 10;
+
+    try {
+      const result = await docClient.send(new GetCommand({
+        TableName: config.tableName,
+        Key: { pk: `AVATAR#${avatarId}`, sk: `CREDITS#${operation}` },
+      }));
+
+      if (result.Item) {
+        const windowStart = result.Item.windowStart || 0;
+        const count = result.Item.count || 0;
+
+        if (now - windowStart < windowMs && count >= maxPerWindow) {
+          return {
+            allowed: false,
+            reason: `Rate limited: ${count}/${maxPerWindow} ${operation} calls in the last hour`,
+            remaining: 0,
+          };
+        }
+      }
+
+      return { allowed: true, remaining: maxPerWindow };
+    } catch (err) {
+      console.warn('[MediaResolver] Credit check failed, allowing:', err);
+      return { allowed: true };
+    }
+  };
+}
+
+/**
+ * Create a credit consumer
+ */
+export function createCreditConsumer(config: ResolverConfig): MediaServiceDependencies['consumeCredits'] {
+  const docClient = config.dynamoClient || createDocClient(config.region);
+
+  return async (avatarId: string, operation: string): Promise<void> => {
+    const now = Date.now();
+    const windowMs = 60 * 60 * 1000;
+
+    try {
+      const result = await docClient.send(new GetCommand({
+        TableName: config.tableName,
+        Key: { pk: `AVATAR#${avatarId}`, sk: `CREDITS#${operation}` },
+      }));
+
+      let windowStart = now;
+      let count = 0;
+
+      if (result.Item) {
+        windowStart = result.Item.windowStart || now;
+        count = result.Item.count || 0;
+
+        // Reset window if expired
+        if (now - windowStart >= windowMs) {
+          windowStart = now;
+          count = 0;
+        }
+      }
+
+      await docClient.send(new PutCommand({
+        TableName: config.tableName,
+        Item: {
+          pk: `AVATAR#${avatarId}`,
+          sk: `CREDITS#${operation}`,
+          windowStart,
+          count: count + 1,
+          updatedAt: now,
+        },
+      }));
+    } catch (err) {
+      console.warn('[MediaResolver] Failed to consume credit:', err);
+    }
+  };
+}
+
+// ============================================================================
+// GALLERY
+// ============================================================================
+
+/**
+ * Create a gallery saver
+ */
+export function createGallerySaver(config: ResolverConfig): MediaServiceDependencies['saveToGallery'] {
+  const docClient = config.dynamoClient || createDocClient(config.region);
+
+  return async (avatarId: string, item: GalleryItemInput): Promise<GalleryItemOutput> => {
+    const now = Date.now();
+    const galleryItem: GalleryItemOutput = {
+      ...item,
+      avatarId,
+      createdAt: now,
+    };
+
+    await docClient.send(new PutCommand({
+      TableName: config.tableName,
+      Item: {
+        pk: `AVATAR#${avatarId}`,
+        sk: `GALLERY#${now}#${item.id}`,
+        ...galleryItem,
+        postedToTwitter: false,
+        convertedToSticker: false,
+      },
+    }));
+
+    console.log(`[MediaResolver] Saved to gallery: avatar=${avatarId}, id=${item.id}`);
+    return galleryItem;
+  };
+}
+
+// ============================================================================
+// FACTORY: Create all dependencies at once
+// ============================================================================
+
+/**
+ * Create all media service dependencies for a given table
+ */
+export function createMediaDependencies(config: ResolverConfig): MediaServiceDependencies {
+  return {
+    resolveModel: createModelResolver(config),
+    resolveApiKey: createApiKeyResolver(config),
+    checkCredits: createCreditChecker(config),
+    consumeCredits: createCreditConsumer(config),
+    saveToGallery: createGallerySaver(config),
+  };
+}

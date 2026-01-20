@@ -14,6 +14,7 @@ import { AvatarConstruct } from '../constructs/avatar.js';
 import { AdminUi } from '../constructs/admin-ui.js';
 import { AdminApiConstruct } from '../constructs/admin-api.js';
 import { ClaudeCodeWorker } from '../constructs/claude-code-worker.js';
+import { SharedHandlers } from '../constructs/shared-handlers.js';
 import type { AvatarConfig } from '@swarm/core';
 
 type DynamoAttributeValue =
@@ -169,6 +170,16 @@ export interface SwarmStackProps extends cdk.StackProps {
   enableClaudeCode?: boolean;
 
   /**
+   * Deploy shared multi-tenant runtime based on @swarm/handlers (default: false)
+   */
+  enableSharedHandlers?: boolean;
+
+  /**
+   * Secrets Manager prefix (default: 'swarm')
+   */
+  secretPrefix?: string;
+
+  /**
    * Claude Code worker min capacity (default: 0 - scales to zero)
    */
   claudeCodeMinCapacity?: number;
@@ -189,6 +200,7 @@ export class SwarmStack extends cdk.Stack {
   public readonly adminUi: AdminUi;
   public readonly adminApi?: AdminApiConstruct;
   public readonly claudeCodeWorker?: ClaudeCodeWorker;
+  public readonly sharedHandlers?: SharedHandlers;
   public readonly avatars: Map<string, AvatarConstruct> = new Map();
 
   constructor(scope: Construct, id: string, props: SwarmStackProps) {
@@ -220,6 +232,8 @@ export class SwarmStack extends cdk.Stack {
       claudeCodeMinCapacity = 0,
       claudeCodeMaxCapacity = 5,
       claudeCodeUseOpenRouter = false,
+      enableSharedHandlers = false,
+      secretPrefix,
     } = props;
 
     // Create shared infrastructure
@@ -257,6 +271,20 @@ export class SwarmStack extends cdk.Stack {
         cdnUrl: this.shared.cdnUrl, // Use custom domain if configured
         // Dependency layer with sharp for image processing
         dependencyLayer: this.shared.dependencyLayer,
+      });
+    }
+
+    if (enableSharedHandlers) {
+      this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
+        environment,
+        handlersCodePath: handlersPath,
+        dependencyLayer: this.shared.dependencyLayer,
+        stateTable: this.shared.stateTable,
+        activityTable: this.shared.activityTable,
+        mediaBucket: this.shared.mediaBucket,
+        cdnUrl: this.shared.cdnUrl,
+        replicateApiKeyArn,
+        secretPrefix,
       });
     }
 

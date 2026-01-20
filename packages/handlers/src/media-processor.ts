@@ -9,7 +9,8 @@ import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { z } from 'zod';
 import { logger, DEFAULT_LLM_MODEL } from '@swarm/core';
 import {
-  createMediaService,
+  createMediaServiceWithDeps,
+  createMediaDependencies,
   createSecretsService,
   createStateService,
 } from '@swarm/core/services';
@@ -99,7 +100,7 @@ let stateService: ReturnType<typeof createStateService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let secrets: Record<string, string>;
 let avatarConfig: AvatarConfig;
-let mediaService: ReturnType<typeof createMediaService>;
+let mediaService: ReturnType<typeof createMediaServiceWithDeps>;
 
 async function initialize(): Promise<void> {
   if (stateService) return;
@@ -160,7 +161,9 @@ async function initialize(): Promise<void> {
     });
   }
 
-  mediaService = createMediaService(secrets, getMediaBucket(), process.env.CDN_URL);
+  // Create media service with dependencies for model resolution, gallery, and credits
+  const mediaDeps = createMediaDependencies({ tableName: getStateTable() });
+  mediaService = createMediaServiceWithDeps(secrets, getMediaBucket(), process.env.CDN_URL, mediaDeps);
 }
 
 function buildImagePrompt(action: { prompt: string; style?: string }, avatar: AvatarConfig): string {
@@ -253,7 +256,12 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
 
       if (item.action.type === 'take_selfie') {
         const prompt = buildImagePrompt(item.action, avatarConfig);
-        const media = await mediaService.generateImage(prompt, avatarConfig.media.image);
+        const media = await mediaService.generateImage(prompt, avatarConfig.media.image, {
+          avatarId: getAvatarId(),
+          platform: item.response.platform,
+          saveToGallery: true,
+          checkCredits: true,
+        });
         mediaAction = {
           type: 'send_media',
           mediaType: media.type === 'video' ? 'video' : 'image',
