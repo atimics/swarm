@@ -53,7 +53,7 @@ function SenderAvatar({ sender }: { sender?: MessageSender }) {
  */
 interface ParsedToolResult {
   type: 'image' | 'gallery' | 'audio' | 'success' | 'error' | 'info' | 'inhabit' | 'wallet' | 'tweet' | 'twitter_status' | 'model_list' | 'unknown';
-  data: Record<string, unknown> | Array<{ id: string; name: string; contextLength?: number }>;
+  data: unknown;
   imageUrl?: string;
   audioUrl?: string;
   message?: string;
@@ -80,8 +80,11 @@ interface ParsedToolResult {
  * Clean message content by removing raw JSON tool results
  * Returns cleaned content plus any extracted data for rich rendering
  */
-function processMessageContent(content: string): { 
-  cleanedContent: string; 
+function processMessageContent(
+  content: string,
+  options?: { stripAllJson?: boolean }
+): {
+  cleanedContent: string;
   embeddedImages: string[];
   embeddedAudios: string[];
   toolResults: ParsedToolResult[];
@@ -90,6 +93,7 @@ function processMessageContent(content: string): {
   const embeddedAudios: string[] = [];
   const toolResults: ParsedToolResult[] = [];
   let cleanedContent = content;
+  const stripAllJson = options?.stripAllJson === true;
   
   // Helper to detect if URL is an audio file
   const isAudioUrl = (url: string) => {
@@ -259,59 +263,150 @@ function processMessageContent(content: string): {
     
     return { type: 'unknown', data: parsed };
   };
+
+  const isProbablyToolJson = (value: unknown): boolean => {
+    if (!value) return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value !== 'object') return false;
+    const obj = value as Record<string, unknown>;
+    return (
+      'success' in obj ||
+      'error' in obj ||
+      'status' in obj ||
+      'jobId' in obj ||
+      'url' in obj ||
+      'resultUrl' in obj ||
+      'items' in obj ||
+      'action' in obj ||
+      'message' in obj ||
+      'publicKey' in obj ||
+      'tweetId' in obj ||
+      'connected' in obj
+    );
+  };
+
+  const extractJsonSnippets = (text: string) => {
+    const snippets: Array<{ start: number; endExclusive: number; parsed: unknown }> = [];
+    const stack: Array<'{' | '['> = [];
+    let startIndex: number | null = null;
+    let inString = false;
+    let escape = false;
+
+    const pushSnippet = (start: number, endExclusive: number) => {
+      const raw = text.slice(start, endExclusive).trim();
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && (typeof parsed === 'object' || Array.isArray(parsed))) {
+          snippets.push({ start, endExclusive, parsed });
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+
+      if (inString) {
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch === '\\') {
+          escape = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (ch === '{' || ch === '[') {
+        if (stack.length === 0) {
+          startIndex = i;
+        }
+        stack.push(ch as '{' | '[');
+        continue;
+      }
+
+      if (ch === '}' || ch === ']') {
+        const expectedOpen = ch === '}' ? '{' : '[';
+        if (stack.length === 0) continue;
+        const open = stack[stack.length - 1];
+        if (open !== expectedOpen) {
+          // Mismatched; reset
+          stack.length = 0;
+          startIndex = null;
+          continue;
+        }
+        stack.pop();
+        if (stack.length === 0 && startIndex != null) {
+          pushSnippet(startIndex, i + 1);
+          startIndex = null;
+        }
+      }
+    }
+
+    return snippets;
+  };
   
-  // Pattern 1: JSON arrays (gallery, job lists, etc)
-  // Match arrays that contain objects
-  const jsonArrayPattern = /\n?\s*\[\s*(?:\{[\s\S]*?\}\s*,?\s*)+\]\s*\n?/g;
-  const emptyArrayPattern = /\n?\s*\[\s*\]\s*\n?/g;
-  const emptyArrayLinePattern = /^\s*[^:\n]{1,60}:\s*\[\s*\]\s*$/gm;
-  const emptyArrayFencePattern = /```(?:json)?\s*\[\s*\]\s*```/g;
-  
-  // Remove empty arrays (e.g., "no pending jobs")
-  cleanedContent = cleanedContent.replace(emptyArrayPattern, '');
-  cleanedContent = cleanedContent.replace(emptyArrayLinePattern, '');
-  cleanedContent = cleanedContent.replace(emptyArrayFencePattern, '');
-  
-  // Process non-empty arrays
-  const arrayMatches = cleanedContent.match(jsonArrayPattern) || [];
-  for (const match of arrayMatches) {
-    try {
-      const parsed = JSON.parse(match.trim());
+  // Extract any JSON snippets from the content (handles nested JSON and code-fenced JSON)
+  const snippets = extractJsonSnippets(cleanedContent);
+  if (snippets.length > 0) {
+    for (const snip of snippets) {
+      const parsed = snip.parsed;
       if (Array.isArray(parsed)) {
-        // Check if it's a gallery (items have url field)
-        const hasUrls = parsed.some(item => item?.url);
+        const hasUrls = parsed.some(item => item && typeof item === 'object' && 'url' in (item as Record<string, unknown>));
         if (hasUrls) {
           for (const item of parsed) {
-            if (item?.url && typeof item.url === 'string') {
-              embeddedImages.push(item.url);
+            if (item && typeof item === 'object' && 'url' in item && typeof (item as Record<string, unknown>).url === 'string') {
+              embeddedImages.push((item as Record<string, unknown>).url as string);
             }
           }
           toolResults.push({ type: 'gallery', data: { items: parsed } });
-          cleanedContent = cleanedContent.replace(match, '');
+        } else if (stripAllJson) {
+          toolResults.push({ type: 'unknown', data: parsed });
         }
-      }
-    } catch {
-      // Not valid JSON, leave it
-    }
-  }
-  
-  // Pattern 2: Single JSON objects
-  // More aggressive pattern to catch tool results
-  const jsonObjectPattern = /\n?\s*\{\s*"[\w]+"\s*:\s*(?:"[^"]*"|true|false|null|\d+|\{[^}]*\}|\[[^\]]*\])\s*(?:,\s*"[\w]+"\s*:\s*(?:"[^"]*"|true|false|null|\d+|\{[^}]*\}|\[[^\]]*\])\s*)*\}\s*\n?/g;
-  
-  const objectMatches = cleanedContent.match(jsonObjectPattern) || [];
-  for (const match of objectMatches) {
-    try {
-      const parsed = JSON.parse(match.trim());
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const result = categorizeResult(parsed);
+      } else if (parsed && typeof parsed === 'object') {
+        const result = categorizeResult(parsed as Record<string, unknown>);
         if (result.type !== 'unknown') {
           toolResults.push(result);
-          cleanedContent = cleanedContent.replace(match, '');
+        } else if (stripAllJson && isProbablyToolJson(parsed)) {
+          toolResults.push({ type: 'unknown', data: parsed });
         }
       }
-    } catch {
-      // Not valid JSON, leave it
+    }
+
+    // Remove extracted snippets if we're stripping tool JSON (assistant/tool-result messages)
+    if (stripAllJson) {
+      // Remove from end to start so indices remain valid
+      for (const snip of [...snippets].sort((a, b) => b.start - a.start)) {
+        cleanedContent = cleanedContent.slice(0, snip.start) + cleanedContent.slice(snip.endExclusive);
+      }
+    } else {
+      // Only strip recognized tool results when not in strip-all mode
+      const recognizedRanges = snippets
+        .filter(s => {
+          const p = s.parsed;
+          if (Array.isArray(p)) {
+            return p.some(item => item && typeof item === 'object' && 'url' in (item as Record<string, unknown>));
+          }
+          if (p && typeof p === 'object') {
+            return categorizeResult(p as Record<string, unknown>).type !== 'unknown';
+          }
+          return false;
+        })
+        .sort((a, b) => b.start - a.start);
+      for (const snip of recognizedRanges) {
+        cleanedContent = cleanedContent.slice(0, snip.start) + cleanedContent.slice(snip.endExclusive);
+      }
     }
   }
   
@@ -446,8 +541,10 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
   
   // Process message content to extract embedded JSON, images, and audio
   const { cleanedContent, embeddedImages, embeddedAudios, toolResults } = useMemo(
-    () => message.content ? processMessageContent(message.content) : { cleanedContent: '', embeddedImages: [], embeddedAudios: [], toolResults: [] },
-    [message.content]
+    () => message.content
+      ? processMessageContent(message.content, { stripAllJson: message.isToolResult })
+      : { cleanedContent: '', embeddedImages: [], embeddedAudios: [], toolResults: [] },
+    [message.content, message.isToolResult, message.role]
   );
   
   const imagesFromTools = extractImagesFromToolCalls(message.toolCalls);
@@ -479,11 +576,12 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
   const tweetResults = toolResults.filter(r => r.type === 'tweet');
   const twitterStatusResults = toolResults.filter(r => r.type === 'twitter_status');
   const modelListResults = toolResults.filter(r => r.type === 'model_list');
+    const unknownResults = toolResults.filter(r => r.type === 'unknown');
   // Filter tool results that should be shown (not images/audio/wallet/twitter/models - those are rendered separately)
   const visibleToolResults = toolResults.filter(
     r => r.type !== 'image' && r.type !== 'gallery' && r.type !== 'audio' && 
          r.type !== 'inhabit' && r.type !== 'wallet' && r.type !== 'tweet' && 
-         r.type !== 'twitter_status' && r.type !== 'model_list'
+      r.type !== 'twitter_status' && r.type !== 'model_list' && r.type !== 'unknown'
   );
   
   // Filter out media generation tools for interactive display
@@ -509,6 +607,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
     twitterStatusResults.length > 0 ||
     modelListResults.length > 0 ||
     visibleToolResults.length > 0 ||
+    unknownResults.length > 0 ||
     images.length > 0 ||
     audios.length > 0 ||
     interactiveToolCalls.length > 0 ||
@@ -578,8 +677,100 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
             )}
 
             {cleanedContent && (
-              <div className={`prose prose-sm max-w-none ${isUser ? 'prose-invert' : 'dark:prose-invert'}`}>
-                <ReactMarkdown>{cleanedContent}</ReactMarkdown>
+              message.isToolResult ? (
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/40 px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-sm font-medium text-[var(--color-text)]">
+                      Tool Result
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(cleanedContent)}
+                      className="flex-shrink-0 p-1.5 rounded hover:bg-[var(--color-bg-secondary)] transition text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                      title="Copy output"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  </div>
+                  <pre className="mt-2 text-xs overflow-auto rounded-md bg-[var(--color-bg-primary)] px-3 py-2 text-[var(--color-text-secondary)]">
+                    {cleanedContent}
+                  </pre>
+                </div>
+              ) : (
+                <div className={`prose prose-sm max-w-none ${isUser ? 'prose-invert' : 'dark:prose-invert'}`}>
+                  <ReactMarkdown>{cleanedContent}</ReactMarkdown>
+                </div>
+              )
+            )}
+
+            {/* Render unknown JSON tool results as structured cards instead of raw JSON */}
+            {unknownResults.length > 0 && (
+              <div className={`space-y-2 ${cleanedContent ? 'mt-3' : ''}`}>
+                {unknownResults.map((result, idx) => {
+                  const pretty = (() => {
+                    try {
+                      return JSON.stringify(result.data, null, 2);
+                    } catch {
+                      return String(result.data);
+                    }
+                  })();
+
+                  const copy = () => {
+                    navigator.clipboard.writeText(pretty);
+                  };
+
+                  const keys = (result.data && typeof result.data === 'object' && !Array.isArray(result.data))
+                    ? Object.keys(result.data as Record<string, unknown>).slice(0, 6)
+                    : [];
+
+                  return (
+                    <div
+                      key={idx}
+                      className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/40 px-4 py-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-[var(--color-text)]">
+                            Tool Result
+                          </div>
+                          {keys.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {keys.map(k => (
+                                <span
+                                  key={k}
+                                  className="text-[10px] px-2 py-0.5 rounded bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)]"
+                                >
+                                  {k}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={copy}
+                          className="flex-shrink-0 p-1.5 rounded hover:bg-[var(--color-bg-secondary)] transition text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                          title="Copy JSON"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </button>
+                      </div>
+
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs text-[var(--color-text-secondary)] select-none">
+                          View details
+                        </summary>
+                        <pre className="mt-2 text-xs overflow-auto rounded-md bg-[var(--color-bg-primary)] px-3 py-2 text-[var(--color-text-secondary)]">
+                          {pretty}
+                        </pre>
+                      </details>
+                    </div>
+                  );
+                })}
               </div>
             )}
 

@@ -149,14 +149,30 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const [useGlobalKey, setUseGlobalKey] = useState(true);
   const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
   const [globalKeyAvailable, setGlobalKeyAvailable] = useState<boolean | null>(null);
+  const [hasAvatarKey, setHasAvatarKey] = useState<boolean | null>(null);
   const [availableModelsByCapability, setAvailableModelsByCapability] = useState<Record<string, ModelOption[]> | null>(null);
   const [modelsLoadError, setModelsLoadError] = useState<string | null>(null);
-  const didInitFromStatus = useRef(false);
+  const didInitFromStatus = useRef<string | null>(null);
 
   const args = toolCall.arguments as {
     integration: 'telegram' | 'twitter' | 'discord' | 'replicate' | 'openai' | 'anthropic' | 'openrouter';
     reason?: string;
   };
+
+  // Tool prompts can be re-used across chat turns. Reset transient state when a new
+  // tool call arrives so we always load the latest backend config.
+  useEffect(() => {
+    setSaved(false);
+    setSaveError(null);
+    setStatus('idle');
+    setTestResult(null);
+    setToken('');
+    setGlobalKeyAvailable(null);
+    setHasAvatarKey(null);
+    setUseGlobalKey(true);
+    setSelectedModels({});
+    didInitFromStatus.current = null;
+  }, [toolCall.id]);
 
   type IntegrationConfigType = {
     name: string;
@@ -357,7 +373,16 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
   useEffect(() => {
     if (!activeAgent?.id || !config?.isAiProvider) return;
-    if (didInitFromStatus.current) return;
+
+    const initKey = `${activeAgent.id}:${args.integration}`;
+    if (didInitFromStatus.current === initKey) return;
+    didInitFromStatus.current = initKey;
+
+    // Default UI state until backend responds
+    setGlobalKeyAvailable(null);
+    setHasAvatarKey(null);
+    setUseGlobalKey(true);
+    setSelectedModels({});
 
     const run = async () => {
       try {
@@ -370,6 +395,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         const payload = (await response.json().catch(() => ({}))) as {
           integrations?: Array<{
             type: string;
+            hasApiKey: boolean;
             hasGlobalKey: boolean;
             useGlobalKey: boolean;
             models?: Record<string, string>;
@@ -381,14 +407,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
         setGlobalKeyAvailable(Boolean(match.hasGlobalKey));
 
-        // Initialize UI state from backend config once.
-        if (!didInitFromStatus.current) {
-          // If backend says "use global" but there is no global/system key, force local key mode.
-          setUseGlobalKey(match.useGlobalKey && match.hasGlobalKey);
-          if (match.models) {
-            setSelectedModels(match.models);
-          }
-          didInitFromStatus.current = true;
+        // If backend says "use global" but there is no global/system key, force local key mode.
+        setUseGlobalKey(match.useGlobalKey && match.hasGlobalKey);
+        setHasAvatarKey(Boolean(match.hasApiKey));
+        if (match.models) {
+          setSelectedModels(match.models);
         }
       } catch {
         // Ignore status fetch errors; prompt remains usable.
@@ -676,6 +699,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                   className="w-full px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500"
                   disabled={disabled || isSubmitting}
                 />
+                {hasAvatarKey && (
+                  <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                    An API key is already saved for this avatar. For security it isn’t shown; entering a value here will replace it.
+                  </p>
+                )}
                 <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                   {config.helpText}
                   {config.helpUrl && (
