@@ -121,9 +121,18 @@ function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
     },
     media: {
       image: {
-        provider: 'openrouter',
-        model: 'openai/dall-e-3',
+        // Priority: integrations config > mediaConfig > default
+        provider: 'replicate',
+        model: record.integrations?.replicate?.models?.image_generation
+          || record.mediaConfig?.image?.model
+          || 'black-forest-labs/flux-schnell',
       },
+      video: (record.integrations?.replicate?.models?.video_generation || record.mediaConfig?.video?.model) ? {
+        provider: 'replicate' as const,
+        model: record.integrations?.replicate?.models?.video_generation
+          || record.mediaConfig?.video?.model
+          || 'minimax/video-01',
+      } : undefined,
     },
     scheduling: {},
     behavior: {
