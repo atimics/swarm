@@ -2,6 +2,7 @@
  * Handler exports
  */
 export { handler as telegramWebhook } from './telegram-webhook.js';
+export { handler as telegramWebhookShared } from './telegram-webhook-shared.js';
 export { handler as messageProcessor } from './message-processor.js';
 export { handler as responseSender } from './response-sender.js';
 export { handler as mediaProcessor } from './media-processor.js';

@@ -244,6 +244,20 @@ export class SwarmStack extends cdk.Stack {
       cdnCertificateArn: galleryCertificateArn,
     });
 
+    if (enableSharedHandlers) {
+      this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
+        environment,
+        handlersCodePath: handlersPath,
+        dependencyLayer: this.shared.dependencyLayer,
+        stateTable: this.shared.stateTable,
+        activityTable: this.shared.activityTable,
+        mediaBucket: this.shared.mediaBucket,
+        cdnUrl: this.shared.cdnUrl,
+        replicateApiKeyArn,
+        secretPrefix,
+      });
+    }
+
     // Create Admin API if Cloudflare Access is configured
     if (cloudflareTeamDomain && adminEmails) {
       this.adminApi = new AdminApiConstruct(this, 'AdminApi', {
@@ -271,20 +285,8 @@ export class SwarmStack extends cdk.Stack {
         cdnUrl: this.shared.cdnUrl, // Use custom domain if configured
         // Dependency layer with sharp for image processing
         dependencyLayer: this.shared.dependencyLayer,
-      });
-    }
-
-    if (enableSharedHandlers) {
-      this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
-        environment,
-        handlersCodePath: handlersPath,
-        dependencyLayer: this.shared.dependencyLayer,
-        stateTable: this.shared.stateTable,
-        activityTable: this.shared.activityTable,
-        mediaBucket: this.shared.mediaBucket,
-        cdnUrl: this.shared.cdnUrl,
-        replicateApiKeyArn,
-        secretPrefix,
+        // Prefer shared multi-tenant Telegram ingress when enabled
+        telegramWebhookFunction: this.sharedHandlers?.telegramWebhook,
       });
     }
 

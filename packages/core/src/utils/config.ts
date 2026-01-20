@@ -19,11 +19,14 @@ const TelegramConfigFileSchema = z.object({
   webhookPath: z.string().optional(),
   allowed_chat_types: z.array(z.enum(['private', 'group', 'supergroup', 'channel'])).optional(),
   allowedChatTypes: z.array(z.enum(['private', 'group', 'supergroup', 'channel'])).optional(),
+  allowed_chat_ids: z.array(z.union([z.string(), z.number()])).optional(),
+  allowedChatIds: z.array(z.union([z.string(), z.number()])).optional(),
 }).transform((val) => ({
   enabled: val.enabled,
   botUsername: val.botUsername || val.bot_username || '',
   webhookPath: val.webhookPath || val.webhook_path || '',
   allowedChatTypes: val.allowedChatTypes || val.allowed_chat_types,
+  allowedChatIds: (val.allowedChatIds || val.allowed_chat_ids)?.map(v => String(v)),
 }));
 
 const DiscordConfigFileSchema = z.object({

@@ -61,6 +61,11 @@ export interface TelegramConfig {
   botId?: number;
   webhookPath: string;
   allowedChatTypes?: ('private' | 'group' | 'supergroup' | 'channel')[];
+  /**
+   * Optional allowlist of Telegram chat IDs the bot is allowed to respond in.
+   * Use string form to safely represent large negative IDs (e.g. "-100123...").
+   */
+  allowedChatIds?: string[];
 }
 
 export interface DiscordConfig {
@@ -669,6 +674,7 @@ export const TelegramConfigSchema = z.object({
   botId: z.number().optional(),
   webhookPath: z.string(),
   allowedChatTypes: z.array(z.enum(['private', 'group', 'supergroup', 'channel'])).optional(),
+  allowedChatIds: z.array(z.string()).optional(),
 });
 
 export const DiscordConfigSchema = z.object({

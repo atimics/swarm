@@ -33,6 +33,7 @@ export class SharedHandlers extends Construct {
   public readonly messageQueue: sqs.Queue;
   public readonly responseQueue: sqs.Queue;
   public readonly mediaQueue: sqs.Queue;
+  public readonly telegramWebhook: lambda.Function;
 
   constructor(scope: Construct, id: string, props: SharedHandlersProps) {
     super(scope, id);
@@ -143,6 +144,18 @@ export class SharedHandlers extends Construct {
       role: lambdaRole,
       timeout: cdk.Duration.seconds(60),
       memorySize: 1024,
+      environment: commonEnv,
+    });
+
+    this.telegramWebhook = new lambda.Function(this, 'TelegramWebhookShared', {
+      functionName: `swarm-${environment}-telegram-webhook`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'telegram-webhook-shared.handler',
+      code: lambda.Code.fromAsset(handlersCodePath),
+      layers: [dependencyLayer],
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
       environment: commonEnv,
     });
 

@@ -137,6 +137,12 @@ export interface AdminApiConstructProps {
    * Lambda layer with shared dependencies (including sharp for image processing)
    */
   dependencyLayer?: lambda.ILayerVersion;
+
+  /**
+   * Optional Telegram webhook Lambda to use for /webhook/telegram/{avatarId}.
+   * When provided, Admin API will route the webhook to this function (preferred for shared runtime).
+   */
+  telegramWebhookFunction?: lambda.IFunction;
 }
 
 export class AdminApiConstruct extends Construct {
@@ -997,8 +1003,9 @@ export class AdminApiConstruct extends Construct {
       integration: walletAuthIntegration,
     });
 
-    // Shared Telegram webhook handler - handles ALL avatars dynamically
-    const telegramWebhookHandler = new nodejs.NodejsFunction(this, 'TelegramWebhookHandler', {
+    // Telegram webhook handler - by default use admin-api implementation,
+    // but prefer the shared @swarm/handlers multi-tenant webhook when provided.
+    const telegramWebhookHandler: lambda.IFunction = props.telegramWebhookFunction ?? new nodejs.NodejsFunction(this, 'TelegramWebhookHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/telegram-webhook.ts'),
       handler: 'handler',
@@ -1036,46 +1043,50 @@ export class AdminApiConstruct extends Construct {
       },
     });
 
-    // Grant permissions to telegram handler
-    this.table.grantReadWriteData(telegramWebhookHandler); // Need write for conversation history
-    if (stateTable) {
-      stateTable.grantReadData(telegramWebhookHandler);
+    if (!props.telegramWebhookFunction) {
+      const fn = telegramWebhookHandler as nodejs.NodejsFunction;
+
+      // Grant permissions to telegram handler
+      this.table.grantReadWriteData(fn); // Need write for conversation history
+      if (stateTable) {
+        stateTable.grantReadData(fn);
+      }
+      llmApiKey.grantRead(fn);
+      if (replicateApiKey) {
+        replicateApiKey.grantRead(fn);
+      }
+
+      // Grant S3 permissions for media operations
+      if (mediaBucket) {
+        mediaBucket.grantReadWrite(fn);
+      }
+
+      // Grant read access to avatar secrets (bot tokens and webhook secrets)
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: [
+          `arn:aws:secretsmanager:*:${cdk.Stack.of(this).account}:secret:swarm/*`,
+        ],
+      }));
+
+      (fn.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+        'Environment.Variables.MEDIA_CONVERT_FUNCTION',
+        mediaConvertHandler.functionName
+      );
+
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['lambda:InvokeFunction'],
+        resources: [mediaConvertHandler.functionArn],
+      }));
+
+      // Update TelegramWebhookHandler to use raw API Gateway URL for Replicate webhooks
+      (fn.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+        'Environment.Variables.REPLICATE_WEBHOOK_URL',
+        replicateWebhookUrl
+      );
     }
-    llmApiKey.grantRead(telegramWebhookHandler);
-    if (replicateApiKey) {
-      replicateApiKey.grantRead(telegramWebhookHandler);
-    }
-
-    // Grant S3 permissions for media operations
-    if (mediaBucket) {
-      mediaBucket.grantReadWrite(telegramWebhookHandler);
-    }
-
-    // Grant read access to avatar secrets (bot tokens and webhook secrets)
-    telegramWebhookHandler.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: [
-        `arn:aws:secretsmanager:*:${cdk.Stack.of(this).account}:secret:swarm/*`,
-      ],
-    }));
-
-    (telegramWebhookHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
-      'Environment.Variables.MEDIA_CONVERT_FUNCTION',
-      mediaConvertHandler.functionName
-    );
-
-    telegramWebhookHandler.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['lambda:InvokeFunction'],
-      resources: [mediaConvertHandler.functionArn],
-    }));
-
-    // Update TelegramWebhookHandler to use raw API Gateway URL for Replicate webhooks
-    (telegramWebhookHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
-      'Environment.Variables.REPLICATE_WEBHOOK_URL',
-      replicateWebhookUrl
-    );
 
     const telegramIntegration = new integrations.HttpLambdaIntegration(
       'TelegramWebhookIntegration',
