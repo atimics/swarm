@@ -1174,6 +1174,39 @@ async function processChat(
         pendingArgs = await buildModelSelectorPayload(mcpServices.models, avatarId, family);
       } else if (toolName === 'request_feature_toggle') {
         pendingArgs = await buildFeatureTogglePayload(avatarId, pendingArgs);
+      } else if (toolName === 'request_secret') {
+        // Legacy/low-level secret prompts can be confusing for integrations because we also have
+        // configure_integration panels. If the requested secret matches a known integration,
+        // normalize to configure_integration to keep UX consistent.
+        const secretType = typeof pendingArgs.secretType === 'string'
+          ? pendingArgs.secretType
+          : typeof pendingArgs.secretKey === 'string'
+            ? pendingArgs.secretKey
+            : undefined;
+
+        const secretTypeToIntegration: Record<string, 'telegram' | 'twitter' | 'discord' | 'replicate' | 'openai' | 'anthropic' | 'openrouter'> = {
+          telegram_bot_token: 'telegram',
+          telegram_webhook_secret: 'telegram',
+          twitter_api_key: 'twitter',
+          twitter_api_secret: 'twitter',
+          twitter_access_token: 'twitter',
+          twitter_access_secret: 'twitter',
+          discord_bot_token: 'discord',
+          replicate_api_key: 'replicate',
+          replicate_api_token: 'replicate',
+          openai_api_key: 'openai',
+          anthropic_api_key: 'anthropic',
+          openrouter_api_key: 'openrouter',
+        };
+
+        const integration = secretType ? secretTypeToIntegration[secretType] : undefined;
+        if (integration) {
+          pendingArgs = {
+            integration,
+            reason: typeof pendingArgs.reason === 'string' ? pendingArgs.reason : undefined,
+          };
+          uiToolName = 'configure_integration';
+        }
       } else if (toolName === 'request_twitter_connection' || toolName === 'twitter_request_integration') {
         pendingArgs = {
           integration: 'twitter',

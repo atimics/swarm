@@ -410,6 +410,39 @@ describe('Admin Chat - Tool-Call Flow Integration', () => {
         };
       }
 
+      // Match production behavior: normalize integration secret prompts to configure_integration.
+      if (uiToolName === 'request_secret') {
+        const secretType = typeof (pauseToolCall.arguments as any).secretType === 'string'
+          ? (pauseToolCall.arguments as any).secretType
+          : typeof (pauseToolCall.arguments as any).secretKey === 'string'
+            ? (pauseToolCall.arguments as any).secretKey
+            : undefined;
+
+        const secretTypeToIntegration: Record<string, string> = {
+          telegram_bot_token: 'telegram',
+          telegram_webhook_secret: 'telegram',
+          twitter_api_key: 'twitter',
+          twitter_api_secret: 'twitter',
+          twitter_access_token: 'twitter',
+          twitter_access_secret: 'twitter',
+          discord_bot_token: 'discord',
+          replicate_api_key: 'replicate',
+          replicate_api_token: 'replicate',
+          openai_api_key: 'openai',
+          anthropic_api_key: 'anthropic',
+          openrouter_api_key: 'openrouter',
+        };
+
+        const integration = secretType ? secretTypeToIntegration[secretType] : undefined;
+        if (integration) {
+          uiToolName = 'configure_integration';
+          uiArgs = {
+            integration,
+            reason: typeof (pauseToolCall.arguments as any).reason === 'string' ? (pauseToolCall.arguments as any).reason : undefined,
+          };
+        }
+      }
+
       // Build pendingToolCall
       const pendingToolCall = {
         id: pauseToolCall.id,
@@ -490,6 +523,24 @@ describe('Admin Chat - Tool-Call Flow Integration', () => {
     expect(result.history[1].tool_calls).toHaveLength(1);
     const tc = result.history[1].tool_calls![0] as { function: { name: string } };
     expect(tc.function.name).toBe('request_model_selection');
+  });
+
+  it('should normalize request_secret integration keys to configure_integration', () => {
+    const result = simulateToolCallFlow(
+      'Please configure Replicate',
+      [],
+      [
+        {
+          id: 'tool_123',
+          name: 'request_secret',
+          arguments: { secretType: 'replicate_api_key', reason: 'Need image generation' },
+        },
+      ]
+    );
+
+    expect(result.pendingToolCall).toBeDefined();
+    expect(result.pendingToolCall!.name).toBe('configure_integration');
+    expect(result.pendingToolCall!.arguments.integration).toBe('replicate');
   });
 
   it('should handle request_secret tool with label in arguments', () => {
