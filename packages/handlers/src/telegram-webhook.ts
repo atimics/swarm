@@ -12,6 +12,7 @@ import {
   createActivityService,
   createMessageEvaluator,
   logger,
+  DEFAULT_LLM_MODEL,
   type AvatarConfig,
 } from '@swarm/core';
 import { timingSafeEqual } from 'crypto';
@@ -83,7 +84,7 @@ async function initialize(): Promise<void> {
     },
     llm: {
       provider: 'openrouter',
-      model: 'anthropic/claude-haiku-4.5',
+      model: DEFAULT_LLM_MODEL,
       temperature: 0.8,
       maxTokens: 1024,
     },

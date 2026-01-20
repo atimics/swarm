@@ -19,6 +19,7 @@ import {
   type AvatarConfig,
   type ResponseAction,
 } from '@swarm/core';
+import { extractAvatarConfigFromStateItem } from './utils/extract-avatar-config.js';
 
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -74,7 +75,7 @@ async function getAvatarContext(avatarId: string) {
     })
   );
 
-  const config = (configResult.Item as AvatarConfig) || {
+  const config = extractAvatarConfigFromStateItem(configResult.Item) || {
     id: avatarId,
     name: avatarId,
     version: '1.0.0',
