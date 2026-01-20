@@ -46,7 +46,7 @@ export function isTelegramChatAllowed(
   envelope: {
     conversationId: string;
     sender: { id: string | number; platformUserId?: string | number };
-    metadata: { chatType: string };
+    metadata: { chatType?: string };
   },
   telegramCfg: { allowedChatIds?: string[]; allowedDmUserIds?: string[] } | undefined
 ): boolean {
@@ -238,6 +238,14 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     envelope.metadata.responseReason = evaluation.reason;
     envelope.metadata.priority = evaluation.priority;
 
+    const normalizedChatType =
+      envelope.metadata.chatType === 'private' ||
+      envelope.metadata.chatType === 'group' ||
+      envelope.metadata.chatType === 'supergroup' ||
+      envelope.metadata.chatType === 'channel'
+        ? envelope.metadata.chatType
+        : undefined;
+
     await stateService.addMessageToChannel(
       avatarId,
       envelope.conversationId,
@@ -250,7 +258,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         timestamp: envelope.timestamp,
       },
       undefined,
-      envelope.metadata.chatType,
+      normalizedChatType,
       envelope.metadata.chatTitle
     );
 
