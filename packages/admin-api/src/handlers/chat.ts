@@ -39,6 +39,7 @@ import { isPauseForInputTool } from '../tools/index.js';
 import * as avatars from '../services/avatars.js';
 import * as voice from '../services/voice.js';
 import * as memory from '../services/memory.js';
+import { resolveChatModel } from '../services/llm-model-resolution.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
 const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
@@ -1741,10 +1742,15 @@ export async function handler(
 
     // Process the chat with avatar context
     const avatarMaxTokens = avatarRecord?.llmConfig?.maxTokens;
+    const resolvedModel = resolveChatModel({
+      requestModel: model,
+      avatarModel: avatarRecord?.llmConfig?.model,
+      defaultModel: LLM_MODEL,
+    });
     const result = await processChat(message, history, session, avatarContext, {
       customSystemPrompt,
       attachments,
-      model,
+      model: resolvedModel,
       maxTokens: typeof avatarMaxTokens === 'number' ? avatarMaxTokens : undefined,
     });
 
@@ -1888,7 +1894,13 @@ export async function resumeChatAfterToolResult(params: {
   ];
 
   const avatarMaxTokens = avatarRecord?.llmConfig?.maxTokens;
+  const resolvedModel = resolveChatModel({
+    requestModel: undefined,
+    avatarModel: avatarRecord?.llmConfig?.model,
+    defaultModel: LLM_MODEL,
+  });
   const chatResult = await processChat(null, nextHistory, session, avatarContext, {
+    model: resolvedModel,
     maxTokens: typeof avatarMaxTokens === 'number' ? avatarMaxTokens : undefined,
   });
 

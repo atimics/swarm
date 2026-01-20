@@ -181,6 +181,12 @@ export class TwitterAdapter extends PlatformAdapter {
         try {
           // Download the media and upload to Twitter
           const response = await fetch(item.url);
+
+          if (!response.ok) {
+            console.error(`Failed to fetch media from ${item.url}: ${response.status} ${response.statusText}`);
+            continue;
+          }
+
           const buffer = Buffer.from(await response.arrayBuffer());
 
           // Detect MIME type from Content-Type header or URL
@@ -273,6 +279,12 @@ export class TwitterAdapter extends PlatformAdapter {
       for (const item of media.slice(0, 4)) {
         try {
           const response = await fetch(item.url);
+
+          if (!response.ok) {
+            console.error(`Failed to fetch media from ${item.url}: ${response.status} ${response.statusText}`);
+            continue;
+          }
+
           const buffer = Buffer.from(await response.arrayBuffer());
 
           // Detect MIME type from Content-Type header or URL

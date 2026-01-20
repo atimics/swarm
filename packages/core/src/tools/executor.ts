@@ -2,7 +2,17 @@
  * Platform Tool Executor
  * Executes tools on behalf of avatars when responding on platforms
  */
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import type { AvatarConfig, ToolCall, ResponseAction } from '../types/index.js';
+
+// Lazy-initialized S3 client
+let s3Client: S3Client | null = null;
+function getS3Client(): S3Client {
+  if (!s3Client) {
+    s3Client = new S3Client({});
+  }
+  return s3Client;
+}
 
 export interface ToolExecutorDependencies {
   avatarId: string;
@@ -227,10 +237,43 @@ async function executeImageGeneration(
       throw new Error(prediction.error || 'Image generation failed');
     }
 
-    const imageUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
+    const replicateUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
 
-    if (!imageUrl) {
+    if (!replicateUrl) {
       throw new Error('No image returned');
+    }
+
+    // Upload to S3 for permanent storage (Replicate URLs expire in ~1 hour)
+    let imageUrl = replicateUrl;
+    if (deps.mediaBucket) {
+      try {
+        const imageResponse = await fetch(replicateUrl);
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to download image: ${imageResponse.status}`);
+        }
+        const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+        const mediaId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const s3Key = `avatars/${deps.avatarId}/images/${mediaId}.png`;
+
+        await getS3Client().send(new PutObjectCommand({
+          Bucket: deps.mediaBucket,
+          Key: s3Key,
+          Body: imageBuffer,
+          ContentType: 'image/png',
+          CacheControl: 'max-age=31536000',
+        }));
+
+        // Use CDN URL if available, otherwise S3 URL
+        imageUrl = deps.cdnUrl
+          ? `${deps.cdnUrl.replace(/\/+$/, '')}/${s3Key}`
+          : `https://${deps.mediaBucket}.s3.amazonaws.com/${s3Key}`;
+
+        console.log(`Uploaded image to S3: ${imageUrl}`);
+      } catch (uploadError) {
+        // Log but don't fail - fall back to Replicate URL (will expire)
+        console.error('Failed to upload image to S3, using Replicate URL:', uploadError);
+      }
     }
 
     return {
