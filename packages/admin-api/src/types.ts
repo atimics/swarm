@@ -451,6 +451,54 @@ export interface MediaJob {
   ttl: number;             // DynamoDB TTL for auto-cleanup
 }
 
+// Chat job for async admin chat operations
+export interface ChatJob {
+  pk: string;              // CHATJOB#{jobId}
+  sk: string;              // STATUS
+  jobId: string;
+  avatarId: string;
+  type: 'chat';
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+
+  // For display/debugging (compat with other job UIs)
+  prompt: string;
+
+  // Who initiated the job (used only for auditing; access checks are avatar-based)
+  session: {
+    userId?: string;
+    email?: string;
+    isAdmin?: boolean;
+  };
+
+  // Full request payload to execute
+  request: {
+    message: string;
+    history: AdminChatMessage[];
+    avatar?: z.infer<typeof AvatarContextSchema>;
+    sender?: MessageSender;
+    systemPrompt?: string;
+    attachments?: Array<{ type: 'image' | 'file' | 'audio'; data: string; name?: string }>;
+    model?: string;
+  };
+
+  // Results (filled on completion)
+  result?: {
+    response: string;
+    history: AdminChatMessage[];
+    media?: Array<{ type: 'image' | 'video' | 'sticker' | 'audio'; url: string; prompt?: string; id?: string }>;
+    pendingJobs?: Array<{ jobId: string; type: 'image' | 'video' | 'sticker'; prompt?: string; purpose?: string }>;
+    avatarUpdates?: { profileImageUrl?: string; name?: string };
+    pendingToolCall?: { id: string; name: string; arguments: Record<string, unknown> };
+  };
+
+  error?: string;
+
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  ttl: number;
+}
+
 // Credit bucket for rate limiting
 export interface CreditBucket {
   pk: string;              // AVATAR#{avatarId}
@@ -514,6 +562,22 @@ export const AvatarContextSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   persona: z.string().optional(),
+  // Optional: when present, used to constrain tool availability/prompt generation.
+  enabledCategories: z.array(z.enum([
+    'secrets',
+    'wallets',
+    'profile',
+    'media',
+    'gallery',
+    'voice',
+    'telegram',
+    'twitter',
+    'discord',
+    'memory',
+    'nft',
+    'property',
+    'diagnostics',
+  ])).optional(),
 });
 
 // Chat request body schema

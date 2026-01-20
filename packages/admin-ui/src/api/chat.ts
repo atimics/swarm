@@ -65,6 +65,8 @@ export async function sendChatMessage(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      // Ask the API to return immediately with a jobId (avoids Lambda/API Gateway timeouts)
+      'Prefer': 'respond-async',
       // CF Access token is automatically included via cookie/header by Cloudflare
     },
     credentials: 'include',
@@ -90,6 +92,32 @@ export async function sendChatMessage(
       } : undefined,
     }),
   });
+
+  // Async path: API returns a jobId, UI polls /jobs until completion
+  if (response.status === 202) {
+    const data = await response.json().catch(() => null) as { jobId?: string } | null;
+    const jobId = data?.jobId;
+    if (!jobId) {
+      throw new Error('Async chat requested but no jobId returned');
+    }
+
+    const job = await pollJobCompletion(jobId);
+    if (job.type !== 'chat') {
+      throw new Error(`Unexpected job type for chat: ${job.type}`);
+    }
+    if (job.status !== 'completed') {
+      throw new Error(job.error || `Chat job ${job.status}`);
+    }
+
+    return {
+      response: job.response || '',
+      history: job.history || [],
+      media: job.media,
+      pendingJobs: job.pendingJobs,
+      pendingToolCall: job.pendingToolCall,
+      avatarUpdates: job.avatarUpdates,
+    };
+  }
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
@@ -215,7 +243,7 @@ export async function clearChatHistory(avatarId?: string): Promise<void> {
 
 export interface JobStatus {
   jobId: string;
-  type: 'image' | 'video' | 'sticker';
+  type: 'image' | 'video' | 'sticker' | 'chat';
   status: 'pending' | 'processing' | 'completed' | 'failed';
   prompt: string;
   createdAt: number;
@@ -224,6 +252,14 @@ export interface JobStatus {
   resultUrl?: string;
   url?: string; // Alias for resultUrl for compatibility
   error?: string;
+
+  // Chat job result fields (present when type === 'chat')
+  response?: string;
+  history?: ChatResponse['history'];
+  media?: MediaItem[];
+  pendingJobs?: PendingJob[];
+  pendingToolCall?: PendingToolCall;
+  avatarUpdates?: ChatResponse['avatarUpdates'];
 }
 
 /**

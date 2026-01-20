@@ -230,6 +230,20 @@ export class AdminApiConstruct extends Construct {
       },
     });
 
+    // Chat queue for async /chat jobs (admin UI polling)
+    const chatQueue = new sqs.Queue(this, 'ChatQueue', {
+      queueName: `swarm-chat-queue-${environment}`,
+      visibilityTimeout: cdk.Duration.seconds(600),
+      retentionPeriod: cdk.Duration.days(1),
+      deadLetterQueue: {
+        queue: new sqs.Queue(this, 'ChatDLQ', {
+          queueName: `swarm-chat-dlq-${environment}`,
+          retentionPeriod: cdk.Duration.days(14),
+        }),
+        maxReceiveCount: 3,
+      },
+    });
+
     // Secret for OpenRouter API key
     const llmApiKey = props.openRouterApiKeyArn
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'LLMApiKey', props.openRouterApiKeyArn)
@@ -307,7 +321,7 @@ export class AdminApiConstruct extends Construct {
         LLM_MODEL: 'anthropic/claude-haiku-4.5',
         // Keep /chat under API Gateway/CloudFront response time limits.
         // These can be overridden per-environment via Lambda env vars if needed.
-        LLM_TIMEOUT_MS: '20000',
+        LLM_TIMEOUT_MS: '27000',
         LLM_MAX_RETRIES: '0',
         LLM_MAX_STEPS: '4',
         LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
@@ -321,6 +335,7 @@ export class AdminApiConstruct extends Construct {
         REPLICATE_WEBHOOK_URL: replicateWebhookUrl,
         REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
         RESPONSE_QUEUE_URL: responseQueue.queueUrl,
+        CHAT_QUEUE_URL: chatQueue.queueUrl,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         // Twitter OAuth (for twitter_request_integration tool)
         TWITTER_APP_CREDENTIALS_ARN: twitterAppCredentialsSecret.secretArn,
@@ -370,6 +385,7 @@ export class AdminApiConstruct extends Construct {
 
     // Grant SQS permissions for async callbacks
     responseQueue.grantSendMessages(this.chatHandler);
+    chatQueue.grantSendMessages(this.chatHandler);
 
     // Grant secrets manager permissions for swarm secrets
     // CreateSecret needs wildcard since the secret doesn't exist yet
@@ -436,11 +452,130 @@ export class AdminApiConstruct extends Construct {
           apigateway.CorsHttpMethod.DELETE,
           apigateway.CorsHttpMethod.OPTIONS,
         ],
-        allowHeaders: ['Content-Type', 'Authorization', 'CF-Access-JWT-Assertion'],
+        allowHeaders: ['Content-Type', 'Authorization', 'CF-Access-JWT-Assertion', 'Prefer', 'Idempotency-Key'],
         allowCredentials: true,
         maxAge: cdk.Duration.hours(24),
       },
     });
+
+    // Chat Worker Lambda - processes async admin chat jobs
+    const chatWorkerHandler = new nodejs.NodejsFunction(this, 'ChatWorkerHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/chat-worker.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.seconds(600),
+      memorySize: 1024,
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
+      environment: {
+        ADMIN_TABLE: this.table.tableName,
+        STATE_TABLE: stateTable?.tableName || '',
+        SECRET_PREFIX: 'swarm',
+        // LLM config (worker is not API-gateway constrained)
+        LLM_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions',
+        LLM_MODEL: 'anthropic/claude-haiku-4.5',
+        LLM_TIMEOUT_MS: '120000',
+        LLM_MAX_RETRIES: '1',
+        LLM_MAX_STEPS: '6',
+        LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
+        WEB_SEARCH_PROVIDER: webSearchProvider || 'serpapi',
+        WEB_SEARCH_API_KEY_SECRET_ARN: webSearchApiKey?.secretArn || '',
+        API_DOMAIN: props.apiDomain || '',
+        NODE_ENV: environment,
+        // Media generation config
+        MEDIA_BUCKET: mediaBucket?.bucketName || '',
+        CDN_URL: cdnUrl || '',
+        REPLICATE_WEBHOOK_URL: replicateWebhookUrl,
+        REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
+        RESPONSE_QUEUE_URL: responseQueue.queueUrl,
+        // Twitter OAuth (for twitter_request_integration tool)
+        TWITTER_APP_CREDENTIALS_ARN: twitterAppCredentialsSecret.secretArn,
+        TWITTER_OAUTH_CALLBACK_URL: twitterOAuthCallbackUrl,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*', 'sharp'],
+        minify: true,
+        sourceMap: true,
+        commandHooks: {
+          beforeBundling: () => [],
+          beforeInstall: () => [],
+          afterBundling: (inputDir: string, outputDir: string) => [
+            `mkdir -p ${outputDir}/prompts/platforms`,
+            `cp -r ${inputDir}/../../../../prompts/platforms/* ${outputDir}/prompts/platforms/ 2>/dev/null || true`,
+          ],
+        },
+      },
+    });
+
+    // Worker permissions
+    this.table.grantReadWriteData(chatWorkerHandler);
+    llmApiKey.grantRead(chatWorkerHandler);
+    if (replicateApiKey) {
+      replicateApiKey.grantRead(chatWorkerHandler);
+    }
+    if (webSearchApiKey) {
+      webSearchApiKey.grantRead(chatWorkerHandler);
+    }
+    if (stateTable) {
+      stateTable.grantReadWriteData(chatWorkerHandler);
+    }
+    if (mediaBucket) {
+      mediaBucket.grantReadWrite(chatWorkerHandler);
+    }
+    twitterAppCredentialsSecret.grantRead(chatWorkerHandler);
+    responseQueue.grantSendMessages(chatWorkerHandler);
+
+    // Secrets Manager permissions (same as chat handler)
+    chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['secretsmanager:CreateSecret'],
+      resources: ['*'],
+      conditions: {
+        'StringLike': {
+          'secretsmanager:Name': 'swarm/*',
+        },
+      },
+    }));
+
+    chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'secretsmanager:UpdateSecret',
+        'secretsmanager:DeleteSecret',
+        'secretsmanager:PutSecretValue',
+        'secretsmanager:DescribeSecret',
+        'secretsmanager:GetSecretValue',
+        'secretsmanager:TagResource',
+      ],
+      resources: [
+        `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:swarm/*`,
+      ],
+    }));
+
+    chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['secretsmanager:ListSecrets'],
+      resources: ['*'],
+    }));
+
+    chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'kms:Decrypt',
+        'kms:GenerateDataKey',
+        'kms:GenerateDataKeyWithoutPlaintext',
+      ],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'kms:ViaService': `secretsmanager.${cdk.Stack.of(this).region}.amazonaws.com`,
+        },
+      },
+    }));
+
+    chatWorkerHandler.addEventSource(new lambdaEventSources.SqsEventSource(chatQueue, {
+      batchSize: 1,
+      maxBatchingWindow: cdk.Duration.seconds(2),
+    }));
 
     // Expose the API endpoint for CloudFront to use as origin
     this.apiEndpoint = this.api.apiEndpoint;
@@ -454,6 +589,12 @@ export class AdminApiConstruct extends Construct {
     // Update Lambda environment variables that need the API endpoint
     // ChatHandler
     (this.chatHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+      'Environment.Variables.REPLICATE_WEBHOOK_URL',
+      replicateWebhookUrl
+    );
+
+    // ChatWorkerHandler
+    (chatWorkerHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
       'Environment.Variables.REPLICATE_WEBHOOK_URL',
       replicateWebhookUrl
     );

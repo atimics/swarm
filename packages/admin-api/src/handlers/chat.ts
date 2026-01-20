@@ -7,10 +7,12 @@ import type {
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_MODEL } from '@swarm/core';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import { getCorsHeaders } from '../http/cors.js';
 import * as chatHistory from '../services/chat-history.js';
+import { createChatJob, createJobId } from '../services/chat-jobs.js';
 import { OpenRouter, fromChatMessages, hasExecuteFunction, toChatMessage, stepCountIs, type Tool } from '@openrouter/sdk';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
@@ -42,6 +44,7 @@ import * as memory from '../services/memory.js';
 import { configureIntegration } from '../services/integrations.js';
 import { syncAvatarConfig } from '../services/config-sync.js';
 import { resolveChatModel } from '../services/llm-model-resolution.js';
+import { mapAdminChatHandlerError } from './chat-error-mapping.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
 const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
@@ -51,6 +54,14 @@ const LLM_MAX_TOKENS = Number.isFinite(Number.parseInt(process.env.LLM_MAX_TOKEN
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const isProdLike = NODE_ENV === 'production' || NODE_ENV === 'staging';
+
+const CHAT_QUEUE_URL = process.env.CHAT_QUEUE_URL;
+const sqsClient = CHAT_QUEUE_URL ? new SQSClient({}) : null;
+
+function prefersAsyncResponse(event: APIGatewayProxyEventV2): boolean {
+  const prefer = event.headers['prefer'] || event.headers['Prefer'] || '';
+  return typeof prefer === 'string' && prefer.toLowerCase().includes('respond-async');
+}
 
 function parseIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -805,17 +816,10 @@ function clampInt(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.trunc(value)));
 }
 
-function parseOpenRouterStatusFromError(message: string): number | null {
-  const match = message.match(/OpenRouter API error:\s*(\d{3})\b/);
-  if (!match) return null;
-  const code = Number.parseInt(match[1]!, 10);
-  return Number.isFinite(code) ? code : null;
-}
-
 /**
  * Process a chat message, executing tools as needed
  */
-async function processChat(
+export async function processChat(
   userMessage: string | null,
   conversationHistory: AdminChatMessage[],
   session: UserSession,
@@ -1803,6 +1807,54 @@ export async function handler(
       avatarModel: avatarRecord?.llmConfig?.model,
       defaultModel: LLM_MODEL,
     });
+
+    // Prefer async response when configured to avoid API Gateway/CloudFront timeouts.
+    if (prefersAsyncResponse(event) && CHAT_QUEUE_URL && sqsClient) {
+      const jobId = createJobId();
+      const jobPrompt = message.length > 280 ? `${message.slice(0, 277)}...` : message;
+
+      await createChatJob({
+        jobId,
+        avatarId: avatar?.id ?? 'unknown',
+        type: 'chat',
+        prompt: jobPrompt,
+        session: {
+          userId: session.userId,
+          email: session.email,
+          isAdmin: session.isAdmin,
+        },
+        request: {
+          message,
+          history,
+          // Persist enabledCategories so the worker uses the same tool gating as the sync path.
+          avatar: avatarContext
+            ? {
+                id: avatarContext.id,
+                name: avatarContext.name,
+                description: avatarContext.description,
+                persona: avatarContext.persona,
+                enabledCategories: avatarContext.enabledCategories,
+              }
+            : undefined,
+          sender: parseResult.data.sender,
+          systemPrompt: customSystemPrompt,
+          attachments,
+          model: resolvedModel,
+        },
+      });
+
+      await sqsClient.send(new SendMessageCommand({
+        QueueUrl: CHAT_QUEUE_URL,
+        MessageBody: JSON.stringify({ jobId }),
+      }));
+
+      return {
+        statusCode: 202,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, status: 'pending' }),
+      };
+    }
+
     const result = await processChat(message, history, session, avatarContext, {
       customSystemPrompt,
       attachments,
@@ -1836,20 +1888,15 @@ export async function handler(
 
     return responsePayload;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
-
-    const upstreamStatus = parseOpenRouterStatusFromError(errorMessage);
-    const isCircuitOpen = /circuit breaker open/i.test(errorMessage);
-    const statusCode = upstreamStatus === 402 || upstreamStatus === 429
-      ? upstreamStatus
-      : isCircuitOpen
-        ? 503
-        : 500;
+    const mapped = mapAdminChatHandlerError(error);
+    const statusCode = mapped.statusCode;
+    const errorMessage = mapped.errorMessage;
 
     logger.error('Handler error', error, {
       event: 'handler_error',
       requestId: event.requestContext.requestId,
+      statusCode,
     });
 
     // Record error in auto-issues system
@@ -1867,13 +1914,7 @@ export async function handler(
       statusCode,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
-        error: statusCode === 402
-          ? 'LLM credits required'
-          : statusCode === 429
-            ? 'LLM rate limited'
-            : statusCode === 503
-              ? 'LLM temporarily unavailable'
-              : 'Internal server error',
+        error: mapped.publicError,
         message: errorMessage,
       }),
     };

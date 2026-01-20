@@ -44,7 +44,7 @@ export function getCorsHeaders(
   const allowMethods = options.allowMethods ?? 'GET, POST, PUT, DELETE, OPTIONS';
   const allowHeaders =
     options.allowHeaders ??
-    'Content-Type, Authorization, CF-Access-JWT-Assertion, x-internal-test-key';
+    'Content-Type, Authorization, CF-Access-JWT-Assertion, Prefer, Idempotency-Key, x-internal-test-key';
 
   return {
     'Access-Control-Allow-Origin': allowOrigin,

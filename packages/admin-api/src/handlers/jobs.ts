@@ -5,9 +5,11 @@
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
+  APIGatewayProxyStructuredResultV2,
 } from 'aws-lambda';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import * as mediaJobs from '../services/media-jobs.js';
+import * as chatJobs from '../services/chat-jobs.js';
 import * as avatars from '../services/avatars.js';
 import { getCorsHeaders } from '../http/cors.js';
 
@@ -36,7 +38,7 @@ export async function handler(
 
     const isAdmin = requireAdmin(session);
 
-    const ensureAvatarAccess = async (avatarId: string | undefined | null): Promise<APIGatewayProxyResultV2 | null> => {
+    const ensureAvatarAccess = async (avatarId: string | undefined | null): Promise<APIGatewayProxyStructuredResultV2 | null> => {
       if (isAdmin) return null;
 
       if (!avatarId) {
@@ -74,9 +76,41 @@ export async function handler(
 
     if (jobId) {
       // GET /jobs/{jobId} - Get specific job status
-      const job = await mediaJobs.getJob(jobId);
+      const mediaJob = await mediaJobs.getJob(jobId);
+      if (mediaJob) {
+        const accessError = await ensureAvatarAccess(mediaJob.avatarId);
+        if (accessError) {
+          // Hide existence if unauthorized.
+          if (accessError.statusCode === 400) return accessError;
+          return {
+            statusCode: 404,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ error: 'Job not found' }),
+          };
+        }
 
-      if (!job) {
+        return {
+          statusCode: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobId: mediaJob.jobId,
+            type: mediaJob.type,
+            status: mediaJob.status,
+            prompt: mediaJob.prompt,
+            createdAt: mediaJob.createdAt,
+            updatedAt: mediaJob.updatedAt,
+            completedAt: mediaJob.completedAt,
+            resultUrl: mediaJob.resultUrl,
+            // Add 'url' alias for frontend compatibility
+            url: mediaJob.resultUrl,
+            error: mediaJob.error,
+          }),
+        };
+      }
+
+      const chatJob = await chatJobs.getChatJob(jobId);
+
+      if (!chatJob) {
         return {
           statusCode: 404,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -84,10 +118,10 @@ export async function handler(
         };
       }
 
-      const accessError = await ensureAvatarAccess(job.avatarId);
+      const accessError = await ensureAvatarAccess(chatJob.avatarId);
       if (accessError) {
         // Hide existence if unauthorized.
-        if (typeof accessError !== 'string' && accessError.statusCode === 400) return accessError;
+        if (accessError.statusCode === 400) return accessError;
         return {
           statusCode: 404,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -99,17 +133,20 @@ export async function handler(
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jobId: job.jobId,
-          type: job.type,
-          status: job.status,
-          prompt: job.prompt,
-          createdAt: job.createdAt,
-          updatedAt: job.updatedAt,
-          completedAt: job.completedAt,
-          resultUrl: job.resultUrl,
-          // Add 'url' alias for frontend compatibility
-          url: job.resultUrl,
-          error: job.error,
+          jobId: chatJob.jobId,
+          type: chatJob.type,
+          status: chatJob.status,
+          prompt: chatJob.prompt,
+          createdAt: chatJob.createdAt,
+          updatedAt: chatJob.updatedAt,
+          completedAt: chatJob.completedAt,
+          error: chatJob.error,
+          response: chatJob.result?.response,
+          history: chatJob.result?.history,
+          media: chatJob.result?.media,
+          pendingJobs: chatJob.result?.pendingJobs,
+          pendingToolCall: chatJob.result?.pendingToolCall,
+          avatarUpdates: chatJob.result?.avatarUpdates,
         }),
       };
     }
@@ -128,24 +165,38 @@ export async function handler(
     const accessError = await ensureAvatarAccess(avatarId);
     if (accessError) return accessError;
 
-    const jobs = await mediaJobs.getPendingJobs(avatarId);
+    const [mediaPending, chatPending] = await Promise.all([
+      mediaJobs.getPendingJobs(avatarId),
+      chatJobs.getPendingChatJobs(avatarId),
+    ]);
+
+    const jobs = [
+      ...mediaPending.map(job => ({
+        jobId: job.jobId,
+        type: job.type,
+        status: job.status,
+        prompt: job.prompt,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+        resultUrl: job.resultUrl,
+        url: job.resultUrl,
+      })),
+      ...chatPending.map(job => ({
+        jobId: job.jobId,
+        type: job.type,
+        status: job.status,
+        prompt: job.prompt,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+      })),
+    ];
 
     return {
       statusCode: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         count: jobs.length,
-        jobs: jobs.map(job => ({
-          jobId: job.jobId,
-          type: job.type,
-          status: job.status,
-          prompt: job.prompt,
-          createdAt: job.createdAt,
-          updatedAt: job.updatedAt,
-          resultUrl: job.resultUrl,
-          // Add 'url' alias for frontend compatibility
-          url: job.resultUrl,
-        })),
+        jobs,
       }),
     };
   } catch (error) {
