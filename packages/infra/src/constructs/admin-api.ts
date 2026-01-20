@@ -580,6 +580,7 @@ export class AdminApiConstruct extends Construct {
       actions: [
         'secretsmanager:UpdateSecret',
         'secretsmanager:PutSecretValue',
+        'secretsmanager:RestoreSecret',
         'secretsmanager:DeleteSecret',
         'secretsmanager:DescribeSecret',
         'secretsmanager:GetSecretValue',
@@ -672,6 +673,12 @@ export class AdminApiConstruct extends Construct {
 
     this.api.addRoutes({
       path: '/avatars/{avatarId}/validate-token',
+      methods: [apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/validate-ai-key',
       methods: [apigateway.HttpMethod.POST],
       integration: avatarsIntegration,
     });
