@@ -512,7 +512,7 @@ describe('Twitter OAuth - Connection Status', () => {
 
     const result = await getConnectionStatus('avatar-123', mockDeps);
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       connected: true,
       username: 'testuser',
       userId: '12345',

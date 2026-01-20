@@ -49,7 +49,7 @@ async function initialize(): Promise<void> {
     platforms: {
       twitter: { enabled: true, username: '', features: ['scheduled_tweets'] },
     },
-    llm: { provider: DEFAULT_LLM_PROVIDER, model: DEFAULT_LLM_MODEL, temperature: 0.9, maxTokens: 280 },
+    llm: { provider: DEFAULT_LLM_PROVIDER, model: DEFAULT_LLM_MODEL, temperature: 0.9, maxTokens: 1000 },
     media: { image: { provider: 'replicate', model: 'black-forest-labs/flux-schnell' } },
     scheduling: {},
     behavior: { responseDelayMs: [0, 0], typingIndicator: false, ignoreBots: true, cooldownMinutes: 0, maxContextMessages: 0 },
@@ -113,12 +113,24 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
 
     // Generate tweet content using LLM
     const llmService = createLLMService(avatarConfig.llm, secrets);
-    
+
+    // Get character limit from config (premium accounts get 10,000 chars)
+    const charLimit = avatarConfig.platforms.twitter?.charLimit ?? 280;
+    const isPremium = charLimit > 280;
+
+    logger.info('Twitter character limit', {
+      event: 'char_limit_check',
+      subsystem: 'twitter',
+      charLimit,
+      isPremium,
+      verifiedType: avatarConfig.platforms.twitter?.verifiedType,
+    });
+
     const systemPrompt = `${avatarConfig.persona}
 
 You are posting a tweet. Generate a single tweet that:
 - Is engaging and authentic to your personality
-- Is under 280 characters
+- Is under ${charLimit} characters${isPremium ? ' (you have a premium account with extended limits)' : ''}
 - Does not use hashtags excessively (max 1-2 if any)
 - Feels natural, not promotional
 - Template type: ${TWEET_TEMPLATE}
@@ -133,10 +145,10 @@ Respond with ONLY the tweet text, nothing else.`;
     });
 
     let tweetText = response.content.trim();
-    
-    // Ensure tweet is under 280 chars
-    if (tweetText.length > 280) {
-      tweetText = tweetText.slice(0, 277) + '...';
+
+    // Ensure tweet is under the character limit
+    if (tweetText.length > charLimit) {
+      tweetText = tweetText.slice(0, charLimit - 3) + '...';
     }
 
     logger.info('Tweet generated', {

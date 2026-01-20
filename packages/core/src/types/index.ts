@@ -66,6 +66,11 @@ export interface TelegramConfig {
    * Use string form to safely represent large negative IDs (e.g. "-100123...").
    */
   allowedChatIds?: string[];
+  /**
+   * Optional allowlist of Telegram user IDs the bot is allowed to respond to in DMs.
+   * Use string form.
+   */
+  allowedDmUserIds?: string[];
 }
 
 export interface DiscordConfig {
@@ -103,6 +108,10 @@ export interface TwitterConfig {
   enabled: boolean;
   username: string;
   features: ('scheduled_tweets' | 'mention_replies' | 'dm_responses')[];
+  /** Character limit for tweets - 280 for free accounts, 10000 for Premium/Blue */
+  charLimit?: number;
+  /** Verified type from Twitter API - 'blue', 'business', 'government', or undefined */
+  verifiedType?: string;
 }
 
 export interface WebConfig {
@@ -675,6 +684,7 @@ export const TelegramConfigSchema = z.object({
   webhookPath: z.string(),
   allowedChatTypes: z.array(z.enum(['private', 'group', 'supergroup', 'channel'])).optional(),
   allowedChatIds: z.array(z.string()).optional(),
+  allowedDmUserIds: z.array(z.string()).optional(),
 });
 
 export const DiscordConfigSchema = z.object({

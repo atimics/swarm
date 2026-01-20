@@ -898,7 +898,7 @@ describe('Twitter Tools - Input Validation', () => {
       getConnectionStatus: async () => ({ connected: true }),
       startOAuthFlow: async () => null,
     });
-    const result = tool.inputSchema.safeParse({ text: 'x'.repeat(281) });
+    const result = tool.inputSchema.safeParse({ text: 'x'.repeat(10001) });
 
     expect(result.success).toBe(false);
   });

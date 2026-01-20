@@ -322,7 +322,15 @@ export interface AvatarRecord {
   };
 
   platforms: {
-    telegram?: { enabled: boolean; botUsername?: string; botId?: number };
+    telegram?: {
+      enabled: boolean;
+      botUsername?: string;
+      botId?: number;
+      /** Allowlist of chat IDs (groups/supergroups/channels) the bot may respond in. */
+      allowedChatIds?: string[];
+      /** Allowlist of user IDs the bot may respond to in DMs. */
+      allowedDmUserIds?: string[];
+    };
     twitter?: { enabled: boolean; username?: string };
     discord?: {
       enabled: boolean;

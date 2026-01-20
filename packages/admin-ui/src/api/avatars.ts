@@ -27,6 +27,9 @@ export interface PlatformConfig {
   botUsername?: string;
   username?: string;
   guildId?: string;
+  // Telegram-specific policy
+  allowedChatIds?: string[];
+  allowedDmUserIds?: string[];
 }
 
 export interface AvatarResponse {

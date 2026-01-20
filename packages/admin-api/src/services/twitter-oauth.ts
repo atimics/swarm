@@ -314,6 +314,29 @@ export async function completeOAuthFlow(
     // Use screenName from OAuth response (avoids rate-limited v2.me() call)
     const username = screenName;
 
+    // Fetch verified_type to determine character limit for premium accounts
+    // Premium/Blue users can post up to 10,000 characters vs 280 for free accounts
+    let verifiedType: string | undefined;
+    let charLimit = 280; // Default for free accounts
+    try {
+      const loggedInClient = new deps.TwitterApi({
+        appKey: creds.appKey,
+        appSecret: creds.appSecret,
+        accessToken,
+        accessSecret,
+      });
+      const meResponse = await loggedInClient.v2.me({ 'user.fields': ['verified_type'] });
+      verifiedType = meResponse.data.verified_type;
+      // Twitter Blue/Premium users get 10,000 character limit
+      if (verifiedType === 'blue' || verifiedType === 'business') {
+        charLimit = 10000;
+      }
+      console.log(`[TwitterOAuth] User @${username} verified_type=${verifiedType}, charLimit=${charLimit}`);
+    } catch (verifyError) {
+      // Non-fatal: continue with default 280 limit if we can't fetch verified_type
+      console.warn(`[TwitterOAuth] Could not fetch verified_type for @${username}:`, verifyError);
+    }
+
     // Store the access tokens in Secrets Manager
     await deps.secretsService.storeSecret(
       avatarId,
@@ -341,6 +364,8 @@ export async function completeOAuthFlow(
         sk: 'TWITTER#CONNECTION',
         username,
         userId,
+        verifiedType,
+        charLimit,
         connectedAt: Date.now(),
         connectedBy: session.email,
       },
@@ -390,6 +415,8 @@ export async function getConnectionStatus(avatarId: string, deps: TwitterOAuthSe
   connected: boolean;
   username?: string;
   userId?: string;
+  verifiedType?: string;
+  charLimit?: number;
   connectedAt?: number;
 }> {
   // First check DynamoDB metadata record (use consistent read to avoid stale data after reconnect)
@@ -400,13 +427,15 @@ export async function getConnectionStatus(avatarId: string, deps: TwitterOAuthSe
       sk: 'TWITTER#CONNECTION',
     },
     ConsistentRead: true,
-  })) as { Item?: { username?: string; userId?: string; connectedAt?: number } };
+  })) as { Item?: { username?: string; userId?: string; verifiedType?: string; charLimit?: number; connectedAt?: number } };
 
   if (result.Item) {
     return {
       connected: true,
       username: result.Item.username,
       userId: result.Item.userId,
+      verifiedType: result.Item.verifiedType,
+      charLimit: result.Item.charLimit ?? 280, // Default to 280 for legacy records
       connectedAt: result.Item.connectedAt,
     };
   }
@@ -437,10 +466,12 @@ export async function getConnectionStatus(avatarId: string, deps: TwitterOAuthSe
             accessSecret,
           });
 
-          // Verify tokens by fetching user info
-          const me = await client.v2.me();
+          // Verify tokens by fetching user info including verified_type
+          const me = await client.v2.me({ 'user.fields': ['verified_type'] });
           const username = me.data.username;
           const userId = me.data.id;
+          const verifiedType = me.data.verified_type;
+          const charLimit = (verifiedType === 'blue' || verifiedType === 'business') ? 10000 : 280;
 
           // Repair the metadata record
           await deps.dynamoClient.send(new PutCommand({
@@ -450,6 +481,8 @@ export async function getConnectionStatus(avatarId: string, deps: TwitterOAuthSe
               sk: 'TWITTER#CONNECTION',
               username,
               userId,
+              verifiedType,
+              charLimit,
               connectedAt: Date.now(),
               repairedAt: Date.now(),
             },
@@ -462,12 +495,16 @@ export async function getConnectionStatus(avatarId: string, deps: TwitterOAuthSe
             avatarId,
             username,
             userId,
+            verifiedType,
+            charLimit,
           }));
 
           return {
             connected: true,
             username,
             userId,
+            verifiedType,
+            charLimit,
             connectedAt: Date.now(),
           };
         } catch (verifyError) {

@@ -134,6 +134,12 @@ const CAPABILITY_LABELS: Record<string, string> = {
 export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
   const activeAgent = useActiveAvatar();
   const [token, setToken] = useState('');
+  const [allowedDmUserIds, setAllowedDmUserIds] = useState<string[]>([]);
+  const [allowedGroupChatIds, setAllowedGroupChatIds] = useState<string[]>([]);
+  const [newDmUserId, setNewDmUserId] = useState('');
+  const [newGroupChatId, setNewGroupChatId] = useState('');
+  const [policyLoadError, setPolicyLoadError] = useState<string | null>(null);
+  const initialPolicyRef = useRef<{ allowedDmUserIds: string[]; allowedGroupChatIds: string[] } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
@@ -252,6 +258,62 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   };
 
   const config = integrationConfig[args.integration];
+
+  const normalizeList = (values: unknown): string[] => {
+    if (!Array.isArray(values)) return [];
+    return values
+      .map(v => String(v).trim())
+      .filter(Boolean);
+  };
+
+  const stableSorted = (values: string[]) => [...values].map(v => v.trim()).filter(Boolean).sort();
+
+  const hasTelegramPolicyChanges = (() => {
+    if (args.integration !== 'telegram') return false;
+    if (!initialPolicyRef.current) return false;
+    const current = {
+      allowedDmUserIds: stableSorted(allowedDmUserIds),
+      allowedGroupChatIds: stableSorted(allowedGroupChatIds),
+    };
+    const initial = {
+      allowedDmUserIds: stableSorted(initialPolicyRef.current.allowedDmUserIds),
+      allowedGroupChatIds: stableSorted(initialPolicyRef.current.allowedGroupChatIds),
+    };
+    return JSON.stringify(current) !== JSON.stringify(initial);
+  })();
+
+  useEffect(() => {
+    if (args.integration !== 'telegram') return;
+    if (!activeAgent?.id) return;
+
+    const run = async () => {
+      setPolicyLoadError(null);
+      try {
+        const response = await fetch(`${API_BASE}/avatars/${activeAgent.id}`, {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (!response.ok) {
+          setPolicyLoadError(`Failed to load current Telegram settings (HTTP ${response.status})`);
+          return;
+        }
+        const payload = (await response.json().catch(() => ({}))) as any;
+        const telegram = payload?.platforms?.telegram || {};
+        const dm = normalizeList(telegram.allowedDmUserIds);
+        const chats = normalizeList(telegram.allowedChatIds);
+
+        setAllowedDmUserIds(dm);
+        setAllowedGroupChatIds(chats);
+        initialPolicyRef.current = { allowedDmUserIds: dm, allowedGroupChatIds: chats };
+      } catch {
+        setPolicyLoadError('Failed to load current Telegram settings');
+      }
+    };
+
+    void run();
+    // Only re-run when switching avatars
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [args.integration, activeAgent?.id]);
 
   useEffect(() => {
     if (!config?.isAiProvider) return;
@@ -433,7 +495,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const handleSave = async () => {
     if (isSubmitting || !activeAgent?.id) return;
     // For AI providers with global key, token is optional
-    if (!config.isAiProvider && !token.trim()) return;
+    if (!config.isAiProvider && !token.trim() && !(args.integration === 'telegram' && hasTelegramPolicyChanges)) return;
     if (config.isAiProvider && !useGlobalKey && !token.trim()) return;
     if (config.isAiProvider && useGlobalKey && globalKeyAvailable === false) {
       setSaveError('No system/global API key is configured for this provider. Turn off “Use System API Key” and provide your own key.');
@@ -460,6 +522,32 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         if (!response.ok) {
           throw new Error(payload.error || payload.message || 'Failed to save');
         }
+      }
+
+      // Persist Telegram policy (DM allowlist + allowed group chats)
+      if (args.integration === 'telegram' && hasTelegramPolicyChanges) {
+        const policyResponse = await fetch(`${API_BASE}/avatars/${activeAgent.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            platforms: {
+              telegram: {
+                allowedDmUserIds: stableSorted(allowedDmUserIds),
+                allowedChatIds: stableSorted(allowedGroupChatIds),
+              },
+            },
+          }),
+        });
+
+        if (!policyResponse.ok) {
+          const payload = await policyResponse.json().catch(() => ({}));
+          throw new Error(payload.error || payload.message || `Failed to save Telegram policy (HTTP ${policyResponse.status})`);
+        }
+        initialPolicyRef.current = {
+          allowedDmUserIds: stableSorted(allowedDmUserIds),
+          allowedGroupChatIds: stableSorted(allowedGroupChatIds),
+        };
       }
 
       // Build result with AI provider specific config
@@ -699,6 +787,119 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         ) : (
           // Token-based platform integration (Telegram, Discord)
           <>
+            {args.integration === 'telegram' && (
+              <div className="space-y-3">
+                <div className="p-3 bg-[var(--color-bg-tertiary)] rounded-lg border border-[var(--color-border)]">
+                  <p className="text-sm font-medium text-[var(--color-text)]">Telegram DM + Group Policy</p>
+                  <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                    Allow DMs only from specific Telegram user IDs, and restrict group chats by chat ID.
+                  </p>
+                  {policyLoadError && (
+                    <p className="text-xs text-yellow-400 mt-2">{policyLoadError}</p>
+                  )}
+                </div>
+
+                {/* DM allowlist */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-[var(--color-text-secondary)]">
+                    Users who can DM the bot (Telegram user IDs)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      value={newDmUserId}
+                      onChange={(e) => setNewDmUserId(e.target.value)}
+                      placeholder="e.g. 123456789"
+                      className="flex-1 px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)]"
+                      disabled={disabled}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = newDmUserId.trim();
+                        if (!id) return;
+                        setAllowedDmUserIds((prev) => stableSorted([...prev, id]));
+                        setNewDmUserId('');
+                      }}
+                      disabled={disabled || !newDmUserId.trim()}
+                      className="px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  {allowedDmUserIds.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {stableSorted(allowedDmUserIds).map((id) => (
+                        <span key={id} className="inline-flex items-center gap-2 px-2 py-1 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-full text-[var(--color-text-secondary)]">
+                          {id}
+                          <button
+                            type="button"
+                            onClick={() => setAllowedDmUserIds((prev) => prev.filter((x) => x !== id))}
+                            className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                            disabled={disabled}
+                            aria-label={`Remove ${id}`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Group allowlist */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-[var(--color-text-secondary)]">
+                    Groups the bot can be added to (Telegram chat IDs)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      value={newGroupChatId}
+                      onChange={(e) => setNewGroupChatId(e.target.value)}
+                      placeholder="e.g. -1001234567890"
+                      className="flex-1 px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)]"
+                      disabled={disabled}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = newGroupChatId.trim();
+                        if (!id) return;
+                        setAllowedGroupChatIds((prev) => stableSorted([...prev, id]));
+                        setNewGroupChatId('');
+                      }}
+                      disabled={disabled || !newGroupChatId.trim()}
+                      className="px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  {allowedGroupChatIds.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {stableSorted(allowedGroupChatIds).map((id) => (
+                        <span key={id} className="inline-flex items-center gap-2 px-2 py-1 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-full text-[var(--color-text-secondary)]">
+                          {id}
+                          <button
+                            type="button"
+                            onClick={() => setAllowedGroupChatIds((prev) => prev.filter((x) => x !== id))}
+                            className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                            disabled={disabled}
+                            aria-label={`Remove ${id}`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {hasTelegramPolicyChanges && (
+                  <div className="text-xs text-[var(--color-text-muted)]">
+                    Policy changes pending — click Save to apply.
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
                 {config.tokenLabel}

@@ -10,6 +10,7 @@ import {
   DynamoDBDocumentClient,
   PutCommand,
   DeleteCommand,
+  GetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { AvatarRecord } from '../types.js';
 
@@ -43,11 +44,15 @@ interface AvatarConfig {
       botId?: number;
       webhookPath: string;
       allowedChatTypes?: ('private' | 'group' | 'supergroup' | 'channel')[];
+      allowedChatIds?: string[];
+      allowedDmUserIds?: string[];
     };
     twitter?: {
       enabled: boolean;
       username: string;
       features: ('scheduled_tweets' | 'mention_replies' | 'dm_responses')[];
+      charLimit?: number;
+      verifiedType?: string;
     };
     discord?: {
       enabled: boolean;
@@ -116,6 +121,7 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
 const STATE_TABLE = process.env.STATE_TABLE;
+const ADMIN_TABLE = process.env.ADMIN_TABLE;
 
 /**
  * Convert AdminAPI AvatarRecord to Core AvatarConfig format
@@ -207,6 +213,8 @@ function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
       botId: record.platforms.telegram.botId,
       webhookPath: `/webhook/telegram/${record.avatarId}`,
       allowedChatTypes: ['private', 'group', 'supergroup'],
+      allowedChatIds: record.platforms.telegram.allowedChatIds,
+      allowedDmUserIds: record.platforms.telegram.allowedDmUserIds,
     };
     config.secrets.push('TELEGRAM_BOT_TOKEN');
   }
@@ -302,6 +310,25 @@ export async function syncAvatarConfig(record: AvatarRecord): Promise<void> {
   }
 
   const config = convertToAvatarConfig(record);
+
+  // Fetch Twitter connection data to include charLimit for premium accounts
+  if (config.platforms.twitter?.enabled && ADMIN_TABLE) {
+    try {
+      const connectionResult = await dynamoClient.send(new GetCommand({
+        TableName: ADMIN_TABLE,
+        Key: {
+          pk: `AVATAR#${record.avatarId}`,
+          sk: 'TWITTER#CONNECTION',
+        },
+      }));
+      if (connectionResult.Item) {
+        config.platforms.twitter.charLimit = connectionResult.Item.charLimit ?? 280;
+        config.platforms.twitter.verifiedType = connectionResult.Item.verifiedType;
+      }
+    } catch (err) {
+      console.warn(`Failed to fetch Twitter connection for ${record.avatarId}:`, err);
+    }
+  }
 
   await dynamoClient.send(new PutCommand({
     TableName: STATE_TABLE,

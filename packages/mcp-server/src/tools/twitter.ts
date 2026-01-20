@@ -15,6 +15,10 @@ export interface TwitterConnectionStatus {
   username?: string;
   userId?: string;
   connectedAt?: number;
+  /** Character limit for tweets - 280 for free accounts, 10000 for Premium/Blue */
+  charLimit?: number;
+  /** Verified type from Twitter API - 'blue', 'business', 'government', or undefined */
+  verifiedType?: string;
 }
 
 /**
@@ -124,18 +128,23 @@ export function createTwitterTools(services: TwitterServices) {
       inputSchema: z.object({}),
       execute: async (_input, _context): Promise<ToolResult> => {
         const status = await services.getConnectionStatus();
-        
+
         if (status.connected) {
+          const charLimit = status.charLimit ?? 280;
+          const isPremium = charLimit > 280;
           return {
             success: true,
             data: {
               connected: true,
               username: status.username,
-              message: `Twitter connected as @${status.username}`,
+              charLimit,
+              verifiedType: status.verifiedType,
+              isPremium,
+              message: `Twitter connected as @${status.username}. Character limit: ${charLimit}${isPremium ? ' (Premium account)' : ''}.`,
             },
           };
         }
-        
+
         return {
           success: true,
           data: {
@@ -195,11 +204,11 @@ export function createTwitterTools(services: TwitterServices) {
 
     defineTool({
       name: 'twitter_post',
-      description: 'Post a tweet to Twitter/X. Twitter must be connected first (check with twitter_status). Tweets are limited to 280 characters. You can attach images using either gallery IDs (preferred) or URLs.',
+      description: 'Post a tweet to Twitter/X. Twitter must be connected first (check with twitter_status to see your character limit). Standard accounts: 280 chars, Premium/Blue accounts: 10,000 chars. You can attach images using either gallery IDs (preferred) or URLs.',
       category: 'media',
       toolset: 'twitter',
       inputSchema: z.object({
-        text: z.string().max(280).describe('The tweet text (max 280 characters)'),
+        text: z.string().max(10000).describe('The tweet text (280 chars for standard accounts, 10,000 for Premium)'),
         mediaIds: z.array(z.string()).max(4).optional().describe('Optional array of gallery item IDs to attach (up to 4 images). Preferred over mediaUrls.'),
         mediaUrls: z.array(z.string()).max(4).optional().describe('Optional array of media URLs to attach (up to 4 images). Use mediaIds instead when possible.'),
       }),
@@ -366,12 +375,12 @@ export function createTwitterTools(services: TwitterServices) {
 
     defineTool({
       name: 'twitter_reply',
-      description: 'Reply to a specific tweet. The reply will be threaded under the original tweet.',
+      description: 'Reply to a specific tweet. The reply will be threaded under the original tweet. Check twitter_status for your character limit.',
       category: 'media',
       toolset: 'twitter',
       inputSchema: z.object({
         tweetId: z.string().describe('The ID of the tweet to reply to'),
-        text: z.string().max(280).describe('The reply text (max 280 characters)'),
+        text: z.string().max(10000).describe('The reply text (280 chars for standard, 10,000 for Premium)'),
         mediaIds: z.array(z.string()).max(4).optional().describe('Optional gallery item IDs to attach (preferred)'),
         mediaUrls: z.array(z.string()).max(4).optional().describe('Optional media URLs to attach (use mediaIds instead)'),
       }),
@@ -523,12 +532,12 @@ export function createTwitterTools(services: TwitterServices) {
 
     defineTool({
       name: 'twitter_quote',
-      description: 'Quote tweet - share a tweet with my own commentary.',
+      description: 'Quote tweet - share a tweet with my own commentary. Check twitter_status for your character limit.',
       category: 'media',
       toolset: 'twitter',
       inputSchema: z.object({
         tweetId: z.string().describe('The ID of the tweet to quote'),
-        text: z.string().max(280).describe('Your commentary (max 280 characters)'),
+        text: z.string().max(10000).describe('Your commentary (280 chars for standard, 10,000 for Premium)'),
         mediaIds: z.array(z.string()).max(4).optional().describe('Optional gallery item IDs to attach (preferred)'),
         mediaUrls: z.array(z.string()).max(4).optional().describe('Optional media URLs to attach (use mediaIds instead)'),
       }),

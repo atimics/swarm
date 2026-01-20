@@ -180,19 +180,26 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     const envelope = await telegramAdapter.parseMessage(update);
     if (!envelope) return ok();
 
-    // Hard security: never respond to DMs
-    if (envelope.metadata.chatType === 'private') {
-      logger.info('DM blocked', { event: 'chat_blocked', chatType: 'private' });
-      return ok();
-    }
+    const telegramCfg = avatarConfig.platforms.telegram;
 
-    // Optional allowlist: only respond in explicitly allowed chats
-    const allowedChatIds = avatarConfig.platforms.telegram?.allowedChatIds;
-    if (allowedChatIds && allowedChatIds.length > 0) {
-      const chatId = envelope.conversationId;
-      if (!allowedChatIds.includes(chatId)) {
-        logger.info('Chat not allowlisted', { event: 'chat_blocked', chatId });
+    // DMs: allow only if user is allowlisted
+    if (envelope.metadata.chatType === 'private') {
+      const allowedDmUserIds = telegramCfg?.allowedDmUserIds;
+      const userId = envelope.sender.platformUserId || envelope.sender.id;
+
+      if (!allowedDmUserIds || allowedDmUserIds.length === 0 || !allowedDmUserIds.includes(String(userId))) {
+        logger.info('DM blocked (not allowlisted)', { event: 'chat_blocked', chatType: 'private', userId });
         return ok();
+      }
+    } else {
+      // Groups/channels: optional allowlist by chat ID
+      const allowedChatIds = telegramCfg?.allowedChatIds;
+      if (allowedChatIds && allowedChatIds.length > 0) {
+        const chatId = envelope.conversationId;
+        if (!allowedChatIds.includes(chatId)) {
+          logger.info('Chat not allowlisted', { event: 'chat_blocked', chatId });
+          return ok();
+        }
       }
     }
 

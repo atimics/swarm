@@ -259,6 +259,24 @@ export async function updateAvatar(
   const updated: AvatarRecord = {
     ...existing,
     ...cleanUpdates,
+    platforms: updates.platforms
+      ? {
+          ...existing.platforms,
+          ...updates.platforms,
+          telegram: updates.platforms.telegram
+            ? { ...(existing.platforms.telegram ?? {}), ...updates.platforms.telegram }
+            : existing.platforms.telegram,
+          twitter: updates.platforms.twitter
+            ? { ...(existing.platforms.twitter ?? {}), ...updates.platforms.twitter }
+            : existing.platforms.twitter,
+          discord: updates.platforms.discord
+            ? { ...(existing.platforms.discord ?? {}), ...updates.platforms.discord }
+            : existing.platforms.discord,
+          web: updates.platforms.web
+            ? { ...(existing.platforms.web ?? {}), ...updates.platforms.web }
+            : existing.platforms.web,
+        }
+      : existing.platforms,
     voiceConfig: updates.voiceConfig
       ? { ...(existing.voiceConfig ?? {}), ...updates.voiceConfig }
       : existing.voiceConfig,
