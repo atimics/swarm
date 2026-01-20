@@ -122,7 +122,7 @@ async function initialize(): Promise<void> {
     media: {
       image: {
         provider: 'replicate',
-        model: 'f2ab8a5bfe79f02f0789a146cf5e73d2a4ff2684a98c2b303d1e1ff3814271db',
+        model: 'black-forest-labs/flux-schnell',
       },
     },
     scheduling: {},

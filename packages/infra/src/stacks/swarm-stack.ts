@@ -4,6 +4,7 @@
  */
 import * as cdk from 'aws-cdk-lib';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
@@ -14,6 +15,40 @@ import { AdminUi } from '../constructs/admin-ui.js';
 import { AdminApiConstruct } from '../constructs/admin-api.js';
 import { ClaudeCodeWorker } from '../constructs/claude-code-worker.js';
 import type { AvatarConfig } from '@swarm/core';
+
+type DynamoAttributeValue =
+  | { S: string }
+  | { N: string }
+  | { BOOL: boolean }
+  | { NULL: true }
+  | { L: DynamoAttributeValue[] }
+  | { M: Record<string, DynamoAttributeValue> };
+
+function toDynamoAttributeValue(value: unknown): DynamoAttributeValue {
+  if (value === null) return { NULL: true };
+  if (value === undefined) return { NULL: true };
+
+  if (typeof value === 'string') return { S: value };
+  if (typeof value === 'number') return { N: String(value) };
+  if (typeof value === 'boolean') return { BOOL: value };
+
+  if (Array.isArray(value)) {
+    return {
+      L: value
+        .filter(v => v !== undefined)
+        .map(v => toDynamoAttributeValue(v)),
+    };
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .map(([key, v]) => [key, toDynamoAttributeValue(v)] as const);
+    return { M: Object.fromEntries(entries) };
+  }
+
+  return { S: String(value) };
+}
 
 export interface SwarmStackProps extends cdk.StackProps {
   /**
@@ -322,6 +357,53 @@ export class SwarmStack extends cdk.Stack {
           discordCluster: this.shared.discordCluster,
           replicateApiKeyArn,
           mediaConvertFunction: this.adminApi?.mediaConvertHandler,
+        });
+
+        // Seed CONFIG into the shared State table if missing.
+        // This keeps YAML as an infra-time bootstrap only, while letting runtime read from DynamoDB.
+        // Crucially, this will NOT overwrite admin-synced configs.
+        new cr.AwsCustomResource(this, `SeedAvatarConfig-${avatarId}`, {
+          onCreate: {
+            service: 'DynamoDB',
+            action: 'updateItem',
+            parameters: {
+              TableName: this.shared.stateTable.tableName,
+              Key: {
+                pk: { S: `AVATAR#${avatarId}` },
+                sk: { S: 'CONFIG' },
+              },
+              UpdateExpression: 'SET #config = if_not_exists(#config, :config)',
+              ExpressionAttributeNames: {
+                '#config': 'config',
+              },
+              ExpressionAttributeValues: {
+                ':config': toDynamoAttributeValue(config),
+              },
+            },
+            physicalResourceId: cr.PhysicalResourceId.of(`SeedAvatarConfig-${environment}-${avatarId}`),
+          },
+          onUpdate: {
+            service: 'DynamoDB',
+            action: 'updateItem',
+            parameters: {
+              TableName: this.shared.stateTable.tableName,
+              Key: {
+                pk: { S: `AVATAR#${avatarId}` },
+                sk: { S: 'CONFIG' },
+              },
+              UpdateExpression: 'SET #config = if_not_exists(#config, :config)',
+              ExpressionAttributeNames: {
+                '#config': 'config',
+              },
+              ExpressionAttributeValues: {
+                ':config': toDynamoAttributeValue(config),
+              },
+            },
+            physicalResourceId: cr.PhysicalResourceId.of(`SeedAvatarConfig-${environment}-${avatarId}`),
+          },
+          policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+            resources: [this.shared.stateTable.tableArn],
+          }),
         });
 
         this.avatars.set(avatarId, avatar);

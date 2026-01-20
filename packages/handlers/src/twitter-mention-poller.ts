@@ -49,7 +49,7 @@ async function initialize(): Promise<void> {
       twitter: { enabled: true, username: '', features: ['mention_replies'] },
     },
     llm: { provider: DEFAULT_LLM_PROVIDER, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_LLM_TEMPERATURE, maxTokens: DEFAULT_LLM_MAX_TOKENS },
-    media: { image: { provider: 'replicate', model: 'f2ab8a5bfe79f02f0789a146cf5e73d2a4ff2684a98c2b303d1e1ff3814271db' } }, // flux-schnell
+    media: { image: { provider: 'replicate', model: 'black-forest-labs/flux-schnell' } },
     scheduling: {},
     behavior: { responseDelayMs: [1000, 3000], typingIndicator: false, ignoreBots: true, cooldownMinutes: 5, maxContextMessages: 10 },
     tools: ['send_message', 'react', 'ignore'],
