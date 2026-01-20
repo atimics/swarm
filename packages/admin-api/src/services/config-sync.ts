@@ -152,13 +152,13 @@ function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
       referenceUrl: defaultVoiceConfig.referenceUrl,
     },
     tools: (() => {
-      const tools = ['send_message', 'react', 'ignore', 'wait'];
+      const tools = ['send_message', 'react', 'ignore', 'wait', 'generate_image', 'remember', 'recall'];
       if (defaultVoiceConfig.enabled) {
         tools.push('generate_voice_message', 'transcribe_audio');
       }
       return tools;
     })(),
-    secrets: [],
+    secrets: ['REPLICATE_API_KEY', 'OPENROUTER_API_KEY'],
   };
 
   // Convert Telegram config
