@@ -210,7 +210,12 @@ export async function handleLinkCrossmintVerify(
 export async function handleCrossmintAuth(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
-  const path = event.rawPath;
+  const rawPath = event.rawPath;
+  const path = rawPath === '/api'
+    ? '/'
+    : rawPath.startsWith('/api/')
+      ? rawPath.slice('/api'.length)
+      : rawPath;
   const method = event.requestContext.http.method;
   const cors = corsHeaders(event);
 

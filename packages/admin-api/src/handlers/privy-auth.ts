@@ -188,7 +188,12 @@ export async function handleLinkPrivyVerify(event: APIGatewayProxyEventV2): Prom
  * Main router for /auth/privy/* endpoints
  */
 export async function handlePrivyAuth(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
-  const path = event.rawPath;
+  const rawPath = event.rawPath;
+  const path = rawPath === '/api'
+    ? '/'
+    : rawPath.startsWith('/api/')
+      ? rawPath.slice('/api'.length)
+      : rawPath;
   const method = event.requestContext.http.method;
   const cors = getCorsHeaders(event);
 

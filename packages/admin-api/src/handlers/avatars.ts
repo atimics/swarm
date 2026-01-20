@@ -108,7 +108,14 @@ export async function handler(
     const effectiveIsAdmin = isAdmin || (walletAddress ? isAdminWallet(walletAddress) : false);
 
     const method = event.requestContext.http.method;
-    const path = event.rawPath;
+    const rawPath = event.rawPath;
+    // CloudFront (and some gateway setups) route the admin API under `/api/*` but our
+    // Lambda handlers historically matched on `/...` paths. Normalize so both work.
+    const path = rawPath === '/api'
+      ? '/'
+      : rawPath.startsWith('/api/')
+        ? rawPath.slice('/api'.length)
+        : rawPath;
 
     // POST /avatars - Create a new avatar
     if (method === 'POST' && path === '/avatars') {

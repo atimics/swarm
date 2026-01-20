@@ -41,7 +41,13 @@ export async function handler(
 ): Promise<APIGatewayProxyResultV2> {
   const corsHeaders = getCorsHeaders(event);
   const method = event.requestContext.http.method;
-  const path = event.rawPath.replace(/^\/issues/, '') || '/';
+  const rawPath = event.rawPath;
+  const normalizedPath = rawPath === '/api'
+    ? '/'
+    : rawPath.startsWith('/api/')
+      ? rawPath.slice('/api'.length)
+      : rawPath;
+  const path = normalizedPath.replace(/^\/issues/, '') || '/';
 
   // Handle preflight
   if (method === 'OPTIONS') {

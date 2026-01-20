@@ -1540,7 +1540,12 @@ export async function handler(
   // Lightweight health/info endpoint for humans and uptime checks.
   // Note: This runs before auth so opening https://api-*/ in a browser doesn't
   // misleadingly show an admin-only error.
-  const path = event.rawPath || '/';
+  const rawPath = event.rawPath || '/';
+  const path = rawPath === '/api'
+    ? '/'
+    : rawPath.startsWith('/api/')
+      ? rawPath.slice('/api'.length)
+      : rawPath;
   const method = event.requestContext.http.method;
   if (method === 'GET' && (path === '/' || path === '/health' || path === '/healthz')) {
     return {
