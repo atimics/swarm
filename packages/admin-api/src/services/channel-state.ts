@@ -35,6 +35,9 @@ export const CHANNEL_CONFIG = {
   MAX_BUFFER_SIZE: 50,           // Max messages to keep in buffer
   BUFFER_TTL_SECONDS: 3600,      // 1 hour TTL for channel state
 
+  // Context retention
+  POST_RESPONSE_CONTEXT_KEEP_MESSAGES: 20, // Keep last N messages for continuity after responding
+
   // State machine timings
   COOLDOWN_DURATION_MS: 60000,   // 60 seconds cooldown after response (prevents spam)
   ACTIVE_TIMEOUT_MS: 120000,     // 2 minutes before ACTIVE → IDLE
@@ -449,8 +452,15 @@ export async function markResponseSent(
 
   const now = Date.now();
 
-  // Clear the buffer of messages we've responded to
-  // Keep only messages after the current response
+  // Keep a small tail of the buffer for continuity, but rely on lastResponseAt
+  // to ensure we don't re-trigger on old messages.
+  const keepCount = current.chatType === 'private'
+    ? 0
+    : CHANNEL_CONFIG.POST_RESPONSE_CONTEXT_KEEP_MESSAGES;
+  const keptBuffer = keepCount > 0
+    ? current.messageBuffer.slice(-keepCount)
+    : [];
+
   const updated: ChannelStateRecord = {
     ...current,
     state: 'COOLDOWN',
@@ -458,8 +468,8 @@ export async function markResponseSent(
     lastResponseAt: now,
     lastResponseMessageId: responseMessageId,
     pendingResponseAt: undefined,
-    messageBuffer: [],  // Clear buffer after response
-    bufferSize: 0,
+    messageBuffer: keptBuffer,
+    bufferSize: keptBuffer.length,
     updatedAt: now,
     ttl: Math.floor(now / 1000) + CHANNEL_CONFIG.BUFFER_TTL_SECONDS,
     // Track bot-to-bot interactions
@@ -507,6 +517,9 @@ export function evaluateResponseTrigger(
   void _botId;
   const now = Date.now();
 
+  const pendingMessages = getPendingMessages(state);
+  const pendingCount = pendingMessages.length;
+
   // Check if we're in cooldown (applies to all chat types)
   const timeSinceLastResponse = state.lastResponseAt ? now - state.lastResponseAt : Infinity;
   
@@ -532,9 +545,9 @@ export function evaluateResponseTrigger(
 
   // In COOLDOWN - don't respond unless there's new direct engagement
   if (state.state === 'COOLDOWN' && !isCooldownExpired(state)) {
-    // Check if there's a new direct engagement since cooldown started
-    const hasNewEngagement = state.messageBuffer.some(
-      m => (m.isMention || m.isReplyToBot) && m.timestamp > state.stateChangedAt
+    // Check if there's a new direct engagement since the last response
+    const hasNewEngagement = pendingMessages.some(
+      m => m.isMention || m.isReplyToBot
     );
 
     if (hasNewEngagement) {
@@ -555,7 +568,7 @@ export function evaluateResponseTrigger(
   }
 
   // Check for direct engagement (mention/reply)
-  const hasDirectEngagement = state.messageBuffer.some(
+  const hasDirectEngagement = pendingMessages.some(
     m => m.isMention || m.isReplyToBot
   );
 
@@ -571,7 +584,7 @@ export function evaluateResponseTrigger(
   // In IDLE state, check other triggers
   if (state.state === 'IDLE' || isCooldownExpired(state)) {
     // Message threshold trigger
-    if (state.bufferSize >= CHANNEL_CONFIG.MESSAGE_THRESHOLD) {
+    if (pendingCount >= CHANNEL_CONFIG.MESSAGE_THRESHOLD) {
       return {
         shouldRespond: true,
         trigger: 'message_threshold',
@@ -583,7 +596,7 @@ export function evaluateResponseTrigger(
     // Conversation gap trigger (activity followed by silence)
     const timeSinceActivity = now - state.lastActivityAt;
     if (
-      state.bufferSize > 0 &&
+      pendingCount > 0 &&
       timeSinceActivity > CHANNEL_CONFIG.CONVERSATION_GAP_MS
     ) {
       return {
@@ -598,7 +611,7 @@ export function evaluateResponseTrigger(
   // ACTIVE state but no trigger met yet
   if (state.state === 'ACTIVE') {
     // If we've been active for a while with messages, consider responding
-    if (state.bufferSize >= 2) {
+    if (pendingCount >= 2) {
       return {
         shouldRespond: true,
         trigger: 'message_threshold',
@@ -686,16 +699,24 @@ export function buildConversationContext(
 export function getResponseTarget(
   state: ChannelStateRecord
 ): BufferedMessage | null {
-  // Find the last direct engagement message
-  for (let i = state.messageBuffer.length - 1; i >= 0; i--) {
-    const msg = state.messageBuffer[i];
+  const pending = getPendingMessages(state);
+  const candidates = pending.length > 0 ? pending : state.messageBuffer;
+
+  // Find the last direct engagement message in the pending/candidate set
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const msg = candidates[i];
     if (msg.isMention || msg.isReplyToBot) {
       return msg;
     }
   }
 
   // Otherwise return the most recent message
-  return state.messageBuffer[state.messageBuffer.length - 1] || null;
+  return candidates[candidates.length - 1] || null;
+}
+
+function getPendingMessages(state: ChannelStateRecord): BufferedMessage[] {
+  if (!state.lastResponseAt) return state.messageBuffer;
+  return state.messageBuffer.filter(m => m.timestamp > state.lastResponseAt!);
 }
 
 /**
@@ -832,27 +853,42 @@ export function buildCombinedConversationContext(
 
   // Add human messages from buffer
   for (const msg of state.messageBuffer) {
+    // Build message content with media indicators
+    let content = msg.text;
+    if (msg.media && msg.media.length > 0) {
+      const mediaLabels = msg.media.map(m => {
+        switch (m.type) {
+          case 'photo': return '📷 [photo]';
+          case 'video': return '🎥 [video]';
+          case 'animation': return '🎬 [GIF]';
+          case 'sticker': return '🎭 [sticker]';
+          case 'document': return '📎 [file]';
+          default: return '[media]';
+        }
+      });
+      content = content ? `${content} ${mediaLabels.join(' ')}` : mediaLabels.join(' ');
+    }
+
     allMessages.push({
       timestamp: msg.timestamp,
       isBot: false,
       userName: msg.userName,
       username: msg.username,
-      text: msg.text,
+      text: content,
     });
   }
 
-  // Add bot messages from shared history (excluding self)
+  // Add bot messages from shared history (including self for continuity)
   if (sharedHistory) {
     for (const msg of sharedHistory.messages) {
-      // Skip messages from self - avatar already knows what it said
-      if (msg.avatarId === currentAvatarId) continue;
-      
+      const isSelf = msg.avatarId === currentAvatarId;
+      const selfIndicator = isSelf ? ' [self]' : '';
       allMessages.push({
         timestamp: msg.timestamp,
         isBot: true,
         userName: msg.botUsername,
         username: msg.botUsername,
-        text: msg.text,
+        text: `${msg.text}${selfIndicator}`,
         avatarId: msg.avatarId,
       });
     }

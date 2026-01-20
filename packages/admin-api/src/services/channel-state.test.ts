@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import type { ChannelStateRecord, BufferedMessage } from '../types.js';
+import { evaluateResponseTrigger, getResponseTarget } from './channel-state.js';
 
 describe('Channel State Service', () => {
   describe('State Machine', () => {
@@ -161,6 +162,67 @@ describe('Channel State Service', () => {
         (Date.now() - state.stateChangedAt) < COOLDOWN_DURATION_MS;
       expect(inCooldown).toBe(true);
     });
+
+    it('should trigger on new mention during COOLDOWN (pending messages only)', () => {
+      const now = Date.now();
+      const state: ChannelStateRecord = {
+        pk: 'CHANNEL#avatar#123',
+        sk: 'STATE',
+        avatarId: 'avatar',
+        chatId: 123,
+        chatType: 'supergroup',
+        state: 'COOLDOWN',
+        stateChangedAt: now - 10_000,
+        lastResponseAt: now - 2_000,
+        messageBuffer: [
+          { messageId: 1, userId: 1, userName: 'Alice', text: 'older msg', timestamp: now - 60_000 },
+          { messageId: 2, userId: 2, userName: 'Bob', text: 'older mention', timestamp: now - 3_000, isMention: true },
+          { messageId: 3, userId: 3, userName: 'Charlie', text: '@Bot help', timestamp: now - 1_000, isMention: true },
+        ],
+        bufferSize: 3,
+        lastActivityAt: now,
+        ttl: Math.floor(now / 1000) + 3600,
+        updatedAt: now,
+      };
+
+      const decision = evaluateResponseTrigger(state);
+      expect(decision.shouldRespond).toBe(true);
+      expect(decision.trigger).toBe('direct_engagement');
+    });
+
+    it('should use pending messages for threshold triggers (not total bufferSize)', () => {
+      const now = Date.now();
+      const state: ChannelStateRecord = {
+        pk: 'CHANNEL#avatar#123',
+        sk: 'STATE',
+        avatarId: 'avatar',
+        chatId: 123,
+        chatType: 'supergroup',
+        state: 'IDLE',
+        stateChangedAt: now,
+        lastResponseAt: now - 2_000,
+        messageBuffer: [
+          // Old messages (pre-response)
+          ...Array.from({ length: 50 }, (_, i) => ({
+            messageId: i + 1,
+            userId: 100,
+            userName: 'Alice',
+            text: `old ${i}`,
+            timestamp: now - 60_000 - i * 1000,
+          })),
+          // Only a couple of new messages (post-response)
+          { messageId: 1001, userId: 200, userName: 'Bob', text: 'new 1', timestamp: now - 1_500 },
+          { messageId: 1002, userId: 300, userName: 'Charlie', text: 'new 2', timestamp: now - 1_000 },
+        ],
+        bufferSize: 52,
+        lastActivityAt: now,
+        ttl: Math.floor(now / 1000) + 3600,
+        updatedAt: now,
+      };
+
+      const decision = evaluateResponseTrigger(state);
+      expect(decision.shouldRespond).toBe(false);
+    });
   });
 
   describe('Context Building', () => {
@@ -216,6 +278,32 @@ describe('Channel State Service', () => {
       }
 
       expect(target?.userId).toBe(300); // Charlie's message
+      expect(target?.messageId).toBe(3);
+    });
+
+    it('should pick response target from pending messages when lastResponseAt is set', () => {
+      const now = Date.now();
+      const state: ChannelStateRecord = {
+        pk: 'CHANNEL#avatar#123',
+        sk: 'STATE',
+        avatarId: 'avatar',
+        chatId: 123,
+        chatType: 'supergroup',
+        state: 'IDLE',
+        stateChangedAt: now,
+        lastResponseAt: now - 2_000,
+        messageBuffer: [
+          { messageId: 1, userId: 100, userName: 'Alice', text: '@Bot old mention', timestamp: now - 10_000, isMention: true },
+          { messageId: 2, userId: 200, userName: 'Bob', text: 'new message', timestamp: now - 1_500 },
+          { messageId: 3, userId: 300, userName: 'Charlie', text: '@Bot new mention', timestamp: now - 1_000, isMention: true },
+        ],
+        bufferSize: 3,
+        lastActivityAt: now,
+        ttl: Math.floor(now / 1000) + 3600,
+        updatedAt: now,
+      };
+
+      const target = getResponseTarget(state);
       expect(target?.messageId).toBe(3);
     });
   });
