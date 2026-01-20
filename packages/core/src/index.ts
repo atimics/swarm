@@ -22,7 +22,6 @@ export * from './services/index.js';
 
 // Tools
 export * from './tools/index.js';
-export * from './tools/executor.js';
 
 // Utilities
 export * from './utils/index.js';
