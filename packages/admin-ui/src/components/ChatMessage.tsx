@@ -1182,7 +1182,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
                     key={toolCall.id}
                     toolCall={toolCall}
                     onSubmit={onToolSubmit || (() => {})}
-                    disabled={!onToolSubmit || toolCall.status !== 'pending'}
+                    disabled={!onToolSubmit || (toolCall.status !== 'pending' && toolCall.name !== 'configure_integration')}
                   />
                 ))}
               </div>

@@ -39,6 +39,8 @@ import { isPauseForInputTool } from '../tools/index.js';
 import * as avatars from '../services/avatars.js';
 import * as voice from '../services/voice.js';
 import * as memory from '../services/memory.js';
+import { configureIntegration } from '../services/integrations.js';
+import { syncAvatarConfig } from '../services/config-sync.js';
 import { resolveChatModel } from '../services/llm-model-resolution.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
@@ -1935,6 +1937,40 @@ export async function resumeChatAfterToolResult(params: {
   );
   if (!hasMatchingToolCall) {
     throw new Error(`Unknown or expired toolCallId: ${toolCallId}`);
+  }
+
+  // Handle configure_integration results - persist models and settings to DynamoDB
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    const resultObj = result as Record<string, unknown>;
+    if (resultObj.configured === true && typeof resultObj.integration === 'string') {
+      const integration = resultObj.integration as 'replicate' | 'openai' | 'anthropic' | 'openrouter' | 'telegram' | 'twitter' | 'discord' | 'solana' | 'ethereum' | 'web';
+      const useGlobalKey = typeof resultObj.useGlobalKey === 'boolean' ? resultObj.useGlobalKey : undefined;
+      const models = resultObj.models && typeof resultObj.models === 'object'
+        ? resultObj.models as Record<string, string>
+        : undefined;
+
+      try {
+        await configureIntegration({
+          avatarId,
+          integration,
+          enabled: true,
+          useGlobalKey,
+          models,
+          session,
+        });
+        console.log(`[resumeChatAfterToolResult] Saved ${integration} config for avatar ${avatarId}:`, { useGlobalKey, models });
+
+        // Sync to STATE_TABLE so handlers pick up the new config
+        const updatedAvatar = await avatars.getAvatar(avatarId);
+        if (updatedAvatar) {
+          await syncAvatarConfig(updatedAvatar);
+          console.log(`[resumeChatAfterToolResult] Synced config to STATE_TABLE for avatar ${avatarId}`);
+        }
+      } catch (err) {
+        console.error(`[resumeChatAfterToolResult] Failed to save ${integration} config:`, err);
+        // Don't throw - allow the conversation to continue even if config save fails
+      }
+    }
   }
 
   const toolContent = typeof result === 'string' ? result : JSON.stringify(result ?? {});

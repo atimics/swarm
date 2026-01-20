@@ -144,7 +144,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const [isTesting, setIsTesting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testResult, setTestResult] = useState<{ botUsername?: string; username?: string; message?: string; error?: string } | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [useGlobalKey, setUseGlobalKey] = useState(true);
   const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
@@ -162,7 +162,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   // Tool prompts can be re-used across chat turns. Reset transient state when a new
   // tool call arrives so we always load the latest backend config.
   useEffect(() => {
-    setSaved(false);
+    setSavedAt(null);
     setSaveError(null);
     setStatus('idle');
     setTestResult(null);
@@ -173,6 +173,13 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     setSelectedModels({});
     didInitFromStatus.current = null;
   }, [toolCall.id]);
+
+  // Auto-hide the "Saved" banner after a short delay.
+  useEffect(() => {
+    if (!savedAt) return;
+    const timeout = window.setTimeout(() => setSavedAt(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [savedAt]);
 
   type IntegrationConfigType = {
     name: string;
@@ -588,7 +595,10 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
       // Submit the tool result
       await onSubmit(toolCall.id, result);
-      setSaved(true);
+      setSavedAt(Date.now());
+      if (token.trim()) {
+        setHasAvatarKey(true);
+      }
       setToken(''); // Clear sensitive data
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save');
@@ -602,19 +612,6 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     // Redirect to OAuth flow
     window.location.href = `${API_BASE}/oauth/${args.integration}/start?avatarId=${encodeURIComponent(activeAgent.id)}`;
   };
-
-  if (saved) {
-    return (
-      <div className="flex items-center gap-2 px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-        <svg className="w-5 h-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-        <span className="text-green-300">
-          {config.name} configured successfully
-        </span>
-      </div>
-    );
-  }
 
   return (
     <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg overflow-hidden">
@@ -635,6 +632,14 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
       {/* Content */}
       <div className="p-4 space-y-4">
+        {savedAt && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg">
+            <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="text-sm text-green-300">Saved. You can keep editing and save again.</span>
+          </div>
+        )}
         {config.usesOAuth ? (
           // OAuth-based integration (Twitter)
           <div className="space-y-3">
@@ -666,7 +671,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                 )}
               </div>
               <button
-                onClick={() => setUseGlobalKey(!useGlobalKey)}
+                onClick={() => {
+                  setSavedAt(null);
+                  setSaveError(null);
+                  setUseGlobalKey(!useGlobalKey);
+                }}
                 disabled={disabled}
                 className={`relative w-12 h-6 rounded-full transition-colors ${
                   useGlobalKey ? 'bg-brand-600' : 'bg-[var(--color-bg-elevated)]'
@@ -690,6 +699,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                   type="password"
                   value={token}
                   onChange={(e) => {
+                    setSavedAt(null);
                     setToken(e.target.value);
                     setStatus('idle');
                     setTestResult(null);
@@ -746,7 +756,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                       </label>
                       <select
                         value={selectedModels[capability] || defaultModel}
-                        onChange={(e) => setSelectedModels(prev => ({ ...prev, [capability]: e.target.value }))}
+                        onChange={(e) => {
+                          setSavedAt(null);
+                          setSaveError(null);
+                          setSelectedModels(prev => ({ ...prev, [capability]: e.target.value }));
+                        }}
                         disabled={disabled}
                         className="w-full px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-brand-500"
                       >
@@ -835,7 +849,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                   <div className="flex gap-2">
                     <input
                       value={newDmUserId}
-                      onChange={(e) => setNewDmUserId(e.target.value)}
+                      onChange={(e) => {
+                        setSavedAt(null);
+                        setSaveError(null);
+                        setNewDmUserId(e.target.value);
+                      }}
                       placeholder="e.g. 123456789"
                       className="flex-1 px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)]"
                       disabled={disabled}
@@ -845,6 +863,8 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                       onClick={() => {
                         const id = newDmUserId.trim();
                         if (!id) return;
+                        setSavedAt(null);
+                        setSaveError(null);
                         setAllowedDmUserIds((prev) => stableSorted([...prev, id]));
                         setNewDmUserId('');
                       }}
@@ -861,7 +881,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                           {id}
                           <button
                             type="button"
-                            onClick={() => setAllowedDmUserIds((prev) => prev.filter((x) => x !== id))}
+                            onClick={() => {
+                              setSavedAt(null);
+                              setSaveError(null);
+                              setAllowedDmUserIds((prev) => prev.filter((x) => x !== id));
+                            }}
                             className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                             disabled={disabled}
                             aria-label={`Remove ${id}`}
@@ -882,7 +906,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                   <div className="flex gap-2">
                     <input
                       value={newGroupChatId}
-                      onChange={(e) => setNewGroupChatId(e.target.value)}
+                      onChange={(e) => {
+                        setSavedAt(null);
+                        setSaveError(null);
+                        setNewGroupChatId(e.target.value);
+                      }}
                       placeholder="e.g. -1001234567890"
                       className="flex-1 px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)]"
                       disabled={disabled}
@@ -892,6 +920,8 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                       onClick={() => {
                         const id = newGroupChatId.trim();
                         if (!id) return;
+                        setSavedAt(null);
+                        setSaveError(null);
                         setAllowedGroupChatIds((prev) => stableSorted([...prev, id]));
                         setNewGroupChatId('');
                       }}
@@ -908,7 +938,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                           {id}
                           <button
                             type="button"
-                            onClick={() => setAllowedGroupChatIds((prev) => prev.filter((x) => x !== id))}
+                            onClick={() => {
+                              setSavedAt(null);
+                              setSaveError(null);
+                              setAllowedGroupChatIds((prev) => prev.filter((x) => x !== id));
+                            }}
                             className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                             disabled={disabled}
                             aria-label={`Remove ${id}`}
@@ -936,6 +970,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                 type="password"
                 value={token}
                 onChange={(e) => {
+                  setSavedAt(null);
                   setToken(e.target.value);
                   setStatus('idle');
                   setTestResult(null);
