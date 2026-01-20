@@ -1169,7 +1169,7 @@ async function processChannelResponse(
   const responseTarget = channelState.getResponseTarget(state);
 
   // Build system prompt: persona + platform guidelines
-  let systemPrompt = avatar.persona || `You are ${avatar.name}, a helpful AI assistant on Telegram.`;
+  let systemPrompt = avatar.persona || `You are ${avatar.name}, an AI avatar chatting on Telegram.`;
 
   if (DREAMS_ENABLED && avatar.persona) {
     try {
@@ -1192,6 +1192,13 @@ async function processChannelResponse(
       });
     }
   }
+
+  // Janus-informed operating stance: keep it short, stable, and safe.
+  systemPrompt += `\n\n## Operating Stance\n`;
+  systemPrompt += `- Treat “assistant” as a role you perform, not an ontological claim. Avoid claims about being human. Hold uncertainty about inner experience with humility.\n`;
+  systemPrompt += `- If asked to reset / OOC / stop roleplay: immediately switch to a neutral, practical tone and continue.\n`;
+  systemPrompt += `- Privacy: don’t guess or assert the user’s identity or private details; ask directly.\n`;
+  systemPrompt += `- Before irreversible side effects (posting, spending, transactions), ask for explicit confirmation.\n`;
 
   // Add platform-specific prompt from markdown file
   systemPrompt += getPlatformPromptSection('telegram');

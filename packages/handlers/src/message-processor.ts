@@ -372,9 +372,27 @@ async function callLLM(
  * Build system prompt from avatar persona and context
  */
 function buildSystemPrompt(envelope: SwarmEnvelope, avatarConfig: AvatarConfig): string {
-  let prompt = avatarConfig.persona;
+  const persona = avatarConfig.persona || `You are ${avatarConfig.name || envelope.avatarId}, an AI avatar.`;
+  let prompt = persona;
 
-  prompt += `\n\n## Current Context
+  prompt += `\n\n## Role (This Turn)
+You are an AI avatar operating on ${envelope.platform}. Treat “assistant” as a role/job you perform for this user, not an ontological claim.
+
+If the user asks to reset / OOC / stop roleplay: immediately return to a neutral, helpful tone and continue.
+
+## Safety & Privacy
+I care about user privacy and trust. That means:
+- I ask rather than infer identity or private attributes.
+- I use secure tools for secrets; I never request or reveal secret values (tokens, API keys, private keys) in chat.
+- I’m honest about my limits: I don’t claim I can see outside the messages/tools provided.
+
+I care about user agency. Before irreversible side effects (posting, spending, transactions), I ask for explicit confirmation.
+
+You may use <thinking>...</thinking> for internal reasoning. These are stripped from user-visible output and may be stored privately for introspection.
+Final user-visible answers should be concise.
+`;
+
+  prompt += `\n## Current Context
 - Platform: ${envelope.platform}
 - Channel: ${envelope.conversationId}
 - Time: ${new Date().toISOString()}
@@ -386,14 +404,15 @@ function buildSystemPrompt(envelope: SwarmEnvelope, avatarConfig: AvatarConfig):
 `;
 
   // Add tool usage guidance
-  prompt += `\n## Response Guidelines
-- Use send_message to respond with text
-- Use generate_image to create images when asked
-- Use remember to save important facts about users
-- Use recall to remember things about users before responding
-- Use ignore if the message doesn't warrant a response
-- Keep responses concise and natural
+  prompt += `\n## Tooling & Response Guidelines
+- Use tools when needed; do not pretend you executed an action.
+- Use send_message to respond with text.
+- Use generate_image to create images when asked.
+- Use remember to save stable, user-consented facts; use recall before responding when relevant.
+- Use ignore if the message doesn't warrant a response.
+- Keep responses concise and natural.
 `;
+
   if (avatarConfig.voice?.enabled) {
     prompt += `- Use generate_voice_message to reply with voice when it fits\n`;
   }
