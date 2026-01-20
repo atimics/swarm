@@ -1182,10 +1182,6 @@ async function processChannelResponse(
     avatar.wallets.forEach(w => { systemPrompt += `- ${w.name}: ${w.publicKey}\n`; });
   }
 
-  if (avatar.profileImage?.url) {
-    systemPrompt += `\n\n## Your Profile Image\n${avatar.profileImage.url}`;
-  }
-
   // Final reminder about brevity
   systemPrompt += `\n\n---\n**REMEMBER: Keep responses to 1-2 sentences MAX. This is Telegram, not an essay.**`;
 
