@@ -19,6 +19,23 @@ interface AvatarConfig {
   name: string;
   version: string;
   persona: string;
+
+  // Profile image for Discord webhooks and reference
+  profileImage?: {
+    url: string;
+    s3Key?: string;
+    updatedAt?: number;
+  };
+
+  // Character reference for full-body consistency in image/video generation
+  characterReference?: {
+    url: string;
+    s3Key?: string;
+    description?: string;
+    generatedPrompt?: string;
+    updatedAt?: number;
+  };
+
   platforms: {
     telegram?: {
       enabled: boolean;
@@ -61,6 +78,10 @@ interface AvatarConfig {
   };
   media: {
     image: {
+      provider: string;
+      model: string;
+    };
+    video?: {
       provider: string;
       model: string;
     };
@@ -112,6 +133,23 @@ function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
     name: record.name,
     version: '1.0.0',
     persona: record.persona || `You are ${record.name}, a helpful AI assistant.`,
+
+    // Sync profile image for character reference
+    profileImage: record.profileImage ? {
+      url: record.profileImage.url,
+      s3Key: record.profileImage.s3Key,
+      updatedAt: record.profileImage.updatedAt,
+    } : undefined,
+
+    // Sync character reference for full-body consistency
+    characterReference: record.characterReference ? {
+      url: record.characterReference.url,
+      s3Key: record.characterReference.s3Key,
+      description: record.characterReference.description,
+      generatedPrompt: record.characterReference.generatedPrompt,
+      updatedAt: record.characterReference.updatedAt,
+    } : undefined,
+
     platforms: {},
     llm: {
       provider: record.llmConfig.provider,

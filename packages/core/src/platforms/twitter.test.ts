@@ -322,6 +322,12 @@ describe('TwitterAdapter - Tweet Posting', () => {
   it('postTweet uploads and attaches single image', async () => {
     // Mock fetch for image download
     globalThis.fetch = mock(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: {
+        get: () => 'image/png',
+      },
       arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
     } as Response));
 
@@ -335,6 +341,12 @@ describe('TwitterAdapter - Tweet Posting', () => {
     mockClient.v1.uploadMedia = mock(() => Promise.reject(new Error('Upload failed')));
 
     globalThis.fetch = mock(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: {
+        get: () => 'image/png',
+      },
       arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
     } as Response));
 
