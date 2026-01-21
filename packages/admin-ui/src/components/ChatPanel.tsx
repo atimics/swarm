@@ -33,6 +33,36 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
   const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
   const [showHint, setShowHint] = useState(true);
 
+  const extractPendingJobsFromText = useCallback((text: string): Array<{ jobId: string; type: 'image' | 'video' | 'sticker' }> => {
+    const found: Array<{ jobId: string; type: 'image' | 'video' | 'sticker' }> = [];
+    if (!text) return found;
+
+    // MCP server convention
+    // Example: [Pending Job: image] ID: 123e4567-e89b-12d3-a456-426614174000
+    for (const match of text.matchAll(/\[Pending Job:\s*(image|video|sticker)\]\s*ID:\s*([a-f0-9-]{36})/gi)) {
+      const type = (match[1] || 'image').toLowerCase() as 'image' | 'video' | 'sticker';
+      const jobId = match[2];
+      if (jobId) found.push({ jobId, type });
+    }
+
+    // Generic patterns commonly surfaced in tool text
+    for (const match of text.matchAll(/\bjobId\b\s*[:=]\s*["']?([a-f0-9-]{36})["']?/gi)) {
+      const jobId = match[1];
+      if (jobId) found.push({ jobId, type: 'image' });
+    }
+    for (const match of text.matchAll(/\bJob ID\b\s*[:=]\s*([a-f0-9-]{36})/gi)) {
+      const jobId = match[1];
+      if (jobId) found.push({ jobId, type: 'image' });
+    }
+
+    // Deduplicate by jobId
+    const deduped = new Map<string, { jobId: string; type: 'image' | 'video' | 'sticker' }>();
+    for (const j of found) {
+      if (!deduped.has(j.jobId)) deduped.set(j.jobId, j);
+    }
+    return Array.from(deduped.values());
+  }, []);
+
   // Derive hasOrb from gateStatus
   const hasOrb = (gateStatus?.nftsHeld ?? 0) > 0;
 
@@ -169,8 +199,8 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             pendingJobsCount: response.pendingJobs?.length || 0,
           });
 
-          // Check for pending jobs from the response (explicit pendingJobs array)
-          const pendingJobsList = response.pendingJobs || [];
+          // Pending jobs can arrive either as structured `pendingJobs` OR embedded in tool-result text.
+          const pendingJobsList = [...(response.pendingJobs || [])];
           
           // Filter out stale "Please connect your X/Twitter account:" text from responses
           // This text can appear when the model repeats from chat history after a connection attempt
@@ -207,6 +237,15 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             for (const msg of historyFromServer.slice(lastUserIndex + 1)) {
               if (msg && msg.role === 'tool' && typeof msg.content === 'string') {
                 toolResultContents.push(msg.content);
+              }
+            }
+          }
+
+          // Extract job ids from tool-result messages (these often contain the only jobId)
+          for (const toolContent of toolResultContents) {
+            for (const j of extractPendingJobsFromText(toolContent)) {
+              if (!pendingJobsList.find(existing => existing.jobId === j.jobId)) {
+                pendingJobsList.push({ jobId: j.jobId, type: j.type });
               }
             }
           }
