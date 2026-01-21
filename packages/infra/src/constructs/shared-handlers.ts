@@ -27,6 +27,21 @@ export interface SharedHandlersProps {
   cdnUrl?: string;
   replicateApiKeyArn?: string;
   secretPrefix?: string;
+  /**
+   * Twitter API tier: 'free' (100 tweets/month) or 'basic' (15,000 tweets/month)
+   * @default 'basic'
+   */
+  twitterApiTier?: 'free' | 'basic';
+  /**
+   * Override the monthly Twitter API budget (reads)
+   * @default tier default (100 for free, 15000 for basic)
+   */
+  twitterMonthlyBudget?: number;
+  /**
+   * Percentage of daily budget to reserve for spikes (0-100)
+   * @default 20
+   */
+  twitterDailyReservePct?: number;
 }
 
 export class SharedHandlers extends Construct {
@@ -48,6 +63,9 @@ export class SharedHandlers extends Construct {
       cdnUrl,
       replicateApiKeyArn,
       secretPrefix = 'swarm',
+      twitterApiTier = 'basic',
+      twitterMonthlyBudget,
+      twitterDailyReservePct = 20,
     } = props;
 
     const dlq = new sqs.Queue(this, 'DeadLetterQueue', {
@@ -129,6 +147,10 @@ export class SharedHandlers extends Construct {
       CDN_URL: cdnUrl || '',
       ENVIRONMENT: environment,
       SECRET_PREFIX: secretPrefix,
+      // Twitter API budget configuration
+      TWITTER_API_TIER: twitterApiTier,
+      TWITTER_DAILY_RESERVE_PCT: String(twitterDailyReservePct),
+      ...(twitterMonthlyBudget ? { TWITTER_MONTHLY_BUDGET: String(twitterMonthlyBudget) } : {}),
     };
 
     if (replicateApiKeyArn) {

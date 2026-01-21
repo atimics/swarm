@@ -228,16 +228,21 @@ export class TwitterAdapter extends PlatformAdapter {
   /**
    * Get recent mentions of the bot
    */
-  async getMentions(sinceId?: string): Promise<SwarmEnvelope[]> {
+  async getMentions(
+    sinceId?: string,
+    options?: { maxResults?: number }
+  ): Promise<SwarmEnvelope[]> {
     if (!this.client) {
       throw new Error('Twitter client not initialized');
     }
 
     const userId = await this.getBotUserId();
-    
+    // Twitter API allows max_results between 5 and 100
+    const maxResults = Math.min(100, Math.max(5, options?.maxResults || 20));
+
     const mentions = await this.client.v2.userMentionTimeline(userId, {
       since_id: sinceId,
-      max_results: 20,
+      max_results: maxResults,
       expansions: ['author_id', 'referenced_tweets.id'],
       'tweet.fields': ['created_at', 'conversation_id', 'in_reply_to_user_id'],
       'user.fields': ['username', 'name'],
@@ -322,9 +327,9 @@ export class TwitterAdapter extends PlatformAdapter {
   }
 
   /**
-   * Get the bot's Twitter user ID
+   * Get the bot's Twitter user ID (cached after first call)
    */
-  private async getBotUserId(): Promise<string> {
+  async getBotUserId(): Promise<string> {
     if (this.botUserId) {
       return this.botUserId;
     }
@@ -336,6 +341,13 @@ export class TwitterAdapter extends PlatformAdapter {
     const me = await this.client.v2.me();
     this.botUserId = me.data.id;
     return this.botUserId;
+  }
+
+  /**
+   * Get the bot's Twitter username from config
+   */
+  getBotUsername(): string | undefined {
+    return this.config.username;
   }
 
   /**
