@@ -50,9 +50,18 @@ interface AvatarConfig {
     twitter?: {
       enabled: boolean;
       username: string;
-      features: ('scheduled_tweets' | 'mention_replies' | 'dm_responses')[];
+      features: ('scheduled_tweets' | 'mention_replies' | 'dm_responses' | 'autonomous_posts' | 'community_posts')[];
       charLimit?: number;
       verifiedType?: string;
+      communities?: Array<{ id: string; name: string; postFrequency?: number }>;
+      autonomousPosts?: {
+        enabled: boolean;
+        minIntervalHours: number;
+        maxIntervalHours: number;
+        imageChance: number;
+        useMemories: boolean;
+        topics?: string[];
+      };
     };
     discord?: {
       enabled: boolean;
@@ -169,7 +178,7 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
         provider: 'replicate',
         model: record.integrations?.replicate?.models?.image_generation
           || record.mediaConfig?.image?.model
-          || 'black-forest-labs/flux-schnell',
+          || 'google/nano-banana-pro',
       },
       video: (record.integrations?.replicate?.models?.video_generation || record.mediaConfig?.video?.model) ? {
         provider: 'replicate' as const,
@@ -221,10 +230,29 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
 
   // Convert Twitter config
   if (record.platforms.twitter?.enabled) {
+    const twitterRecord = record.platforms.twitter;
+    const features = Array.isArray(twitterRecord.features)
+      ? twitterRecord.features
+      : ['mention_replies', 'scheduled_tweets'];
+    const autonomousPosts = twitterRecord.autonomousPosts
+      ? {
+          enabled: twitterRecord.autonomousPosts.enabled ?? false,
+          minIntervalHours: twitterRecord.autonomousPosts.minIntervalHours ?? 4,
+          maxIntervalHours: twitterRecord.autonomousPosts.maxIntervalHours ?? 6,
+          imageChance: twitterRecord.autonomousPosts.imageChance ?? 0.3,
+          useMemories: twitterRecord.autonomousPosts.useMemories ?? true,
+          topics: twitterRecord.autonomousPosts.topics?.length
+            ? twitterRecord.autonomousPosts.topics
+            : undefined,
+        }
+      : undefined;
+
     config.platforms.twitter = {
       enabled: true,
-      username: record.platforms.twitter.username || '',
-      features: ['mention_replies', 'scheduled_tweets'],
+      username: twitterRecord.username || '',
+      features,
+      communities: twitterRecord.communities,
+      autonomousPosts,
     };
     config.secrets.push(
       'TWITTER_API_KEY',
@@ -232,11 +260,13 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
       'TWITTER_ACCESS_TOKEN',
       'TWITTER_ACCESS_SECRET'
     );
-    // Add scheduled tweets
-    config.scheduling.tweets = [
-      { cron: '0 12 * * *', template: 'general' },
-      { cron: '0 18 * * *', template: 'general' },
-    ];
+    // Add scheduled tweets only when enabled.
+    if (features.includes('scheduled_tweets')) {
+      config.scheduling.tweets = [
+        { cron: '0 12 * * *', template: 'general' },
+        { cron: '0 18 * * *', template: 'general' },
+      ];
+    }
   }
 
   // Convert Discord config

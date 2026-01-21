@@ -151,6 +151,59 @@ export class TwitterAdapter extends PlatformAdapter {
   }
 
   /**
+   * Upload media to Twitter and return media IDs
+   * Reusable method for both regular tweets and community posts
+   */
+  async uploadMedia(media: Array<{ type: string; url: string }>): Promise<string[]> {
+    if (!this.client) {
+      throw new Error('Twitter client not initialized');
+    }
+
+    const mediaIds: string[] = [];
+
+    for (const item of media.slice(0, 4)) { // Twitter allows max 4 media items
+      try {
+        // Download the media and upload to Twitter
+        const response = await fetch(item.url);
+
+        if (!response.ok) {
+          console.error(`Failed to fetch media from ${item.url}: ${response.status} ${response.statusText}`);
+          continue;
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+
+        // Detect MIME type from Content-Type header or URL
+        let mimeType = 'image/png';
+        if (item.type === 'video') {
+          mimeType = 'video/mp4';
+        } else {
+          const contentType = response.headers?.get?.('content-type') ?? null;
+          if (contentType && !['application/octet-stream', 'binary/octet-stream'].includes(contentType)) {
+            mimeType = contentType.split(';')[0];
+          } else {
+            // Infer from URL extension
+            const urlLower = item.url.toLowerCase();
+            if (urlLower.includes('.webp')) mimeType = 'image/webp';
+            else if (urlLower.includes('.jpg') || urlLower.includes('.jpeg')) mimeType = 'image/jpeg';
+            else if (urlLower.includes('.gif')) mimeType = 'image/gif';
+          }
+        }
+
+        const mediaId = await this.client.v1.uploadMedia(buffer, {
+          mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'video/mp4',
+        });
+
+        mediaIds.push(mediaId);
+      } catch (error) {
+        console.error('Failed to upload media to Twitter:', error);
+      }
+    }
+
+    return mediaIds;
+  }
+
+  /**
    * Post a tweet with optional media
    */
   async postTweet(
@@ -173,49 +226,9 @@ export class TwitterAdapter extends PlatformAdapter {
       };
     }
 
-    // Handle media upload
+    // Handle media upload using the reusable method
     if (media && media.length > 0) {
-      const mediaIds: string[] = [];
-
-      for (const item of media) {
-        try {
-          // Download the media and upload to Twitter
-          const response = await fetch(item.url);
-
-          if (!response.ok) {
-            console.error(`Failed to fetch media from ${item.url}: ${response.status} ${response.statusText}`);
-            continue;
-          }
-
-          const buffer = Buffer.from(await response.arrayBuffer());
-
-          // Detect MIME type from Content-Type header or URL
-          let mimeType = 'image/png';
-          if (item.type === 'video') {
-            mimeType = 'video/mp4';
-          } else {
-            const contentType = response.headers?.get?.('content-type') ?? null;
-            if (contentType && !['application/octet-stream', 'binary/octet-stream'].includes(contentType)) {
-              mimeType = contentType.split(';')[0];
-            } else {
-              // Infer from URL extension
-              const urlLower = item.url.toLowerCase();
-              if (urlLower.includes('.webp')) mimeType = 'image/webp';
-              else if (urlLower.includes('.jpg') || urlLower.includes('.jpeg')) mimeType = 'image/jpeg';
-              else if (urlLower.includes('.gif')) mimeType = 'image/gif';
-            }
-          }
-
-          const mediaId = await this.client.v1.uploadMedia(buffer, {
-            mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'video/mp4',
-          });
-
-          mediaIds.push(mediaId);
-        } catch (error) {
-          console.error('Failed to upload media to Twitter:', error);
-        }
-      }
-
+      const mediaIds = await this.uploadMedia(media);
       if (mediaIds.length > 0) {
         tweetParams.media = { media_ids: mediaIds as [string] };
       }
@@ -223,6 +236,65 @@ export class TwitterAdapter extends PlatformAdapter {
 
     const result = await this.client.v2.tweet(tweetParams);
     return result.data.id;
+  }
+
+  /**
+   * Post a tweet to a Twitter Community
+   * Note: Community posting requires specific API access tier.
+   */
+  async postToCommunity(
+    communityId: string,
+    text: string,
+    media?: Array<{ type: string; url: string }>,
+    replyToTweetId?: string
+  ): Promise<string> {
+    if (!this.client) {
+      throw new Error('Twitter client not initialized');
+    }
+
+    const tweetParams: Parameters<TwitterApi['v2']['tweet']>[0] = {
+      text,
+    };
+
+    // Community posts are supported via community_id (may require elevated access tier).
+    (tweetParams as { community_id?: string }).community_id = communityId;
+
+    // Handle reply within community
+    if (replyToTweetId) {
+      tweetParams.reply = {
+        in_reply_to_tweet_id: replyToTweetId,
+      };
+    }
+
+    // Handle media upload
+    if (media && media.length > 0) {
+      const mediaIds = await this.uploadMedia(media);
+      if (mediaIds.length > 0) {
+        tweetParams.media = { media_ids: mediaIds as [string] };
+      }
+    }
+
+    const result = await this.client.v2.tweet(tweetParams);
+    return result.data.id;
+  }
+
+  /**
+   * Get recent tweets from a community timeline
+   * Note: This is a placeholder - community timeline access varies by API tier
+   */
+  async getCommunityTimeline(
+    _communityId: string,
+    _sinceId?: string,
+    _maxResults: number = 20
+  ): Promise<SwarmEnvelope[]> {
+    // Community timeline access requires specific API permissions
+    // This is a placeholder for future implementation when API access is available
+    // Possible approaches:
+    // 1. Use search API with community filter (if available)
+    // 2. Use community-specific endpoints (Enterprise tier)
+    // 3. Scrape community page (not recommended for production)
+    console.warn('getCommunityTimeline is not yet implemented - requires elevated API access');
+    return [];
   }
 
   /**
@@ -278,45 +350,9 @@ export class TwitterAdapter extends PlatformAdapter {
       quote_tweet_id: quoteTweetId,
     };
 
+    // Handle media upload using the reusable method
     if (media && media.length > 0) {
-      const mediaIds: string[] = [];
-
-      for (const item of media.slice(0, 4)) {
-        try {
-          const response = await fetch(item.url);
-
-          if (!response.ok) {
-            console.error(`Failed to fetch media from ${item.url}: ${response.status} ${response.statusText}`);
-            continue;
-          }
-
-          const buffer = Buffer.from(await response.arrayBuffer());
-
-          // Detect MIME type from Content-Type header or URL
-          let mimeType = 'image/png';
-          if (item.type === 'video') {
-            mimeType = 'video/mp4';
-          } else {
-            const contentType = response.headers.get('content-type');
-            if (contentType && !['application/octet-stream', 'binary/octet-stream'].includes(contentType)) {
-              mimeType = contentType.split(';')[0];
-            } else {
-              const urlLower = item.url.toLowerCase();
-              if (urlLower.includes('.webp')) mimeType = 'image/webp';
-              else if (urlLower.includes('.jpg') || urlLower.includes('.jpeg')) mimeType = 'image/jpeg';
-              else if (urlLower.includes('.gif')) mimeType = 'image/gif';
-            }
-          }
-
-          const mediaId = await this.client.v1.uploadMedia(buffer, {
-            mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'video/mp4',
-          });
-          mediaIds.push(mediaId);
-        } catch (error) {
-          console.error('Failed to upload media to Twitter:', error);
-        }
-      }
-
+      const mediaIds = await this.uploadMedia(media);
       if (mediaIds.length > 0) {
         tweetParams.media = { media_ids: mediaIds as [string] };
       }

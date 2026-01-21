@@ -61,9 +61,17 @@ export function createModelResolver(config: ResolverConfig): MediaServiceDepende
       }));
 
       // Check integrations.replicate.models.{capability} (admin-api format)
+      // Then check synced config format (STATE_TABLE) for the matching capability.
       const item = result.Item;
+      const syncedConfigModel =
+        capability === 'image_generation'
+          ? item?.config?.media?.image?.model
+          : capability === 'video_generation'
+            ? item?.config?.media?.video?.model
+            : undefined;
+
       const configuredModel = item?.integrations?.replicate?.models?.[capability]
-        || item?.config?.media?.image?.model;  // Also check synced config format
+        || syncedConfigModel;
 
       if (configuredModel) {
         console.log(`[MediaResolver] Using configured ${capability} model for ${avatarId}: ${configuredModel}`);
@@ -326,6 +334,23 @@ export function createApiKeyResolver(config: ResolverConfig): MediaServiceDepend
       throw new Error(`API key resolution not implemented for provider: ${provider}`);
     }
 
+    // If the avatar explicitly disabled global/system usage, require an avatar key.
+    // This flag currently lives on the admin-api record (ADMIN_TABLE). STATE_TABLE
+    // configs may not include it, so we only enforce when explicitly false.
+    let requireAvatarKey = false;
+    try {
+      const configResult = await docClient.send(new GetCommand({
+        TableName: config.tableName,
+        Key: { pk: `AVATAR#${avatarId}`, sk: 'CONFIG' },
+      }));
+      const useGlobalKey = configResult.Item?.integrations?.replicate?.useGlobalKey;
+      if (useGlobalKey === false) {
+        requireAvatarKey = true;
+      }
+    } catch (err) {
+      console.warn('[MediaResolver] Failed to read replicate.useGlobalKey, defaulting to legacy behavior:', err);
+    }
+
     // Check avatar-specific secret from Secrets Manager (admin-api path format)
     const avatarKey = await getAvatarReplicateKey(avatarId);
     if (avatarKey) {
@@ -344,6 +369,12 @@ export function createApiKeyResolver(config: ResolverConfig): MediaServiceDepend
       }
     } catch (err) {
       console.warn('[MediaResolver] Failed to get avatar secret from DynamoDB:', err);
+    }
+
+    if (requireAvatarKey) {
+      console.warn('[MediaResolver] Avatar-specific Replicate key required but missing; falling back to system key.', {
+        avatarId,
+      });
     }
 
     // Check system key

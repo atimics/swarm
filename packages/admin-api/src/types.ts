@@ -271,6 +271,21 @@ export interface AudioAsset {
   createdAt: number;
 }
 
+export interface TwitterCommunityConfig {
+  id: string;
+  name: string;
+  postFrequency?: number;
+}
+
+export interface AutonomousPostsConfig {
+  enabled: boolean;
+  minIntervalHours?: number;
+  maxIntervalHours?: number;
+  imageChance?: number;
+  useMemories?: boolean;
+  topics?: string[];
+}
+
 // Avatar configuration stored in DynamoDB
 export interface AvatarRecord {
   pk: string; // AVATAR#{avatarId}
@@ -331,7 +346,13 @@ export interface AvatarRecord {
       /** Allowlist of user IDs the bot may respond to in DMs. */
       allowedDmUserIds?: string[];
     };
-    twitter?: { enabled: boolean; username?: string };
+    twitter?: {
+      enabled: boolean;
+      username?: string;
+      features?: ('scheduled_tweets' | 'mention_replies' | 'dm_responses' | 'autonomous_posts' | 'community_posts')[];
+      communities?: TwitterCommunityConfig[];
+      autonomousPosts?: AutonomousPostsConfig;
+    };
     discord?: {
       enabled: boolean;
       guildId?: string;

@@ -29,4 +29,22 @@ describe('replicate api key validation', () => {
     expect(result.valid).toBe(true);
     expect(result.accountType).toBe('pro');
   });
+
+  it('handles rate limiting (429)', async () => {
+    const result = await validateReplicateApiKey('key', {
+      fetchFn: async () => new Response('rate limited', { status: 429 }),
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('rate-limited');
+  });
+
+  it('extracts JSON error detail when present', async () => {
+    const result = await validateReplicateApiKey('key', {
+      fetchFn: async () => new Response(JSON.stringify({ detail: 'Something went wrong' }), { status: 500 }),
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe('Something went wrong');
+  });
 });

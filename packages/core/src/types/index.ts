@@ -104,14 +104,42 @@ export interface DiscordConfig {
   allowedGuilds?: string[]; // Guild IDs to operate in (empty = all)
 }
 
+export interface TwitterCommunityConfig {
+  /** Twitter Community ID */
+  id: string;
+  /** Human-readable community name */
+  name: string;
+  /** Posts per day to this community (default: 1) */
+  postFrequency?: number;
+}
+
+export interface AutonomousPostsConfig {
+  /** Whether autonomous posting is enabled */
+  enabled: boolean;
+  /** Minimum interval between posts in hours (default: 4) */
+  minIntervalHours: number;
+  /** Maximum interval between posts in hours (default: 6) */
+  maxIntervalHours: number;
+  /** Probability of including an image (0-1, default: 0.3) */
+  imageChance: number;
+  /** Whether to use avatar memories for context (default: true) */
+  useMemories: boolean;
+  /** Optional topic hints for content generation */
+  topics?: string[];
+}
+
 export interface TwitterConfig {
   enabled: boolean;
   username: string;
-  features: ('scheduled_tweets' | 'mention_replies' | 'dm_responses')[];
+  features: ('scheduled_tweets' | 'mention_replies' | 'dm_responses' | 'autonomous_posts' | 'community_posts')[];
   /** Character limit for tweets - 280 for free accounts, 10000 for Premium/Blue */
   charLimit?: number;
   /** Verified type from Twitter API - 'blue', 'business', 'government', or undefined */
   verifiedType?: string;
+  /** Twitter Communities the avatar is a member of */
+  communities?: TwitterCommunityConfig[];
+  /** Autonomous posting configuration */
+  autonomousPosts?: AutonomousPostsConfig;
 }
 
 export interface WebConfig {
@@ -711,10 +739,29 @@ export const DiscordConfigSchema = z.object({
   allowedGuilds: z.array(z.string()).optional(),
 });
 
+export const TwitterCommunityConfigSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  postFrequency: z.number().optional(),
+});
+
+export const AutonomousPostsConfigSchema = z.object({
+  enabled: z.boolean(),
+  minIntervalHours: z.number().default(4),
+  maxIntervalHours: z.number().default(6),
+  imageChance: z.number().min(0).max(1).default(0.3),
+  useMemories: z.boolean().default(true),
+  topics: z.array(z.string()).optional(),
+});
+
 export const TwitterConfigSchema = z.object({
   enabled: z.boolean(),
   username: z.string(),
-  features: z.array(z.enum(['scheduled_tweets', 'mention_replies', 'dm_responses'])),
+  features: z.array(z.enum(['scheduled_tweets', 'mention_replies', 'dm_responses', 'autonomous_posts', 'community_posts'])),
+  charLimit: z.number().optional(),
+  verifiedType: z.string().optional(),
+  communities: z.array(TwitterCommunityConfigSchema).optional(),
+  autonomousPosts: AutonomousPostsConfigSchema.optional(),
 });
 
 export const WebConfigSchema = z.object({

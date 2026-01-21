@@ -350,36 +350,52 @@ export async function configureIntegration(params: ConfigureIntegrationParams): 
     }
   }
 
-  // Build the integration config update
-  const integrationConfig: Record<string, unknown> = {
-    enabled: params.enabled ?? true,
+  const expressionAttributeNames: Record<string, string> = {
+    '#integration': integration,
+  };
+  const expressionAttributeValues: Record<string, unknown> = {
+    ':now': Date.now(),
+    ':by': session.email,
+    ':enabled': params.enabled ?? true,
   };
 
+  const setClauses: string[] = [
+    'integrations.#integration.enabled = :enabled',
+    'updatedAt = :now',
+    'updatedBy = :by',
+  ];
+
   if (metadata.category === 'ai_provider') {
-    integrationConfig.useGlobalKey = params.useGlobalKey ?? true;
+    if (typeof params.useGlobalKey === 'boolean') {
+      setClauses.push('integrations.#integration.useGlobalKey = :useGlobalKey');
+      expressionAttributeValues[':useGlobalKey'] = params.useGlobalKey;
+    }
+
     if (params.models) {
-      integrationConfig.models = params.models;
+      setClauses.push('integrations.#integration.models = :models');
+      expressionAttributeValues[':models'] = params.models;
     }
   }
 
   if (params.settings) {
-    Object.assign(integrationConfig, params.settings);
+    for (const [key, value] of Object.entries(params.settings)) {
+      // Only support safe, simple keys for now.
+      if (!key || !/^[a-zA-Z0-9_]+$/.test(key)) continue;
+      const nameKey = `#setting_${key}`;
+      const valueKey = `:setting_${key}`;
+      expressionAttributeNames[nameKey] = key;
+      expressionAttributeValues[valueKey] = value;
+      setClauses.push(`integrations.#integration.${nameKey} = ${valueKey}`);
+    }
   }
 
-  // Update avatar record
   await dynamoClient.send(
     new UpdateCommand({
       TableName: ADMIN_TABLE,
       Key: { pk: `AVATAR#${avatarId}`, sk: 'CONFIG' },
-      UpdateExpression: 'SET integrations.#integration = :config, updatedAt = :now, updatedBy = :by',
-      ExpressionAttributeNames: {
-        '#integration': integration,
-      },
-      ExpressionAttributeValues: {
-        ':config': integrationConfig,
-        ':now': Date.now(),
-        ':by': session.email,
-      },
+      UpdateExpression: `SET ${setClauses.join(', ')}`,
+      ExpressionAttributeNames: expressionAttributeNames,
+      ExpressionAttributeValues: expressionAttributeValues,
     })
   );
 }

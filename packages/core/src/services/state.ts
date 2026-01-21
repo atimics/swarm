@@ -760,6 +760,39 @@ export class DynamoDBStateService implements StateService {
   }
 
   // =====================================================================
+  // AUTONOMOUS POST TIMING
+  // =====================================================================
+
+  /**
+   * Get the timestamp of the last autonomous post for an avatar
+   */
+  async getLastAutonomousPostTime(avatarId: string): Promise<number> {
+    const result = await this.docClient.send(new GetCommand({
+      TableName: this.tableName,
+      Key: {
+        pk: `AVATAR#${avatarId}`,
+        sk: 'TWITTER#LAST_AUTO_POST',
+      },
+    }));
+    return result.Item?.timestamp || 0;
+  }
+
+  /**
+   * Set the timestamp of the last autonomous post for an avatar
+   */
+  async setLastAutonomousPostTime(avatarId: string, timestamp: number): Promise<void> {
+    await this.docClient.send(new PutCommand({
+      TableName: this.tableName,
+      Item: {
+        pk: `AVATAR#${avatarId}`,
+        sk: 'TWITTER#LAST_AUTO_POST',
+        timestamp,
+        updatedAt: Date.now(),
+      },
+    }));
+  }
+
+  // =====================================================================
   // MEMORY / FACTS STORAGE
   // =====================================================================
 

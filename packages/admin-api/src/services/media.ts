@@ -184,6 +184,8 @@ function shouldRetryAsModelEndpoint(status: number, errorText: string, hadVersio
 interface ResolvedApiKeyWithSource {
   key: string;
   isTrialUsage: boolean;
+  source: 'avatar' | 'system' | 'trial';
+  trialCreditsAvailable?: number;
 }
 
 /**
@@ -195,10 +197,17 @@ interface ResolvedApiKeyWithSource {
 async function getImageGenerationApiKey(avatarId: string): Promise<ResolvedApiKeyWithSource> {
   const resolved = await coreApiKeyResolver(avatarId, 'replicate');
   const isTrialUsage = resolved.source === 'trial';
-  if (isTrialUsage && resolved.trialCreditsAvailable !== undefined) {
-    console.log(`[Media] Using system Replicate key for image generation: avatar=${avatarId}, credits available=${resolved.trialCreditsAvailable}`);
+  if (resolved.source === 'trial' && resolved.trialCreditsAvailable !== undefined) {
+    console.log(`[Media] Using Replicate trial key: avatar=${avatarId}, credits available=${resolved.trialCreditsAvailable}`);
+  } else {
+    console.log(`[Media] Using Replicate key source: avatar=${avatarId}, source=${resolved.source}`);
   }
-  return { key: resolved.key, isTrialUsage };
+  return {
+    key: resolved.key,
+    isTrialUsage,
+    source: resolved.source,
+    trialCreditsAvailable: resolved.trialCreditsAvailable,
+  };
 }
 
 /**
@@ -379,7 +388,7 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
 
   // Get Replicate API key (avatar key or system trial)
   // Note: For trial usage, credits are checked but NOT consumed yet
-  const { key: apiKey, isTrialUsage } = await getImageGenerationApiKey(avatarId);
+  const { key: apiKey, isTrialUsage, source: apiKeySource } = await getImageGenerationApiKey(avatarId);
 
   // Build the prompt with reference context if images provided
   let finalPrompt = prompt;
@@ -391,7 +400,7 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
   const modelId = model || await getConfiguredModel(avatarId, 'image_generation');
   const version = getReplicateVersion(modelId);
 
-  console.log(`[Media] Using image model: ${modelId}${version ? ` (version: ${version.slice(0, 8)}...)` : ' (using /models API)'}`);
+  console.log(`[Media] Using image model: ${modelId}${version ? ` (version: ${version.slice(0, 8)}...)` : ' (using /models API)'}; keySource=${apiKeySource}`);
 
   // Convert reference image URLs to publicly accessible URLs
   // (CDN URLs if available, otherwise signed S3 URLs)

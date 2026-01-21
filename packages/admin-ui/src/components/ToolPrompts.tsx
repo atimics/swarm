@@ -182,6 +182,24 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const [telegramDiagnosisError, setTelegramDiagnosisError] = useState<string | null>(null);
   const [telegramDiagnosisLoading, setTelegramDiagnosisLoading] = useState(false);
 
+  // Twitter-specific state
+  const [twitterFeatures, setTwitterFeatures] = useState<string[]>(['mention_replies']);
+  const [twitterAutonomousEnabled, setTwitterAutonomousEnabled] = useState(false);
+  const [twitterMinInterval, setTwitterMinInterval] = useState(4);
+  const [twitterMaxInterval, setTwitterMaxInterval] = useState(6);
+  const [twitterImageChance, setTwitterImageChance] = useState(0.3);
+  const [twitterTopics, setTwitterTopics] = useState<string[]>([]);
+  const [newTwitterTopic, setNewTwitterTopic] = useState('');
+  const [twitterCommunities, setTwitterCommunities] = useState<Array<{ id: string; name: string }>>([]);
+  const [newCommunityId, setNewCommunityId] = useState('');
+  const [newCommunityName, setNewCommunityName] = useState('');
+  const [twitterConfigLoaded, setTwitterConfigLoaded] = useState(false);
+  const initialTwitterConfigRef = useRef<{
+    features: string[];
+    autonomousPosts?: { enabled: boolean; minIntervalHours: number; maxIntervalHours: number; imageChance: number; topics?: string[] };
+    communities?: Array<{ id: string; name: string }>;
+  } | null>(null);
+
   const args = toolCall.arguments as {
     integration: 'telegram' | 'twitter' | 'discord' | 'replicate' | 'openai' | 'anthropic' | 'openrouter';
     reason?: string;
@@ -203,6 +221,19 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     setTelegramDiagnosisError(null);
     setTelegramDiagnosisLoading(false);
     didInitFromStatus.current = null;
+    // Reset Twitter state
+    setTwitterFeatures(['mention_replies']);
+    setTwitterAutonomousEnabled(false);
+    setTwitterMinInterval(4);
+    setTwitterMaxInterval(6);
+    setTwitterImageChance(0.3);
+    setTwitterTopics([]);
+    setNewTwitterTopic('');
+    setTwitterCommunities([]);
+    setNewCommunityId('');
+    setNewCommunityName('');
+    setTwitterConfigLoaded(false);
+    initialTwitterConfigRef.current = null;
   }, [toolCall.id]);
 
   const runTelegramDiagnostics = async (): Promise<TelegramDiagnosis | null> => {
@@ -245,6 +276,71 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     // Intentionally omit runTelegramDiagnostics from deps to avoid re-running on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolCall.id, args.integration, activeAgent?.id]);
+
+  // When opening the Twitter integration panel, load current config
+  useEffect(() => {
+    if (args.integration !== 'twitter') return;
+    if (!activeAgent?.id) return;
+    if (twitterConfigLoaded) return;
+
+    const loadTwitterConfig = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/avatars/${activeAgent.id}`, {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (!response.ok) return;
+        const payload = (await response.json().catch(() => ({}))) as {
+          platforms?: {
+            twitter?: {
+              features?: string[];
+              autonomousPosts?: {
+                enabled?: boolean;
+                minIntervalHours?: number;
+                maxIntervalHours?: number;
+                imageChance?: number;
+                useMemories?: boolean;
+                topics?: string[];
+              };
+              communities?: Array<{ id: string; name: string }>;
+            };
+          };
+        };
+        const twitter = payload?.platforms?.twitter || {};
+
+        const features = twitter.features || ['mention_replies'];
+        const autonomousPosts = twitter.autonomousPosts;
+        const communities = twitter.communities || [];
+
+        setTwitterFeatures(features);
+        if (autonomousPosts) {
+          setTwitterAutonomousEnabled(autonomousPosts.enabled ?? false);
+          setTwitterMinInterval(autonomousPosts.minIntervalHours ?? 4);
+          setTwitterMaxInterval(autonomousPosts.maxIntervalHours ?? 6);
+          setTwitterImageChance(autonomousPosts.imageChance ?? 0.3);
+          setTwitterTopics(autonomousPosts.topics || []);
+        }
+        setTwitterCommunities(communities);
+
+        initialTwitterConfigRef.current = {
+          features,
+          autonomousPosts: autonomousPosts ? {
+            enabled: autonomousPosts.enabled ?? false,
+            minIntervalHours: autonomousPosts.minIntervalHours ?? 4,
+            maxIntervalHours: autonomousPosts.maxIntervalHours ?? 6,
+            imageChance: autonomousPosts.imageChance ?? 0.3,
+            topics: autonomousPosts.topics,
+          } : undefined,
+          communities,
+        };
+        setTwitterConfigLoaded(true);
+      } catch {
+        // Ignore errors loading config
+      }
+    };
+
+    void loadTwitterConfig();
+  }, [toolCall.id, args.integration, activeAgent?.id, twitterConfigLoaded]);
 
   // Auto-hide the "Saved" banner after a short delay.
   useEffect(() => {
@@ -373,6 +469,34 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     const initial = {
       allowedDmUserIds: stableSorted(initialPolicyRef.current.allowedDmUserIds),
       allowedGroupChatIds: stableSorted(initialPolicyRef.current.allowedGroupChatIds),
+    };
+    return JSON.stringify(current) !== JSON.stringify(initial);
+  })();
+
+  const hasTwitterConfigChanges = (() => {
+    if (args.integration !== 'twitter') return false;
+    if (!initialTwitterConfigRef.current) return false;
+    const current = {
+      features: stableSorted(twitterFeatures),
+      autonomousPosts: {
+        enabled: twitterAutonomousEnabled,
+        minIntervalHours: twitterMinInterval,
+        maxIntervalHours: twitterMaxInterval,
+        imageChance: twitterImageChance,
+        topics: stableSorted(twitterTopics),
+      },
+      communities: JSON.stringify(twitterCommunities),
+    };
+    const initial = {
+      features: stableSorted(initialTwitterConfigRef.current.features),
+      autonomousPosts: initialTwitterConfigRef.current.autonomousPosts ? {
+        enabled: initialTwitterConfigRef.current.autonomousPosts.enabled,
+        minIntervalHours: initialTwitterConfigRef.current.autonomousPosts.minIntervalHours,
+        maxIntervalHours: initialTwitterConfigRef.current.autonomousPosts.maxIntervalHours,
+        imageChance: initialTwitterConfigRef.current.autonomousPosts.imageChance,
+        topics: stableSorted(initialTwitterConfigRef.current.autonomousPosts.topics || []),
+      } : { enabled: false, minIntervalHours: 4, maxIntervalHours: 6, imageChance: 0.3, topics: [] as string[] },
+      communities: JSON.stringify(initialTwitterConfigRef.current.communities || []),
     };
     return JSON.stringify(current) !== JSON.stringify(initial);
   })();
@@ -597,7 +721,9 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const handleSave = async () => {
     if (isSubmitting || !activeAgent?.id) return;
     // For AI providers with global key, token is optional
-    if (!config.isAiProvider && !token.trim() && !(args.integration === 'telegram' && hasTelegramPolicyChanges)) return;
+    // For Twitter, allow save if config has changed even without token
+    const allowTwitterSave = args.integration === 'twitter' && hasTwitterConfigChanges;
+    if (!config.isAiProvider && !token.trim() && !(args.integration === 'telegram' && hasTelegramPolicyChanges) && !allowTwitterSave) return;
     if (config.isAiProvider && !useGlobalKey && !token.trim()) return;
     if (config.isAiProvider && useGlobalKey && globalKeyAvailable === false) {
       setSaveError('No system/global API key is configured for this provider. Turn off “Use System API Key” and provide your own key.');
@@ -663,6 +789,70 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         telegramDiagnosisFromSave = await runTelegramDiagnostics();
       }
 
+      // Persist Twitter configuration (features, autonomous posts, communities)
+      if (args.integration === 'twitter' && hasTwitterConfigChanges) {
+        const twitterConfig: {
+          features: string[];
+          autonomousPosts?: {
+            enabled: boolean;
+            minIntervalHours: number;
+            maxIntervalHours: number;
+            imageChance: number;
+            useMemories: boolean;
+            topics?: string[];
+          };
+          communities?: Array<{ id: string; name: string }>;
+        } = {
+          features: twitterFeatures,
+        };
+
+        // Add autonomous posts config if the feature is enabled
+        if (twitterFeatures.includes('autonomous_posts')) {
+          twitterConfig.autonomousPosts = {
+            enabled: twitterAutonomousEnabled,
+            minIntervalHours: twitterMinInterval,
+            maxIntervalHours: twitterMaxInterval,
+            imageChance: twitterImageChance,
+            useMemories: true,
+            topics: twitterTopics.length > 0 ? twitterTopics : undefined,
+          };
+        }
+
+        // Add communities if the feature is enabled
+        if (twitterFeatures.includes('community_posts') && twitterCommunities.length > 0) {
+          twitterConfig.communities = twitterCommunities;
+        }
+
+        const twitterResponse = await fetch(`${API_BASE}/avatars/${activeAgent.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            platforms: {
+              twitter: twitterConfig,
+            },
+          }),
+        });
+
+        if (!twitterResponse.ok) {
+          const payload = await twitterResponse.json().catch(() => ({}));
+          throw new Error(payload.error || payload.message || `Failed to save Twitter config (HTTP ${twitterResponse.status})`);
+        }
+
+        // Update initial config ref to track further changes
+        initialTwitterConfigRef.current = {
+          features: [...twitterFeatures],
+          autonomousPosts: twitterFeatures.includes('autonomous_posts') ? {
+            enabled: twitterAutonomousEnabled,
+            minIntervalHours: twitterMinInterval,
+            maxIntervalHours: twitterMaxInterval,
+            imageChance: twitterImageChance,
+            topics: twitterTopics.length > 0 ? [...twitterTopics] : undefined,
+          } : undefined,
+          communities: twitterCommunities.length > 0 ? [...twitterCommunities] : [],
+        };
+      }
+
       // Build result with AI provider specific config
       const result: Record<string, unknown> = {
         configured: true,
@@ -671,7 +861,25 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
       if (config.isAiProvider) {
         result.useGlobalKey = useGlobalKey;
-        if (Object.keys(selectedModels).length > 0) {
+
+        // Persist the effective selections that the user sees in the UI.
+        // If the user never touches the dropdown, selectedModels may be empty even though
+        // the UI is displaying a default.
+        if (config.capabilities && config.capabilities.length > 0) {
+          const resolvedModels: Record<string, string> = {};
+          for (const capability of config.capabilities) {
+            const models = (availableModelsByCapability?.[capability] || []) as ModelOption[];
+            const defaultModel = models.find(m => m.isDefault)?.id || models[0]?.id;
+            const chosen = selectedModels[capability] || defaultModel;
+            if (chosen) {
+              resolvedModels[capability] = chosen;
+            }
+          }
+
+          if (Object.keys(resolvedModels).length > 0) {
+            result.models = resolvedModels;
+          }
+        } else if (Object.keys(selectedModels).length > 0) {
           result.models = selectedModels;
         }
       }
@@ -822,18 +1030,315 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
           </div>
         )}
         {config.usesOAuth ? (
-          // OAuth-based integration (Twitter)
-          <div className="space-y-3">
-            <p className="text-sm text-[var(--color-text-secondary)]">
-              Connect your {config.name} account to enable posting and interaction.
-            </p>
-            <button
-              onClick={handleOAuth}
-              disabled={disabled || !activeAgent?.id}
-              className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-[var(--color-bg-tertiary)] disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
-            >
-              Connect {config.name}
-            </button>
+          // OAuth-based integration (Twitter) with advanced config
+          <div className="space-y-4">
+            {/* OAuth Connection */}
+            <div className="space-y-2">
+              <p className="text-sm text-[var(--color-text-secondary)]">
+                Connect your {config.name} account to enable posting and interaction.
+              </p>
+              <button
+                onClick={handleOAuth}
+                disabled={disabled || !activeAgent?.id}
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-[var(--color-bg-tertiary)] disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
+              >
+                Connect {config.name}
+              </button>
+            </div>
+
+            {/* Twitter-specific configuration */}
+            {args.integration === 'twitter' && (
+              <>
+                {/* Features Selection */}
+                <div className="p-3 bg-[var(--color-bg-tertiary)] rounded-lg border border-[var(--color-border)] space-y-3">
+                  <p className="text-sm font-medium text-[var(--color-text)]">Features</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Select which Twitter features to enable for this avatar.
+                  </p>
+                  <div className="space-y-2">
+                    {[
+                      { id: 'mention_replies', label: 'Mention Replies', desc: 'Reply to @mentions' },
+                      { id: 'autonomous_posts', label: 'Autonomous Posts', desc: 'Post automatically on a schedule' },
+                      { id: 'community_posts', label: 'Community Posts', desc: 'Post to Twitter Communities' },
+                    ].map((feature) => (
+                      <label key={feature.id} className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={twitterFeatures.includes(feature.id)}
+                          onChange={(e) => {
+                            setSavedAt(null);
+                            setSaveError(null);
+                            if (e.target.checked) {
+                              setTwitterFeatures((prev) => [...prev, feature.id]);
+                            } else {
+                              setTwitterFeatures((prev) => prev.filter((f) => f !== feature.id));
+                            }
+                          }}
+                          disabled={disabled}
+                          className="mt-1 w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-brand-600 focus:ring-brand-500"
+                        />
+                        <div>
+                          <span className="text-sm text-[var(--color-text)]">{feature.label}</span>
+                          <p className="text-xs text-[var(--color-text-muted)]">{feature.desc}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Autonomous Posts Configuration */}
+                {twitterFeatures.includes('autonomous_posts') && (
+                  <div className="p-3 bg-[var(--color-bg-tertiary)] rounded-lg border border-[var(--color-border)] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-[var(--color-text)]">Autonomous Posting</p>
+                        <p className="text-xs text-[var(--color-text-muted)]">Configure automatic posting schedule</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSavedAt(null);
+                          setSaveError(null);
+                          setTwitterAutonomousEnabled(!twitterAutonomousEnabled);
+                        }}
+                        disabled={disabled}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${
+                          twitterAutonomousEnabled ? 'bg-brand-600' : 'bg-[var(--color-bg-elevated)]'
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                            twitterAutonomousEnabled ? 'left-7' : 'left-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {twitterAutonomousEnabled && (
+                      <div className="space-y-3 pt-2 border-t border-[var(--color-border)]">
+                        {/* Interval Settings */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                              Min Interval (hours)
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={24}
+                              value={twitterMinInterval}
+                              onChange={(e) => {
+                                setSavedAt(null);
+                                setSaveError(null);
+                                setTwitterMinInterval(Math.max(1, Math.min(24, parseInt(e.target.value) || 4)));
+                              }}
+                              disabled={disabled}
+                              className="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                              Max Interval (hours)
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={48}
+                              value={twitterMaxInterval}
+                              onChange={(e) => {
+                                setSavedAt(null);
+                                setSaveError(null);
+                                setTwitterMaxInterval(Math.max(1, Math.min(48, parseInt(e.target.value) || 6)));
+                              }}
+                              disabled={disabled}
+                              className="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] text-sm"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Image Chance */}
+                        <div>
+                          <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                            Image Generation Chance: {Math.round(twitterImageChance * 100)}%
+                          </label>
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={twitterImageChance * 100}
+                            onChange={(e) => {
+                              setSavedAt(null);
+                              setSaveError(null);
+                              setTwitterImageChance(parseInt(e.target.value) / 100);
+                            }}
+                            disabled={disabled}
+                            className="w-full h-2 bg-[var(--color-bg-secondary)] rounded-lg appearance-none cursor-pointer"
+                          />
+                          <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                            Probability of generating an image with each autonomous post
+                          </p>
+                        </div>
+
+                        {/* Topics */}
+                        <div className="space-y-2">
+                          <label className="block text-xs font-medium text-[var(--color-text-secondary)]">
+                            Content Topics (optional)
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              value={newTwitterTopic}
+                              onChange={(e) => setNewTwitterTopic(e.target.value)}
+                              placeholder="e.g. crypto, AI, technology"
+                              className="flex-1 px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)] text-sm"
+                              disabled={disabled}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && newTwitterTopic.trim()) {
+                                  e.preventDefault();
+                                  setSavedAt(null);
+                                  setSaveError(null);
+                                  setTwitterTopics((prev) => [...new Set([...prev, newTwitterTopic.trim()])]);
+                                  setNewTwitterTopic('');
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!newTwitterTopic.trim()) return;
+                                setSavedAt(null);
+                                setSaveError(null);
+                                setTwitterTopics((prev) => [...new Set([...prev, newTwitterTopic.trim()])]);
+                                setNewTwitterTopic('');
+                              }}
+                              disabled={disabled || !newTwitterTopic.trim()}
+                              className="px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] hover:bg-[var(--color-bg-elevated)] disabled:opacity-50 text-sm"
+                            >
+                              Add
+                            </button>
+                          </div>
+                          {twitterTopics.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {twitterTopics.map((topic) => (
+                                <span key={topic} className="inline-flex items-center gap-2 px-2 py-1 text-xs bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-full text-[var(--color-text-secondary)]">
+                                  {topic}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSavedAt(null);
+                                      setSaveError(null);
+                                      setTwitterTopics((prev) => prev.filter((t) => t !== topic));
+                                    }}
+                                    className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                                    disabled={disabled}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <p className="text-xs text-[var(--color-text-muted)]">
+                            Topics help guide content generation based on avatar memories
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Communities Configuration */}
+                {twitterFeatures.includes('community_posts') && (
+                  <div className="p-3 bg-[var(--color-bg-tertiary)] rounded-lg border border-[var(--color-border)] space-y-3">
+                    <p className="text-sm font-medium text-[var(--color-text)]">Twitter Communities</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">
+                      Add communities for the avatar to post to. Find the community ID in the community URL.
+                    </p>
+
+                    <div className="flex gap-2">
+                      <input
+                        value={newCommunityId}
+                        onChange={(e) => setNewCommunityId(e.target.value)}
+                        placeholder="Community ID"
+                        className="flex-1 px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)] text-sm"
+                        disabled={disabled}
+                      />
+                      <input
+                        value={newCommunityName}
+                        onChange={(e) => setNewCommunityName(e.target.value)}
+                        placeholder="Name (e.g. Crypto Twitter)"
+                        className="flex-1 px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)] text-sm"
+                        disabled={disabled}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!newCommunityId.trim() || !newCommunityName.trim()) return;
+                          setSavedAt(null);
+                          setSaveError(null);
+                          setTwitterCommunities((prev) => [
+                            ...prev.filter((c) => c.id !== newCommunityId.trim()),
+                            { id: newCommunityId.trim(), name: newCommunityName.trim() },
+                          ]);
+                          setNewCommunityId('');
+                          setNewCommunityName('');
+                        }}
+                        disabled={disabled || !newCommunityId.trim() || !newCommunityName.trim()}
+                        className="px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] hover:bg-[var(--color-bg-elevated)] disabled:opacity-50 text-sm"
+                      >
+                        Add
+                      </button>
+                    </div>
+
+                    {twitterCommunities.length > 0 && (
+                      <div className="space-y-2">
+                        {twitterCommunities.map((community) => (
+                          <div key={community.id} className="flex items-center justify-between px-3 py-2 bg-[var(--color-bg-secondary)] rounded-lg">
+                            <div>
+                              <span className="text-sm text-[var(--color-text)]">{community.name}</span>
+                              <span className="text-xs text-[var(--color-text-muted)] ml-2">ID: {community.id}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSavedAt(null);
+                                setSaveError(null);
+                                setTwitterCommunities((prev) => prev.filter((c) => c.id !== community.id));
+                              }}
+                              className="text-[var(--color-text-muted)] hover:text-red-400"
+                              disabled={disabled}
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Save Button for Twitter config */}
+                {hasTwitterConfigChanges && (
+                  <div className="pt-2">
+                    <button
+                      onClick={handleSave}
+                      disabled={disabled || isSubmitting}
+                      className="w-full px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-[var(--color-bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                    >
+                      {isSubmitting ? 'Saving...' : 'Save Configuration'}
+                    </button>
+                    {saveError && (
+                      <div className="flex items-center gap-2 px-3 py-2 mt-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                        <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        <span className="text-sm text-red-300">{saveError}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         ) : config.isAiProvider ? (
           // AI Provider integration (Replicate, OpenAI, etc.)

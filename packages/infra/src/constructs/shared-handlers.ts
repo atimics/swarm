@@ -236,5 +236,24 @@ export class SharedHandlers extends Construct {
       schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
       targets: [new targets.LambdaFunction(twitterMentionPoller)],
     });
+
+    // Autonomous Tweet Poster - runs hourly, manages per-avatar timing internally
+    // Each avatar has 4-6 hour randomized intervals configured in their autonomousPosts settings
+    const autonomousTweetPoster = new lambda.Function(this, 'AutonomousTweetPoster', {
+      functionName: `swarm-${environment}-autonomous-tweet-poster`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'autonomous-tweet-poster.handler',
+      code: lambda.Code.fromAsset(handlersCodePath),
+      layers: [dependencyLayer],
+      role: lambdaRole,
+      timeout: cdk.Duration.minutes(5), // Longer timeout for multi-avatar processing
+      memorySize: 1024,
+      environment: commonEnv,
+    });
+
+    new events.Rule(this, 'AutonomousTweetSchedule', {
+      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
+      targets: [new targets.LambdaFunction(autonomousTweetPoster)],
+    });
   }
 }

@@ -82,4 +82,85 @@ describe('config-sync convertToAvatarConfig', () => {
     expect(config.platforms.telegram?.allowedChatIds).toBeUndefined();
     expect(config.platforms.telegram?.allowedDmUserIds).toBeUndefined();
   });
+
+  it('defaults image generation model to Nano Banana Pro when unset', () => {
+    const record = {
+      pk: 'AVATAR#test-avatar',
+      sk: 'CONFIG',
+      avatarId: 'test-avatar',
+      name: 'Test Avatar',
+      platforms: {},
+      voiceConfig: {
+        enabled: true,
+        ttsProvider: 'voice-clone',
+        format: 'ogg',
+      },
+      llmConfig: {
+        provider: 'openrouter',
+        model: 'anthropic/claude-sonnet-4',
+        temperature: 0.8,
+        maxTokens: 1024,
+        useGlobalKey: true,
+      },
+      currentEra: 0,
+      status: 'active',
+      createdAt: Date.now(),
+      createdBy: 'test@example.com',
+      updatedAt: Date.now(),
+      updatedBy: 'test@example.com',
+    } satisfies Partial<AvatarRecord> as AvatarRecord;
+
+    const config = convertToAvatarConfig(record);
+    expect(config.media.image.model).toBe('google/nano-banana-pro');
+  });
+
+  it('syncs Twitter features and autonomous posts settings', () => {
+    const record = {
+      pk: 'AVATAR#test-avatar',
+      sk: 'CONFIG',
+      avatarId: 'test-avatar',
+      name: 'Test Avatar',
+      platforms: {
+        twitter: {
+          enabled: true,
+          username: 'testbot',
+          features: ['mention_replies', 'autonomous_posts', 'community_posts'],
+          autonomousPosts: {
+            enabled: true,
+            minIntervalHours: 5,
+            maxIntervalHours: 7,
+            imageChance: 0.5,
+            useMemories: false,
+            topics: ['ai'],
+          },
+          communities: [{ id: '123', name: 'Test Community' }],
+        },
+      },
+      voiceConfig: {
+        enabled: true,
+        ttsProvider: 'voice-clone',
+        format: 'ogg',
+      },
+      llmConfig: {
+        provider: 'openrouter',
+        model: 'anthropic/claude-sonnet-4',
+        temperature: 0.8,
+        maxTokens: 1024,
+        useGlobalKey: true,
+      },
+      currentEra: 0,
+      status: 'active',
+      createdAt: Date.now(),
+      createdBy: 'test@example.com',
+      updatedAt: Date.now(),
+      updatedBy: 'test@example.com',
+    } satisfies Partial<AvatarRecord> as AvatarRecord;
+
+    const config = convertToAvatarConfig(record);
+
+    expect(config.platforms.twitter?.features).toEqual(['mention_replies', 'autonomous_posts', 'community_posts']);
+    expect(config.platforms.twitter?.autonomousPosts?.minIntervalHours).toBe(5);
+    expect(config.platforms.twitter?.communities?.[0]?.id).toBe('123');
+    expect(config.scheduling.tweets).toBeUndefined();
+  });
 });
