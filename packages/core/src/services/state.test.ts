@@ -92,6 +92,27 @@ class InMemoryStateService extends DynamoDBStateService {
     await this.updateChannelState(state);
     return state;
   }
+
+  override async markResponseSent(
+    avatarId: string,
+    channelId: string,
+    responseMessageId: string
+  ): Promise<ChannelState | null> {
+    const current = await this.getChannelState(avatarId, channelId);
+    if (!current) return null;
+
+    const now = Date.now();
+    current.state = 'COOLDOWN';
+    current.stateChangedAt = now;
+    current.lastResponseAt = now;
+    current.lastResponseMessageId = responseMessageId;
+    current.pendingResponseAt = undefined;
+    current.recentMessages = [];
+    current.ttl = Math.floor(now / 1000) + CHANNEL_CONFIG.BUFFER_TTL_SECONDS;
+
+    await this.updateChannelState(current);
+    return current;
+  }
 }
 
 afterEach(() => {
