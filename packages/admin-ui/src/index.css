@@ -119,6 +119,37 @@ body {
   border-radius: 4px;
 }
 
+/* ============================================
+   Marquee (Chat Job Prompt)
+   ============================================ */
+.marquee {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+.marquee__inner {
+  display: inline-block;
+  animation: marquee-scroll 14s linear infinite;
+  will-change: transform;
+}
+
+@keyframes marquee-scroll {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee__inner {
+    animation: none;
+  }
+}
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }

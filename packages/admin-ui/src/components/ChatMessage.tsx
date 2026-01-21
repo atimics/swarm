@@ -665,17 +665,6 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
             </div>
           ) : (
             <>
-              {activeJobs.length > 0 && (
-                <div className="mb-2 rounded-lg border border-brand-500/20 bg-brand-500/10 px-3 py-2 text-sm text-brand-100">
-                  <div className="flex items-center gap-2">
-                    <div className="animate-spin w-4 h-4 border-2 border-brand-300 border-t-transparent rounded-full" />
-                    <span>
-                      Generating {activeJobs.length} {activeJobs.length === 1 ? activeJobs[0].type : 'items'}...
-                    </span>
-                  </div>
-                </div>
-            )}
-
             {cleanedContent && (
               message.isToolResult ? (
                 <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/40 px-4 py-3">
@@ -1192,11 +1181,21 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
             {activeJobs.length > 0 && (
               <div className={`${message.content || images.length > 0 ? 'mt-3' : ''}`}>
                 {activeJobs.map((job) => (
-                  <div key={job.jobId} className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] bg-[var(--color-bg-tertiary)] rounded-lg px-3 py-2">
+                  <div key={job.jobId} className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] bg-[var(--color-bg-tertiary)] rounded-lg px-3 py-2 overflow-hidden">
                     <div className="animate-spin w-4 h-4 border-2 border-brand-400 border-t-transparent rounded-full" />
-                    <span>
+                    <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">
                       {job.status === 'processing' ? 'Generating' : 'Starting'} {job.type}...
-                      {job.prompt && <span className="text-[var(--color-text-muted)] ml-1">"{job.prompt.slice(0, 50)}{job.prompt.length > 50 ? '...' : ''}"</span>}
+                      {job.prompt && (
+                        job.prompt.length > 50
+                          ? (
+                            <span className="ml-2 text-[var(--color-text-muted)] marquee" aria-label={job.prompt}>
+                              <span className="marquee__inner">"{job.prompt}"</span>
+                            </span>
+                          )
+                          : (
+                            <span className="ml-2 text-[var(--color-text-muted)]">"{job.prompt}"</span>
+                          )
+                      )}
                     </span>
                   </div>
                 ))}
@@ -1233,9 +1232,6 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
             })}
             {hasPendingTools && (
               <span className="ml-2 text-yellow-500 dark:text-yellow-400">• Waiting for input</span>
-            )}
-            {activeJobs.length > 0 && (
-              <span className="ml-2 text-brand-500">• Generating {activeJobs.length} {activeJobs.length === 1 ? 'image' : 'images'}</span>
             )}
           </div>
         )}
