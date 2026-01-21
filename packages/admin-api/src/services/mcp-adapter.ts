@@ -5,6 +5,8 @@
  * This allows the unified tool definitions to work with our current infrastructure.
  */
 import type { AllServices, VoiceServices, NFTServices, PropertyServices } from '@swarm/mcp-server';
+import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { Readable } from 'stream';
 import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS } from '@swarm/core';
 import type { UserSession, SecretType } from '../types.js';
 import * as avatars from '../services/avatars.js';
@@ -38,6 +40,9 @@ import { getModelsForCapability, AVAILABLE_MODELS } from '../services/models-reg
 
 // Timeout for external API calls
 const API_TIMEOUT_MS = 10_000;
+const MEDIA_BUCKET = process.env.MEDIA_BUCKET;
+const CDN_URL = process.env.CDN_URL;
+const s3Client = new S3Client({});
 
 /**
  * Check if URL is a Replicate delivery URL (which expire quickly)
@@ -73,15 +78,18 @@ async function uploadMediaToTwitter(
   avatarId?: string
 ): Promise<string[]> {
   const mediaIds: string[] = [];
-  
-  for (let url of mediaUrls.slice(0, 4)) {
+
+  const sources = await resolveMediaSources(mediaUrls.slice(0, 4), avatarId);
+
+  for (const source of sources) {
+    let url = source.url;
     try {
       console.log('Fetching media from URL:', url);
-      let response = await fetch(url);
-      
+      let download = await downloadMedia(url, source.s3Key);
+
       // If Replicate URL failed (expired), try to find S3 version from gallery
-      if (!response.ok && isReplicateUrl(url) && avatarId) {
-        console.warn(`Replicate URL expired (${response.status}), searching gallery for S3 URL`);
+      if (!download && isReplicateUrl(url) && avatarId) {
+        console.warn('Replicate URL expired, searching gallery for S3 URL');
         try {
           const galleryItems = await gallery.getGallery(avatarId, { type: 'image', limit: 20 });
           // Find most recent image (gallery items are sorted by recency)
@@ -89,25 +97,24 @@ async function uploadMediaToTwitter(
           if (recentImage?.url && !isReplicateUrl(recentImage.url)) {
             console.log('Found S3 URL from gallery:', recentImage.url);
             url = recentImage.url;
-            response = await fetch(url);
+            download = await downloadMedia(url, recentImage.s3Key);
           }
         } catch (galleryErr) {
           console.error('Failed to search gallery for S3 URL:', galleryErr);
         }
       }
-      
-      if (!response.ok) {
-        console.error('Failed to fetch media:', response.status, response.statusText);
+
+      if (!download) {
+        console.error('Failed to fetch media:', url);
         continue;
       }
-      
-      const mimeType = detectMimeType(url, response.headers.get('content-type'));
+
+      const mimeType = detectMimeType(url, download.contentType ?? null);
       console.log('Uploading media to Twitter with mimeType:', mimeType);
+
+      console.log('Buffer size:', download.buffer.length, 'bytes');
       
-      const buffer = Buffer.from(await response.arrayBuffer());
-      console.log('Buffer size:', buffer.length, 'bytes');
-      
-      const mediaId = await client.v1.uploadMedia(buffer, {
+      const mediaId = await client.v1.uploadMedia(download.buffer, {
         mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
       });
       console.log('Media uploaded successfully, mediaId:', mediaId);
@@ -116,8 +123,137 @@ async function uploadMediaToTwitter(
       console.error('Failed to upload media to Twitter:', err);
     }
   }
-  
+
   return mediaIds;
+}
+
+async function resolveMediaSources(
+  mediaUrls: string[],
+  avatarId?: string
+): Promise<Array<{ url: string; s3Key?: string }>> {
+  const sources: Array<{ url: string; s3Key?: string }> = [];
+
+  for (const mediaUrl of mediaUrls) {
+    const trimmed = mediaUrl?.trim();
+    if (!trimmed) continue;
+
+    if (!/^https?:\/\//i.test(trimmed) && avatarId) {
+      try {
+        const item = await gallery.getGalleryItem(avatarId, trimmed);
+        if (item?.url) {
+          sources.push({ url: item.url, s3Key: item.s3Key });
+          continue;
+        }
+      } catch (error) {
+        console.warn(`Failed to resolve gallery item ${trimmed}:`, error);
+      }
+    }
+
+    sources.push({ url: trimmed });
+  }
+
+  return sources;
+}
+
+async function downloadMedia(
+  url: string,
+  s3Key?: string
+): Promise<{ buffer: Buffer; contentType?: string } | null> {
+  const bucket = MEDIA_BUCKET;
+  if (bucket && s3Key) {
+    try {
+      return await downloadFromS3(bucket, s3Key);
+    } catch (error) {
+      console.warn('Failed to download media from S3 key, falling back to URL fetch:', error);
+    }
+  }
+
+  const resolved = resolveS3Location(url);
+  if (bucket && resolved) {
+    try {
+      return await downloadFromS3(resolved.bucket, resolved.key);
+    } catch (error) {
+      console.warn('Failed to download media from S3 URL, falling back to URL fetch:', error);
+    }
+  }
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error('Failed to fetch media:', response.status, response.statusText);
+      return null;
+    }
+
+    return {
+      buffer: Buffer.from(await response.arrayBuffer()),
+      contentType: response.headers.get('content-type') ?? undefined,
+    };
+  } catch (error) {
+    console.error('Failed to fetch media:', error);
+    return null;
+  }
+}
+
+async function downloadFromS3(bucket: string, key: string): Promise<{ buffer: Buffer; contentType?: string }> {
+  const response = await s3Client.send(new GetObjectCommand({
+    Bucket: bucket,
+    Key: key,
+  }));
+
+  if (!response.Body) {
+    throw new Error('Empty S3 response body');
+  }
+
+  const buffer = await streamToBuffer(response.Body as Readable);
+  return { buffer, contentType: response.ContentType };
+}
+
+function resolveS3Location(url: string): { bucket: string; key: string } | null {
+  const cdnUrl = normalizeUrlPrefix(CDN_URL);
+  if (cdnUrl && url.startsWith(cdnUrl) && MEDIA_BUCKET) {
+    const key = decodeURIComponent(url.slice(cdnUrl.length).replace(/^\/+/, ''));
+    if (key) {
+      return { bucket: MEDIA_BUCKET, key };
+    }
+  }
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    const path = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+
+    const virtualHostMatch = host.match(/^(.+)\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/);
+    if (virtualHostMatch?.[1]) {
+      return { bucket: virtualHostMatch[1], key: path };
+    }
+
+    if (host === 's3.amazonaws.com' || host.startsWith('s3.') || host.startsWith('s3-')) {
+      const [bucket, ...rest] = path.split('/');
+      if (bucket && rest.length > 0) {
+        return { bucket, key: rest.join('/') };
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function normalizeUrlPrefix(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return withScheme.replace(/\/+$/, '');
 }
 
 /**
