@@ -6,6 +6,7 @@ import type { SQSEvent, Context } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { logger, DEFAULT_LLM_MODEL } from '@swarm/core';
 import {
@@ -27,6 +28,7 @@ import { ensureReplicateKey } from './utils/system-replicate-key.js';
 const MediaQueueItemSchema = z.object({
   jobId: z.string(),
   avatarId: z.string(),
+  traceId: z.string().optional(),
   conversationId: z.string(),
   action: ResponseActionSchema,
   response: SwarmResponseSchema,
@@ -194,6 +196,12 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
   for (const record of event.Records) {
+    let traceId = record.messageAttributes?.traceId?.stringValue;
+    if (!traceId) {
+      traceId = randomUUID();
+    }
+    logger.setContext({ traceId });
+
     let parsedBody: unknown;
     try {
       parsedBody = JSON.parse(record.body);
@@ -222,6 +230,11 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       continue;
     }
     const item = parseResult.data;
+
+    if (!record.messageAttributes?.traceId?.stringValue && item.traceId) {
+      traceId = item.traceId;
+      logger.setContext({ traceId });
+    }
 
     logger.setContext({
       jobId: item.jobId,
@@ -303,6 +316,12 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       await sqs.send(new SendMessageCommand({
         QueueUrl: getResponseQueueUrl(),
         MessageBody: JSON.stringify(mediaResponse),
+        MessageAttributes: {
+          traceId: {
+            DataType: 'String',
+            StringValue: traceId,
+          },
+        },
         MessageGroupId: item.conversationId,
         MessageDeduplicationId: `media_${item.jobId}`,
       }));

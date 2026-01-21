@@ -4,6 +4,7 @@
  */
 import type { ScheduledHandler, Context } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { randomUUID } from 'node:crypto';
 import {
   TwitterAdapter,
   createStateService,
@@ -131,6 +132,14 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
     let newestMentionId = sinceId;
 
     for (const envelope of sortedMentions) {
+      const traceId = randomUUID();
+      envelope.traceId = traceId;
+      logger.setContext({
+        traceId,
+        conversationId: envelope.conversationId,
+        messageId: envelope.messageId,
+      });
+
       // Skip self-mentions (our own tweets)
       if (envelope.sender.username === avatarConfig.platforms.twitter?.username) {
         logger.debug('Skipping self-mention', {
@@ -159,6 +168,12 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
           attempts: 0,
           maxAttempts: 3,
         }),
+        MessageAttributes: {
+          traceId: {
+            DataType: 'String',
+            StringValue: traceId,
+          },
+        },
         MessageGroupId: `${AVATAR_ID}#${envelope.conversationId}`,
         MessageDeduplicationId: `twitter-mention-${AVATAR_ID}-${envelope.messageId}`,
       }));

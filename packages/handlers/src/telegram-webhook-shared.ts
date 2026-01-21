@@ -11,7 +11,7 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { timingSafeEqual } from 'crypto';
+import { randomUUID, timingSafeEqual } from 'crypto';
 import {
   TelegramAdapter,
   createMessageEvaluator,
@@ -152,7 +152,10 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   const avatarId = event.pathParameters?.avatarId;
   const requestId = event.requestContext.requestId;
 
-  logger.setContext({ subsystem: 'telegram', avatarId, requestId });
+  const headers = lowerHeaders(event.headers);
+  const traceId = headers['x-trace-id'] || randomUUID();
+
+  logger.setContext({ subsystem: 'telegram', avatarId, requestId, traceId });
   logger.info('Telegram webhook received', { event: 'request_received' });
 
   try {
@@ -163,7 +166,6 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       return ok();
     }
 
-    const headers = lowerHeaders(event.headers);
     const body = event.body ? Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf-8') : Buffer.from('');
 
     const avatarConfig = await getAvatarConfig(avatarId);
@@ -204,6 +206,8 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
     const envelope = await telegramAdapter.parseMessage(update);
     if (!envelope) return ok();
+
+    envelope.traceId = traceId;
 
     const telegramCfg = avatarConfig.platforms.telegram;
     if (!isTelegramChatAllowed(envelope, telegramCfg)) {
@@ -270,6 +274,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         attempts: 0,
         maxAttempts: 3,
       }),
+      MessageAttributes: {
+        traceId: { DataType: 'String', StringValue: traceId },
+      },
       MessageGroupId: `${avatarId}#${envelope.conversationId}`,
       MessageDeduplicationId: envelope.metadata.idempotencyKey,
     }));

@@ -9,6 +9,7 @@ export interface LogContext {
   conversationId?: string;
   messageId?: string;
   requestId?: string;
+  traceId?: string;
   [key: string]: unknown;
 }
 

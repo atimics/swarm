@@ -237,6 +237,9 @@ export interface SwarmEnvelope {
   // Routing
   avatarId: string;
   platform: Platform;
+
+  // Correlation
+  traceId?: string;
   
   // Message identification
   messageId: string;
@@ -934,6 +937,7 @@ export const EnvelopeMetadataSchema = z.object({
 export const SwarmEnvelopeSchema = z.object({
   avatarId: z.string(),
   platform: PlatformSchema,
+  traceId: z.string().optional(),
   messageId: z.string(),
   conversationId: z.string(),
   timestamp: z.number(),

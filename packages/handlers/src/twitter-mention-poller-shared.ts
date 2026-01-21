@@ -15,6 +15,7 @@
  */
 import type { ScheduledHandler, Context } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { randomUUID } from 'node:crypto';
 import {
   TwitterAdapter,
   createStateService,
@@ -208,6 +209,9 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       let newestMentionId = sinceId;
 
       for (const envelope of sortedMentions) {
+        const traceId = randomUUID();
+        envelope.traceId = traceId;
+
         // Filter to only processable mentions using the new logic
         if (!shouldProcessMention(envelope, botUserId, botUsername)) {
           logger.debug('Skipping non-processable mention', {
@@ -238,6 +242,12 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
             attempts: 0,
             maxAttempts: 3,
           }),
+          MessageAttributes: {
+            traceId: {
+              DataType: 'String',
+              StringValue: traceId,
+            },
+          },
           MessageGroupId: `${avatarId}#${envelope.conversationId}`,
           MessageDeduplicationId: `twitter-mention-${avatarId}-${envelope.messageId}`,
         }));

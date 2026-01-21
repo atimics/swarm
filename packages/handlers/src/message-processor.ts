@@ -14,6 +14,7 @@
  */
 import type { SQSEvent, Context } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { randomUUID } from 'crypto';
 import { DEFAULT_LLM_MODEL } from '@swarm/core';
 import {
   createStateService,
@@ -715,11 +716,15 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
 
       const avatarRuntime = await getAvatarRuntime(avatarId);
 
+      const recordTraceId = record.messageAttributes?.traceId?.stringValue;
+      const traceId = recordTraceId || envelope.traceId || randomUUID();
+
       logger.setContext({
         avatarId,
         messageId: envelope.messageId,
         platform: envelope.platform,
         conversationId: envelope.conversationId,
+        traceId,
       });
 
       logger.info('Processing message', {
@@ -814,6 +819,9 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       await sqs.send(new SendMessageCommand({
         QueueUrl: getResponseQueueUrl(),
         MessageBody: JSON.stringify(response),
+        MessageAttributes: {
+          traceId: { DataType: 'String', StringValue: traceId },
+        },
         MessageGroupId: `${avatarId}#${envelope.conversationId}`,
         MessageDeduplicationId: `resp_${avatarId}_${envelope.conversationId}_${envelope.messageId}`,
       }));

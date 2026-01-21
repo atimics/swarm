@@ -12,6 +12,7 @@
  */
 import type { SQSEvent, Context, SQSBatchResponse } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { randomUUID } from 'node:crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
@@ -225,7 +226,8 @@ export async function getPendingContinuationContext(
  */
 async function triggerAvatarLoop(
   msg: ContinuationMessage,
-  systemMessage: string
+  systemMessage: string,
+  traceId: string
 ): Promise<void> {
   if (!MESSAGE_QUEUE_URL) {
     logger.warn('MESSAGE_QUEUE_URL not configured, cannot trigger avatar loop');
@@ -236,6 +238,7 @@ async function triggerAvatarLoop(
   const envelope = {
     avatarId: msg.avatarId,
     platform: msg.platform,
+    traceId,
     messageId: `continuation_${msg.jobId || Date.now()}`,
     conversationId: msg.conversationId,
     timestamp: msg.timestamp,
@@ -267,6 +270,12 @@ async function triggerAvatarLoop(
       attempts: 0,
       maxAttempts: 1, // Don't retry continuations
     }),
+    MessageAttributes: {
+      traceId: {
+        DataType: 'String',
+        StringValue: traceId,
+      },
+    },
     MessageGroupId: msg.conversationId,
     MessageDeduplicationId: `cont_${msg.jobId || msg.timestamp}`,
   }));
@@ -281,7 +290,7 @@ async function triggerAvatarLoop(
 /**
  * Process a continuation message
  */
-async function processMessage(msg: ContinuationMessage): Promise<void> {
+async function processMessage(msg: ContinuationMessage, traceId: string): Promise<void> {
   const { avatarId, platform, conversationId, replyToMessageId } = msg;
 
   logger.info('Processing continuation', {
@@ -319,7 +328,7 @@ async function processMessage(msg: ContinuationMessage): Promise<void> {
     await storeContinuationContext(avatarId, conversationId, msg);
 
     // Trigger the avatar loop
-    await triggerAvatarLoop(msg, systemMessage);
+    await triggerAvatarLoop(msg, systemMessage, traceId);
   }
 }
 
@@ -340,6 +349,10 @@ export async function handler(
 
   for (const record of event.Records) {
     try {
+      const recordTraceId = record.messageAttributes?.traceId?.stringValue;
+      const traceId = recordTraceId || randomUUID();
+      logger.setContext({ traceId });
+
       let msg: ContinuationMessage;
       try {
         msg = JSON.parse(record.body);
@@ -352,7 +365,13 @@ export async function handler(
         continue;
       }
 
-      await processMessage(msg);
+      logger.setContext({
+        avatarId: msg.avatarId,
+        platform: msg.platform,
+        conversationId: msg.conversationId,
+      });
+
+      await processMessage(msg, traceId);
     } catch (error) {
       logger.error('Failed to process continuation', error, {
         messageId: record.messageId,

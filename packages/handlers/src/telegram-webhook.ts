@@ -15,7 +15,7 @@ import {
   DEFAULT_LLM_MODEL,
   type AvatarConfig,
 } from '@swarm/core';
-import { timingSafeEqual } from 'crypto';
+import { randomUUID, timingSafeEqual } from 'crypto';
 
 const sqs = new SQSClient({});
 const secretsClient = new SecretsManagerClient({});
@@ -119,10 +119,17 @@ export async function handler(
   context: Context
 ): Promise<APIGatewayProxyResult> {
   const startTime = Date.now();
+
+  const headersLower = Object.fromEntries(
+    Object.entries(event.headers || {}).map(([k, v]) => [k.toLowerCase(), v || ''])
+  );
+  const traceId = headersLower['x-trace-id'] || randomUUID();
+
   logger.setContext({
     avatarId: AVATAR_ID,
     platform: 'telegram',
     requestId: context.awsRequestId,
+    traceId,
   });
 
   logger.info('Telegram webhook received', {
@@ -134,10 +141,10 @@ export async function handler(
     await initialize();
 
     // Parse and verify request
-    const body = event.body ? Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf-8') : Buffer.from('');
-    const headers = Object.fromEntries(
-      Object.entries(event.headers).map(([k, v]) => [k.toLowerCase(), v || ''])
-    );
+    const body = event.body
+      ? Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf-8')
+      : Buffer.from('');
+    const headers = headersLower;
 
     const webhookSecret = await getWebhookSecret();
     if (webhookSecret) {
@@ -184,6 +191,8 @@ export async function handler(
       // Valid update but not a message we handle (e.g., inline query)
       return { statusCode: 200, body: 'OK' };
     }
+
+    envelope.traceId = traceId;
 
     // Log received message
     await activityService.logMessageReceived(
@@ -246,6 +255,9 @@ export async function handler(
         attempts: 0,
         maxAttempts: 3,
       }),
+      MessageAttributes: {
+        traceId: { DataType: 'String', StringValue: traceId },
+      },
       MessageGroupId: `${AVATAR_ID}#${envelope.conversationId}`, // FIFO ordering by avatar+conversation
       MessageDeduplicationId: envelope.metadata.idempotencyKey,
     }));

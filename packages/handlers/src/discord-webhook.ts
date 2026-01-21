@@ -4,6 +4,7 @@
  */
 import type { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { randomUUID } from 'node:crypto';
 import {
   DiscordAdapter,
   createStateService,
@@ -116,6 +117,9 @@ export async function handler(
       Object.entries(event.headers).map(([k, v]) => [k.toLowerCase(), v || ''])
     );
 
+    const traceId = headers['x-trace-id'] || randomUUID();
+    logger.setContext({ traceId });
+
     const isValid = await discordAdapter.verifyRequest(body, headers);
     if (!isValid) {
       logger.warn('Invalid Discord request signature', {
@@ -153,6 +157,8 @@ export async function handler(
         body: isInteraction(payload) ? JSON.stringify({ type: 5 }) : 'OK',
       };
     }
+
+    envelope.traceId = envelope.traceId ?? traceId;
 
     await activityService.logMessageReceived(
       AVATAR_ID,
@@ -221,6 +227,12 @@ export async function handler(
         attempts: 0,
         maxAttempts: 3,
       }),
+      MessageAttributes: {
+        traceId: {
+          DataType: 'String',
+          StringValue: traceId,
+        },
+      },
       MessageGroupId: `${AVATAR_ID}#${envelope.conversationId}`,
       MessageDeduplicationId: envelope.metadata.idempotencyKey,
     }));

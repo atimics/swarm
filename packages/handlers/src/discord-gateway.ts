@@ -4,6 +4,7 @@
  */
 import WebSocket from 'ws';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { randomUUID } from 'node:crypto';
 import {
   DiscordAdapter,
   createStateService,
@@ -130,11 +131,15 @@ function updateEvaluator(): void {
 }
 
 async function handleEnvelope(envelope: SwarmEnvelope): Promise<void> {
+  const traceId = envelope.traceId || randomUUID();
+  envelope.traceId = traceId;
+
   logger.setContext({
     avatarId: AVATAR_ID,
     platform: 'discord',
     messageId: envelope.messageId,
     conversationId: envelope.conversationId,
+    traceId,
   });
 
   await activityService.logMessageReceived(
@@ -184,6 +189,12 @@ async function handleEnvelope(envelope: SwarmEnvelope): Promise<void> {
       attempts: 0,
       maxAttempts: 3,
     }),
+    MessageAttributes: {
+      traceId: {
+        DataType: 'String',
+        StringValue: traceId,
+      },
+    },
     MessageGroupId: `${AVATAR_ID}#${envelope.conversationId}`,
     MessageDeduplicationId: envelope.metadata.idempotencyKey,
   }));

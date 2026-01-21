@@ -190,6 +190,8 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
 
   for (const record of event.Records) {
     try {
+      const traceId = record.messageAttributes?.traceId?.stringValue;
+
       let response: SwarmResponse;
       try {
         response = JSON.parse(record.body);
@@ -229,8 +231,10 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       const outboundRuntime = await getOutboundRuntime(avatarId);
 
       logger.setContext({
+        avatarId,
         platform: response.platform,
         conversationId: response.conversationId,
+        traceId,
       });
 
       logger.info('Sending response', {
@@ -264,7 +268,11 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
                 conversationId: response.conversationId,
                 action,
                 response,
+                traceId,
               }),
+              MessageAttributes: traceId
+                ? { traceId: { DataType: 'String', StringValue: traceId } }
+                : undefined,
               MessageGroupId: response.conversationId,
               MessageDeduplicationId: `media_${jobId}`,
             }));
