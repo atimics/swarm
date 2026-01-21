@@ -33,7 +33,7 @@ const IssueCreateSchema = z.object({
   category: z.string().optional(),
   avatarId: z.string().optional(),
   requestId: z.string().optional(),
-  context: z.unknown().optional(),
+  context: z.record(z.unknown()).optional(),
 });
 
 /**

@@ -231,8 +231,9 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
   // Convert Twitter config
   if (record.platforms.twitter?.enabled) {
     const twitterRecord = record.platforms.twitter;
-    const features = Array.isArray(twitterRecord.features)
-      ? twitterRecord.features
+    type TwitterFeature = NonNullable<AvatarConfig['platforms']['twitter']>['features'][number];
+    const features: TwitterFeature[] = Array.isArray(twitterRecord.features)
+      ? (twitterRecord.features as TwitterFeature[])
       : ['mention_replies', 'scheduled_tweets'];
     const autonomousPosts = twitterRecord.autonomousPosts
       ? {
