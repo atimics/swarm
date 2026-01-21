@@ -11,6 +11,7 @@ import type {
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { authenticateRequest } from '../auth/cloudflare-access.js';
+import { isRequestValidationError, validateRequestBody } from '../middleware/validate.js';
 import { buildDynamicSystemPrompt, type ToolCategory } from '../services/dynamic-prompts.js';
 import {
   ToolRegistry,
@@ -113,25 +114,7 @@ export async function handler(
     // Authenticate
     const session = await authenticateRequest(event);
 
-    // Parse request
-    if (!event.body) {
-      return {
-        statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Request body required' }),
-      };
-    }
-
-    const parsed = PreviewRequestSchema.safeParse(JSON.parse(event.body));
-    if (!parsed.success) {
-      return {
-        statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Invalid request', details: parsed.error.errors }),
-      };
-    }
-
-    const { avatarId, message, history = [] } = parsed.data;
+    const { avatarId, message, history = [] } = await validateRequestBody(PreviewRequestSchema)(event);
 
     // Get avatar config
     const avatarRecord = await avatars.getAvatar(avatarId);
@@ -282,6 +265,14 @@ export async function handler(
       body: JSON.stringify(response),
     };
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return {
+        statusCode: error.statusCode,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: error.message, details: error.details }),
+      };
+    }
+
     console.error('Prompt preview error:', error);
     return {
       statusCode: 500,

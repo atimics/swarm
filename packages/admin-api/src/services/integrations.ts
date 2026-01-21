@@ -4,6 +4,7 @@
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { UpdateExpressionBuilder } from '@swarm/core';
 import type {
   IntegrationType,
   AICapability,
@@ -350,30 +351,19 @@ export async function configureIntegration(params: ConfigureIntegrationParams): 
     }
   }
 
-  const expressionAttributeNames: Record<string, string> = {
-    '#integration': integration,
-  };
-  const expressionAttributeValues: Record<string, unknown> = {
-    ':now': Date.now(),
-    ':by': session.email,
-    ':enabled': params.enabled ?? true,
-  };
-
-  const setClauses: string[] = [
-    'integrations.#integration.enabled = :enabled',
-    'updatedAt = :now',
-    'updatedBy = :by',
-  ];
+  const now = Date.now();
+  const builder = new UpdateExpressionBuilder()
+    .set(`integrations.${integration}.enabled`, params.enabled ?? true)
+    .set('updatedAt', now)
+    .set('updatedBy', session.email);
 
   if (metadata.category === 'ai_provider') {
     if (typeof params.useGlobalKey === 'boolean') {
-      setClauses.push('integrations.#integration.useGlobalKey = :useGlobalKey');
-      expressionAttributeValues[':useGlobalKey'] = params.useGlobalKey;
+      builder.set(`integrations.${integration}.useGlobalKey`, params.useGlobalKey);
     }
 
     if (params.models) {
-      setClauses.push('integrations.#integration.models = :models');
-      expressionAttributeValues[':models'] = params.models;
+      builder.set(`integrations.${integration}.models`, params.models);
     }
   }
 
@@ -381,21 +371,17 @@ export async function configureIntegration(params: ConfigureIntegrationParams): 
     for (const [key, value] of Object.entries(params.settings)) {
       // Only support safe, simple keys for now.
       if (!key || !/^[a-zA-Z0-9_]+$/.test(key)) continue;
-      const nameKey = `#setting_${key}`;
-      const valueKey = `:setting_${key}`;
-      expressionAttributeNames[nameKey] = key;
-      expressionAttributeValues[valueKey] = value;
-      setClauses.push(`integrations.#integration.${nameKey} = ${valueKey}`);
+      builder.set(`integrations.${integration}.${key}`, value);
     }
   }
+
+  const update = builder.build();
 
   await dynamoClient.send(
     new UpdateCommand({
       TableName: ADMIN_TABLE,
       Key: { pk: `AVATAR#${avatarId}`, sk: 'CONFIG' },
-      UpdateExpression: `SET ${setClauses.join(', ')}`,
-      ExpressionAttributeNames: expressionAttributeNames,
-      ExpressionAttributeValues: expressionAttributeValues,
+      ...update,
     })
   );
 }

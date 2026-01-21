@@ -13,3 +13,8 @@ export {
   hasThinkingTags,
   type ThinkingExtractionResult,
 } from './thinking-tags.js';
+
+export {
+  UpdateExpressionBuilder,
+  type DynamoDbUpdateExpression,
+} from './dynamodb-expression.js';

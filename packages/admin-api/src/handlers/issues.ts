@@ -16,13 +16,25 @@ import type {
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
 import { logger } from '@swarm/core';
+import { z } from 'zod';
 import * as autoIssues from '../services/auto-issues.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { isRequestValidationError, validateRequestBody } from '../middleware/validate.js';
 
 
 
 // Internal test key for CI/CD access (set in Lambda env)
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
+
+const IssueCreateSchema = z.object({
+  error: z.string().min(1),
+  stack: z.string().optional(),
+  subsystem: z.string().min(1),
+  category: z.string().optional(),
+  avatarId: z.string().optional(),
+  requestId: z.string().optional(),
+  context: z.unknown().optional(),
+});
 
 /**
  * Validate internal test key for CI/CD requests
@@ -71,16 +83,8 @@ export async function handler(
         };
       }
 
-      const body = JSON.parse(event.body || '{}');
-      const { error, stack, subsystem, category, avatarId, requestId, context } = body;
-
-      if (!error || !subsystem) {
-        return {
-          statusCode: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Missing required fields: error, subsystem' }),
-        };
-      }
+      const { error, stack, subsystem, category, avatarId, requestId, context } =
+        await validateRequestBody(IssueCreateSchema)(event);
 
       const result = await autoIssues.recordError({
         error,
@@ -187,6 +191,14 @@ export async function handler(
     };
 
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return {
+        statusCode: error.statusCode,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: error.message, details: error.details }),
+      };
+    }
+
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('Issues handler error', error);
 
