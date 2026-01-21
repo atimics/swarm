@@ -260,6 +260,10 @@ function App() {
         }
       }
 
+      // Sync history FIRST so subsequent tool calls see updated config,
+      // then add success message (so it doesn't get overwritten by sync)
+      await syncChatHistory(targetAvatarId).catch(console.error);
+
       addMessage(targetAvatarId, {
         role: 'assistant',
         content: JSON.stringify({
@@ -275,9 +279,6 @@ function App() {
           content: `Note: OAuth redirect reported @${result.username}, but backend status reports @${backendUsername}. Using backend status as the source of truth.`,
         });
       }
-
-      // If we have an active chat, re-sync history so subsequent tool calls see updated config.
-      await syncChatHistory(targetAvatarId).catch(console.error);
     } else {
       // On error, clear the tool call message (check both pending AND completed status)
       const avatarChats = chats[targetAvatarId] || [];
@@ -318,8 +319,9 @@ function App() {
   // This ensures the result isn't wiped out by syncChatHistory
   useEffect(() => {
     if (pendingOAuthResult && chatSynced && !window.opener) {
-      void handleTwitterOAuthResult(pendingOAuthResult);
-      setPendingOAuthResult(null);
+      const result = pendingOAuthResult;
+      setPendingOAuthResult(null); // Clear first to prevent re-entry
+      void handleTwitterOAuthResult(result);
     }
   }, [pendingOAuthResult, chatSynced, handleTwitterOAuthResult]);
 
