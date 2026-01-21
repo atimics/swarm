@@ -15,6 +15,7 @@ import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:te
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { AvatarMemory, MemoryTier } from '../types.js';
 import * as memory from './memory.js';
+import * as embedding from './embedding.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 
 // Mock DynamoDB document client
@@ -26,12 +27,23 @@ const mockClient = {
 // Track transaction calls via spy on DynamoDBClient prototype
 let transactionSendSpy: ReturnType<typeof spyOn>;
 const transactionCalls: unknown[] = [];
+let embeddingServiceSpy: ReturnType<typeof spyOn>;
 
 describe('Memory Service', () => {
   beforeEach(() => {
     mockSend.mockReset();
     transactionCalls.length = 0;
     memory._setDynamoClient(mockClient);
+
+    // Avoid external calls during tests (Bedrock/OpenRouter).
+    // Memory service should remain deterministic and fast.
+    embedding._resetEmbeddingService();
+    embeddingServiceSpy = spyOn(embedding, 'getEmbeddingService').mockImplementation(() => ({
+      modelId: 'test-embedding',
+      dimensions: 3,
+      embed: async () => [0, 0, 0],
+      embedBatch: async (texts: string[]) => texts.map(() => [0, 0, 0]),
+    }));
 
     // Spy on DynamoDBClient.prototype.send for transactions
     transactionSendSpy = spyOn(DynamoDBClient.prototype, 'send').mockImplementation(
@@ -44,6 +56,8 @@ describe('Memory Service', () => {
 
   afterEach(() => {
     memory._setDynamoClient(null);
+    embedding._resetEmbeddingService();
+    embeddingServiceSpy?.mockRestore();
     transactionSendSpy?.mockRestore();
   });
 
