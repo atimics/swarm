@@ -53,4 +53,23 @@ export async function clearChatHistory(
   await store.clearChatHistory(session, avatarId);
 }
 
+/**
+ * Append a system message to chat history
+ * Used for persisting status updates (OAuth success, errors, etc.) that both AI and users should see
+ */
+export async function appendSystemMessage(
+  session: UserSession,
+  avatarId: string,
+  message: { role: 'assistant' | 'user'; content: string }
+): Promise<AdminChatMessage[]> {
+  const history = await store.getChatHistory(session, avatarId);
+  const newMessage: AdminChatMessage = {
+    role: message.role,
+    content: message.content,
+  };
+  const updatedHistory = [...history, newMessage];
+  await store.saveChatHistory(session, updatedHistory, avatarId);
+  return updatedHistory;
+}
+
 export type { ChatHistoryRecord };

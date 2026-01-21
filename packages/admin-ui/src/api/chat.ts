@@ -237,6 +237,35 @@ export async function clearChatHistory(avatarId?: string): Promise<void> {
   }
 }
 
+/**
+ * Append a system message to chat history
+ * Used for status updates (OAuth success, errors, etc.) that both AI and users should see
+ */
+export async function appendSystemMessage(
+  avatarId: string,
+  message: { role: 'assistant' | 'user'; content: string }
+): Promise<Array<{ role: string; content: string; media?: MediaItem[] }>> {
+  const response = await fetch(`${API_BASE}/chat/message`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      avatarId,
+      message,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.history || [];
+}
+
 // ============================================================================
 // Job Status Polling (for async image/video generation)
 // ============================================================================

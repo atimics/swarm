@@ -1745,11 +1745,55 @@ export async function handler(
       const accessError = await ensureAvatarAccess(avatarId);
       if (accessError) return accessError;
       await chatHistory.clearChatHistory(session, avatarId);
-      
+
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ success: true }),
+      };
+    }
+
+    // POST /chat/message - Append a system message to chat history
+    // Used for status updates (OAuth success, errors, etc.) that both AI and users should see
+    if (method === 'POST' && path === '/chat/message') {
+      const body = JSON.parse(event.body || '{}');
+      const { avatarId, message } = body;
+
+      if (!avatarId || typeof avatarId !== 'string') {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'avatarId is required' }),
+        };
+      }
+
+      if (!message || typeof message.content !== 'string' || !['assistant', 'user'].includes(message.role)) {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'message with role (assistant|user) and content is required' }),
+        };
+      }
+
+      const accessError = await ensureAvatarAccess(avatarId);
+      if (accessError) return accessError;
+
+      const history = await chatHistory.appendSystemMessage(session, avatarId, {
+        role: message.role,
+        content: message.content,
+      });
+
+      logger.info('System message appended', {
+        event: 'system_message_appended',
+        avatarId,
+        role: message.role,
+        contentLength: message.content.length,
+      });
+
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ success: true, history }),
       };
     }
 
