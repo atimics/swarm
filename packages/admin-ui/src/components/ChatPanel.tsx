@@ -33,6 +33,48 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
   const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
   const [showHint, setShowHint] = useState(true);
 
+  const formatUserFacingError = useCallback((raw: unknown): string => {
+    const rawMessage = raw instanceof Error ? raw.message : typeof raw === 'string' ? raw : 'Failed to send message';
+    const trimmed = rawMessage.trim();
+
+    // If the message contains an appended JSON blob, parse and extract a readable message.
+    // Example: "OpenRouter API error: 402 {\"error\":{\"message\":\"...\"}}"
+    const jsonStart = trimmed.indexOf('{');
+    if (jsonStart !== -1) {
+      const prefix = trimmed.slice(0, jsonStart).trim();
+      const jsonText = trimmed.slice(jsonStart).trim();
+      try {
+        const parsed = JSON.parse(jsonText) as any;
+        const extractedMessage: string | undefined =
+          parsed?.error?.message ||
+          parsed?.message ||
+          (typeof parsed?.error === 'string' ? parsed.error : undefined);
+
+        const code = parsed?.code || parsed?.error?.code;
+        const pieces = [prefix];
+        if (code && !String(prefix).includes(String(code))) pieces.push(String(code));
+        if (extractedMessage) pieces.push(extractedMessage);
+
+        const cleaned = pieces
+          .filter(Boolean)
+          .join(' - ')
+          .replace(/\s+-\s+-\s+/g, ' - ')
+          .trim();
+
+        return cleaned || prefix || 'Request failed';
+      } catch {
+        // If parsing fails, fall through to basic cleanup.
+      }
+    }
+
+    // Avoid leaking structured metadata that occasionally appears inline.
+    // (We still keep the human-readable portion.)
+    return trimmed
+      .replace(/\buser_id\b\s*[:=]\s*["']?user_[A-Za-z0-9]+["']?/g, 'user_id:[redacted]')
+      .replace(/\s+metadata:\s*\{[\s\S]*\}\s*$/i, '')
+      .trim();
+  }, []);
+
   const extractPendingJobsFromText = useCallback((text: string): Array<{ jobId: string; type: 'image' | 'video' | 'sticker' }> => {
     const found: Array<{ jobId: string; type: 'image' | 'video' | 'sticker' }> = [];
     if (!text) return found;
@@ -434,7 +476,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
           removeMessage(targetAvatar.id, loadingMessage.id);
         }
 
-        const errorMsg = error instanceof Error ? error.message : 'Failed to send message';
+        const errorMsg = formatUserFacingError(error);
         setError(errorMsg);
         addMessage(targetAvatar.id, {
           role: 'assistant',
@@ -444,7 +486,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         setLoading(false);
       }
     },
-    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isWalletAuthenticated, walletUser, updateAvatar]
+    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isWalletAuthenticated, walletUser, updateAvatar, formatUserFacingError]
   );
 
   // Handle audio message - transcribe and send as text
