@@ -236,6 +236,16 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     }
   };
 
+  // When opening the Telegram integration panel (or switching avatars), show current
+  // integration health immediately.
+  useEffect(() => {
+    if (args.integration !== 'telegram') return;
+    if (!activeAgent?.id) return;
+    void runTelegramDiagnostics();
+    // Intentionally omit runTelegramDiagnostics from deps to avoid re-running on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolCall.id, args.integration, activeAgent?.id]);
+
   // Auto-hide the "Saved" banner after a short delay.
   useEffect(() => {
     if (!savedAt) return;

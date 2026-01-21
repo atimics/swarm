@@ -4,6 +4,7 @@ import { useWalletAuth } from './store/walletAuth';
 import { useAuth } from './store/auth';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
 import { getTwitterConnectionStatus } from './api/twitter';
+import { appendSystemMessage } from './api/chat';
 import { AvatarSidebar, AvatarLogsPanel, ChatPanel, LandingPage } from './components';
 
 const TWITTER_OAUTH_STORAGE_KEY = 'swarm:oauth:twitter:lastResult';
@@ -232,13 +233,21 @@ function App() {
       const displayUsername = backendUsername || result.username;
 
       if (backendConnected === false) {
+        const disconnectErrorContent = JSON.stringify({
+          connected: false,
+          error: true,
+          message: 'X/Twitter OAuth completed, but backend still reports disconnected. Please refresh and try again.',
+        });
+
+        // Persist to backend so AI has context
+        await appendSystemMessage(targetAvatarId, {
+          role: 'assistant',
+          content: disconnectErrorContent,
+        }).catch(err => console.warn('[App] Failed to persist OAuth disconnect error:', err));
+
         addMessage(targetAvatarId, {
           role: 'assistant',
-          content: JSON.stringify({
-            connected: false,
-            error: true,
-            message: 'X/Twitter OAuth completed, but backend still reports disconnected. Please refresh and try again.',
-          }),
+          content: disconnectErrorContent,
         });
         return;
       }
@@ -260,23 +269,38 @@ function App() {
         }
       }
 
-      // Sync history FIRST so subsequent tool calls see updated config,
-      // then add success message (so it doesn't get overwritten by sync)
+      // Sync history FIRST so subsequent tool calls see updated config
       await syncChatHistory(targetAvatarId).catch(console.error);
 
+      // Build the success message
+      const successContent = JSON.stringify({
+        connected: true,
+        username: displayUsername,
+        message: `Connected as @${displayUsername}`,
+      });
+
+      // Persist to backend so AI has context and message survives refresh
+      await appendSystemMessage(targetAvatarId, {
+        role: 'assistant',
+        content: successContent,
+      }).catch(err => console.warn('[App] Failed to persist OAuth success message:', err));
+
+      // Also update local state for immediate UI feedback
       addMessage(targetAvatarId, {
         role: 'assistant',
-        content: JSON.stringify({
-          connected: true,
-          username: displayUsername,
-          message: `Connected as @${displayUsername}`,
-        }),
+        content: successContent,
       });
 
       if (backendUsername && backendUsername !== result.username) {
+        const noteContent = `Note: OAuth redirect reported @${result.username}, but backend status reports @${backendUsername}. Using backend status as the source of truth.`;
+        await appendSystemMessage(targetAvatarId, {
+          role: 'assistant',
+          content: noteContent,
+        }).catch(err => console.warn('[App] Failed to persist OAuth note:', err));
+
         addMessage(targetAvatarId, {
           role: 'assistant',
-          content: `Note: OAuth redirect reported @${result.username}, but backend status reports @${backendUsername}. Using backend status as the source of truth.`,
+          content: noteContent,
         });
       }
     } else {
@@ -296,13 +320,23 @@ function App() {
         }
       }
 
+      // Build the error message
+      const errorContent = JSON.stringify({
+        connected: false,
+        error: true,
+        message: `X/Twitter connection failed: ${result.error}`,
+      });
+
+      // Persist to backend so AI has context
+      await appendSystemMessage(targetAvatarId, {
+        role: 'assistant',
+        content: errorContent,
+      }).catch(err => console.warn('[App] Failed to persist OAuth error message:', err));
+
+      // Update local state
       addMessage(targetAvatarId, {
         role: 'assistant',
-        content: JSON.stringify({
-          connected: false,
-          error: true,
-          message: `X/Twitter connection failed: ${result.error}`,
-        }),
+        content: errorContent,
       });
     }
   }, [activeAvatarId, addMessage, chats, fetchAvatars, setActiveAvatar, syncChatHistory, updateMessage]);
