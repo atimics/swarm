@@ -40,6 +40,24 @@ import { getModelsForCapability, AVAILABLE_MODELS } from '../services/models-reg
 
 // Timeout for external API calls
 const API_TIMEOUT_MS = 10_000;
+
+// Twitter media limits: images must be <= 5MB
+const TWITTER_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const TWITTER_TARGET_IMAGE_BYTES = TWITTER_MAX_IMAGE_BYTES - 32 * 1024;
+
+// Lazy load sharp to avoid import failures on platforms without native binaries
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sharpModule: any = null;
+async function getSharp() {
+  if (!sharpModule) {
+    try {
+      sharpModule = await import('sharp');
+    } catch {
+      throw new Error('sharp module not available - image processing is not supported in this environment');
+    }
+  }
+  return sharpModule.default;
+}
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET;
 const CDN_URL = process.env.CDN_URL;
 const s3Client = new S3Client({});
@@ -66,6 +84,56 @@ function detectMimeType(url: string, contentType: string | null): string {
   if (urlLower.includes('.jpg') || urlLower.includes('.jpeg')) return 'image/jpeg';
   if (urlLower.includes('.gif')) return 'image/gif';
   return 'image/png';
+}
+
+async function downsizeImageForTwitter(
+  input: Buffer,
+  mimeType: string
+): Promise<{ buffer: Buffer; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' }> {
+  if (input.length <= TWITTER_MAX_IMAGE_BYTES) {
+    return { buffer: input, mimeType: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' };
+  }
+
+  const sharp = await getSharp();
+
+  // Twitter photo uploads have a strict 5MB cap. Re-encode to JPEG and, if needed, resize.
+  let quality = 82;
+  let maxWidth = 1600;
+  let buffer = input;
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const out = await sharp(buffer, { failOnError: false })
+      .rotate()
+      .resize({ width: maxWidth, withoutEnlargement: true })
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer();
+
+    console.log('Re-encoded image for Twitter upload', {
+      attempt,
+      inBytes: buffer.length,
+      outBytes: out.length,
+      quality,
+      maxWidth,
+    });
+
+    if (out.length <= TWITTER_TARGET_IMAGE_BYTES) {
+      return { buffer: out, mimeType: 'image/jpeg' };
+    }
+
+    buffer = out;
+
+    // Tune parameters: lower quality first, then reduce dimensions.
+    if (quality > 55) {
+      quality -= 10;
+    } else {
+      maxWidth = Math.max(640, Math.floor(maxWidth * 0.8));
+      quality = 78;
+    }
+  }
+
+  throw new Error(
+    `Image too large for Twitter upload after re-encode: ${buffer.length} bytes (max ${TWITTER_MAX_IMAGE_BYTES})`
+  );
 }
 
 /**
@@ -109,12 +177,34 @@ async function uploadMediaToTwitter(
         continue;
       }
 
-      const mimeType = detectMimeType(url, download.contentType ?? null);
+      let mimeType = detectMimeType(url, download.contentType ?? null);
       console.log('Uploading media to Twitter with mimeType:', mimeType);
 
-      console.log('Buffer size:', download.buffer.length, 'bytes');
-      
-      const mediaId = await client.v1.uploadMedia(download.buffer, {
+      const originalBuffer = download.buffer;
+      console.log('Buffer size:', originalBuffer.length, 'bytes');
+
+      let uploadBuffer = originalBuffer;
+      if (mimeType.startsWith('image/') && originalBuffer.length > TWITTER_MAX_IMAGE_BYTES) {
+        try {
+          const resized = await downsizeImageForTwitter(originalBuffer, mimeType);
+          uploadBuffer = resized.buffer;
+          mimeType = resized.mimeType;
+          console.log('Using downsized image for Twitter upload', {
+            originalBytes: originalBuffer.length,
+            uploadBytes: uploadBuffer.length,
+            mimeType,
+          });
+        } catch (resizeErr) {
+          console.error('Failed to downsize image for Twitter upload (posting without this media)', {
+            url,
+            originalBytes: originalBuffer.length,
+            error: resizeErr instanceof Error ? resizeErr.message : String(resizeErr),
+          });
+          continue;
+        }
+      }
+
+      const mediaId = await client.v1.uploadMedia(uploadBuffer, {
         mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
       });
       console.log('Media uploaded successfully, mediaId:', mediaId);
@@ -122,6 +212,13 @@ async function uploadMediaToTwitter(
     } catch (err) {
       console.error('Failed to upload media to Twitter:', err);
     }
+  }
+
+  if (mediaUrls.length > 0 && mediaIds.length === 0) {
+    console.warn('No Twitter media uploaded; tweet will be posted without media', {
+      avatarId,
+      requestedMediaCount: Math.min(mediaUrls.length, 4),
+    });
   }
 
   return mediaIds;
@@ -1115,6 +1212,16 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           resolvedMediaUrls = mediaUrls;
         }
 
+        console.log(JSON.stringify({
+          level: 'INFO',
+          subsystem: 'twitter',
+          event: 'twitter_post_request',
+          avatarId: _avatarId,
+          textLength: text.length,
+          requestedGalleryIds: galleryIds?.length ?? 0,
+          resolvedMediaUrls: resolvedMediaUrls.length,
+        }));
+
         // Import twitter-api-v2 dynamically to avoid loading it when not needed
         const { TwitterApi } = await import('twitter-api-v2');
         
@@ -1132,7 +1239,7 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           const username = expectedConnection.username;
 
           // Handle media uploads if provided
-          const twitterMediaIds = resolvedMediaUrls.length > 0 
+          const twitterMediaIds = resolvedMediaUrls.length > 0
             ? await uploadMediaToTwitter(client, resolvedMediaUrls, _avatarId)
             : undefined;
 
@@ -1140,6 +1247,17 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           const tweetParams: Parameters<typeof client.v2.tweet>[0] = { text };
           if (twitterMediaIds && twitterMediaIds.length > 0) {
             tweetParams.media = { media_ids: twitterMediaIds as [string] };
+          }
+
+          if (resolvedMediaUrls.length > 0 && (!twitterMediaIds || twitterMediaIds.length === 0)) {
+            console.warn(JSON.stringify({
+              level: 'WARN',
+              subsystem: 'twitter',
+              event: 'twitter_post_media_dropped',
+              avatarId: _avatarId,
+              requestedMediaCount: resolvedMediaUrls.length,
+              message: 'Media was requested but none uploaded; posting tweet without media.',
+            }));
           }
 
           const result = await client.v2.tweet(tweetParams);
@@ -1152,6 +1270,8 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
             tweetId,
             username,
             textLength: text.length,
+            requestedMediaCount: resolvedMediaUrls.length,
+            uploadedMediaCount: twitterMediaIds?.length ?? 0,
           }));
           return {
             tweetId,
