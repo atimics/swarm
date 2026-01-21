@@ -3,6 +3,8 @@
  * Handles Twitter API v2 for posting, mentions, and DMs
  */
 import { TwitterApi, TweetV2, UserV2 } from 'twitter-api-v2';
+import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { Readable } from 'stream';
 import { PlatformAdapter } from './base.js';
 import type {
   AvatarConfig,
@@ -163,22 +165,14 @@ export class TwitterAdapter extends PlatformAdapter {
 
     for (const item of media.slice(0, 4)) { // Twitter allows max 4 media items
       try {
-        // Download the media and upload to Twitter
-        const response = await fetch(item.url);
+        // Download the media (prefer S3 if URL points to our bucket) and upload to Twitter.
+        const { buffer, contentType } = await downloadMedia(item.url);
 
-        if (!response.ok) {
-          console.error(`Failed to fetch media from ${item.url}: ${response.status} ${response.statusText}`);
-          continue;
-        }
-
-        const buffer = Buffer.from(await response.arrayBuffer());
-
-        // Detect MIME type from Content-Type header or URL
+        // Detect MIME type from Content-Type header or URL.
         let mimeType = 'image/png';
         if (item.type === 'video') {
           mimeType = 'video/mp4';
         } else {
-          const contentType = response.headers?.get?.('content-type') ?? null;
           if (contentType && !['application/octet-stream', 'binary/octet-stream'].includes(contentType)) {
             mimeType = contentType.split(';')[0];
           } else {
@@ -440,4 +434,86 @@ export class TwitterAdapter extends PlatformAdapter {
   getClient(): TwitterApi | null {
     return this.client;
   }
+}
+
+const s3Client = new S3Client({});
+
+async function downloadMedia(url: string): Promise<{ buffer: Buffer; contentType?: string }> {
+  const s3Location = resolveS3Location(url);
+  if (s3Location) {
+    try {
+      const response = await s3Client.send(new GetObjectCommand({
+        Bucket: s3Location.bucket,
+        Key: s3Location.key,
+      }));
+
+      if (!response.Body) {
+        throw new Error('Empty S3 response body');
+      }
+
+      const buffer = await streamToBuffer(response.Body as Readable);
+      return { buffer, contentType: response.ContentType };
+    } catch (error) {
+      console.warn('[TwitterAdapter] Failed to fetch media from S3, falling back to HTTP fetch:', error);
+    }
+  }
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch media from ${url}: ${response.status} ${response.statusText}`);
+  }
+
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    contentType: response.headers?.get?.('content-type') ?? undefined,
+  };
+}
+
+function resolveS3Location(url: string): { bucket: string; key: string } | null {
+  const bucketFromEnv = process.env.MEDIA_BUCKET;
+  const cdnUrl = normalizeUrlPrefix(process.env.CDN_URL);
+  if (cdnUrl && url.startsWith(cdnUrl) && bucketFromEnv) {
+    const key = decodeURIComponent(url.slice(cdnUrl.length).replace(/^\/+/, ''));
+    if (key) {
+      return { bucket: bucketFromEnv, key };
+    }
+  }
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    const path = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+
+    const virtualHostMatch = host.match(/^(.+)\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/);
+    if (virtualHostMatch?.[1]) {
+      return { bucket: virtualHostMatch[1], key: path };
+    }
+
+    if (host === 's3.amazonaws.com' || host.startsWith('s3.') || host.startsWith('s3-')) {
+      const [bucket, ...rest] = path.split('/');
+      if (bucket && rest.length > 0) {
+        return { bucket, key: rest.join('/') };
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function normalizeUrlPrefix(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return withScheme.replace(/\/+$/, '');
 }
