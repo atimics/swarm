@@ -28,5 +28,4 @@ Build the most reliable AWS-native platform for persistent, multi-platform AI av
 - Forcing crypto for core product usage.
 
 ## Legacy
-This document replaces the 2026 whitepaper. The archived copy lives at
-`docs/legacy/VISION-2026-01.md`.
+This document replaces older vision drafts; use git history for prior iterations.

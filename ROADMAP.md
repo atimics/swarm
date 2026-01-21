@@ -2,6 +2,9 @@
 
 This roadmap focuses on product and platform milestones.
 
+For the execution-level, MVP-focused plan (2-week slices and P0→P3 sequencing), see:
+- [docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md](docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md)
+
 ## Near (0-3 months)
 Milestone M1: Paid Telegram MVP
 - Billing and entitlements with runtime enforcement.
@@ -26,5 +29,4 @@ Milestone M3: Persistent swarm platform
 - SaaS reliability and cost optimization for scale.
 
 ## Legacy
-Prior planning snapshots are archived in `docs/legacy/PLAN-2026-01-13.md` and
-`docs/legacy/PLAN2-empty.md`.
+Prior planning snapshots are intentionally not kept as separate files; use git history for older iterations.

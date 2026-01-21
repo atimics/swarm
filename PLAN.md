@@ -60,5 +60,4 @@ Reference spec: `docs/AUTHENTICATION-IMPROVEMENTS.md`
 - Protocol specification work.
 
 ## Legacy
-Prior planning snapshots are archived in `docs/legacy/PLAN-2026-01-13.md` and
-`docs/legacy/PLAN2-empty.md`.
+Prior planning snapshots are intentionally not kept as separate files; use git history for older iterations.
