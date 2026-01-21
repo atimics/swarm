@@ -19,6 +19,7 @@ import * as galleryService from '../services/gallery.js';
 import * as integrationsService from '../services/integrations.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
+import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
 import { validateReplicateApiKey } from '../services/replicate.js';
 import { SecretType } from '../types.js';
 import { resumeChatAfterToolResult } from './chat.js';
@@ -316,6 +317,31 @@ export async function handler(
 
       const statuses = await integrationsService.getAllIntegrationStatuses(avatarId);
       return jsonResponse(corsHeaders, 200, { integrations: statuses });
+    }
+
+    // GET /avatars/{id}/telegram/diagnose - Telegram diagnostics (used by Admin UI)
+    const telegramDiagnoseMatch = path.match(/^\/avatars\/([^/]+)\/telegram\/diagnose$/);
+    if (method === 'GET' && telegramDiagnoseMatch) {
+      const avatarId = telegramDiagnoseMatch[1];
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      try {
+        const diagnosis = await diagnoseTelegram(avatarId);
+        return jsonResponse(corsHeaders, 200, diagnosis);
+      } catch (err) {
+        logger.setContext({ subsystem: 'telegram', avatarId });
+        logger.error('Telegram diagnostics failed', { event: 'telegram_diagnostics_failed', error: err });
+        return jsonResponse(corsHeaders, 500, { error: 'Failed to run Telegram diagnostics' });
+      }
     }
 
     // POST /avatars/{id}/secrets - Save a secret for an avatar

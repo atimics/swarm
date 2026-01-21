@@ -1755,6 +1755,39 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       message.sticker
     );
     if (!hasContent) return ok();
+
+    // Best-effort breadcrumb for diagnostics.
+    try {
+      const snapshot = {
+        receivedAt: Date.now(),
+        updateId: update.update_id,
+        chatId: message.chat.id,
+        chatType: message.chat.type,
+        fromUserId: message.from?.id,
+        messageId: message.message_id,
+        textPreview:
+          typeof message.text === 'string'
+            ? message.text.slice(0, 160)
+            : typeof message.caption === 'string'
+              ? message.caption.slice(0, 160)
+              : undefined,
+      };
+
+      await dynamoClient.send(new PutCommand({
+        TableName: ADMIN_TABLE,
+        Item: {
+          pk: `AVATAR#${avatarId}`,
+          sk: 'TELEGRAM#LAST_UPDATE',
+          snapshot,
+          updatedAt: new Date().toISOString(),
+        },
+      }));
+    } catch (error) {
+      logger.warn('Failed to record last Telegram update snapshot', {
+        avatarId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     const userId = message.from?.id;
 
     // Skip messages sent by *this* bot (prevents self-triggered loops).

@@ -119,6 +119,31 @@ interface ModelOption {
   isDefault?: boolean;
 }
 
+type TelegramDiagnosis = {
+  avatarId: string;
+  platformEnabled: boolean;
+  tokenPresent: boolean;
+  webhookSecretPresent: boolean;
+  bot?: {
+    id?: number;
+    username?: string;
+    first_name?: string;
+    is_bot?: boolean;
+  };
+  webhook: {
+    expectedUrl: string;
+    actualUrl?: string;
+    isCorrectUrl?: boolean;
+    pendingUpdateCount?: number;
+    lastErrorDate?: number;
+    lastErrorMessage?: string;
+  };
+  lastUpdate?: {
+    secondsAgo?: number;
+  };
+  issues: Array<{ code: string; message: string }>;
+};
+
 const PRIORITY_MODEL_PROVIDERS = ['anthropic', 'openai', 'google', 'meta-llama', 'mistralai', 'cohere', 'deepseek'] as const;
 
 // Capability labels for display
@@ -153,6 +178,9 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const [availableModelsByCapability, setAvailableModelsByCapability] = useState<Record<string, ModelOption[]> | null>(null);
   const [modelsLoadError, setModelsLoadError] = useState<string | null>(null);
   const didInitFromStatus = useRef<string | null>(null);
+  const [telegramDiagnosis, setTelegramDiagnosis] = useState<TelegramDiagnosis | null>(null);
+  const [telegramDiagnosisError, setTelegramDiagnosisError] = useState<string | null>(null);
+  const [telegramDiagnosisLoading, setTelegramDiagnosisLoading] = useState(false);
 
   const args = toolCall.arguments as {
     integration: 'telegram' | 'twitter' | 'discord' | 'replicate' | 'openai' | 'anthropic' | 'openrouter';
@@ -171,8 +199,42 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     setHasAvatarKey(null);
     setUseGlobalKey(true);
     setSelectedModels({});
+    setTelegramDiagnosis(null);
+    setTelegramDiagnosisError(null);
+    setTelegramDiagnosisLoading(false);
     didInitFromStatus.current = null;
   }, [toolCall.id]);
+
+  const runTelegramDiagnostics = async (): Promise<TelegramDiagnosis | null> => {
+    if (!activeAgent?.id) return null;
+    setTelegramDiagnosisLoading(true);
+    setTelegramDiagnosisError(null);
+    try {
+      const resp = await fetch(`${API_BASE}/avatars/${activeAgent.id}/telegram/diagnose`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      const payload = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const message = (payload as { error?: string; message?: string }).error
+          || (payload as { error?: string; message?: string }).message
+          || `Failed to run Telegram diagnostics (HTTP ${resp.status})`;
+        setTelegramDiagnosis(null);
+        setTelegramDiagnosisError(message);
+        return null;
+      }
+
+      setTelegramDiagnosis(payload as TelegramDiagnosis);
+      return payload as TelegramDiagnosis;
+    } catch {
+      setTelegramDiagnosis(null);
+      setTelegramDiagnosisError('Failed to run Telegram diagnostics');
+      return null;
+    } finally {
+      setTelegramDiagnosisLoading(false);
+    }
+  };
 
   // Auto-hide the "Saved" banner after a short delay.
   useEffect(() => {
@@ -535,6 +597,9 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     setIsSubmitting(true);
     setSaveError(null);
     try {
+      let telegramStatusFromSave: unknown | undefined;
+      let telegramDiagnosisFromSave: TelegramDiagnosis | null = null;
+
       // Store the secret if provided (not using global key or platform integration)
       if (token.trim()) {
         const response = await fetch(`${API_BASE}/avatars/${activeAgent.id}/secrets`, {
@@ -551,6 +616,10 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
         if (!response.ok) {
           throw new Error(payload.error || payload.message || 'Failed to save');
+        }
+
+        if (args.integration === 'telegram') {
+          telegramStatusFromSave = (payload as { telegramStatus?: unknown }).telegramStatus;
         }
       }
 
@@ -580,6 +649,10 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         };
       }
 
+      if (args.integration === 'telegram' && (token.trim() || hasTelegramPolicyChanges)) {
+        telegramDiagnosisFromSave = await runTelegramDiagnostics();
+      }
+
       // Build result with AI provider specific config
       const result: Record<string, unknown> = {
         configured: true,
@@ -591,6 +664,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         if (Object.keys(selectedModels).length > 0) {
           result.models = selectedModels;
         }
+      }
+
+      if (args.integration === 'telegram') {
+        if (telegramStatusFromSave) result.telegramStatus = telegramStatusFromSave;
+        if (telegramDiagnosisFromSave) result.telegramDiagnosis = telegramDiagnosisFromSave;
       }
 
       // Submit the tool result
@@ -638,6 +716,99 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
             <span className="text-sm text-green-300">Saved. You can keep editing and save again.</span>
+          </div>
+        )}
+
+        {args.integration === 'telegram' && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-[var(--color-text)]">Telegram Diagnostics</p>
+              <button
+                type="button"
+                onClick={() => void runTelegramDiagnostics()}
+                disabled={disabled || telegramDiagnosisLoading || !activeAgent?.id}
+                className="px-3 py-1.5 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
+              >
+                {telegramDiagnosisLoading ? 'Running…' : 'Re-run'}
+              </button>
+            </div>
+
+            {telegramDiagnosisError && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span className="text-sm text-red-300">{telegramDiagnosisError}</span>
+              </div>
+            )}
+
+            {telegramDiagnosis && (
+              <div
+                className={
+                  telegramDiagnosis.issues.length === 0
+                    ? 'px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg'
+                    : 'px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg'
+                }
+              >
+                <div className="flex items-center gap-2">
+                  <svg
+                    className={
+                      telegramDiagnosis.issues.length === 0
+                        ? 'w-4 h-4 text-green-400'
+                        : 'w-4 h-4 text-yellow-400'
+                    }
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d={telegramDiagnosis.issues.length === 0 ? 'M5 13l4 4L19 7' : 'M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}
+                    />
+                  </svg>
+                  <span
+                    className={
+                      telegramDiagnosis.issues.length === 0
+                        ? 'text-sm text-green-300'
+                        : 'text-sm text-yellow-300'
+                    }
+                  >
+                    {telegramDiagnosis.issues.length === 0 ? 'Verified' : 'Needs attention'}
+                    {telegramDiagnosis.bot?.username ? ` (@${telegramDiagnosis.bot.username})` : ''}
+                  </span>
+                </div>
+
+                {telegramDiagnosis.issues.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {telegramDiagnosis.issues.slice(0, 3).map((issue) => (
+                      <li key={issue.code} className="text-xs text-[var(--color-text-secondary)]">
+                        • {issue.message}
+                      </li>
+                    ))}
+                    {telegramDiagnosis.issues.length > 3 && (
+                      <li className="text-xs text-[var(--color-text-muted)]">
+                        …and {telegramDiagnosis.issues.length - 3} more
+                      </li>
+                    )}
+                  </ul>
+                )}
+
+                <div className="mt-2 grid grid-cols-1 gap-1">
+                  {typeof telegramDiagnosis.webhook.pendingUpdateCount === 'number' && (
+                    <div className="text-xs text-[var(--color-text-muted)]">
+                      Pending updates: {telegramDiagnosis.webhook.pendingUpdateCount}
+                    </div>
+                  )}
+                  {telegramDiagnosis.lastUpdate?.secondsAgo !== undefined && (
+                    <div className="text-xs text-[var(--color-text-muted)]">
+                      Last webhook activity: {telegramDiagnosis.lastUpdate.secondsAgo}s ago
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
         {config.usesOAuth ? (

@@ -214,7 +214,7 @@ describe('Twitter Tools - twitter_post', () => {
     expect(result.data).toMatchObject({ tweetId: '1', url: 'https://x.com/1' });
   });
 
-  it('returns error on post failure', async () => {
+  it('returns error on post failure (null)', async () => {
     const services = {
       getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
       startOAuthFlow: mock(() => Promise.resolve(null)),
@@ -225,6 +225,19 @@ describe('Twitter Tools - twitter_post', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Failed to post tweet');
+  });
+
+  it('returns error with details when service returns error object', async () => {
+    const services = {
+      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: mock(() => Promise.resolve(null)),
+      postTweet: mock(() => Promise.resolve({ error: 'Rate limit exceeded. Please try again in 15 minutes.' })),
+    };
+    const tool = getTool('twitter_post', services);
+    const result = await (tool.execute as any)({ text: 'Hello' }, baseContext);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Rate limit exceeded. Please try again in 15 minutes.');
   });
 });
 

@@ -12,6 +12,10 @@ const WEBHOOK_DOMAIN = process.env.TELEGRAM_WEBHOOK_DOMAIN
   || process.env.WEBHOOK_DOMAIN
   || API_DOMAIN;
 
+export function getTelegramWebhookUrlForAvatar(avatarId: string): string {
+  return `https://${WEBHOOK_DOMAIN}/webhook/telegram/${avatarId}`;
+}
+
 // Telegram webhook IP ranges (for additional verification)
 // https://core.telegram.org/bots/webhooks#the-short-version
 export const TELEGRAM_IP_RANGES = [
@@ -69,7 +73,7 @@ export async function registerTelegramWebhook(
   webhookInfo?: { url?: string; pending_update_count?: number };
   reRegistered?: boolean;
 }> {
-  const webhookUrl = `https://${WEBHOOK_DOMAIN}/webhook/telegram/${avatarId}`;
+  const webhookUrl = getTelegramWebhookUrlForAvatar(avatarId);
 
   // Generate secret token if not provided
   const webhookSecret = secretToken || generateWebhookSecret();
@@ -159,6 +163,37 @@ export async function getTelegramWebhookInfo(
     ok: boolean; 
     result?: { url?: string; pending_update_count?: number } 
   };
+
+  return result.result || {};
+}
+
+export interface TelegramWebhookInfoDetailed {
+  url?: string;
+  has_custom_certificate?: boolean;
+  pending_update_count?: number;
+  ip_address?: string;
+  last_error_date?: number;
+  last_error_message?: string;
+  last_synchronization_error_date?: number;
+  max_connections?: number;
+  allowed_updates?: string[];
+}
+
+export async function getTelegramWebhookInfoDetailed(
+  botToken: string
+): Promise<TelegramWebhookInfoDetailed> {
+  const url = `https://api.telegram.org/bot${botToken}/getWebhookInfo`;
+
+  const response = await fetch(url);
+  const result = await response.json() as {
+    ok: boolean;
+    result?: TelegramWebhookInfoDetailed;
+    description?: string;
+  };
+
+  if (!result.ok) {
+    throw new Error(result.description || 'Failed to fetch Telegram webhook info');
+  }
 
   return result.result || {};
 }

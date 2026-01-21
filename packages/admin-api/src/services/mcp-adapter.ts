@@ -27,6 +27,7 @@ import * as stickers from '../services/stickers.js';
 import * as avatarvents from '../services/avatar-events.js';
 import * as memory from '../services/memory.js';
 import * as memoryMigration from '../services/memory-migration.js';
+import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
 import { createWebSearch } from '../services/web-search.js';
 import { createMcpAdminServices } from '../services/mcp-config.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
@@ -783,6 +784,10 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
     // Telegram Services
     // =========================================================================
     telegram: {
+      diagnoseTelegram: async (avatarId: string) => {
+        return diagnoseTelegram(avatarId);
+      },
+
       getUserProfilePhotos: async (avatarId, userId, options) => {
         const botToken = await getBotToken(avatarId);
         
@@ -918,11 +923,18 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         }
       },
 
-      postTweet: async (text: string, mediaUrls?: string[], galleryIds?: string[]) => {
+      postTweet: async (text: string, mediaUrls?: string[], galleryIds?: string[]): Promise<{ tweetId: string; url: string } | { error: string } | null> => {
         // Get credentials
         const creds = await twitterOAuth.getAvatarTwitterCredentials(_avatarId);
         if (!creds.configured) {
-          return null;
+          console.error(JSON.stringify({
+            level: 'ERROR',
+            subsystem: 'twitter',
+            event: 'twitter_post_no_credentials',
+            avatarId: _avatarId,
+            message: 'Twitter credentials not configured',
+          }));
+          return { error: 'Twitter is not configured. Please connect Twitter first.' };
         }
 
         // Security: Require a verified connection record (userId) and ensure the access tokens
@@ -938,7 +950,7 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
             connected: expectedConnection.connected,
             message: 'Twitter connection is not verified (missing userId). Reconnect required before posting.',
           }));
-          return null;
+          return { error: 'Twitter connection is not verified. Please reconnect your Twitter account.' };
         }
 
         // Resolve gallery IDs to URLs (preferred over raw URLs)
@@ -996,13 +1008,35 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
 
           const result = await client.v2.tweet(tweetParams);
           const tweetId = result.data.id;
+          console.log(JSON.stringify({
+            level: 'INFO',
+            subsystem: 'twitter',
+            event: 'twitter_post_success',
+            avatarId: _avatarId,
+            tweetId,
+            username,
+            textLength: text.length,
+          }));
           return {
             tweetId,
             url: `https://x.com/${username}/status/${tweetId}`,
           };
         } catch (error) {
-          console.error('Failed to post tweet:', error);
-          return null;
+          // Extract useful error details from Twitter API error
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          const errorData = (error as { data?: { detail?: string; title?: string } })?.data;
+          const twitterError = errorData?.detail || errorData?.title || errorMessage;
+
+          console.error(JSON.stringify({
+            level: 'ERROR',
+            subsystem: 'twitter',
+            event: 'twitter_post_failed',
+            avatarId: _avatarId,
+            error: twitterError,
+            errorRaw: errorMessage,
+            textLength: text.length,
+          }));
+          return { error: `Failed to post tweet: ${twitterError}` };
         }
       },
 

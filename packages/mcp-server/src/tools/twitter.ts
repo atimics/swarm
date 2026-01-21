@@ -62,8 +62,9 @@ export interface TwitterServices {
    * @param text Tweet text
    * @param mediaUrls Optional URLs to attach (legacy, prefer mediaIds)
    * @param mediaIds Optional gallery item IDs to attach (preferred)
+   * @returns Success: { tweetId, url }, Error: { error }, or null if unavailable
    */
-  postTweet?: (text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<{ tweetId: string; url: string } | null>;
+  postTweet?: (text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<{ tweetId: string; url: string } | { error: string } | null>;
 
   /**
    * Get home timeline tweets
@@ -233,14 +234,22 @@ export function createTwitterTools(services: TwitterServices) {
         
         // Post the tweet - pass both mediaIds and mediaUrls, service will resolve
         const result = await services.postTweet(input.text, input.mediaUrls, input.mediaIds);
-        
+
         if (!result) {
           return {
             success: false,
             error: 'Failed to post tweet. Please try again.',
           };
         }
-        
+
+        // Check if result is an error
+        if ('error' in result) {
+          return {
+            success: false,
+            error: result.error,
+          };
+        }
+
         return {
           success: true,
           data: {

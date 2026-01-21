@@ -58,6 +58,9 @@ export interface TelegramStatus {
 export interface TelegramServices {
   /** Get Telegram integration status */
   getTelegramStatus?: (avatarId: string) => Promise<TelegramStatus>;
+
+  /** Diagnose Telegram integration (secrets, webhook, recent activity) */
+  diagnoseTelegram?: (avatarId: string) => Promise<unknown>;
   
   /** Get user profile photos */
   getUserProfilePhotos: (avatarId: string, userId: number, options?: {
@@ -144,6 +147,28 @@ export interface TelegramServices {
 // ============================================================================
 
 export const createTelegramTools = (services: TelegramServices) => [
+  // === Diagnostics ===
+  defineTool({
+    name: 'diagnose_telegram',
+    description:
+      'Diagnose Telegram integration for this avatar (token present/valid, webhook URL + errors, pending updates, and last webhook activity if available).',
+    category: 'diagnostics',
+    platforms: ['telegram', 'admin-ui'],
+    inputSchema: z.object({}),
+    execute: async (_input, context): Promise<ToolResult> => {
+      if (!services.diagnoseTelegram) {
+        return { success: false, error: 'diagnoseTelegram service is not available' };
+      }
+
+      try {
+        const data = await services.diagnoseTelegram(context.avatarId);
+        return { success: true, data };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
+    },
+  }),
+
   // === User Profile Photos ===
   defineTool({
     name: 'get_user_profile_photos',
