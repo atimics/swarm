@@ -46,6 +46,7 @@ import { configureIntegration } from '../services/integrations.js';
 import { syncAvatarConfig } from '../services/config-sync.js';
 import { resolveChatModel } from '../services/llm-model-resolution.js';
 import { mapAdminChatHandlerError } from './chat-error-mapping.js';
+import { isProbablyPrivateMediaUrl, redactMediaUrlsFromText } from '../utils/redact-media-urls.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
 const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
@@ -668,7 +669,7 @@ function toSdkMessages(messages: AdminChatMessage[]): Array<{ role: 'user' | 'as
     if (message.role === 'tool') {
       return {
         role: 'tool' as const,
-        content: message.content,
+        content: typeof message.content === 'string' ? redactMediaUrlsFromText(message.content) : message.content,
         toolCallId: message.tool_call_id,
       };
     }
@@ -676,16 +677,18 @@ function toSdkMessages(messages: AdminChatMessage[]): Array<{ role: 'user' | 'as
     // If a message has media (generated images/videos shown in UI), include image URLs as multimodal parts.
     // This makes vision-capable models able to see what they previously generated.
     const mediaImages = (message.media || []).filter(m => m.type === 'image' && typeof m.url === 'string');
-    if (mediaImages.length > 0) {
+    const modelSafeImages = mediaImages.filter(img => !isProbablyPrivateMediaUrl(img.url));
+    if (modelSafeImages.length > 0) {
       const baseText = Array.isArray(message.content)
         ? (message.content.find(p => p.type === 'text') as { text?: string } | undefined)?.text || ''
         : String(message.content || '');
+      const sanitizedBaseText = redactMediaUrlsFromText(baseText);
 
       return {
         role: message.role,
         content: [
-          { type: 'text', text: baseText },
-          ...mediaImages.map(img => ({
+          { type: 'text', text: sanitizedBaseText },
+          ...modelSafeImages.map(img => ({
             type: 'image_url',
             image_url: { url: img.url },
           })),
@@ -695,7 +698,18 @@ function toSdkMessages(messages: AdminChatMessage[]): Array<{ role: 'user' | 'as
 
     return {
       role: message.role,
-      content: message.content as MessageContent,
+      content: (() => {
+        const raw = message.content as MessageContent;
+        if (typeof raw === 'string') return redactMediaUrlsFromText(raw);
+        if (Array.isArray(raw)) {
+          return raw.map((part: { type: string; text?: string; image_url?: { url: string } }) => (
+            part.type === 'text' && typeof part.text === 'string'
+              ? { ...part, text: redactMediaUrlsFromText(part.text) }
+              : part
+          ));
+        }
+        return raw;
+      })(),
     };
   });
 }
@@ -1580,6 +1594,12 @@ export async function processChat(
   // This text can appear when the model repeats from chat history after a connection attempt
   if (typeof response === 'string') {
     response = response.replace(/please\s+connect\s+your\s+(x\/?twitter|twitter\/?x)\s+account\s*:/gi, '').trim();
+  }
+
+  // Avoid leaking raw CloudFront links into chat bubbles. Media should be conveyed
+  // via structured attachments (response.media) instead of raw URLs.
+  if (typeof response === 'string') {
+    response = redactMediaUrlsFromText(response);
   }
 
   messages.push({ role: 'assistant', content: response });
