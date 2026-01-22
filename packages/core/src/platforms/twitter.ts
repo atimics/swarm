@@ -165,8 +165,15 @@ export class TwitterAdapter extends PlatformAdapter {
 
     for (const item of media.slice(0, 4)) { // Twitter allows max 4 media items
       try {
+        console.log('[TwitterAdapter.uploadMedia] Processing media:', { url: item.url, type: item.type });
+
         // Download the media (prefer S3 if URL points to our bucket) and upload to Twitter.
-        const { buffer, contentType } = await downloadMedia(item.url);
+        const { buffer, contentType, source } = await downloadMedia(item.url);
+        console.log('[TwitterAdapter.uploadMedia] Downloaded:', {
+          source,
+          bufferSize: buffer.length,
+          contentType
+        });
 
         // Detect MIME type from Content-Type header or URL.
         let mimeType = 'image/png';
@@ -184,14 +191,24 @@ export class TwitterAdapter extends PlatformAdapter {
           }
         }
 
+        console.log('[TwitterAdapter.uploadMedia] Uploading to Twitter with mimeType:', mimeType);
         const mediaId = await this.client.v1.uploadMedia(buffer, {
           mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'video/mp4',
         });
 
+        console.log('[TwitterAdapter.uploadMedia] Success, mediaId:', mediaId);
         mediaIds.push(mediaId);
       } catch (error) {
-        console.error('Failed to upload media to Twitter:', error);
+        console.error('[TwitterAdapter.uploadMedia] Failed:', {
+          url: item.url,
+          error: error instanceof Error ? error.message : error,
+          stack: error instanceof Error ? error.stack : undefined
+        });
       }
+    }
+
+    if (mediaIds.length < media.length) {
+      console.warn(`[TwitterAdapter.uploadMedia] Only ${mediaIds.length}/${media.length} media items uploaded successfully`);
     }
 
     return mediaIds;
@@ -438,9 +455,20 @@ export class TwitterAdapter extends PlatformAdapter {
 
 const s3Client = new S3Client({});
 
-async function downloadMedia(url: string): Promise<{ buffer: Buffer; contentType?: string }> {
+async function downloadMedia(url: string): Promise<{ buffer: Buffer; contentType?: string; source: 's3' | 'http' }> {
+  const cdnUrlEnv = process.env.CDN_URL;
+  const mediaBucketEnv = process.env.MEDIA_BUCKET;
+
+  console.log('[TwitterAdapter.downloadMedia] Starting download:', {
+    url,
+    CDN_URL: cdnUrlEnv || '(not set)',
+    MEDIA_BUCKET: mediaBucketEnv || '(not set)'
+  });
+
   const s3Location = resolveS3Location(url);
+
   if (s3Location) {
+    console.log('[TwitterAdapter.downloadMedia] Resolved S3 location:', s3Location);
     try {
       const response = await s3Client.send(new GetObjectCommand({
         Bucket: s3Location.bucket,
@@ -452,21 +480,39 @@ async function downloadMedia(url: string): Promise<{ buffer: Buffer; contentType
       }
 
       const buffer = await streamToBuffer(response.Body as Readable);
-      return { buffer, contentType: response.ContentType };
+      console.log('[TwitterAdapter.downloadMedia] S3 fetch successful:', {
+        bucket: s3Location.bucket,
+        key: s3Location.key,
+        size: buffer.length,
+        contentType: response.ContentType
+      });
+      return { buffer, contentType: response.ContentType, source: 's3' };
     } catch (error) {
-      console.warn('[TwitterAdapter] Failed to fetch media from S3, falling back to HTTP fetch:', error);
+      console.error('[TwitterAdapter.downloadMedia] S3 fetch failed, falling back to HTTP:', {
+        bucket: s3Location.bucket,
+        key: s3Location.key,
+        error: error instanceof Error ? error.message : error
+      });
     }
+  } else {
+    console.log('[TwitterAdapter.downloadMedia] Could not resolve S3 location, using HTTP fetch');
   }
 
+  console.log('[TwitterAdapter.downloadMedia] Fetching via HTTP:', url);
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Failed to fetch media from ${url}: ${response.status} ${response.statusText}`);
+    throw new Error(`HTTP fetch failed: ${response.status} ${response.statusText}`);
   }
 
-  return {
-    buffer: Buffer.from(await response.arrayBuffer()),
-    contentType: response.headers?.get?.('content-type') ?? undefined,
-  };
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const contentType = response.headers?.get?.('content-type') ?? undefined;
+
+  console.log('[TwitterAdapter.downloadMedia] HTTP fetch successful:', {
+    size: buffer.length,
+    contentType
+  });
+
+  return { buffer, contentType, source: 'http' };
 }
 
 function resolveS3Location(url: string): { bucket: string; key: string } | null {

@@ -190,6 +190,32 @@ describe('Channel State Service', () => {
       expect(decision.trigger).toBe('direct_engagement');
     });
 
+    it('should trigger on new reply during COOLDOWN (pending messages only)', () => {
+      const now = Date.now();
+      const state: ChannelStateRecord = {
+        pk: 'CHANNEL#avatar#123',
+        sk: 'STATE',
+        avatarId: 'avatar',
+        chatId: 123,
+        chatType: 'supergroup',
+        state: 'COOLDOWN',
+        stateChangedAt: now - 10_000,
+        lastResponseAt: now - 2_000,
+        messageBuffer: [
+          { messageId: 1, userId: 1, userName: 'Alice', text: 'older msg', timestamp: now - 60_000 },
+          { messageId: 2, userId: 2, userName: 'Bob', text: 'replying to bot', timestamp: now - 1_000, isReplyToBot: true },
+        ],
+        bufferSize: 2,
+        lastActivityAt: now,
+        ttl: Math.floor(now / 1000) + 3600,
+        updatedAt: now,
+      };
+
+      const decision = evaluateResponseTrigger(state);
+      expect(decision.shouldRespond).toBe(true);
+      expect(decision.trigger).toBe('direct_engagement');
+    });
+
     it('should use pending messages for threshold triggers (not total bufferSize)', () => {
       const now = Date.now();
       const state: ChannelStateRecord = {

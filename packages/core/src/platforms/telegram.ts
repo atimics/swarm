@@ -340,6 +340,7 @@ export class TelegramAdapter extends PlatformAdapter {
   private bot: Bot | null = null;
   private config: TelegramConfig;
   private botId?: number;
+  private botIdentityPromise: Promise<void> | null = null;
 
   constructor(avatarConfig: AvatarConfig, private readonly botToken: string, botId?: number) {
     super(avatarConfig);
@@ -395,12 +396,33 @@ export class TelegramAdapter extends PlatformAdapter {
   async parseMessage(body: unknown): Promise<SwarmEnvelope | null> {
     const update = body as Update;
 
+    await this.ensureBotIdentity();
+
     return buildTelegramEnvelope(update, {
       avatarId: this.avatarConfig.id,
       botUsername: this.config.botUsername,
       botId: this.botId,
       allowedChatTypes: this.config.allowedChatTypes,
     });
+  }
+
+  private async ensureBotIdentity(): Promise<void> {
+    if (!this.bot) return;
+    if (this.botId && this.config.botUsername) return;
+
+    if (!this.botIdentityPromise) {
+      this.botIdentityPromise = (async () => {
+        try {
+          const me = await this.bot!.api.getMe();
+          if (!this.botId) this.botId = me.id;
+          if (!this.config.botUsername && me.username) this.config.botUsername = me.username;
+        } catch (err) {
+          console.warn('[Telegram] Failed to fetch bot identity (getMe):', err);
+        }
+      })();
+    }
+
+    await this.botIdentityPromise;
   }
 
   async executeAction(

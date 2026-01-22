@@ -467,7 +467,17 @@ function escapeTelegramMarkdownV2(text: string): string {
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
 }
 
-async function sendTelegramMessage(token: string, avatarId: string, chatId: number, text: string, replyTo?: number): Promise<number | null> {
+async function sendTelegramMessage(
+  token: string,
+  avatarId: string,
+  chatId: number,
+  text: string,
+  replyTo?: number,
+  options?: {
+    parseMode?: 'MarkdownV2' | 'HTML' | undefined;
+    disableWebPagePreview?: boolean;
+  }
+): Promise<number | null> {
   const canUse = await credits.canUseTool(avatarId, 'send_message');
   if (!canUse.allowed) {
     logger.warn('send_message rate limit hit', { avatarId, reason: canUse.reason });
@@ -475,17 +485,25 @@ async function sendTelegramMessage(token: string, avatarId: string, chatId: numb
   }
 
   try {
-    const safeText = escapeTelegramMarkdownV2(text);
+    const parseMode = options?.parseMode ?? 'MarkdownV2';
+    const safeText = parseMode === 'MarkdownV2' ? escapeTelegramMarkdownV2(text) : text;
+    const payload: Record<string, unknown> = {
+      chat_id: chatId,
+      text: safeText,
+      reply_to_message_id: replyTo,
+      disable_web_page_preview: options?.disableWebPagePreview,
+    };
+    if (parseMode) {
+      payload.parse_mode = parseMode;
+    }
+
     const response = await fetchWithRetry(
       `https://api.telegram.org/bot${token}/sendMessage`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chat_id: chatId,
-          text: safeText,
-          parse_mode: 'MarkdownV2',
-          reply_to_message_id: replyTo,
+          ...payload,
         }),
       },
       TELEGRAM_TIMEOUT_MS,
@@ -1048,8 +1066,12 @@ async function processChannelMessage(
 
   // Check if this is a mention or reply to bot
   const isMention = botUsername ? new RegExp(`@${botUsername}\\b`, 'i').test(text) : false;
-  const isReplyToBot = !!(message.reply_to_message?.from?.id === botId ||
-    (botUsername && message.reply_to_message?.from?.username === botUsername));
+  const replyFromId = message.reply_to_message?.from?.id;
+  const replyFromUsername = message.reply_to_message?.from?.username;
+  const isReplyToBot = Boolean(
+    (typeof botId === 'number' && typeof replyFromId === 'number' && replyFromId === botId) ||
+    (botUsername && replyFromUsername && replyFromUsername.toLowerCase() === botUsername.toLowerCase())
+  );
 
   // Create buffered message
   const replyToText = message.reply_to_message?.text || message.reply_to_message?.caption;
@@ -1305,6 +1327,21 @@ async function processChannelResponse(
         }
 
         const result = await executeTool(avatarId, toolName, parsedArgs.args, token, chatId, replyToMessageId, toolClient);
+
+        if (toolName === 'twitter_post' && result.success && result.result && typeof result.result === 'object') {
+          const url = (result.result as { url?: unknown }).url;
+          if (typeof url === 'string' && url.startsWith('http')) {
+            logger.info('Tweet posted; sending link back to Telegram chat', { chatId, url });
+            await sendTelegramMessage(
+              token,
+              avatarId,
+              chatId,
+              `Posted to X: ${url}`,
+              replyToMessageId,
+              { parseMode: undefined }
+            );
+          }
+        }
 
         // Only add to failedTools for permanent failures, not rate limits or transient errors
         // Rate limits and "not found" errors should not block future attempts
