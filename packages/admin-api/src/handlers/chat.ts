@@ -8,7 +8,15 @@ import type {
 } from 'aws-lambda';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
-import { DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_MODEL } from '@swarm/core';
+import {
+  DEFAULT_LLM_MAX_TOKENS,
+  DEFAULT_LLM_MODEL,
+  logger,
+  // Import shared tool/prompt building from core
+  detectEnabledCategories,
+  resolveAllowedToolsets,
+  type ToolCategory,
+} from '@swarm/core';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import { getCorsHeaders } from '../http/cors.js';
 import * as chatHistory from '../services/chat-history.js';
@@ -22,8 +30,7 @@ import {
   type ToolResult,
   type UserSession,
 } from '../types.js';
-import { logger } from '@swarm/core';
-import { buildDynamicSystemPrompt, detectEnabledCategories, type ToolCategory } from '../services/dynamic-prompts.js';
+import { buildDynamicSystemPrompt } from '../services/dynamic-prompts.js';
 import { recordError } from '../services/auto-issues.js';
 import { createAvatarAccessChecker } from '../services/chat-access.js';
 import { chatIdempotencyStore } from '../services/idempotency.js';
@@ -34,7 +41,6 @@ import {
   type ToolContext,
   type ToolResult as McpToolResult,
   type AllServices,
-  type ToolsetId,
 } from '@swarm/mcp-server';
 import { createMCPServices } from '../services/mcp-adapter.js';
 import { isPauseForInputTool } from '../tools/index.js';
@@ -360,35 +366,7 @@ function buildSystemPrompt(avatar?: AvatarContext): string {
   return `You are a Swarm avatar assistant. Please select an avatar to chat with.`;
 }
 
-const CATEGORY_TOOLSETS: Record<ToolCategory, ToolsetId[]> = {
-  secrets: ['secrets'],
-  wallets: ['wallet'],
-  profile: ['profile'],
-  media: ['media'],
-  gallery: ['gallery'],
-  voice: ['voice'],
-  telegram: ['telegram'],
-  twitter: ['twitter'],
-  discord: ['discord'],
-  memory: ['memory'],
-  nft: ['nft'],
-  property: ['property'],
-  diagnostics: ['diagnostics'],
-};
-
-function resolveAllowedToolsets(categories?: ToolCategory[]): ToolsetId[] | undefined {
-  if (!categories || categories.length === 0) return undefined;
-  const toolsets = new Set<ToolsetId>(['core', 'admin', 'config', 'jobs', 'models']);
-
-  for (const category of categories) {
-    const mapped = CATEGORY_TOOLSETS[category] || [];
-    for (const toolset of mapped) {
-      toolsets.add(toolset);
-    }
-  }
-
-  return Array.from(toolsets);
-}
+// CATEGORY_TOOLSETS and resolveAllowedToolsets are now imported from @swarm/core
 
 function sanitizeToolError(value: unknown): string {
   if (typeof value !== 'string') {

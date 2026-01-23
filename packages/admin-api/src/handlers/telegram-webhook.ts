@@ -40,7 +40,9 @@ import {
   registerAllTools,
 } from '@swarm/mcp-server';
 import { extractThinking, logger, DEFAULT_LLM_MODEL } from '@swarm/core';
+import type { ProcessorMessage } from '@swarm/core';
 import { createTelegramMCPServices } from '../services/mcp-adapter.js';
+import { createTelegramProcessor } from '../services/processor-adapter.js';
 import { recordError } from '../services/auto-issues.js';
 import type { BufferedMessage, BufferedMedia, ChannelStateRecord } from '../types.js';
 
@@ -56,6 +58,7 @@ const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
 const ENFORCE_IP_CHECK = process.env.ENFORCE_TELEGRAM_IP_CHECK !== 'false';
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
 const DREAMS_ENABLED = process.env.DREAMS_ENABLED === 'true';
+const USE_UNIFIED_PROCESSOR = process.env.USE_UNIFIED_PROCESSOR === 'true';
 // === CONFIG ===
 // NOTE: Channel-aware config is in services/channel-state.ts (CHANNEL_CONFIG)
 const DEDUP_TTL_SECONDS = 300; // 5 minutes - prevent reprocessing same message on retries
@@ -1138,14 +1141,24 @@ async function processChannelMessage(
   await channelState.transitionState(avatarId, chatId, 'ACTIVE');
 
   // Process and respond to the channel
-  const responseMessageId = await processChannelResponse(
-    avatarId,
-    avatar,
-    updatedState,
-    token,
-    decision.trigger,
-    botUsername
-  );
+  // Use unified processor if enabled (same tool filtering as admin UI)
+  const responseMessageId = USE_UNIFIED_PROCESSOR
+    ? await processChannelResponseUnified(
+        avatarId,
+        avatar,
+        updatedState,
+        token,
+        decision.trigger,
+        botUsername
+      )
+    : await processChannelResponse(
+        avatarId,
+        avatar,
+        updatedState,
+        token,
+        decision.trigger,
+        botUsername
+      );
 
   if (responseMessageId) {
     // Mark response sent and transition to COOLDOWN
@@ -1448,6 +1461,134 @@ async function processChannelResponse(
   return responseMessageId;
 }
 
+/**
+ * Unified version of processChannelResponse using MessageProcessor.
+ * This uses the same tool filtering and prompt building as the admin UI,
+ * ensuring consistent behavior across all platforms.
+ *
+ * Enable with USE_UNIFIED_PROCESSOR=true env var.
+ */
+async function processChannelResponseUnified(
+  avatarId: string,
+  _avatar: AvatarConfig, // Unused - MessageProcessor loads avatar config internally
+  state: ChannelStateRecord,
+  token: string,
+  trigger: string,
+  botUsername?: string
+): Promise<number | null> {
+  const chatId = state.chatId;
+  const isMultiAgent = state.chatType !== 'private';
+
+  // Build conversation context (same as before - this is Telegram-specific)
+  let conversationContext: string;
+  if (isMultiAgent) {
+    const sharedHistory = await channelState.getSharedHistory(chatId);
+    conversationContext = channelState.buildCombinedConversationContext(state, sharedHistory, avatarId);
+  } else {
+    conversationContext = channelState.buildConversationContext(state);
+  }
+
+  // Fetch image URLs from recent messages (for vision)
+  const imageUrlMap = await fetchImageUrlsFromBuffer(token, state.messageBuffer, 3);
+  const recentImageUrls = Array.from(imageUrlMap.values());
+
+  // Convert conversation context to ProcessorMessage format
+  const conversationHistory: ProcessorMessage[] = [];
+
+  // Add context as a user message with the conversation history
+  const contextMessage = conversationContext
+    ? `Here's the recent conversation:\n\n${conversationContext}\n\nRespond naturally in 1-2 sentences. Be brief!`
+    : 'Start a conversation!';
+
+  // Build attachments for vision
+  const attachments = recentImageUrls.map(url => ({
+    type: 'image' as const,
+    data: url,
+  }));
+
+  // Get response target for reply
+  const responseTarget = channelState.getResponseTarget(state);
+  const replyToMessageId = responseTarget?.messageId;
+
+  // Create the unified processor
+  const processor = createTelegramProcessor();
+
+  // Process the message
+  logger.info('Using unified MessageProcessor for Telegram response', {
+    avatarId,
+    chatId,
+    trigger,
+    hasImages: recentImageUrls.length > 0,
+  });
+
+  const result = await processor.process(
+    contextMessage,
+    conversationHistory,
+    {
+      avatarId,
+      platform: 'telegram',
+      conversationId: String(chatId),
+      userId: responseTarget?.userId ? String(responseTarget.userId) : undefined,
+      replyToMessageId: replyToMessageId ? String(replyToMessageId) : undefined,
+    },
+    {
+      attachments: attachments.length > 0 ? attachments : undefined,
+      dreamsEnabled: DREAMS_ENABLED,
+    }
+  );
+
+  let responseMessageId: number | null = null;
+  let finalResponseContent: string | null = null;
+
+  // Send typing indicator
+  await sendChatAction(token, chatId, 'typing');
+
+  // Extract thinking tags from response (if any)
+  if (result.response) {
+    const { cleanContent, thinkingBlocks, hasThinking } = extractThinking(result.response);
+
+    if (hasThinking) {
+      // Save thinking to avatar's memory (async, don't block response)
+      saveThinkingToMemory(avatarId, thinkingBlocks, `chat ${chatId}`).catch(err => {
+        logger.error('Failed to save thinking to memory', err);
+      });
+    }
+
+    // Send clean content to chat
+    if (cleanContent) {
+      responseMessageId = await sendTelegramMessage(token, avatarId, chatId, cleanContent, replyToMessageId);
+      finalResponseContent = cleanContent;
+    }
+  }
+
+  // Send media
+  if (result.media) {
+    for (const m of result.media) {
+      if (m.type === 'image') {
+        await sendTelegramPhoto(token, chatId, m.url, m.caption);
+      } else if (m.type === 'video') {
+        await sendTelegramVideo(token, chatId, m.url, m.caption);
+      } else if (m.type === 'sticker') {
+        await sendTelegramStickerOrPhoto(token, avatarId, chatId, m.url, m.caption);
+      }
+    }
+  }
+
+  // Record bot's message to shared history for multi-avatar visibility
+  if (responseMessageId && finalResponseContent && isMultiAgent && botUsername) {
+    await channelState.recordBotMessage(chatId, {
+      messageId: responseMessageId,
+      avatarId,
+      botUsername,
+      text: finalResponseContent,
+      timestamp: Date.now(),
+      replyToMessageId,
+    });
+  }
+
+  return responseMessageId;
+}
+
 // === MULTI-AGENT COORDINATION ===
 
 /**
@@ -1603,22 +1744,32 @@ async function handleMultiAvatarMessage(
       );
       
       if (thinkingDelay > 0) {
-        logger.info('Waiting for cosy response delay', { 
-          delayMs: thinkingDelay, 
+        logger.info('Waiting for cosy response delay', {
+          delayMs: thinkingDelay,
           isFromBot,
-          avatarCount: _channelAvatars.length 
+          avatarCount: _channelAvatars.length
         });
         await new Promise(resolve => setTimeout(resolve, thinkingDelay));
       }
 
-      const responseMessageId = await processChannelResponse(
-        avatarId,
-        avatar,
-        updatedState,
-        token,
-        'initiative_winner',
-        botUsername
-      );
+      // Use unified processor if enabled (same tool filtering as admin UI)
+      const responseMessageId = USE_UNIFIED_PROCESSOR
+        ? await processChannelResponseUnified(
+            avatarId,
+            avatar,
+            updatedState,
+            token,
+            'initiative_winner',
+            botUsername
+          )
+        : await processChannelResponse(
+            avatarId,
+            avatar,
+            updatedState,
+            token,
+            'initiative_winner',
+            botUsername
+          );
 
       if (responseMessageId) {
         // Track if we responded to a bot message (for bot-to-bot rate limiting)
