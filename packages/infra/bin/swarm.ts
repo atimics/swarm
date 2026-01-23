@@ -82,6 +82,8 @@ const galleryDomain = getContextValue<string>('galleryDomain', envConfig);
 const galleryCertificateArn = getContextValue<string>('galleryCertificateArn', envConfig);
 const enableClaudeCode = (getContextValue<boolean>('enableClaudeCode', envConfig) ?? false) as boolean;
 const claudeCodeUseOpenRouter = (getContextValue<boolean>('claudeCodeUseOpenRouter', envConfig) ?? false) as boolean;
+// Enable shared handlers (Twitter mention polling, autonomous tweets, shared queues)
+const enableSharedHandlers = (getContextValue<boolean>('enableSharedHandlers', envConfig) ?? true) as boolean;
 
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
@@ -113,6 +115,7 @@ new SwarmStack(app, `SwarmStack-${environment}`, {
   galleryCertificateArn,
   enableClaudeCode,
   claudeCodeUseOpenRouter,
+  enableSharedHandlers,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
