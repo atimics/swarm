@@ -1,0 +1,162 @@
+/**
+ * Avatar Reassign Modal - Admin-only modal for reassigning avatar ownership
+ */
+import React, { useState } from 'react';
+import type { Avatar } from '../types';
+import { reassignAvatar } from '../api/avatars';
+
+interface AvatarReassignModalProps {
+  avatar: Avatar;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+export function AvatarReassignModal({ avatar, onClose, onSuccess }: AvatarReassignModalProps) {
+  const [creatorWallet, setCreatorWallet] = useState(avatar.creatorWallet || '');
+  const [inhabitantWallet, setInhabitantWallet] = useState(avatar.inhabitantWallet || '');
+  const [clearInhabitant, setClearInhabitant] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const updates: { creatorWallet?: string; inhabitantWallet?: string | null } = {};
+
+      // Only include creatorWallet if it changed
+      if (creatorWallet !== avatar.creatorWallet) {
+        updates.creatorWallet = creatorWallet;
+      }
+
+      // Handle inhabitant: null means clear, string means set
+      if (clearInhabitant) {
+        updates.inhabitantWallet = null;
+      } else if (inhabitantWallet !== avatar.inhabitantWallet) {
+        updates.inhabitantWallet = inhabitantWallet;
+      }
+
+      // Only call API if there are actual changes
+      if (Object.keys(updates).length === 0) {
+        onClose();
+        return;
+      }
+
+      await reassignAvatar(avatar.id, updates);
+      onSuccess();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reassign avatar');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl shadow-xl max-w-md w-full mx-4">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
+          <h2 className="text-lg font-semibold text-[var(--color-text)]">
+            Reassign Avatar
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {/* Avatar info */}
+          <div className="p-3 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]">
+            <div className="text-sm font-medium text-[var(--color-text)]">
+              {avatar.name}
+            </div>
+            <div className="text-xs text-[var(--color-text-muted)] mt-1">
+              ID: {avatar.id}
+            </div>
+          </div>
+
+          {/* Creator Wallet */}
+          <div>
+            <label className="block text-sm font-medium text-[var(--color-text)] mb-1">
+              Creator Wallet
+            </label>
+            <input
+              type="text"
+              value={creatorWallet}
+              onChange={(e) => setCreatorWallet(e.target.value)}
+              placeholder="Enter Solana wallet address"
+              className="w-full px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
+              The wallet that created this avatar. Changing this affects slot counting.
+            </p>
+          </div>
+
+          {/* Inhabitant Wallet */}
+          <div>
+            <label className="block text-sm font-medium text-[var(--color-text)] mb-1">
+              Inhabitant Wallet
+            </label>
+            <input
+              type="text"
+              value={inhabitantWallet}
+              onChange={(e) => {
+                setInhabitantWallet(e.target.value);
+                setClearInhabitant(false);
+              }}
+              placeholder="Enter Solana wallet address"
+              disabled={clearInhabitant}
+              className={`w-full px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500 ${clearInhabitant ? 'opacity-50' : ''}`}
+            />
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="checkbox"
+                id="clearInhabitant"
+                checked={clearInhabitant}
+                onChange={(e) => setClearInhabitant(e.target.checked)}
+                className="rounded border-[var(--color-border)]"
+              />
+              <label htmlFor="clearInhabitant" className="text-sm text-[var(--color-text-muted)]">
+                Clear inhabitant (make avatar unclaimed)
+              </label>
+            </div>
+          </div>
+
+          {/* Error message */}
+          {error && (
+            <div className="p-3 rounded-lg bg-red-900/20 border border-red-500/30 text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

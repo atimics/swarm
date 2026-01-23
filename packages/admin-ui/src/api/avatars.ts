@@ -203,6 +203,33 @@ export async function toggleFeature(
   return updateAvatar(avatarId, updates);
 }
 
+/**
+ * Reassign avatar ownership (admin-only)
+ */
+export async function reassignAvatar(
+  avatarId: string,
+  updates: {
+    creatorWallet?: string;
+    inhabitantWallet?: string | null;
+  }
+): Promise<AvatarResponse> {
+  const response = await fetch(`${API_BASE}/avatars/${avatarId}/reassign`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify(updates),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
 // Legacy aliases for backward compatibility (agent → avatar)
 export const createAgent = createAvatar;
 export const listAgents = listAvatars;

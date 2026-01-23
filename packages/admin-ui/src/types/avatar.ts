@@ -25,6 +25,11 @@ export interface AvatarConfig {
   // Inhabitant tracking (current inhabitant)
   inhabitantWallet?: string;
   inhabitedAt?: number;
+  // Slot type - how this avatar was created
+  slotType?: 'free' | 'orb';
+  // Health status indicators
+  healthStatus?: 'healthy' | 'rate_limited' | 'error' | 'inactive';
+  healthMessage?: string;
   // Legacy fields (deprecated)
   ownerWallet?: string;
   ownerClaimedAt?: number;

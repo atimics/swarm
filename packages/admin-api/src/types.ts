@@ -393,6 +393,15 @@ export interface AvatarRecord {
   inhabitantWallet?: string;
   inhabitedAt?: number;
 
+  // Slot type - tracks how this avatar was created
+  // 'free' = first avatar (free slot), 'orb' = NFT-backed slot
+  slotType?: 'free' | 'orb';
+
+  // Health status indicators
+  healthStatus?: 'healthy' | 'rate_limited' | 'error' | 'inactive';
+  healthMessage?: string;      // e.g., "Twitter rate limit exceeded"
+  lastHealthCheck?: number;    // timestamp
+
   // Legacy fields (for migration, will be removed)
   ownerWallet?: string;
   ownerClaimedAt?: number;

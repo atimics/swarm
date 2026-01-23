@@ -116,6 +116,9 @@ export async function createAvatarWithWallet(
   const avatarId = generateAvatarId(name);
   const now = Date.now();
 
+  // Determine slot type: first avatar = free, subsequent = orb (NFT-backed)
+  const slotType: 'free' | 'orb' = gateStatus.avatarsCreated === 0 ? 'free' : 'orb';
+
   const avatar: AvatarRecord = {
     pk: `AVATAR#${avatarId}`,
     sk: 'CONFIG',
@@ -136,6 +139,8 @@ export async function createAvatarWithWallet(
       useGlobalKey: true,
     },
     creatorWallet,  // Track who created for slot counting
+    slotType,       // Track whether free or orb-backed
+    healthStatus: 'healthy',
     currentEra: 0,
     status: 'draft',
     createdAt: now,
@@ -424,4 +429,66 @@ export async function configureDiscord(
       },
     },
   }, session);
+}
+
+/**
+ * Reassign avatar ownership (admin-only)
+ * Handles slot count adjustments when changing creatorWallet
+ */
+export async function reassignAvatar(
+  avatarId: string,
+  updates: {
+    creatorWallet?: string;
+    inhabitantWallet?: string | null;
+  },
+  session: UserSession
+): Promise<AvatarRecord> {
+  const existing = await getAvatar(avatarId);
+  if (!existing) {
+    throw new Error(`Avatar not found: ${avatarId}`);
+  }
+
+  const now = Date.now();
+  const oldCreatorWallet = existing.creatorWallet;
+  const newCreatorWallet = updates.creatorWallet;
+
+  // Handle slot count adjustments when creatorWallet changes
+  if (newCreatorWallet && newCreatorWallet !== oldCreatorWallet) {
+    // Decrement old creator's count (frees up their slot)
+    if (oldCreatorWallet) {
+      await decrementCreatorCount(oldCreatorWallet);
+    }
+    // Increment new creator's count
+    await incrementCreatorCount(newCreatorWallet);
+  }
+
+  // Build the update
+  const updated: AvatarRecord = {
+    ...existing,
+    updatedAt: now,
+    updatedBy: session.email,
+  };
+
+  if (newCreatorWallet !== undefined) {
+    updated.creatorWallet = newCreatorWallet;
+  }
+
+  // Handle inhabitantWallet: null means clear, undefined means no change
+  if (updates.inhabitantWallet === null) {
+    updated.inhabitantWallet = undefined;
+    updated.inhabitedAt = undefined;
+  } else if (updates.inhabitantWallet !== undefined) {
+    updated.inhabitantWallet = updates.inhabitantWallet;
+    updated.inhabitedAt = now;
+  }
+
+  await dynamoClient.send(new PutCommand({
+    TableName: ADMIN_TABLE,
+    Item: updated,
+  }));
+
+  // Sync to state table
+  await syncAvatarConfig(updated);
+
+  return updated;
 }

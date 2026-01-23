@@ -301,6 +301,42 @@ export async function handler(
       };
     }
 
+    // PUT /avatars/{id}/reassign - Admin-only: Reassign avatar ownership
+    const reassignMatch = path.match(/^\/avatars\/([^/]+)\/reassign$/);
+    if (method === 'PUT' && reassignMatch) {
+      const avatarId = reassignMatch[1];
+
+      // Admin-only endpoint
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+      }
+
+      const body = JSON.parse(event.body || '{}') as {
+        creatorWallet?: string;
+        inhabitantWallet?: string | null;
+      };
+
+      const existing = await avatarService.getAvatar(avatarId);
+      if (!existing) {
+        return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+      }
+
+      try {
+        const result = await avatarService.reassignAvatar(avatarId, body, session);
+        logger.info(`[Avatars] Reassigned avatar=${avatarId}`, {
+          event: 'avatar_reassigned',
+          avatarId,
+          oldCreator: existing.creatorWallet?.slice(0, 8),
+          newCreator: body.creatorWallet?.slice(0, 8),
+          inhabitantCleared: body.inhabitantWallet === null,
+        });
+        return jsonResponse(corsHeaders, 200, result);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to reassign avatar';
+        return jsonResponse(corsHeaders, 400, { error: msg });
+      }
+    }
+
     // GET /avatars/{id}/integrations - List integration statuses
     const avatarIntegrationsMatch = path.match(/^\/avatars\/([^/]+)\/integrations$/);
     if (method === 'GET' && avatarIntegrationsMatch) {

@@ -8,16 +8,59 @@
  * - Inhabiting, has Orbs: Full admin on inhabited, chat on others, can create
  * - Inhabiting, no Orbs: Full admin on inhabited only, chat on others, no create
  */
+import React from 'react';
 import { useAvatarStore } from '../store/avatars';
 import { useAuth } from '../store/auth';
 import { ThemeToggle } from './ThemeToggle';
 import { WalletLogin } from './WalletLogin';
+import { AvatarReassignModal } from './AvatarReassignModal';
 import type { Avatar } from '../types';
 
 interface AvatarDisplayProps {
   avatar: Avatar;
   size?: 'sm' | 'md' | 'lg';
   showStatus?: boolean;
+}
+
+/**
+ * Get the display status color for an avatar based on health and tier
+ * Priority: errors first, then activity, then tier
+ */
+function getAvatarStatusColor(avatar: Avatar): { color: string; title: string } {
+  // Error states take priority (red)
+  if (avatar.healthStatus === 'error' || avatar.healthStatus === 'rate_limited') {
+    return {
+      color: 'bg-red-500',
+      title: avatar.healthMessage || (avatar.healthStatus === 'rate_limited' ? 'Rate limited' : 'Error'),
+    };
+  }
+
+  // Inactive/paused states (gray)
+  if (avatar.healthStatus === 'inactive' || avatar.status === 'shell') {
+    return { color: 'bg-gray-500', title: 'Inactive' };
+  }
+
+  // Active - show tier
+  // Green = orb-backed, Yellow = free slot
+  if (avatar.slotType === 'orb') {
+    return { color: 'bg-green-500', title: 'Active (Orb-backed)' };
+  }
+
+  // Free slot or unknown slot type
+  if (avatar.slotType === 'free') {
+    return { color: 'bg-yellow-500', title: 'Active (Free slot)' };
+  }
+
+  // Fallback to legacy status colors for avatars without slotType
+  const legacyColors: Record<string, string> = {
+    configured: 'bg-yellow-500',
+    active: 'bg-green-500',
+    error: 'bg-red-500',
+  };
+  return {
+    color: legacyColors[avatar.status] || 'bg-gray-500',
+    title: avatar.status,
+  };
 }
 
 function AvatarDisplay({ avatar, size = 'md', showStatus = true }: AvatarDisplayProps) {
@@ -27,12 +70,7 @@ function AvatarDisplay({ avatar, size = 'md', showStatus = true }: AvatarDisplay
     lg: 'w-12 h-12',
   };
 
-  const statusColors = {
-    shell: 'bg-gray-500',
-    configured: 'bg-yellow-500',
-    active: 'bg-green-500',
-    error: 'bg-red-500',
-  };
+  const { color: statusColor, title: statusTitle } = getAvatarStatusColor(avatar);
 
   return (
     <div className="relative">
@@ -54,8 +92,8 @@ function AvatarDisplay({ avatar, size = 'md', showStatus = true }: AvatarDisplay
       </div>
       {showStatus && (
         <div
-          className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[var(--color-bg-secondary)] ${statusColors[avatar.status]}`}
-          title={avatar.status}
+          className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[var(--color-bg-secondary)] ${statusColor}`}
+          title={statusTitle}
         />
       )}
     </div>
@@ -66,29 +104,138 @@ interface AvatarListItemProps {
   avatar: Avatar;
   isActive: boolean;
   onClick: () => void;
+  isAdmin?: boolean;
+  onReassign?: (avatar: Avatar) => void;
 }
 
-function AvatarListItem({ avatar, isActive, onClick }: AvatarListItemProps) {
+function truncateWallet(wallet: string | undefined): string {
+  if (!wallet) return '';
+  return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
+}
+
+function getStatusDescription(avatar: Avatar): string {
+  // Health status takes priority
+  if (avatar.healthStatus === 'error') return avatar.healthMessage || 'Error';
+  if (avatar.healthStatus === 'rate_limited') return avatar.healthMessage || 'Rate limited';
+  if (avatar.healthStatus === 'inactive') return 'Inactive';
+
+  // Fall back to legacy status
+  if (avatar.status === 'shell') return 'Unconfigured';
+  if (avatar.status === 'configured') return `${avatar.secrets?.filter(s => s.isSet).length || 0} secrets`;
+  if (avatar.status === 'active') return 'Active';
+  if (avatar.status === 'error') return 'Error';
+
+  return avatar.status;
+}
+
+function AvatarListItem({ avatar, isActive, onClick, isAdmin, onReassign }: AvatarListItemProps) {
+  const [showContextMenu, setShowContextMenu] = React.useState(false);
+  const contextMenuRef = React.useRef<HTMLDivElement>(null);
+
+  // Close context menu when clicking outside
+  React.useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setShowContextMenu(false);
+      }
+    }
+    if (showContextMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showContextMenu]);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (isAdmin && onReassign) {
+      e.preventDefault();
+      setShowContextMenu(true);
+    }
+  };
+
   return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-left ${
-        isActive
-          ? 'bg-brand-600/20 text-[var(--color-text)] ring-1 ring-brand-600/50'
-          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text)]'
-      }`}
-    >
-      <AvatarDisplay avatar={avatar} size="sm" />
-      <div className="flex-1 min-w-0">
-        <div className="font-medium truncate">{avatar.name}</div>
-        <div className="text-xs text-[var(--color-text-muted)] truncate">
-          {avatar.status === 'shell' && 'Unconfigured'}
-          {avatar.status === 'configured' && `${avatar.secrets.filter(s => s.isSet).length} secrets`}
-          {avatar.status === 'active' && 'Active'}
-          {avatar.status === 'error' && 'Error'}
+    <div className="relative">
+      <button
+        onClick={onClick}
+        onContextMenu={handleContextMenu}
+        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-left ${
+          isActive
+            ? 'bg-brand-600/20 text-[var(--color-text)] ring-1 ring-brand-600/50'
+            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text)]'
+        }`}
+      >
+        <AvatarDisplay avatar={avatar} size="sm" />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium truncate">{avatar.name}</div>
+          <div className="text-xs text-[var(--color-text-muted)] truncate">
+            {getStatusDescription(avatar)}
+          </div>
+          {/* Admin: show owner wallet badge */}
+          {isAdmin && avatar.creatorWallet && (
+            <div className="text-xs text-[var(--color-text-muted)] truncate mt-0.5 flex items-center gap-1">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-60">
+                <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z" />
+              </svg>
+              <span className="opacity-60">{truncateWallet(avatar.creatorWallet)}</span>
+            </div>
+          )}
         </div>
-      </div>
-    </button>
+        {/* Admin: context menu button */}
+        {isAdmin && onReassign && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowContextMenu(!showContextMenu);
+            }}
+            className="p-1 rounded hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            title="Options"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M8 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9.5 12.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
+            </svg>
+          </button>
+        )}
+      </button>
+
+      {/* Context menu */}
+      {showContextMenu && isAdmin && onReassign && (
+        <div
+          ref={contextMenuRef}
+          className="absolute right-0 top-full mt-1 z-50 bg-[var(--color-bg-elevated)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[160px]"
+        >
+          <button
+            onClick={() => {
+              onClick();
+              setShowContextMenu(false);
+            }}
+            className="w-full px-3 py-2 text-left text-sm text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] flex items-center gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
+              <path fillRule="evenodd" d="M1.38 8.28a.87.87 0 0 1 0-.566 7.003 7.003 0 0 1 13.24.002.87.87 0 0 1 0 .566A7.003 7.003 0 0 1 1.38 8.28ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" clipRule="evenodd" />
+            </svg>
+            View Details
+          </button>
+          <button
+            onClick={() => {
+              onReassign(avatar);
+              setShowContextMenu(false);
+            }}
+            className="w-full px-3 py-2 text-left text-sm text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] flex items-center gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M11 4V3a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h5a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1ZM4 6.5a1 1 0 0 1 .872-.995L5 5.5h7a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H7a1 1 0 0 1-1-1v-5a1 1 0 0 1-.872-.995L5 6.5H4Z" />
+            </svg>
+            Reassign Owner
+          </button>
+          <div className="border-t border-[var(--color-border)] my-1" />
+          <div className="px-3 py-1 text-xs text-[var(--color-text-muted)]">
+            <div>Creator: {truncateWallet(avatar.creatorWallet) || 'None'}</div>
+            <div>Inhabitant: {truncateWallet(avatar.inhabitantWallet) || 'None'}</div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -99,10 +246,26 @@ interface AvatarSidebarProps {
 }
 
 export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSidebarProps) {
-  const { avatars, activeAvatarId, createAvatar, setActiveAvatar, isLoading, error } = useAvatarStore();
+  const { avatars, activeAvatarId, createAvatar, setActiveAvatar, isLoading, error, fetchAvatars } = useAvatarStore();
   const { isAuthenticated, user, gateStatus, account } = useAuth();
+  const [reassignAvatarData, setReassignAvatarData] = React.useState<Avatar | null>(null);
 
   const isAdmin = account?.role === 'admin';
+
+  // Handler for opening the reassign modal
+  const handleReassign = (avatar: Avatar) => {
+    setReassignAvatarData(avatar);
+  };
+
+  // Handler for closing the reassign modal
+  const handleReassignClose = () => {
+    setReassignAvatarData(null);
+  };
+
+  // Handler for successful reassignment
+  const handleReassignSuccess = () => {
+    fetchAvatars();
+  };
 
   // Determine access level
   const walletAddress = user?.walletAddress;
@@ -392,6 +555,8 @@ export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSide
                     avatar={avatar}
                     isActive={avatar.id === activeAvatarId}
                     onClick={() => handleSelectAvatar(avatar.id)}
+                    isAdmin={isAdmin}
+                    onReassign={isAdmin ? handleReassign : undefined}
                   />
                 ))}
               </div>
@@ -411,6 +576,8 @@ export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSide
                     avatar={avatar}
                     isActive={avatar.id === activeAvatarId}
                     onClick={() => handleSelectAvatar(avatar.id)}
+                    isAdmin={isAdmin}
+                    onReassign={isAdmin ? handleReassign : undefined}
                   />
                 ))}
               </div>
@@ -423,6 +590,15 @@ export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSide
       <div className="p-3 border-t border-[var(--color-border)]">
         <WalletLogin />
       </div>
+
+      {/* Admin: Reassign Modal */}
+      {reassignAvatarData && (
+        <AvatarReassignModal
+          avatar={reassignAvatarData}
+          onClose={handleReassignClose}
+          onSuccess={handleReassignSuccess}
+        />
+      )}
     </div>
   );
 }
