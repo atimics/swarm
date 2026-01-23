@@ -12,8 +12,7 @@ import {
   WalletProvider as SolanaWalletProvider,
 } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
-import { CoinbaseWalletAdapter, PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
+import { CoinbaseWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { humanizeWalletAdapterError, useWalletUi } from '../store/walletUi';
 
 // Import wallet adapter styles
@@ -29,17 +28,11 @@ interface WalletProviderProps {
 export function WalletProvider({ children }: WalletProviderProps) {
   const setWalletError = useWalletUi((s) => s.setWalletError);
 
-  const network = WalletAdapterNetwork.Mainnet;
-
-  // Initialize wallet adapters for non-standard wallets only
-  // Phantom, Solflare, etc. auto-register via Wallet Standard
+  // Only add adapters for wallets that don't support Wallet Standard.
+  // Phantom, Solflare, etc. auto-register via Wallet Standard.
   const wallets = useMemo(
-    () => [
-      new PhantomWalletAdapter(),
-      new SolflareWalletAdapter({ network }),
-      new CoinbaseWalletAdapter(),
-    ],
-    [network]
+    () => [new CoinbaseWalletAdapter()],
+    []
   );
 
   const onError = useCallback(

@@ -8,6 +8,8 @@ import type {
 } from 'aws-lambda';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   DEFAULT_LLM_MAX_TOKENS,
   DEFAULT_LLM_MODEL,
@@ -93,6 +95,115 @@ const LLM_MAX_STEPS = clampIntMinMax(parseIntEnv('LLM_MAX_STEPS', isProdLike ? 4
 const LLM_TOOL_MAX_TOKENS = clampIntMinMax(parseIntEnv('LLM_TOOL_MAX_TOKENS', isProdLike ? 1200 : 2048), 256, 8192);
 const LLM_RETRY_BASE_DELAY_MS = 250;
 const LLM_RETRY_MAX_DELAY_MS = 2_000;
+
+// Rate limiting configuration for public access mode
+const PUBLIC_RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute window
+const PUBLIC_RATE_LIMIT_MAX_MESSAGES = 10; // Max messages per user per window per avatar
+const PUBLIC_RATE_LIMIT_TTL_SECONDS = 120; // TTL for rate limit records (2 minutes)
+
+// DynamoDB client for rate limiting
+const ADMIN_TABLE = process.env.ADMIN_TABLE || 'SwarmAdminTable';
+const rateLimitDynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
+
+/**
+ * Check if user is rate limited (for public access mode)
+ * Returns { limited: true, retryAfter: seconds } if rate limited
+ */
+async function checkPublicRateLimit(
+  walletAddress: string,
+  avatarId: string
+): Promise<{ limited: boolean; retryAfter?: number }> {
+  const now = Date.now();
+  const windowStart = now - PUBLIC_RATE_LIMIT_WINDOW_MS;
+  const rateLimitKey = `RATE_LIMIT#${avatarId}#${walletAddress}`;
+
+  try {
+    const result = await rateLimitDynamoClient.send(new GetCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: rateLimitKey,
+        sk: 'CHAT_MESSAGES',
+      },
+    }));
+
+    if (!result.Item) {
+      return { limited: false };
+    }
+
+    const timestamps: number[] = result.Item.timestamps || [];
+    const recentTimestamps = timestamps.filter(ts => ts > windowStart);
+
+    if (recentTimestamps.length >= PUBLIC_RATE_LIMIT_MAX_MESSAGES) {
+      // Calculate when the oldest message in the window will expire
+      const oldestInWindow = Math.min(...recentTimestamps);
+      const retryAfter = Math.ceil((oldestInWindow + PUBLIC_RATE_LIMIT_WINDOW_MS - now) / 1000);
+      return { limited: true, retryAfter: Math.max(1, retryAfter) };
+    }
+
+    return { limited: false };
+  } catch (error) {
+    // On error, allow the request (fail open for rate limiting)
+    logger.warn('Rate limit check failed, allowing request', {
+      subsystem: 'chat',
+      avatarId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { limited: false };
+  }
+}
+
+/**
+ * Record a message for rate limiting (for public access mode)
+ */
+async function recordPublicRateLimit(
+  walletAddress: string,
+  avatarId: string
+): Promise<void> {
+  const now = Date.now();
+  const windowStart = now - PUBLIC_RATE_LIMIT_WINDOW_MS;
+  const rateLimitKey = `RATE_LIMIT#${avatarId}#${walletAddress}`;
+  const ttl = Math.floor((now + PUBLIC_RATE_LIMIT_TTL_SECONDS * 1000) / 1000);
+
+  try {
+    // Get existing timestamps
+    const result = await rateLimitDynamoClient.send(new GetCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: rateLimitKey,
+        sk: 'CHAT_MESSAGES',
+      },
+    }));
+
+    const existingTimestamps: number[] = result.Item?.timestamps || [];
+    // Keep only recent timestamps + new one
+    const timestamps = [...existingTimestamps.filter(ts => ts > windowStart), now];
+
+    await rateLimitDynamoClient.send(new UpdateCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: rateLimitKey,
+        sk: 'CHAT_MESSAGES',
+      },
+      UpdateExpression: 'SET timestamps = :timestamps, #ttl = :ttl',
+      ExpressionAttributeNames: {
+        '#ttl': 'ttl',
+      },
+      ExpressionAttributeValues: {
+        ':timestamps': timestamps,
+        ':ttl': ttl,
+      },
+    }));
+  } catch (error) {
+    // Non-critical, just log
+    logger.warn('Failed to record message for rate limit', {
+      subsystem: 'chat',
+      avatarId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -1716,11 +1827,14 @@ export async function handler(
     logger.setContext({ subsystem: 'chat', requestId });
 
     const isAdmin = requireAdmin(session);
+    // Check for public access mode (from subdomain chat)
+    const publicAccess = event.queryStringParameters?.publicAccess === 'true';
     const ensureAvatarAccess = createAvatarAccessChecker({
       isAdmin,
       session,
       getAvatar: avatars.getAvatar,
       corsHeaders,
+      publicAccess,
     });
 
     // GET /chat?avatarId=xxx - Retrieve chat history
@@ -1827,6 +1941,34 @@ export async function handler(
 
     const accessError = await ensureAvatarAccess(avatar?.id);
     if (accessError) return accessError;
+
+    // Apply rate limiting for public access mode
+    if (publicAccess && avatar?.id && session.userId) {
+      const rateLimitStatus = await checkPublicRateLimit(session.userId, avatar.id);
+      if (rateLimitStatus.limited) {
+        logger.info('Rate limited public chat request', {
+          event: 'rate_limited',
+          subsystem: 'chat',
+          avatarId: avatar.id,
+          userId: session.userId,
+          retryAfter: rateLimitStatus.retryAfter,
+        });
+        return {
+          statusCode: 429,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+            'Retry-After': String(rateLimitStatus.retryAfter || 60),
+          },
+          body: JSON.stringify({
+            error: 'Too many messages. Please slow down.',
+            retryAfter: rateLimitStatus.retryAfter,
+          }),
+        };
+      }
+      // Record the message for rate limiting (fire and forget)
+      void recordPublicRateLimit(session.userId, avatar.id);
+    }
 
     const avatarRecord = avatar?.id ? await avatars.getAvatar(avatar.id) : null;
     const voiceEnabled = process.env.ENABLE_VOICE_TOOLS !== 'false';

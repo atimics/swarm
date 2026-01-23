@@ -5,7 +5,7 @@ import { useAuth } from './store/auth';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
 import { getTwitterConnectionStatus } from './api/twitter';
 import { appendSystemMessage } from './api/chat';
-import { AvatarSidebar, AvatarLogsPanel, ChatPanel, LandingPage, SharedChatPage } from './components';
+import { AvatarSidebar, AvatarLogsPanel, ChatPanel, LandingPage, PublicChatPage } from './components';
 
 const TWITTER_OAUTH_STORAGE_KEY = 'swarm:oauth:twitter:lastResult';
 
@@ -496,7 +496,7 @@ export default App;
 export function AppRouter() {
   const botIdFromHost = getBotIdFromHostname(window.location.hostname);
   if (botIdFromHost) {
-    return <SharedChatPage botId={botIdFromHost} />;
+    return <PublicChatPage botId={botIdFromHost} />;
   }
   return <App />;
 }

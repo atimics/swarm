@@ -1,5 +1,40 @@
 import { API_BASE } from './apiBase';
 
+/**
+ * Check if we're on a public subdomain (e.g., agent-name.rati.chat)
+ * Reserved subdomains are excluded from public access mode
+ */
+function isPublicSubdomain(): boolean {
+  const hostname = window.location.hostname.split(':')[0]?.toLowerCase() || '';
+  if (!hostname.endsWith('.rati.chat')) return false;
+
+  const reserved = new Set([
+    'swarm',
+    'staging-swarm',
+    'admin',
+    'api',
+    'cdn',
+    'gallery',
+    'docs',
+  ]);
+
+  const [subdomain] = hostname.split('.');
+  if (!subdomain || reserved.has(subdomain) || subdomain.startsWith('admin-') || subdomain.startsWith('api-')) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Get URL with publicAccess parameter if on a public subdomain
+ */
+function getChatUrl(path: string = ''): string {
+  const publicAccess = isPublicSubdomain();
+  const url = `${API_BASE}/chat${path}`;
+  return publicAccess ? `${url}${path ? '&' : '?'}publicAccess=true` : url;
+}
+
 interface PendingToolCall {
   id: string;
   name: string;
@@ -61,7 +96,7 @@ export async function sendChatMessage(
   avatar?: AvatarContext,
   sender?: SenderContext
 ): Promise<ChatResponse> {
-  const response = await fetch(`${API_BASE}/chat`, {
+  const response = await fetch(getChatUrl(), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -200,8 +235,14 @@ export async function checkAuth(): Promise<{ authenticated: boolean; user?: stri
 export async function fetchChatHistory(
   avatarId?: string
 ): Promise<Array<{ role: string; content: string; media?: MediaItem[] }>> {
-  const params = avatarId ? `?avatarId=${encodeURIComponent(avatarId)}` : '';
-  const response = await fetch(`${API_BASE}/chat${params}`, {
+  const publicAccess = isPublicSubdomain();
+  let url = `${API_BASE}/chat`;
+  const params = new URLSearchParams();
+  if (avatarId) params.set('avatarId', avatarId);
+  if (publicAccess) params.set('publicAccess', 'true');
+  const paramStr = params.toString();
+  if (paramStr) url += `?${paramStr}`;
+  const response = await fetch(url, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -222,8 +263,14 @@ export async function fetchChatHistory(
  * Clear chat history on the backend
  */
 export async function clearChatHistory(avatarId?: string): Promise<void> {
-  const params = avatarId ? `?avatarId=${encodeURIComponent(avatarId)}` : '';
-  const response = await fetch(`${API_BASE}/chat${params}`, {
+  const publicAccess = isPublicSubdomain();
+  let url = `${API_BASE}/chat`;
+  const params = new URLSearchParams();
+  if (avatarId) params.set('avatarId', avatarId);
+  if (publicAccess) params.set('publicAccess', 'true');
+  const paramStr = params.toString();
+  if (paramStr) url += `?${paramStr}`;
+  const response = await fetch(url, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
@@ -245,7 +292,9 @@ export async function appendSystemMessage(
   avatarId: string,
   message: { role: 'assistant' | 'user'; content: string }
 ): Promise<Array<{ role: string; content: string; media?: MediaItem[] }>> {
-  const response = await fetch(`${API_BASE}/chat/message`, {
+  const publicAccess = isPublicSubdomain();
+  const url = publicAccess ? `${API_BASE}/chat/message?publicAccess=true` : `${API_BASE}/chat/message`;
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -14,3 +14,4 @@ export { ImageModal, useImageModal } from './ImageModal';
 export { PromptPreviewPanel } from './PromptPreviewPanel';
 export { LandingPage } from './LandingPage';
 export { SharedChatPage } from './SharedChatPage';
+export { PublicChatPage } from './PublicChatPage';
