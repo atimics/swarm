@@ -31,16 +31,13 @@ export function decideWalletConnectionDecision(params: {
   if (!publicKeyStr) return { type: 'noop' };
   if (isLoading) return { type: 'noop' };
 
-  if (
-    authProvider === 'crossmint' &&
-    isAuthenticated &&
-    currentUserWalletAddress &&
-    currentUserWalletAddress !== publicKeyStr
-  ) {
-    return { type: 'promptSwitch', walletAddress: publicKeyStr };
-  }
-
   if (isAuthenticated && currentUserWalletAddress && currentUserWalletAddress !== publicKeyStr) {
+    // If the user is authenticated via an email/social provider (Privy/Crossmint/etc)
+    // and then connects a different wallet, do not silently log them out.
+    // Instead, prompt them to Link or Switch.
+    if (authProvider && authProvider !== 'wallet') {
+      return { type: 'promptSwitch', walletAddress: publicKeyStr };
+    }
     return { type: 'logoutAndReauth' };
   }
 

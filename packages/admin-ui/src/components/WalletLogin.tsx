@@ -602,6 +602,43 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                     <div className="text-xs text-[var(--color-text-secondary)] mt-1">
                       Your embedded wallet has no Orbs. Mint <span className="font-medium">(limited supply)</span>, buy an Orb, or connect a wallet that already holds Orbs and choose <span className="font-medium">Link</span>.
                     </div>
+
+                    {pendingWalletSwitch && (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-2">
+                        <span className="text-[11px] text-[var(--color-text-secondary)]">
+                          Wallet connected: {formatAddress(pendingWalletSwitch)}
+                        </span>
+                        <button
+                          onClick={handleLinkConnectedWallet}
+                          className="text-[11px] font-medium text-brand-400 hover:text-brand-300 disabled:opacity-50"
+                          disabled={linkingWallet || switchingWallet}
+                          title="Link this wallet to your current account"
+                        >
+                          {linkingWallet ? 'Linking…' : 'Link'}
+                        </button>
+                        <button
+                          onClick={handleSwitchToConnectedWallet}
+                          className="text-[11px] font-medium text-brand-400 hover:text-brand-300 disabled:opacity-50"
+                          disabled={switchingWallet || linkingWallet}
+                          title="Switch to this wallet account"
+                        >
+                          {switchingWallet ? 'Switching…' : 'Switch'}
+                        </button>
+                        <button
+                          onClick={handleIgnoreConnectedWallet}
+                          className="text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                          title="Keep current sign-in"
+                        >
+                          Ignore
+                        </button>
+                        {(linkWalletError || walletUiError) && (
+                          <span className="ml-1 text-[11px] text-red-400">
+                            {linkWalletError || walletUiError}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
                       <FaviconLink
                         href="https://www.launchmynft.io/collections/8e55demQ2mUvLDYFvq7D28UartGaK9F9NacQod15eChH/mdMATMxEwub25fM2Ak4o"
@@ -631,6 +668,10 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                         Got it
                       </button>
                     </div>
+
+                    {!pendingWalletSwitch && walletUiError && (
+                      <div className="mt-2 text-xs text-red-400">{walletUiError}</div>
+                    )}
                   </div>
                 )}
 
