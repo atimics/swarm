@@ -20,6 +20,7 @@ import * as integrationsService from '../services/integrations.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
 import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
+import { computeTelegramRepairPlan } from '../services/telegram-repair.js';
 import { validateReplicateApiKey } from '../services/replicate.js';
 import { SecretType } from '../types.js';
 import { resumeChatAfterToolResult } from './chat.js';
@@ -342,6 +343,120 @@ export async function handler(
         logger.error('Telegram diagnostics failed', { event: 'telegram_diagnostics_failed', error: err });
         return jsonResponse(corsHeaders, 500, { error: 'Failed to run Telegram diagnostics' });
       }
+    }
+
+    // POST /avatars/{id}/telegram/repair - Re-register webhook if mismatched
+    const telegramRepairMatch = path.match(/^\/avatars\/([^/]+)\/telegram\/repair$/);
+    if (method === 'POST' && telegramRepairMatch) {
+      const avatarId = telegramRepairMatch[1];
+      const body = JSON.parse(event.body || '{}') as {
+        dryRun?: boolean;
+        force?: boolean;
+        includeDisabled?: boolean;
+        rotateSecret?: boolean;
+        repairOnPendingUpdates?: boolean;
+        repairOnLastError?: boolean;
+      };
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      logger.setContext({ subsystem: 'telegram', avatarId });
+
+      const before = await diagnoseTelegram(avatarId);
+      const plan = computeTelegramRepairPlan(before, {
+        force: Boolean(body.force),
+        includeDisabled: Boolean(body.includeDisabled),
+        repairOnPendingUpdates: Boolean(body.repairOnPendingUpdates),
+        repairOnLastError: Boolean(body.repairOnLastError),
+      });
+
+      if (plan.action === 'skip') {
+        return jsonResponse(corsHeaders, 200, {
+          avatarId,
+          action: 'skipped',
+          reason: plan.reason,
+          before,
+        });
+      }
+
+      if (body.dryRun) {
+        return jsonResponse(corsHeaders, 200, {
+          avatarId,
+          action: 'would_repair',
+          reason: plan.reason,
+          before,
+        });
+      }
+
+      // Repair without user re-submitting the token.
+      const botToken = await secretsService._getSecretValueInternal(avatarId, 'telegram_bot_token', 'default');
+      if (!botToken) {
+        return jsonResponse(corsHeaders, 400, { error: 'Missing Telegram bot token secret' });
+      }
+
+      let webhookSecret = await secretsService._getSecretValueInternal(
+        avatarId,
+        'telegram_webhook_secret',
+        'default'
+      );
+
+      const rotateSecret = Boolean(body.rotateSecret);
+      const hadSecret = Boolean(webhookSecret);
+      if (!webhookSecret || rotateSecret) {
+        webhookSecret = telegramService.generateWebhookSecret();
+      }
+
+      logger.info('Telegram webhook repair requested', {
+        event: 'telegram_webhook_repair_requested',
+        force: Boolean(body.force),
+        includeDisabled: Boolean(body.includeDisabled),
+        rotateSecret,
+        hadSecret,
+      });
+
+      const result = await telegramService.registerTelegramWebhook(botToken, avatarId, webhookSecret);
+      if (!result.success) {
+        logger.warn('Telegram webhook repair failed', {
+          event: 'telegram_webhook_repair_failed',
+          error: result.message,
+        });
+        return jsonResponse(corsHeaders, 400, { error: result.message || 'Failed to repair Telegram webhook' });
+      }
+
+      // Only store the secret if it was missing or explicitly rotated.
+      if (!hadSecret || rotateSecret) {
+        await secretsService.storeSecret(
+          avatarId,
+          'telegram_webhook_secret',
+          'default',
+          webhookSecret,
+          session,
+          `Telegram webhook secret for ${avatarId}`
+        );
+      }
+
+      const after = await diagnoseTelegram(avatarId);
+      return jsonResponse(corsHeaders, 200, {
+        avatarId,
+        action: 'repaired',
+        reason: plan.reason,
+        rotatedSecret: (!hadSecret || rotateSecret) ? true : false,
+        before,
+        after,
+        status: {
+          webhookUrl: result.webhookUrl,
+          reRegistered: result.reRegistered,
+          webhookInfo: result.webhookInfo,
+        },
+      });
     }
 
     // POST /avatars/{id}/secrets - Save a secret for an avatar
