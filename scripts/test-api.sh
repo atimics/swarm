@@ -15,6 +15,8 @@ ENDPOINT=${2:-chat}
 BODY=${3:-'{}'}
 METHOD=${4:-POST}
 
+TEST_API_QUIET=${TEST_API_QUIET:-}
+
 # Optional override for environments where AWS discovery isn't available (e.g. CI)
 # Example:
 #   SWARM_ADMIN_API_URL="https://xxxx.execute-api.us-east-1.amazonaws.com" ./scripts/test-api.sh staging chat '{"message":"hi","history":[]}'
@@ -125,10 +127,12 @@ if [ -z "$INTERNAL_TEST_KEY" ] || [ "$INTERNAL_TEST_KEY" == "None" ]; then
   exit 1
 fi
 
-echo "Testing $ENV API: $API_URL/$ENDPOINT"
-echo "Method: $METHOD"
-echo "Body: $BODY"
-echo ""
+if [ -z "$TEST_API_QUIET" ]; then
+  echo "Testing $ENV API: $API_URL/$ENDPOINT"
+  echo "Method: $METHOD"
+  echo "Body: $BODY"
+  echo ""
+fi
 
 # Make request and capture response
 if [ "$METHOD" == "GET" ]; then
@@ -147,13 +151,23 @@ fi
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
 BODY_RESPONSE=$(echo "$RESPONSE" | sed '$d')
 
-echo "Status: $HTTP_CODE"
+if [ -z "$TEST_API_QUIET" ]; then
+  echo "Status: $HTTP_CODE"
+fi
 
 # Try to pretty-print as JSON, fall back to plain text
-if echo "$BODY_RESPONSE" | jq . 2>/dev/null; then
-  : # Already printed by jq
+if [ -z "$TEST_API_QUIET" ]; then
+  if echo "$BODY_RESPONSE" | jq . 2>/dev/null; then
+    : # Already printed by jq
+  else
+    echo "Response: $BODY_RESPONSE"
+  fi
 else
-  echo "Response: $BODY_RESPONSE"
+  if echo "$BODY_RESPONSE" | jq . 2>/dev/null; then
+    : # Already printed by jq
+  else
+    echo "$BODY_RESPONSE"
+  fi
 fi
 
 # Exit with error if non-2xx status

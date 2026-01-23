@@ -646,6 +646,9 @@ export async function handler(
       const avatarId = logsMatch[1];
       const params = event.queryStringParameters || {};
 
+      const compact = params.compact === 'true';
+      const includeLogGroups = compact ? false : params.includeLogGroups !== 'false';
+
       // Check if fast=true param is set, use DynamoDB instead of CloudWatch
       if (params.fast === 'true') {
         const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
@@ -686,10 +689,12 @@ export async function handler(
         query: params.query,
       });
 
+      const responseBody = includeLogGroups ? result : { ...result, logGroups: undefined };
+
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...result, source: 'cloudwatch' }),
+        body: JSON.stringify({ ...responseBody, source: 'cloudwatch' }),
       };
     }
 
