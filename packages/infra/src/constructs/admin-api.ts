@@ -179,9 +179,9 @@ export class AdminApiConstruct extends Construct {
       ? [`https://${adminDomain}`]
       : ['http://localhost:5173', 'http://localhost:3000'];
 
-    if (adminDomain?.endsWith('rati.chat')) {
-      allowedOrigins.push('https://*.rati.chat');
-    }
+    // NOTE: ApiGatewayV2 CORS allowOrigins does not support wildcard origins.
+    // Bot subdomains are expected to use the same-origin CloudFront `/api/*` proxy,
+    // so we do not need to enumerate each subdomain here.
 
     // Secrets Manager uses AWS-managed KMS key by default (alias/aws/secretsmanager).
     // We intentionally do not provision a customer-managed key to avoid the monthly CMK charge.
