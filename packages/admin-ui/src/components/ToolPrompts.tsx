@@ -531,7 +531,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
     void run();
     // Only re-run when switching avatars
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [args.integration, activeAgent?.id]);
 
   useEffect(() => {
