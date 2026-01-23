@@ -45,12 +45,13 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       const jsonText = trimmed.slice(jsonStart).trim();
       try {
         const parsed = JSON.parse(jsonText) as { error?: { message?: string; code?: string } | string; message?: string; code?: string };
+        const errorObj = typeof parsed?.error === 'object' ? parsed.error : undefined;
         const extractedMessage: string | undefined =
-          parsed?.error?.message ||
+          errorObj?.message ||
           parsed?.message ||
           (typeof parsed?.error === 'string' ? parsed.error : undefined);
 
-        const code = parsed?.code || parsed?.error?.code;
+        const code = parsed?.code || errorObj?.code;
         const pieces = [prefix];
         if (code && !String(prefix).includes(String(code))) pieces.push(String(code));
         if (extractedMessage) pieces.push(extractedMessage);
