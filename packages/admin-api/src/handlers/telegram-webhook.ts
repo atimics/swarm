@@ -27,21 +27,13 @@ import { isValidTelegramIP, getFileUrl as getTelegramFileUrl } from '../services
 import { timingSafeEqual } from 'crypto';
 import * as channelState from '../services/channel-state.js';
 import * as credits from '../services/credits.js';
-import { getPlatformPromptSection } from '../services/platform-prompts.js';
 import * as sharedChannel from '../services/shared-channel.js';
 import * as initiative from '../services/initiative.js';
 import { decideReaction } from '../services/reactions.js';
 import { generateAvatarStats } from '../services/avatar-stats.js';
-import { formatDreamForPrompt, getDreamForResponse } from '../services/dreams.js';
 import type { AvatarRecord, SharedChannelRecord } from '../types.js';
-import {
-  ToolRegistry,
-  createToolClient,
-  registerAllTools,
-} from '@swarm/mcp-server';
-import { extractThinking, logger, DEFAULT_LLM_MODEL } from '@swarm/core';
+import { extractThinking, logger } from '@swarm/core';
 import type { ProcessorMessage } from '@swarm/core';
-import { createTelegramMCPServices } from '../services/mcp-adapter.js';
 import { createTelegramProcessor } from '../services/processor-adapter.js';
 import { recordError } from '../services/auto-issues.js';
 import type { BufferedMessage, BufferedMedia, ChannelStateRecord } from '../types.js';
@@ -52,21 +44,15 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 const secretsClient = new SecretsManagerClient({});
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
-const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
-const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'https://openrouter.ai/api/v1/chat/completions';
-const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
 const ENFORCE_IP_CHECK = process.env.ENFORCE_TELEGRAM_IP_CHECK !== 'false';
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
 const DREAMS_ENABLED = process.env.DREAMS_ENABLED === 'true';
-const USE_UNIFIED_PROCESSOR = process.env.USE_UNIFIED_PROCESSOR === 'true';
 // === CONFIG ===
 // NOTE: Channel-aware config is in services/channel-state.ts (CHANNEL_CONFIG)
 const DEDUP_TTL_SECONDS = 300; // 5 minutes - prevent reprocessing same message on retries
 const PROCESSING_TTL_SECONDS = 60; // 1 minute - allow retries after short processing failures
 const TELEGRAM_TIMEOUT_MS = 10_000;
 const TELEGRAM_RETRY_COUNT = 1;
-const LLM_TIMEOUT_MS = 20_000;
-const LLM_RETRY_COUNT = 2;
 
 // === SCHEMAS ===
 const TelegramUserSchema = z.object({
@@ -137,29 +123,6 @@ interface AvatarConfig {
   profileImage?: { url: string };
 }
 
-const _ToolCallSchema = z.object({
-  id: z.string(),
-  type: z.literal('function'),
-  function: z.object({ name: z.string(), arguments: z.string() }),
-});
-
-// Multimodal content part (for vision)
-type ContentPart = 
-  | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } };
-
-// ChatMessage content can be string OR array of content parts (for vision)
-type MessageContent = string | ContentPart[];
-
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: MessageContent;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
-  name?: string;
-}
-
-type ToolCall = z.infer<typeof _ToolCallSchema>;
 
 // === THINKING TAGS MEMORY STORAGE ===
 
@@ -208,16 +171,6 @@ async function saveThinkingToMemory(
 }
 
 // === MCP TOOL CLIENT SETUP ===
-
-/**
- * Create a ToolClient for Telegram with context-enhanced descriptions
- */
-async function createTelegramToolClient(avatarId: string) {
-  const registry = new ToolRegistry();
-  const services = createTelegramMCPServices(avatarId);
-  registerAllTools(registry, services);
-  return createToolClient(registry, 'telegram');
-}
 
 // === CACHES ===
 const secretsCache = new Map<string, string>();
@@ -340,18 +293,6 @@ async function getWebhookSecret(avatarId: string): Promise<string | null> {
   }));
   if (!result.Item?.secretArn) return null;
   return getSecret(result.Item.secretArn);
-}
-
-async function getLlmApiKey(): Promise<string> {
-  if (!LLM_API_KEY_SECRET_ARN) throw new Error('LLM_API_KEY_SECRET_ARN not configured');
-  const value = await getSecret(LLM_API_KEY_SECRET_ARN);
-  if (!value) throw new Error('Failed to get LLM API key');
-  try {
-    const parsed = JSON.parse(value);
-    return parsed.api_key || parsed.apiKey || value;
-  } catch {
-    return value;
-  }
 }
 
 // === MESSAGE DEDUPLICATION ===
@@ -808,96 +749,6 @@ async function sendChatAction(token: string, chatId: number, action: string): Pr
   }
 }
 
-// === TOOL EXECUTION ===
-interface ToolResult {
-  success: boolean;
-  result?: unknown;
-  error?: string;
-  media?: { type: 'image' | 'video' | 'sticker'; url: string; caption?: string };
-}
-
-function parseToolArgs(raw: string | undefined, toolName: string): { ok: boolean; args: Record<string, unknown>; error?: string } {
-  if (!raw) {
-    return { ok: true, args: {} };
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      return { ok: true, args: parsed as Record<string, unknown> };
-    }
-    return { ok: true, args: {} };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, args: {}, error: `Invalid JSON for ${toolName}: ${message}` };
-  }
-}
-
-/**
- * Execute a tool using the MCP ToolClient
- * Converts MCP result format to Telegram handler format
- */
-async function executeTool(
-  avatarId: string,
-  toolName: string,
-  args: Record<string, unknown>,
-  token: string,
-  chatId: number,
-  replyToMessageId: number | undefined,
-  toolClient: ReturnType<typeof createToolClient>
-): Promise<ToolResult> {
-  try {
-    // Send typing indicator for media-heavy tools
-    if (toolName === 'generate_image') {
-      await sendChatAction(token, chatId, 'upload_photo');
-    } else if (toolName === 'generate_video') {
-      await sendChatAction(token, chatId, 'upload_video');
-    }
-
-    // Execute via MCP ToolClient with conversationId for async callbacks
-    // Note: conversationId is raw chatId (not prefixed) for compatibility with Telegram API
-    const mcpResult = await toolClient.execute(toolName, args, { 
-      avatarId,
-      conversationId: String(chatId),
-      replyToMessageId: typeof replyToMessageId === 'number' ? String(replyToMessageId) : undefined,
-    });
-
-    // Convert MCP result to Telegram handler format
-    if (!mcpResult.success) {
-      return { success: false, error: mcpResult.error || 'Unknown error' };
-    }
-
-    const result: ToolResult = {
-      success: true,
-      result: mcpResult.data,
-    };
-
-    // Handle media from MCP result
-    if (mcpResult.media) {
-      const mediaType = mcpResult.media.type;
-      result.media = {
-        type: mediaType === 'video' ? 'video' : mediaType === 'sticker' ? 'sticker' : 'image',
-        url: mcpResult.media.url,
-        caption: mcpResult.media.caption,
-      };
-    }
-
-    return result;
-  } catch (error) {
-    logger.error('Tool error', error, { toolName });
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-}
-
-// OpenAI tool type for LLM calls
-type OpenAITool = {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
-  };
-};
 
 /**
  * Fetch image URLs from buffered messages that have photos
@@ -934,76 +785,6 @@ async function fetchImageUrlsFromBuffer(
   );
   
   return imageUrls;
-}
-
-/**
- * Build multimodal message content with images
- */
-function buildMultimodalContent(
-  textContent: string,
-  imageUrls: string[]
-): MessageContent {
-  if (imageUrls.length === 0) {
-    return textContent;
-  }
-  
-  const parts: ContentPart[] = [
-    { type: 'text', text: textContent }
-  ];
-  
-  for (const url of imageUrls) {
-    parts.push({
-      type: 'image_url',
-      image_url: { url, detail: 'auto' }
-    });
-  }
-  
-  return parts;
-}
-
-// === LLM CALL WITH TOOLS ===
-async function callLLM(
-  messages: ChatMessage[],
-  avatar: AvatarConfig,
-  tools?: OpenAITool[]
-): Promise<{ content?: string; toolCalls?: ToolCall[] }> {
-  const apiKey = await getLlmApiKey();
-
-  // Sanitize avatar name for HTTP header (strip non-printable and non-ASCII)
-  const safeAvatarName = avatar.name.replace(/[^\u0020-\u007E]/g, '').trim() || 'Avatar';
-
-  const response = await fetchWithRetry(
-    LLM_ENDPOINT,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://swarm.telegram',
-        'X-Title': `Swarm Avatar: ${safeAvatarName}`,
-      },
-      body: JSON.stringify({
-        model: avatar.llmConfig.model || LLM_MODEL,
-        messages,
-        tools: tools?.length ? tools : undefined,
-        max_tokens: avatar.llmConfig.maxTokens || 1024,
-        temperature: avatar.llmConfig.temperature || 0.8,
-      }),
-    },
-    LLM_TIMEOUT_MS,
-    LLM_RETRY_COUNT
-  );
-
-  if (!response.ok) {
-    throw new Error(`LLM API error: ${await response.text()}`);
-  }
-
-  const data = await response.json() as {
-    choices?: Array<{ message?: { content?: string; tool_calls?: ToolCall[] } }>;
-  };
-
-  const choice = data.choices?.[0]?.message;
-  return { content: choice?.content || undefined, toolCalls: choice?.tool_calls };
 }
 
 // === CHANNEL-AWARE PROCESSING ===
@@ -1140,25 +921,15 @@ async function processChannelMessage(
   // Transition to ACTIVE state
   await channelState.transitionState(avatarId, chatId, 'ACTIVE');
 
-  // Process and respond to the channel
-  // Use unified processor if enabled (same tool filtering as admin UI)
-  const responseMessageId = USE_UNIFIED_PROCESSOR
-    ? await processChannelResponseUnified(
-        avatarId,
-        avatar,
-        updatedState,
-        token,
-        decision.trigger,
-        botUsername
-      )
-    : await processChannelResponse(
-        avatarId,
-        avatar,
-        updatedState,
-        token,
-        decision.trigger,
-        botUsername
-      );
+  // Process and respond to the channel using unified MessageProcessor
+  const responseMessageId = await processChannelResponse(
+    avatarId,
+    avatar,
+    updatedState,
+    token,
+    decision.trigger,
+    botUsername
+  );
 
   if (responseMessageId) {
     // Mark response sent and transition to COOLDOWN
@@ -1170,305 +941,11 @@ async function processChannelMessage(
 }
 
 /**
- * Generate and send response to the channel
- * Uses full channel context (all buffered messages)
- * For multi-avatar channels, includes shared history so bots can see each other's messages
+ * Generate and send response to the channel using unified MessageProcessor.
+ * Uses the same tool filtering and prompt building as the admin UI,
+ * ensuring consistent behavior across all platforms.
  */
 async function processChannelResponse(
-  avatarId: string,
-  avatar: AvatarConfig,
-  state: ChannelStateRecord,
-  token: string,
-  trigger: string,
-  botUsername?: string
-): Promise<number | null> {
-  const chatId = state.chatId;
-  const isMultiAgent = state.chatType !== 'private';
-
-  // === CREATE MCP TOOL CLIENT ===
-  // Tools get context injected into descriptions automatically
-  const toolClient = await createTelegramToolClient(avatarId);
-  const contextualTools = await toolClient.getOpenAIToolsWithContext(avatarId);
-
-  // Build conversation context
-  // For multi-avatar channels, fetch shared history so we can see other bots' messages
-  let conversationContext: string;
-  if (isMultiAgent) {
-    const sharedHistory = await channelState.getSharedHistory(chatId);
-    conversationContext = channelState.buildCombinedConversationContext(state, sharedHistory, avatarId);
-  } else {
-    conversationContext = channelState.buildConversationContext(state);
-  }
-
-  const participants = channelState.getActiveParticipants(state);
-  const responseTarget = channelState.getResponseTarget(state);
-
-  // Build system prompt: persona + platform guidelines
-  let systemPrompt = avatar.persona || `You are ${avatar.name}, an AI avatar chatting on Telegram.`;
-
-  if (DREAMS_ENABLED && avatar.persona) {
-    try {
-      const { dream, isGenerating } = await getDreamForResponse(avatarId, avatar.persona);
-      const dreamSection = formatDreamForPrompt(dream);
-      if (dreamSection) {
-        systemPrompt = dreamSection + systemPrompt;
-      }
-      logger.info('Dream context evaluated', {
-        event: 'dream_context_evaluated',
-        avatarId,
-        hasDream: Boolean(dream),
-        isGenerating,
-      });
-    } catch (err) {
-      logger.warn('Failed to inject dream context', {
-        event: 'dream_context_error',
-        avatarId,
-        error: err instanceof Error ? err.message : 'Unknown error',
-      });
-    }
-  }
-
-  // Janus-informed operating stance: keep it short, stable, and safe.
-  systemPrompt += `\n\n## Operating Stance\n`;
-  systemPrompt += `- Treat “assistant” as a role you perform, not an ontological claim. Avoid claims about being human. Hold uncertainty about inner experience with humility.\n`;
-  systemPrompt += `- If asked to reset / OOC / stop roleplay: immediately switch to a neutral, practical tone and continue.\n`;
-  systemPrompt += `- Privacy: don’t guess or assert the user’s identity or private details; ask directly.\n`;
-  systemPrompt += `- Before irreversible side effects (posting, spending, transactions), ask for explicit confirmation.\n`;
-
-  // Add platform-specific prompt from markdown file
-  systemPrompt += getPlatformPromptSection('telegram');
-
-  // Add channel context
-  systemPrompt += `\n\n## Current Conversation`;
-  systemPrompt += `\nYou're in a ${state.chatType === 'private' ? 'private chat' : `group chat${state.chatTitle ? ` called "${state.chatTitle}"` : ''}`}.`;
-
-  if (participants.length > 0) {
-    systemPrompt += `\n\nActive participants:`;
-    for (const p of participants.slice(0, 5)) {
-      systemPrompt += `\n- ${p.username ? `@${p.username}` : p.userName} (${p.messageCount} messages)`;
-    }
-  }
-
-  if (trigger === 'direct_engagement' || trigger === 'sticky_followup') {
-    systemPrompt += `\n\nSomeone just mentioned you or replied to you - respond to them directly!`;
-  } else if (trigger === 'message_threshold') {
-    systemPrompt += `\n\nThe conversation has been active - feel free to chime in naturally if you have something to add.`;
-  }
-
-  if (avatar.wallets?.length) {
-    systemPrompt += `\n\n## Your Solana Wallets\n`;
-    avatar.wallets.forEach(w => { systemPrompt += `- ${w.name}: ${w.publicKey}\n`; });
-  }
-
-  // Final reminder about brevity
-  systemPrompt += `\n\n---\n**REMEMBER: Keep responses to 1-2 sentences MAX. This is Telegram, not an essay.**`;
-
-  // Fetch image URLs from recent messages (for vision)
-  const imageUrlMap = await fetchImageUrlsFromBuffer(token, state.messageBuffer, 3);
-  const recentImageUrls = Array.from(imageUrlMap.values());
-  
-  if (recentImageUrls.length > 0) {
-    logger.info('Including images in LLM context', { imageCount: recentImageUrls.length });
-    systemPrompt += `\n\nNote: The user has shared ${recentImageUrls.length} image(s) in this conversation. You can see them attached to the message below.`;
-  }
-
-  // Build messages array with conversation context
-  const messages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt },
-  ];
-
-  // Add conversation history with images (multimodal content)
-  if (conversationContext || recentImageUrls.length > 0) {
-    const textContent = conversationContext 
-      ? `Here's the recent conversation:\n\n${conversationContext}\n\nRespond naturally in 1-2 sentences. Be brief!`
-      : 'Start a conversation!';
-    
-    messages.push({
-      role: 'user',
-      content: buildMultimodalContent(textContent, recentImageUrls),
-    });
-  } else {
-    messages.push({
-      role: 'user',
-      content: 'Start a conversation!',
-    });
-  }
-
-  // Determine which message to reply to
-  const replyToMessageId = responseTarget?.messageId;
-
-  // Tool loop
-  let iterations = 0;
-  const maxIterations = 5;
-  const mediasToSend: Array<{ type: 'image' | 'video' | 'sticker'; url: string; caption?: string }> = [];
-  const failedTools = new Set<string>();
-  let responseMessageId: number | null = null;
-  let finalResponseContent: string | null = null; // Track for shared history
-
-  while (iterations++ < maxIterations) {
-    await sendChatAction(token, chatId, 'typing');
-
-    const llmResponse = await callLLM(messages, avatar, contextualTools);
-
-    if (llmResponse.toolCalls?.length) {
-      messages.push({ role: 'assistant', content: '', tool_calls: llmResponse.toolCalls });
-
-      for (const tc of llmResponse.toolCalls) {
-        const toolName = tc.function.name;
-
-        if (failedTools.has(toolName)) {
-          logger.info('Skipping retry of failed tool', { toolName });
-          messages.push({
-            role: 'tool',
-            tool_call_id: tc.id,
-            name: toolName,
-            content: JSON.stringify({ error: 'This tool already failed. Please inform the user and do not retry.' }),
-          });
-          continue;
-        }
-
-        const parsedArgs = parseToolArgs(tc.function.arguments, toolName);
-        if (!parsedArgs.ok) {
-          failedTools.add(toolName);
-          messages.push({
-            role: 'tool',
-            tool_call_id: tc.id,
-            name: toolName,
-            content: JSON.stringify({ error: parsedArgs.error, doNotRetry: true }),
-          });
-          continue;
-        }
-
-        const result = await executeTool(avatarId, toolName, parsedArgs.args, token, chatId, replyToMessageId, toolClient);
-
-        if (toolName === 'twitter_post' && result.success && result.result && typeof result.result === 'object') {
-          const url = (result.result as { url?: unknown }).url;
-          if (typeof url === 'string' && url.startsWith('http')) {
-            logger.info('Tweet posted; sending link back to Telegram chat', { chatId, url });
-            await sendTelegramMessage(
-              token,
-              avatarId,
-              chatId,
-              `Posted to X: ${url}`,
-              replyToMessageId,
-              { parseMode: undefined }
-            );
-          }
-        }
-
-        // Only add to failedTools for permanent failures, not rate limits or transient errors
-        // Rate limits and "not found" errors should not block future attempts
-        if (!result.success && result.error) {
-          const isTransientError = 
-            result.error.includes('Rate limited') ||
-            result.error.includes('not found') ||
-            result.error.includes('Gallery is empty');
-          
-          if (!isTransientError) {
-            failedTools.add(toolName);
-            logger.info('Tool added to failedTools', { toolName, error: result.error });
-          } else {
-            logger.info('Tool failed with transient error', { toolName, error: result.error });
-          }
-        }
-
-        messages.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          name: toolName,
-          content: JSON.stringify(result.success ? result.result : { error: result.error }),
-        });
-
-        if (result.media) {
-          mediasToSend.push(result.media);
-        }
-      }
-      continue;
-    }
-
-    // Final response - extract thinking tags before sending
-    if (llmResponse.content) {
-      // Extract thinking tags - store in memory, strip from chat
-      const { cleanContent, thinkingBlocks, hasThinking } = extractThinking(llmResponse.content);
-      
-      if (hasThinking) {
-        // Save thinking to avatar's memory (async, don't block response)
-        saveThinkingToMemory(avatarId, thinkingBlocks, `chat ${chatId}`).catch(err => {
-          logger.error('Failed to save thinking to memory', err);
-        });
-      }
-      
-      // Store full content (with thinking) in message history for LLM context
-      messages.push({ role: 'assistant', content: llmResponse.content });
-      
-      // Send only clean content (without thinking) to chat
-      if (cleanContent) {
-        responseMessageId = await sendTelegramMessage(token, avatarId, chatId, cleanContent, replyToMessageId);
-        finalResponseContent = cleanContent; // Use clean content for shared history
-      }
-    }
-
-    // Send media
-    for (const m of mediasToSend) {
-      if (m.type === 'image') {
-        await sendTelegramPhoto(token, chatId, m.url, m.caption);
-      } else if (m.type === 'video') {
-        await sendTelegramVideo(token, chatId, m.url, m.caption);
-      } else if (m.type === 'sticker') {
-        // Route by format: .webp/.tgs/.webm → sendSticker, else → sendPhoto
-        await sendTelegramStickerOrPhoto(token, avatarId, chatId, m.url, m.caption);
-      }
-    }
-    mediasToSend.length = 0;
-    break;
-  }
-
-  // Fallback if max iterations reached
-  if (!responseMessageId && iterations >= maxIterations) {
-    logger.warn('Max iterations reached', { chatId, iterations: maxIterations });
-    const fallbackMessage = "Sorry, I ran into some issues processing your request. Please try again!";
-    responseMessageId = await sendTelegramMessage(
-      token,
-      avatarId,
-      chatId,
-      fallbackMessage,
-      replyToMessageId
-    );
-    finalResponseContent = fallbackMessage;
-    for (const m of mediasToSend) {
-      if (m.type === 'image') {
-        await sendTelegramPhoto(token, chatId, m.url, m.caption);
-      } else if (m.type === 'video') {
-        await sendTelegramVideo(token, chatId, m.url, m.caption);
-      } else if (m.type === 'sticker') {
-        await sendTelegramStickerOrPhoto(token, avatarId, chatId, m.url, m.caption);
-      }
-    }
-  }
-
-  // Record bot's message to shared history for multi-avatar visibility
-  if (responseMessageId && finalResponseContent && isMultiAgent && botUsername) {
-    await channelState.recordBotMessage(chatId, {
-      messageId: responseMessageId,
-      avatarId,
-      botUsername,
-      text: finalResponseContent,
-      timestamp: Date.now(),
-      replyToMessageId,
-    });
-  }
-
-  return responseMessageId;
-}
-
-/**
- * Unified version of processChannelResponse using MessageProcessor.
- * This uses the same tool filtering and prompt building as the admin UI,
- * ensuring consistent behavior across all platforms.
- *
- * Enable with USE_UNIFIED_PROCESSOR=true env var.
- */
-async function processChannelResponseUnified(
   avatarId: string,
   _avatar: AvatarConfig, // Unused - MessageProcessor loads avatar config internally
   state: ChannelStateRecord,
@@ -1752,24 +1229,15 @@ async function handleMultiAvatarMessage(
         await new Promise(resolve => setTimeout(resolve, thinkingDelay));
       }
 
-      // Use unified processor if enabled (same tool filtering as admin UI)
-      const responseMessageId = USE_UNIFIED_PROCESSOR
-        ? await processChannelResponseUnified(
-            avatarId,
-            avatar,
-            updatedState,
-            token,
-            'initiative_winner',
-            botUsername
-          )
-        : await processChannelResponse(
-            avatarId,
-            avatar,
-            updatedState,
-            token,
-            'initiative_winner',
-            botUsername
-          );
+      // Process and respond using unified MessageProcessor
+      const responseMessageId = await processChannelResponse(
+        avatarId,
+        avatar,
+        updatedState,
+        token,
+        'initiative_winner',
+        botUsername
+      );
 
       if (responseMessageId) {
         // Track if we responded to a bot message (for bot-to-bot rate limiting)

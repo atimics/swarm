@@ -45,19 +45,8 @@ const API_TIMEOUT_MS = 10_000;
 const TWITTER_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const TWITTER_TARGET_IMAGE_BYTES = TWITTER_MAX_IMAGE_BYTES - 32 * 1024;
 
-// Lazy load sharp to avoid import failures on platforms without native binaries
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let sharpModule: any = null;
-async function getSharp() {
-  if (!sharpModule) {
-    try {
-      sharpModule = await import('sharp');
-    } catch {
-      throw new Error('sharp module not available - image processing is not supported in this environment');
-    }
-  }
-  return sharpModule.default;
-}
+// Use jimp for image processing - pure JavaScript, works in Lambda without native binaries
+import { Jimp } from 'jimp';
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET;
 const CDN_URL = process.env.CDN_URL;
 const s3Client = new S3Client({});
@@ -103,45 +92,49 @@ async function downsizeImageForTwitter(
     return { buffer: input, mimeType: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' };
   }
 
-  const sharp = await getSharp();
+  // Use jimp (pure JavaScript) - works in Lambda without native binaries
+  const image = await Jimp.read(input);
 
   // Twitter photo uploads have a strict 5MB cap. Re-encode to JPEG and, if needed, resize.
-  let quality = 82;
+  let quality = 80;
   let maxWidth = 1600;
-  let buffer = input;
 
   for (let attempt = 0; attempt < 6; attempt++) {
-    const out = await sharp(buffer, { failOnError: false })
-      .rotate()
-      .resize({ width: maxWidth, withoutEnlargement: true })
-      .jpeg({ quality, mozjpeg: true })
-      .toBuffer();
+    // Clone image for each attempt to avoid modifying the original
+    const resized = image.clone();
 
-    console.log('Re-encoded image for Twitter upload', {
+    // Resize if wider than maxWidth
+    if (resized.width > maxWidth) {
+      resized.resize({ w: maxWidth });
+    }
+
+    // Get JPEG buffer with current quality
+    const out = await resized.getBuffer('image/jpeg', { quality });
+
+    console.log('Re-encoded image for Twitter upload (jimp)', {
       attempt,
-      inBytes: buffer.length,
+      inBytes: input.length,
       outBytes: out.length,
       quality,
       maxWidth,
+      dimensions: `${resized.width}x${resized.height}`,
     });
 
     if (out.length <= TWITTER_TARGET_IMAGE_BYTES) {
       return { buffer: out, mimeType: 'image/jpeg' };
     }
 
-    buffer = out;
-
     // Tune parameters: lower quality first, then reduce dimensions.
-    if (quality > 55) {
+    if (quality > 50) {
       quality -= 10;
     } else {
       maxWidth = Math.max(640, Math.floor(maxWidth * 0.8));
-      quality = 78;
+      quality = 75;
     }
   }
 
   throw new Error(
-    `Image too large for Twitter upload after re-encode: ${buffer.length} bytes (max ${TWITTER_MAX_IMAGE_BYTES})`
+    `Image too large for Twitter upload after re-encode: ${input.length} bytes (max ${TWITTER_MAX_IMAGE_BYTES})`
   );
 }
 
