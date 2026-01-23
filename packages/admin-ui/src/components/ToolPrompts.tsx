@@ -516,7 +516,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
           setPolicyLoadError(`Failed to load current Telegram settings (HTTP ${response.status})`);
           return;
         }
-        const payload = (await response.json().catch(() => ({}))) as any;
+        const payload = (await response.json().catch(() => ({}))) as { platforms?: { telegram?: { allowedDmUserIds?: unknown; allowedChatIds?: unknown } } };
         const telegram = payload?.platforms?.telegram || {};
         const dm = normalizeList(telegram.allowedDmUserIds);
         const chats = normalizeList(telegram.allowedChatIds);

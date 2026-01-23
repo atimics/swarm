@@ -544,7 +544,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
     () => message.content
       ? processMessageContent(message.content, { stripAllJson: message.isToolResult })
       : { cleanedContent: '', embeddedImages: [], embeddedAudios: [], toolResults: [] },
-    [message.content, message.isToolResult, message.role]
+    [message.content, message.isToolResult]
   );
   
   const imagesFromTools = extractImagesFromToolCalls(message.toolCalls);

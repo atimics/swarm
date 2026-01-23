@@ -44,7 +44,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
       const prefix = trimmed.slice(0, jsonStart).trim();
       const jsonText = trimmed.slice(jsonStart).trim();
       try {
-        const parsed = JSON.parse(jsonText) as any;
+        const parsed = JSON.parse(jsonText) as { error?: { message?: string; code?: string } | string; message?: string; code?: string };
         const extractedMessage: string | undefined =
           parsed?.error?.message ||
           parsed?.message ||
@@ -486,7 +486,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
         setLoading(false);
       }
     },
-    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isWalletAuthenticated, walletUser, updateAvatar, formatUserFacingError]
+    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isWalletAuthenticated, walletUser, updateAvatar, formatUserFacingError, extractPendingJobsFromText]
   );
 
   // Handle audio message - transcribe and send as text
