@@ -151,6 +151,8 @@ export class SharedHandlers extends Construct {
       TWITTER_API_TIER: twitterApiTier,
       TWITTER_DAILY_RESERVE_PCT: String(twitterDailyReservePct),
       ...(twitterMonthlyBudget ? { TWITTER_MONTHLY_BUDGET: String(twitterMonthlyBudget) } : {}),
+      // Enable unified MessageProcessor for consistent tool access across platforms
+      USE_UNIFIED_PROCESSOR: 'true',
     };
 
     if (replicateApiKeyArn) {
