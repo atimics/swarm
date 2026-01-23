@@ -62,7 +62,27 @@ export class AdminUi extends Construct {
     this.bucket.grantRead(originAccessIdentity);
 
     // Prepare domain settings
-    const domainNames = domainName ? [domainName] : undefined;
+    // For bot subdomains (e.g. '<bot-id>.rati.chat'), CloudFront must be configured to
+    // serve TLS for those hostnames; otherwise Cloudflare will fail to handshake (525)
+    // when proxying with SNI.
+    const wildcardForDomain = (host: string): string | null => {
+      const parts = host.split('.').filter(Boolean);
+      if (parts.length < 2) return null;
+      const baseDomain = parts.slice(-2).join('.');
+      return `*.${baseDomain}`;
+    };
+
+    const domainNames = domainName
+      ? Array.from(
+          new Set([
+            domainName,
+            // Include wildcard so per-bot subdomains can resolve to the same distribution.
+            // Requires the ACM certificate to cover the wildcard.
+            ...(wildcardForDomain(domainName) ? [wildcardForDomain(domainName)!] : []),
+          ])
+        )
+      : undefined;
+
     const certificate = certificateArn
       ? acm.Certificate.fromCertificateArn(this, 'Certificate', certificateArn)
       : undefined;
