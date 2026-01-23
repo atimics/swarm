@@ -48,6 +48,8 @@ export {
   type MintPreparation,
   type LineageCollection,
   type AvatarInhabitationStatus,
+  type ClaimableNFT,
+  type ClaimNFTResult,
 } from './nft.js';
 export {
   createPropertyTools,

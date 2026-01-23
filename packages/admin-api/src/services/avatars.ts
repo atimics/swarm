@@ -13,7 +13,16 @@ import {
 import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS } from '@swarm/core';
 import type { AvatarRecord, UserSession } from '../types.js';
 import { syncAvatarConfig } from './config-sync.js';
-import { getGateStatus, incrementCreatorCount, decrementCreatorCount, type GateStatus } from './nft-gate.js';
+import {
+  getGateStatus,
+  incrementCreatorCount,
+  decrementCreatorCount,
+  isNFTClaimed,
+  verifyNFTOwnership,
+  isCollectionWhitelisted,
+  type GateStatus,
+  type ClaimableNFT,
+} from './nft-gate.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -491,4 +500,223 @@ export async function reassignAvatar(
   await syncAvatarConfig(updated);
 
   return updated;
+}
+
+// =============================================================================
+// NFT Collection Avatar Support
+// =============================================================================
+
+/**
+ * Create avatar from NFT result
+ */
+export interface CreateAvatarFromNFTResult {
+  success: boolean;
+  avatar?: AvatarRecord;
+  gateStatus?: GateStatus;
+  error?: 'no_gate_slot' | 'nft_already_claimed' | 'nft_not_in_collection' | 'nft_not_owned';
+}
+
+/**
+ * Create a new avatar from an NFT in a whitelisted collection
+ * Uses the normal slot system (free + Orb NFTs)
+ */
+export async function createAvatarFromNFT(
+  nft: ClaimableNFT,
+  creatorWallet: string
+): Promise<CreateAvatarFromNFTResult> {
+  // 1. Verify collection is whitelisted
+  if (!isCollectionWhitelisted(nft.collection)) {
+    console.log(`[Avatars] Collection ${nft.collection} is not whitelisted`);
+    return {
+      success: false,
+      error: 'nft_not_in_collection',
+    };
+  }
+
+  // 2. Verify NFT not already claimed
+  if (await isNFTClaimed(nft.mint)) {
+    console.log(`[Avatars] NFT ${nft.mint.slice(0, 8)}... already claimed as avatar`);
+    return {
+      success: false,
+      error: 'nft_already_claimed',
+    };
+  }
+
+  // 3. Verify wallet owns this NFT
+  if (!(await verifyNFTOwnership(creatorWallet, nft.mint))) {
+    console.log(`[Avatars] Wallet ${creatorWallet.slice(0, 8)}... does not own NFT ${nft.mint.slice(0, 8)}...`);
+    return {
+      success: false,
+      error: 'nft_not_owned',
+    };
+  }
+
+  // 4. Check gate status (uses normal slot system)
+  const gateStatus = await getGateStatus(creatorWallet);
+  if (!gateStatus.canCreate) {
+    console.log(`[Avatars] No gate slot for wallet=${creatorWallet.slice(0, 8)}...`);
+    return {
+      success: false,
+      error: 'no_gate_slot',
+      gateStatus,
+    };
+  }
+
+  // 5. Generate avatar ID from NFT name
+  const avatarId = generateAvatarId(nft.name);
+  const now = Date.now();
+
+  // Determine slot type: first avatar = free, subsequent = orb
+  const slotType: 'free' | 'orb' = gateStatus.avatarsCreated === 0 ? 'free' : 'orb';
+
+  // Build description from NFT metadata
+  const description = nft.description || `Avatar created from NFT: ${nft.name}`;
+
+  // Build persona from NFT personality trait and other attributes
+  let persona: string | undefined;
+  if (nft.personality) {
+    // Use the personality trait as the core persona
+    persona = nft.personality;
+
+    // Optionally enrich with other attributes
+    if (nft.attributes && nft.attributes.length > 0) {
+      const otherTraits = nft.attributes
+        .filter((attr) => attr.trait_type?.toLowerCase() !== 'personality')
+        .map((attr) => `${attr.trait_type}: ${attr.value}`)
+        .join(', ');
+      if (otherTraits) {
+        persona = `${persona}\n\nTraits: ${otherTraits}`;
+      }
+    }
+  }
+
+  const avatar: AvatarRecord = {
+    pk: `AVATAR#${avatarId}`,
+    sk: 'CONFIG',
+    avatarId,
+    name: nft.name,
+    description,
+    persona,
+    platforms: {},
+    voiceConfig: {
+      enabled: true,
+      ttsProvider: 'voice-clone',
+      format: 'ogg',
+    },
+    llmConfig: {
+      provider: DEFAULT_LLM_PROVIDER,
+      model: DEFAULT_LLM_MODEL,
+      temperature: DEFAULT_LLM_TEMPERATURE,
+      maxTokens: DEFAULT_LLM_MAX_TOKENS,
+      useGlobalKey: true,
+    },
+    // Set profile image from NFT
+    profileImage: nft.image ? {
+      url: nft.image,
+      s3Key: '', // External URL, not in S3
+      updatedAt: now,
+    } : undefined,
+    // NFT-backing fields
+    nftMint: nft.mint,
+    nftCollection: nft.collection,
+    nftName: nft.name,
+    nftImage: nft.image,
+    // Ownership tracking
+    creatorWallet,
+    slotType,
+    healthStatus: 'healthy',
+    currentEra: 0,
+    status: 'draft',
+    createdAt: now,
+    createdBy: creatorWallet,
+    updatedAt: now,
+    updatedBy: creatorWallet,
+  };
+
+  try {
+    await dynamoClient.send(new PutCommand({
+      TableName: ADMIN_TABLE,
+      Item: avatar,
+      ConditionExpression: 'attribute_not_exists(pk)',
+    }));
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'ConditionalCheckFailedException') {
+      // Rare case: avatar ID collision
+      return { success: false, error: 'nft_already_claimed', gateStatus };
+    }
+    throw err;
+  }
+
+  await incrementCreatorCount(creatorWallet);
+
+  // Sync to state table
+  await syncAvatarConfig(avatar);
+
+  console.log(`[Avatars] Created NFT avatar=${avatarId} from mint=${nft.mint.slice(0, 8)}... by wallet=${creatorWallet.slice(0, 8)}...`);
+
+  return {
+    success: true,
+    avatar,
+    gateStatus: await getGateStatus(creatorWallet),
+  };
+}
+
+/**
+ * Get an avatar with NFT ownership verification
+ * For NFT-backed avatars, verifies the wallet still owns the NFT
+ * Returns null if the avatar is inaccessible (NFT sold)
+ */
+export async function getAvatarWithOwnershipCheck(
+  avatarId: string,
+  walletAddress: string
+): Promise<AvatarRecord | null> {
+  const avatar = await getAvatar(avatarId);
+  if (!avatar) {
+    return null;
+  }
+
+  // If not NFT-backed, standard access rules apply
+  if (!avatar.nftMint) {
+    return avatar;
+  }
+
+  // For NFT-backed avatars, verify current ownership
+  const stillOwns = await verifyNFTOwnership(walletAddress, avatar.nftMint);
+  if (!stillOwns) {
+    console.log(
+      `[Avatars] NFT ownership lost: avatar=${avatarId}, nft=${avatar.nftMint.slice(0, 8)}..., wallet=${walletAddress.slice(0, 8)}...`
+    );
+    return null; // Avatar inaccessible - NFT was sold
+  }
+
+  return avatar;
+}
+
+/**
+ * Find avatar by NFT mint address
+ */
+export async function getAvatarByNFTMint(mintAddress: string): Promise<AvatarRecord | null> {
+  try {
+    const result = await dynamoClient.send(new ScanCommand({
+      TableName: ADMIN_TABLE,
+      FilterExpression: 'sk = :sk AND nftMint = :mint AND #status <> :deleted',
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
+      ExpressionAttributeValues: {
+        ':sk': 'CONFIG',
+        ':mint': mintAddress,
+        ':deleted': 'deleted',
+      },
+      Limit: 1,
+    }));
+
+    if (result.Items && result.Items.length > 0) {
+      return result.Items[0] as AvatarRecord;
+    }
+    return null;
+  } catch (error) {
+    console.error('[Avatars] Error finding avatar by NFT mint:', error);
+    return null;
+  }
 }

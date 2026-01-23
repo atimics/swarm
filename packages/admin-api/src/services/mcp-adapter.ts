@@ -1961,6 +1961,51 @@ function createNFTServices(): NFTServices {
       const baseUrl = process.env.ADMIN_UI_URL || 'https://swarm.rati.chat';
       return `${baseUrl}/inhabit/${avatarId}`;
     },
+
+    // NFT Collection Avatar operations
+    getClaimableNFTs: async (walletAddress: string) => {
+      return nftGate.getClaimableNFTs(walletAddress);
+    },
+
+    claimNFTAsAvatar: async (walletAddress: string, mintAddress: string) => {
+      // First get the NFT details from the claimable list to verify ownership and get metadata
+      const claimableNFTs = await nftGate.getClaimableNFTs(walletAddress);
+      const nft = claimableNFTs.find((n) => n.mint === mintAddress);
+
+      if (!nft) {
+        // The NFT is not in the claimable list - either not owned, not in whitelisted collection, or already claimed
+        // Let's give a more specific error
+        const isOwned = await nftGate.verifyNFTOwnership(walletAddress, mintAddress);
+        if (!isOwned) {
+          return { success: false, error: 'nft_not_owned' };
+        }
+        if (await nftGate.isNFTClaimed(mintAddress)) {
+          return { success: false, error: 'nft_already_claimed' };
+        }
+        return { success: false, error: 'nft_not_in_collection' };
+      }
+
+      // Create the avatar from the NFT
+      const result = await avatars.createAvatarFromNFT(nft, walletAddress);
+
+      if (!result.success) {
+        return {
+          success: false,
+          error: result.error,
+        };
+      }
+
+      return {
+        success: true,
+        avatarId: result.avatar?.avatarId,
+        avatarName: result.avatar?.name,
+        avatarImage: result.avatar?.profileImage?.url,
+      };
+    },
+
+    getWhitelistedCollections: () => {
+      return nftGate.getWhitelistedCollections();
+    },
   };
 }
 

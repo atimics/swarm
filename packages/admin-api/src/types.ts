@@ -402,6 +402,13 @@ export interface AvatarRecord {
   healthMessage?: string;      // e.g., "Twitter rate limit exceeded"
   lastHealthCheck?: number;    // timestamp
 
+  // NFT-backing (for collection-based avatars)
+  // Avatars can be created from NFTs in whitelisted collections
+  nftMint?: string;            // Solana mint address of the NFT
+  nftCollection?: string;      // Collection address
+  nftName?: string;            // Name from NFT metadata
+  nftImage?: string;           // Image URL from NFT metadata
+
   // Legacy fields (for migration, will be removed)
   ownerWallet?: string;
   ownerClaimedAt?: number;

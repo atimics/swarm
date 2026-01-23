@@ -38,6 +38,13 @@ export interface ToolContext {
     email?: string;
     isAdmin?: boolean;
   };
+  /** Sender identity (for wallet-aware tools) */
+  sender?: {
+    walletAddress?: string;
+    displayName?: string;
+    avatarUrl?: string;
+    inhabitedAvatarId?: string;
+  };
 }
 
 /**

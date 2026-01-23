@@ -111,6 +111,30 @@ export interface AvatarInhabitationStatus {
   totalEras: number; // How many times this avatar has been abandoned
 }
 
+// NFT Collection Avatar types
+export interface ClaimableNFT {
+  mint: string;
+  name: string;
+  image: string;
+  collection: string;
+  collectionName?: string;
+  // Rich metadata from off-chain JSON
+  description?: string;      // Character description/backstory
+  personality?: string;      // Personality trait (for avatar persona)
+  attributes?: Array<{       // All NFT attributes
+    trait_type: string;
+    value: string;
+  }>;
+}
+
+export interface ClaimNFTResult {
+  success: boolean;
+  error?: string;
+  avatarId?: string;
+  avatarName?: string;
+  avatarImage?: string;
+}
+
 export interface NFTServices {
   // Gate NFT operations (for backend/user-facing APIs, not avatar tools)
   getGateStatus: (walletAddress: string) => Promise<GateStatus>;
@@ -146,6 +170,11 @@ export interface NFTServices {
   // Avatar self-awareness (the only thing avatars should access)
   getAvatarInhabitationStatus: (avatarId: string) => Promise<AvatarInhabitationStatus>;
   getInhabitationUrl: (avatarId: string) => string;
+
+  // NFT Collection Avatar operations (user-facing, requires wallet context)
+  getClaimableNFTs: (walletAddress: string) => Promise<ClaimableNFT[]>;
+  claimNFTAsAvatar: (walletAddress: string, mintAddress: string) => Promise<ClaimNFTResult>;
+  getWhitelistedCollections: () => string[];
 }
 
 // ============================================================================
@@ -270,6 +299,146 @@ export const createNFTTools = (services: NFTServices) => [
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to get lineage info',
+        };
+      }
+    },
+  }),
+
+  // ==========================================================================
+  // NFT Collection Avatar Tools (user-facing)
+  // ==========================================================================
+
+  defineReadonlyTool({
+    name: 'list_claimable_nfts',
+    description:
+      'List NFTs from whitelisted collections that the connected wallet owns and can claim as avatars. Returns NFTs that have not yet been claimed by anyone.',
+    toolset: 'nft',
+    inputSchema: z.object({}),
+    execute: async (_input, context): Promise<ToolResult> => {
+      try {
+        // Requires wallet context from sender
+        const walletAddress = context.sender?.walletAddress;
+        if (!walletAddress) {
+          return {
+            success: false,
+            error: 'No wallet connected. Please connect your wallet to view claimable NFTs.',
+          };
+        }
+
+        const whitelistedCollections = services.getWhitelistedCollections();
+        if (whitelistedCollections.length === 0) {
+          return {
+            success: true,
+            data: {
+              message: 'No NFT collections are currently whitelisted for avatar claiming.',
+              claimableNFTs: [],
+              whitelistedCollections: [],
+            },
+          };
+        }
+
+        const claimableNFTs = await services.getClaimableNFTs(walletAddress);
+
+        if (claimableNFTs.length === 0) {
+          return {
+            success: true,
+            data: {
+              message: 'No claimable NFTs found. You may not own any NFTs from the whitelisted collections, or they have already been claimed.',
+              claimableNFTs: [],
+              whitelistedCollections,
+              walletChecked: walletAddress.slice(0, 8) + '...',
+            },
+          };
+        }
+
+        return {
+          success: true,
+          data: {
+            message: `Found ${claimableNFTs.length} NFT(s) that can be claimed as avatars.`,
+            claimableNFTs: claimableNFTs.map((nft) => ({
+              mint: nft.mint,
+              name: nft.name,
+              image: nft.image,
+              collection: nft.collection,
+              collectionName: nft.collectionName,
+              description: nft.description,
+              personality: nft.personality,
+              attributes: nft.attributes,
+            })),
+            whitelistedCollections,
+            instructions: 'Use the claim_nft_as_avatar tool with the NFT mint address to claim one as an avatar.',
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to list claimable NFTs',
+        };
+      }
+    },
+  }),
+
+  defineReadonlyTool({
+    name: 'claim_nft_as_avatar',
+    description:
+      'Claim an NFT from a whitelisted collection as a new avatar. The NFT image becomes the avatar profile image, and the NFT name becomes the avatar name. Uses your normal avatar creation slots.',
+    toolset: 'nft',
+    inputSchema: z.object({
+      mint: z.string().describe('The Solana mint address of the NFT to claim as an avatar'),
+    }),
+    execute: async (input, context): Promise<ToolResult> => {
+      try {
+        // Requires wallet context from sender
+        const walletAddress = context.sender?.walletAddress;
+        if (!walletAddress) {
+          return {
+            success: false,
+            error: 'No wallet connected. Please connect your wallet to claim an NFT as an avatar.',
+          };
+        }
+
+        const result = await services.claimNFTAsAvatar(walletAddress, input.mint);
+
+        if (!result.success) {
+          let errorMessage = result.error || 'Failed to claim NFT as avatar';
+
+          // Provide user-friendly error messages
+          switch (result.error) {
+            case 'no_gate_slot':
+              errorMessage = 'You have no available avatar slots. You need to hold an Orb NFT to create more avatars.';
+              break;
+            case 'nft_already_claimed':
+              errorMessage = 'This NFT has already been claimed as an avatar by someone.';
+              break;
+            case 'nft_not_in_collection':
+              errorMessage = 'This NFT is not from a whitelisted collection.';
+              break;
+            case 'nft_not_owned':
+              errorMessage = 'You do not own this NFT.';
+              break;
+          }
+
+          return {
+            success: false,
+            error: errorMessage,
+          };
+        }
+
+        return {
+          success: true,
+          data: {
+            message: `Successfully claimed NFT as avatar "${result.avatarName}"!`,
+            avatarId: result.avatarId,
+            avatarName: result.avatarName,
+            avatarImage: result.avatarImage,
+            nftMint: input.mint,
+            note: 'This avatar is linked to your NFT. If you sell the NFT, you will lose access to this avatar.',
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to claim NFT as avatar',
         };
       }
     },

@@ -16,6 +16,13 @@ import {
 // Required collection for access (Orb/Gate NFTs)
 const GATE_COLLECTION = '8GCAyy5L2o2ZPdQKo3EtYAYNKYT8Y6sqGHweintLTSJ';
 
+// Whitelisted NFT collections whose NFTs can be claimed as avatars
+// Comma-separated list of collection addresses
+const WHITELISTED_NFT_COLLECTIONS = (process.env.WHITELISTED_NFT_COLLECTIONS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0);
+
 // Helius API key - can come from env var or Secrets Manager
 const HELIUS_API_KEY_ARN = process.env.HELIUS_API_KEY_ARN;
 let heliusApiKey: string | null = process.env.HELIUS_API_KEY || null;
@@ -157,7 +164,13 @@ export interface NFTAsset {
     metadata: {
       name: string;
       symbol?: string;
+      description?: string;
+      attributes?: Array<{
+        trait_type: string;
+        value: string;
+      }>;
     };
+    json_uri?: string;  // URI to off-chain metadata
     files?: Array<{ uri: string; cdn_uri?: string }>;
     links?: { image?: string };
   };
@@ -168,6 +181,21 @@ export interface NFTAsset {
   ownership: {
     owner: string;
   };
+}
+
+/**
+ * Full off-chain NFT metadata (fetched from json_uri)
+ */
+export interface NFTMetadata {
+  name: string;
+  description?: string;
+  image?: string;
+  attributes?: Array<{
+    trait_type: string;
+    value: string;
+  }>;
+  // Additional fields specific to collections
+  [key: string]: unknown;
 }
 
 export interface NFTGateResult {
@@ -358,3 +386,296 @@ export function getRequiredCollection(): string {
 
 /** @deprecated Use countAvatarsCreatedBy instead */
 export const countAgentsCreatedBy = countAvatarsCreatedBy;
+
+// =============================================================================
+// NFT Collection Avatar Support
+// =============================================================================
+
+/**
+ * An NFT from a whitelisted collection that can be claimed as an avatar
+ */
+export interface ClaimableNFT {
+  mint: string;              // Solana mint address
+  name: string;              // NFT name from metadata
+  image: string;             // Image URL
+  collection: string;        // Collection address
+  collectionName?: string;   // Collection name if available
+  // Rich metadata from off-chain JSON
+  description?: string;      // Character description/backstory
+  personality?: string;      // Personality trait (for avatar persona)
+  attributes?: Array<{       // All NFT attributes
+    trait_type: string;
+    value: string;
+  }>;
+}
+
+/**
+ * Get list of whitelisted NFT collections
+ */
+export function getWhitelistedCollections(): string[] {
+  return [...WHITELISTED_NFT_COLLECTIONS];
+}
+
+/**
+ * Check if a collection is whitelisted for avatar claiming
+ */
+export function isCollectionWhitelisted(collection: string): boolean {
+  return WHITELISTED_NFT_COLLECTIONS.includes(collection);
+}
+
+/**
+ * Fetch off-chain metadata from a JSON URI
+ * Handles IPFS and HTTP URIs
+ */
+async function fetchNFTMetadata(jsonUri: string): Promise<NFTMetadata | null> {
+  try {
+    // Convert IPFS URIs to HTTP gateway
+    let url = jsonUri;
+    if (url.startsWith('ipfs://')) {
+      url = `https://nftstorage.link/ipfs/${url.slice(7)}`;
+    }
+
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000), // 5 second timeout
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const metadata = await response.json() as NFTMetadata;
+    return metadata;
+  } catch {
+    // Silently fail - metadata is optional enrichment
+    return null;
+  }
+}
+
+/**
+ * Get NFTs from whitelisted collections that can be claimed as avatars
+ * Filters out NFTs that have already been claimed
+ */
+export async function getClaimableNFTs(walletAddress: string): Promise<ClaimableNFT[]> {
+  // If no whitelisted collections, return empty
+  if (WHITELISTED_NFT_COLLECTIONS.length === 0) {
+    console.log('[NFTGate] No whitelisted collections configured');
+    return [];
+  }
+
+  const heliusRpcUrl = await getHeliusRpcUrl();
+  if (!heliusRpcUrl) {
+    console.log('[NFTGate] No Helius API key configured, cannot fetch NFTs');
+    return [];
+  }
+
+  try {
+    // 1. Get all NFTs owned by wallet
+    const response = await fetch(heliusRpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'claimable-nfts',
+        method: 'getAssetsByOwner',
+        params: {
+          ownerAddress: walletAddress,
+          page: 1,
+          limit: 1000,
+          displayOptions: {
+            showCollectionMetadata: true,
+          },
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('[NFTGate] Helius API error fetching NFTs:', response.status);
+      return [];
+    }
+
+    const data = await response.json() as {
+      error?: { message?: string };
+      result?: { items?: NFTAsset[] };
+    };
+
+    if (data.error) {
+      console.error('[NFTGate] RPC error:', data.error);
+      return [];
+    }
+
+    const assets = data.result?.items || [];
+
+    // 2. Filter for NFTs in whitelisted collections
+    const whitelistedNFTs = assets.filter((asset) => {
+      const collection = asset.grouping?.find((g) => g.group_key === 'collection');
+      return collection && WHITELISTED_NFT_COLLECTIONS.includes(collection.group_value);
+    });
+
+    if (whitelistedNFTs.length === 0) {
+      console.log(`[NFTGate] Wallet ${walletAddress.slice(0, 8)}... owns no NFTs from whitelisted collections`);
+      return [];
+    }
+
+    // 3. Get already-claimed NFT mints from DynamoDB
+    const claimedMints = await getClaimedNFTMints();
+
+    // 4. Filter out already-claimed NFTs and fetch full metadata
+    const unclaimedNFTs = whitelistedNFTs.filter((nft) => !claimedMints.has(nft.id));
+
+    // 5. Fetch off-chain metadata for each NFT (in parallel, with limit)
+    const claimableNFTs: ClaimableNFT[] = await Promise.all(
+      unclaimedNFTs.map(async (nft) => {
+        const collection = nft.grouping?.find((g) => g.group_key === 'collection');
+        const baseNFT: ClaimableNFT = {
+          mint: nft.id,
+          name: nft.content?.metadata?.name || 'Unknown',
+          image: nft.content?.links?.image || nft.content?.files?.[0]?.cdn_uri || '',
+          collection: collection?.group_value || '',
+          collectionName: undefined,
+          description: nft.content?.metadata?.description,
+          attributes: nft.content?.metadata?.attributes,
+        };
+
+        // Try to fetch off-chain metadata for richer data
+        const jsonUri = nft.content?.json_uri;
+        if (jsonUri) {
+          try {
+            const metadata = await fetchNFTMetadata(jsonUri);
+            if (metadata) {
+              // Use off-chain metadata if richer
+              baseNFT.name = metadata.name || baseNFT.name;
+              baseNFT.description = metadata.description || baseNFT.description;
+              baseNFT.image = metadata.image || baseNFT.image;
+              baseNFT.attributes = metadata.attributes || baseNFT.attributes;
+
+              // Extract personality from attributes
+              const personalityAttr = metadata.attributes?.find(
+                (attr) => attr.trait_type?.toLowerCase() === 'personality'
+              );
+              if (personalityAttr) {
+                baseNFT.personality = personalityAttr.value;
+              }
+            }
+          } catch (err) {
+            console.warn(`[NFTGate] Failed to fetch metadata for ${nft.id}:`, err);
+          }
+        }
+
+        return baseNFT;
+      })
+    );
+
+    console.log(
+      `[NFTGate] Wallet ${walletAddress.slice(0, 8)}... has ${claimableNFTs.length} claimable NFTs from ${whitelistedNFTs.length} whitelisted`
+    );
+
+    return claimableNFTs;
+  } catch (error) {
+    console.error('[NFTGate] Error fetching claimable NFTs:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all NFT mints that have already been claimed as avatars
+ */
+async function getClaimedNFTMints(): Promise<Set<string>> {
+  try {
+    const result = await dynamoClient.send(new ScanCommand({
+      TableName: ADMIN_TABLE,
+      FilterExpression: 'sk = :sk AND attribute_exists(nftMint) AND #status <> :deleted',
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
+      ExpressionAttributeValues: {
+        ':sk': 'CONFIG',
+        ':deleted': 'deleted',
+      },
+      ProjectionExpression: 'nftMint',
+    }));
+
+    const mints = new Set<string>();
+    for (const item of result.Items || []) {
+      if (item.nftMint) {
+        mints.add(item.nftMint as string);
+      }
+    }
+    return mints;
+  } catch (error) {
+    console.error('[NFTGate] Error fetching claimed NFT mints:', error);
+    return new Set();
+  }
+}
+
+/**
+ * Verify that a wallet currently owns a specific NFT
+ * Used to check ownership before allowing access to NFT-backed avatars
+ */
+export async function verifyNFTOwnership(
+  walletAddress: string,
+  mintAddress: string
+): Promise<boolean> {
+  const heliusRpcUrl = await getHeliusRpcUrl();
+  if (!heliusRpcUrl) {
+    console.log('[NFTGate] No Helius API key configured, cannot verify NFT ownership');
+    return false;
+  }
+
+  try {
+    // Use getAsset to get current owner
+    const response = await fetch(heliusRpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'verify-nft-owner',
+        method: 'getAsset',
+        params: {
+          id: mintAddress,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('[NFTGate] Helius API error verifying NFT ownership:', response.status);
+      return false;
+    }
+
+    const data = await response.json() as {
+      error?: { message?: string };
+      result?: NFTAsset;
+    };
+
+    if (data.error) {
+      console.error('[NFTGate] RPC error:', data.error);
+      return false;
+    }
+
+    const asset = data.result;
+    if (!asset) {
+      console.log(`[NFTGate] NFT ${mintAddress} not found`);
+      return false;
+    }
+
+    const currentOwner = asset.ownership?.owner;
+    const isOwner = currentOwner === walletAddress;
+
+    console.log(
+      `[NFTGate] NFT ${mintAddress.slice(0, 8)}... ownership check: expected=${walletAddress.slice(0, 8)}..., actual=${currentOwner?.slice(0, 8)}..., match=${isOwner}`
+    );
+
+    return isOwner;
+  } catch (error) {
+    console.error('[NFTGate] Error verifying NFT ownership:', error);
+    return false;
+  }
+}
+
+/**
+ * Check if an NFT mint has already been claimed as an avatar
+ */
+export async function isNFTClaimed(mintAddress: string): Promise<boolean> {
+  const claimedMints = await getClaimedNFTMints();
+  return claimedMints.has(mintAddress);
+}
