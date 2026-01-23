@@ -38,7 +38,7 @@ export function getCorsHeaders(
     return {};
   }
 
-  const allowOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+  const allowOrigin = resolveAllowedOrigin(origin, allowedOrigins) ?? allowedOrigins[0];
 
   const allowCredentials = options.allowCredentials ?? true;
   const allowMethods = options.allowMethods ?? 'GET, POST, PUT, DELETE, OPTIONS';
@@ -54,4 +54,23 @@ export function getCorsHeaders(
     // Important when reflecting specific origins.
     'Vary': 'Origin',
   };
+}
+
+function resolveAllowedOrigin(origin: string, allowedOrigins: string[]): string | null {
+  if (!origin) return null;
+  if (allowedOrigins.includes(origin)) return origin;
+
+  for (const allowed of allowedOrigins) {
+    if (!allowed.includes('*')) continue;
+    const pattern = wildcardToRegExp(allowed);
+    if (pattern.test(origin)) return origin;
+  }
+
+  return null;
+}
+
+function wildcardToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const regex = `^${escaped.replace(/\*/g, '.*')}$`;
+  return new RegExp(regex);
 }

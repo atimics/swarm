@@ -179,6 +179,10 @@ export class AdminApiConstruct extends Construct {
       ? [`https://${adminDomain}`]
       : ['http://localhost:5173', 'http://localhost:3000'];
 
+    if (adminDomain?.endsWith('rati.chat')) {
+      allowedOrigins.push('https://*.rati.chat');
+    }
+
     // Secrets Manager uses AWS-managed KMS key by default (alias/aws/secretsmanager).
     // We intentionally do not provision a customer-managed key to avoid the monthly CMK charge.
 
@@ -706,6 +710,38 @@ export class AdminApiConstruct extends Construct {
       path: '/transcribe',
       methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
       integration: transcribeIntegration,
+    });
+
+    // Shared chat handler (public group chat)
+    const sharedChatHandler = new nodejs.NodejsFunction(this, 'SharedChatHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/shared-chat.ts'),
+      handler: 'handleSharedChat',
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 256,
+      environment: {
+        ADMIN_TABLE: this.table.tableName,
+        NODE_ENV: environment,
+        ALLOWED_ORIGINS: allowedOrigins.join(','),
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    this.table.grantReadWriteData(sharedChatHandler);
+
+    const sharedChatIntegration = new integrations.HttpLambdaIntegration(
+      'SharedChatIntegration',
+      sharedChatHandler
+    );
+
+    this.api.addRoutes({
+      path: '/shared-chat/{proxy+}',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: sharedChatIntegration,
     });
 
     // Avatars handler - for CRUD operations on avatars
