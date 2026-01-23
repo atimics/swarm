@@ -86,6 +86,15 @@ function detectMimeType(url: string, contentType: string | null): string {
   return 'image/png';
 }
 
+function sanitizeUrlForLog(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  } catch {
+    return rawUrl.split('?')[0] ?? rawUrl;
+  }
+}
+
 async function downsizeImageForTwitter(
   input: Buffer,
   mimeType: string
@@ -152,36 +161,77 @@ async function uploadMediaToTwitter(
   for (const source of sources) {
     let url = source.url;
     try {
-      console.log('Fetching media from URL:', url);
-      let download = await downloadMedia(url, source.s3Key);
+      console.log(JSON.stringify({
+        level: 'INFO',
+        subsystem: 'twitter',
+        event: 'twitter_media_fetch_start',
+        avatarId,
+        url: sanitizeUrlForLog(url),
+        hasS3Key: Boolean(source.s3Key),
+      }));
+      let download = await downloadMedia(url, source.s3Key, avatarId);
 
       // If Replicate URL failed (expired), try to find S3 version from gallery
       if (!download && isReplicateUrl(url) && avatarId) {
-        console.warn('Replicate URL expired, searching gallery for S3 URL');
+        console.warn(JSON.stringify({
+          level: 'WARN',
+          subsystem: 'twitter',
+          event: 'twitter_media_replicate_url_failed',
+          avatarId,
+          url: sanitizeUrlForLog(url),
+          message: 'Replicate URL failed; searching gallery for S3 URL',
+        }));
         try {
           const galleryItems = await gallery.getGallery(avatarId, { type: 'image', limit: 20 });
           // Find most recent image (gallery items are sorted by recency)
           const recentImage = galleryItems[0];
           if (recentImage?.url && !isReplicateUrl(recentImage.url)) {
-            console.log('Found S3 URL from gallery:', recentImage.url);
+            console.log(JSON.stringify({
+              level: 'INFO',
+              subsystem: 'twitter',
+              event: 'twitter_media_gallery_fallback_url',
+              avatarId,
+              url: sanitizeUrlForLog(recentImage.url),
+              hasS3Key: Boolean(recentImage.s3Key),
+            }));
             url = recentImage.url;
-            download = await downloadMedia(url, recentImage.s3Key);
+            download = await downloadMedia(url, recentImage.s3Key, avatarId);
           }
         } catch (galleryErr) {
-          console.error('Failed to search gallery for S3 URL:', galleryErr);
+          console.error(JSON.stringify({
+            level: 'ERROR',
+            subsystem: 'twitter',
+            event: 'twitter_media_gallery_fallback_failed',
+            avatarId,
+            error: galleryErr instanceof Error ? galleryErr.message : String(galleryErr),
+          }));
         }
       }
 
       if (!download) {
-        console.error('Failed to fetch media:', url);
+        console.error(JSON.stringify({
+          level: 'ERROR',
+          subsystem: 'twitter',
+          event: 'twitter_media_fetch_failed',
+          avatarId,
+          url: sanitizeUrlForLog(url),
+          message: 'Failed to fetch media; skipping this attachment',
+        }));
         continue;
       }
 
       let mimeType = detectMimeType(url, download.contentType ?? null);
-      console.log('Uploading media to Twitter with mimeType:', mimeType);
-
       const originalBuffer = download.buffer;
-      console.log('Buffer size:', originalBuffer.length, 'bytes');
+      console.log(JSON.stringify({
+        level: 'INFO',
+        subsystem: 'twitter',
+        event: 'twitter_media_downloaded',
+        avatarId,
+        url: sanitizeUrlForLog(url),
+        contentType: download.contentType,
+        detectedMimeType: mimeType,
+        bytes: originalBuffer.length,
+      }));
 
       let uploadBuffer = originalBuffer;
       if (mimeType.startsWith('image/') && originalBuffer.length > TWITTER_MAX_IMAGE_BYTES) {
@@ -207,10 +257,26 @@ async function uploadMediaToTwitter(
       const mediaId = await client.v1.uploadMedia(uploadBuffer, {
         mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
       });
-      console.log('Media uploaded successfully, mediaId:', mediaId);
+      console.log(JSON.stringify({
+        level: 'INFO',
+        subsystem: 'twitter',
+        event: 'twitter_media_upload_success',
+        avatarId,
+        url: sanitizeUrlForLog(url),
+        mediaId,
+        mimeType,
+        bytes: uploadBuffer.length,
+      }));
       mediaIds.push(mediaId);
     } catch (err) {
-      console.error('Failed to upload media to Twitter:', err);
+      console.error(JSON.stringify({
+        level: 'ERROR',
+        subsystem: 'twitter',
+        event: 'twitter_media_upload_failed',
+        avatarId,
+        url: sanitizeUrlForLog(url),
+        error: err instanceof Error ? err.message : String(err),
+      }));
     }
   }
 
@@ -254,14 +320,24 @@ async function resolveMediaSources(
 
 async function downloadMedia(
   url: string,
-  s3Key?: string
+  s3Key?: string,
+  avatarId?: string
 ): Promise<{ buffer: Buffer; contentType?: string } | null> {
   const bucket = MEDIA_BUCKET;
   if (bucket && s3Key) {
     try {
       return await downloadFromS3(bucket, s3Key);
     } catch (error) {
-      console.warn('Failed to download media from S3 key, falling back to URL fetch:', error);
+      console.warn(JSON.stringify({
+        level: 'WARN',
+        subsystem: 'twitter',
+        event: 'twitter_media_s3_download_failed',
+        avatarId,
+        url: sanitizeUrlForLog(url),
+        hasS3Key: true,
+        error: error instanceof Error ? error.message : String(error),
+        message: 'Failed S3 download by key; falling back to URL fetch',
+      }));
     }
   }
 
@@ -270,23 +346,46 @@ async function downloadMedia(
     try {
       return await downloadFromS3(resolved.bucket, resolved.key);
     } catch (error) {
-      console.warn('Failed to download media from S3 URL, falling back to URL fetch:', error);
+      console.warn(JSON.stringify({
+        level: 'WARN',
+        subsystem: 'twitter',
+        event: 'twitter_media_s3_url_download_failed',
+        avatarId,
+        url: sanitizeUrlForLog(url),
+        error: error instanceof Error ? error.message : String(error),
+        message: 'Failed S3 download by URL; falling back to URL fetch',
+      }));
     }
   }
 
   try {
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url, {}, API_TIMEOUT_MS);
     if (!response.ok) {
-      console.error('Failed to fetch media:', response.status, response.statusText);
+      console.error(JSON.stringify({
+        level: 'ERROR',
+        subsystem: 'twitter',
+        event: 'twitter_media_http_fetch_failed',
+        avatarId,
+        url: sanitizeUrlForLog(url),
+        status: response.status,
+        statusText: response.statusText,
+      }));
       return null;
     }
 
-    return {
-      buffer: Buffer.from(await response.arrayBuffer()),
-      contentType: response.headers.get('content-type') ?? undefined,
-    };
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType = response.headers.get('content-type') ?? undefined;
+    return { buffer, contentType };
   } catch (error) {
-    console.error('Failed to fetch media:', error);
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      subsystem: 'twitter',
+      event: 'twitter_media_http_fetch_error',
+      avatarId,
+      url: sanitizeUrlForLog(url),
+      error: error instanceof Error ? error.message : String(error),
+    }));
     return null;
   }
 }
