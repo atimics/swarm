@@ -166,6 +166,19 @@ export class AdminUi extends Construct {
                 },
               ],
             },
+
+            // Telegram (and other) webhooks must accept POST, and should be reachable
+            // at the public domain without requiring callers to know the raw API Gateway URL.
+            '/webhook/*': {
+              origin: new origins.HttpOrigin(apiDomain, {
+                protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
+              }),
+              viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+              allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+              cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+              // Forward Telegram's secret header and other request headers
+              originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+            },
           }
         : undefined,
       domainNames,

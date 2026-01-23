@@ -7,9 +7,9 @@
  */
 import { randomBytes } from 'crypto';
 
-const API_DOMAIN = process.env.API_DOMAIN || 'staging-swarm.rati.chat';
-const WEBHOOK_DOMAIN = process.env.TELEGRAM_WEBHOOK_DOMAIN
-  || process.env.WEBHOOK_DOMAIN
+const API_DOMAIN = process.env.API_DOMAIN?.trim() || 'staging-swarm.rati.chat';
+const WEBHOOK_DOMAIN = process.env.TELEGRAM_WEBHOOK_DOMAIN?.trim()
+  || process.env.WEBHOOK_DOMAIN?.trim()
   || API_DOMAIN;
 
 export function getTelegramWebhookUrlForAvatar(avatarId: string): string {
