@@ -94,8 +94,6 @@ const galleryDomain = getContextValue<string>('galleryDomain', envConfig);
 const galleryCertificateArn = getContextValue<string>('galleryCertificateArn', envConfig);
 const enableClaudeCode = (getContextValue<boolean>('enableClaudeCode', envConfig) ?? false) as boolean;
 const claudeCodeUseOpenRouter = (getContextValue<boolean>('claudeCodeUseOpenRouter', envConfig) ?? false) as boolean;
-// Enable shared handlers (Twitter mention polling, autonomous tweets, shared queues)
-const enableSharedHandlers = (getContextValue<boolean>('enableSharedHandlers', envConfig) ?? true) as boolean;
 const anthropicApiKeyArn = getContextValue<string>('anthropicApiKeyArn', envConfig);
 const secretPrefixRaw = getContextValue<string>('secretPrefix', envConfig);
 const stackHashRaw = getContextValue<string>('stackHash', envConfig);
@@ -124,6 +122,12 @@ const useSplitStacks = (app.node.tryGetContext('splitStacks') as boolean | undef
 const useExistingSharedResources = (getContextValue<boolean>('useExistingSharedResources', envConfig) ?? false) as boolean;
 const existingDependencyLayerArn = getContextValue<string>('existingDependencyLayerArn', envConfig);
 const existingCdnDistributionId = getContextValue<string>('existingCdnDistributionId', envConfig);
+
+// Enable shared handlers (Twitter mention polling, autonomous tweets, shared queues)
+// Default to true for monolithic stack, but default to false during split-stack migration
+// to avoid Lambda name collisions with the legacy deployment.
+const enableSharedHandlersExplicit = getContextValue<boolean>('enableSharedHandlers', envConfig);
+const enableSharedHandlers = (enableSharedHandlersExplicit ?? (!useSplitStacks || !useExistingSharedResources)) as boolean;
 
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
