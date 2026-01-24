@@ -115,6 +115,30 @@ function expectedWebhookUrl(expectedDomain, avatarId) {
   return `https://${expectedDomain}/webhook/telegram/${avatarId}`;
 }
 
+function normalizeBaseUrl(raw) {
+  const input = String(raw || '').trim();
+  if (!input) return '';
+
+  if (input.includes('...')) {
+    throw new Error(
+      `SWARM_ADMIN_API_URL looks like a placeholder (contains "..."): ${input}. Provide the full https://... base URL.`
+    );
+  }
+
+  const withScheme = /^https?:\/\//i.test(input) ? input : `https://${input}`;
+
+  let parsed;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    throw new Error(`Invalid SWARM_ADMIN_API_URL: ${input}. Expected a full URL like https://xxxx.execute-api.us-east-1.amazonaws.com`);
+  }
+
+  // Ensure we only keep origin + pathname (no query/hash) and drop trailing slash.
+  const normalized = `${parsed.origin}${parsed.pathname}`.replace(/\/$/, '');
+  return normalized;
+}
+
 async function getTelegramWebhookInfo(botToken) {
   const url = `https://api.telegram.org/bot${botToken}/getWebhookInfo`;
   const res = await fetch(url);
@@ -158,9 +182,15 @@ async function main() {
     process.exit(0);
   }
 
-  const baseUrl = (args.baseUrl || '').replace(/\/$/, '');
+  let baseUrl = '';
+  try {
+    baseUrl = normalizeBaseUrl(args.baseUrl);
+  } catch (e) {
+    console.error(`Invalid Admin API URL: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  }
   if (!baseUrl) {
-    console.error('Missing Admin API URL. Set SWARM_ADMIN_API_URL');
+    console.error('Missing Admin API URL. Set SWARM_ADMIN_API_URL (for example: https://xxxx.execute-api.us-east-1.amazonaws.com)');
     process.exit(1);
   }
   if (!args.internalTestKey) {
