@@ -1,10 +1,11 @@
 /**
  * Solana Wallet Provider
  * Wraps the app with Solana wallet adapter context
- * 
- * Note: Phantom, Solflare, and other major wallets auto-register as Standard Wallets
- * via the Wallet Standard. We only need to add adapters for wallets that don't
- * support the standard yet (like Coinbase).
+ *
+ * Note: While Phantom and Solflare support Wallet Standard auto-registration,
+ * there's a known bug where clicking on them in the modal does nothing.
+ * We explicitly add adapters as a workaround.
+ * See: https://github.com/anza-xyz/wallet-adapter/issues/1111
  */
 import { useCallback, useMemo, type ReactNode } from 'react';
 import {
@@ -12,7 +13,11 @@ import {
   WalletProvider as SolanaWalletProvider,
 } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { CoinbaseWalletAdapter } from '@solana/wallet-adapter-wallets';
+import {
+  CoinbaseWalletAdapter,
+  PhantomWalletAdapter,
+  SolflareWalletAdapter,
+} from '@solana/wallet-adapter-wallets';
 import { humanizeWalletAdapterError, useWalletUi } from '../store/walletUi';
 
 // Import wallet adapter styles
@@ -28,10 +33,14 @@ interface WalletProviderProps {
 export function WalletProvider({ children }: WalletProviderProps) {
   const setWalletError = useWalletUi((s) => s.setWalletError);
 
-  // Only add adapters for wallets that don't support Wallet Standard.
-  // Phantom, Solflare, etc. auto-register via Wallet Standard.
+  // Explicitly add wallet adapters as a workaround for Wallet Standard detection issues.
+  // See: https://github.com/anza-xyz/wallet-adapter/issues/1111
   const wallets = useMemo(
-    () => [new CoinbaseWalletAdapter()],
+    () => [
+      new PhantomWalletAdapter(),
+      new SolflareWalletAdapter(),
+      new CoinbaseWalletAdapter(),
+    ],
     []
   );
 

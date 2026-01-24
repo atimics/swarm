@@ -906,8 +906,8 @@ function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
       }
 
       // Gallery items (can be in .items or .data array)
-      const itemsArray = Array.isArray(parsed.items) ? parsed.items 
-        : Array.isArray(parsed.data) ? parsed.data 
+      const itemsArray = Array.isArray(parsed.items) ? parsed.items
+        : Array.isArray(parsed.data) ? parsed.data
         : null;
       if (itemsArray) {
         for (const item of itemsArray) {
@@ -917,6 +917,27 @@ function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
               url: item.url,
               prompt: item.prompt,
               id: item.id,
+            });
+          }
+        }
+      }
+
+      // Voice tool results have URLs nested in data (introUrl, previewUrl, url)
+      // Handle { success: true, data: { introUrl, previewUrl, url, ... } }
+      if (isSuccess && parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)) {
+        const dataObj = parsed.data as Record<string, unknown>;
+        // Check for voice-specific URLs
+        const voiceUrls = [dataObj.introUrl, dataObj.previewUrl, dataObj.url].filter(
+          (u): u is string => typeof u === 'string' && u.length > 0
+        );
+        for (const voiceUrl of voiceUrls) {
+          const isTwitter = voiceUrl.includes('x.com/') || voiceUrl.includes('twitter.com/');
+          if (!isTwitter) {
+            media.push({
+              type: isAudioUrl(voiceUrl) ? 'audio' : 'image',
+              url: voiceUrl,
+              prompt: typeof dataObj.message === 'string' ? dataObj.message : undefined,
+              id: typeof dataObj.assetId === 'string' ? dataObj.assetId : undefined,
             });
           }
         }

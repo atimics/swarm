@@ -1,11 +1,18 @@
 export function redactMediaUrlsFromText(text: string): string {
   if (!text) return text;
 
-  // Redact raw CloudFront URLs from user-visible or model-facing text. These links
-  // are often not directly accessible outside the app flow (e.g., missing object,
-  // delayed upload, or protected origin), and the model tends to echo them.
-  const cloudfrontUrlPattern = /\bhttps?:\/\/[^\s<>()"']*cloudfront\.net[^\s<>()"']*/gi;
-  return text.replace(cloudfrontUrlPattern, '[media link]');
+  // Pattern for CloudFront/S3 URLs
+  const privateUrlPattern = /https?:\/\/[^\s<>()"'\]]*(?:cloudfront\.net|s3[^/]*\.amazonaws\.com)[^\s<>()"'\]]*/gi;
+
+  // First, handle markdown links containing private URLs: [text](url) -> text
+  // This preserves the link label text instead of breaking the markdown syntax
+  const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^\s<>()"']*(?:cloudfront\.net|s3[^/]*\.amazonaws\.com)[^\s<>()"')]*)\)/gi;
+  let result = text.replace(markdownLinkPattern, '$1');
+
+  // Then redact any remaining raw CloudFront/S3 URLs
+  result = result.replace(privateUrlPattern, '[media link]');
+
+  return result;
 }
 
 export function isProbablyPrivateMediaUrl(url: string): boolean {
