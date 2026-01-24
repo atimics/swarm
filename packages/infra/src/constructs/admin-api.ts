@@ -791,6 +791,9 @@ export class AdminApiConstruct extends Construct {
         CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
         ADMIN_WALLETS: props.adminWallets || '',
+        // Public domain used to compute Telegram webhook URLs (bots should follow CloudFront cutovers).
+        API_DOMAIN: props.apiDomain || '',
+        TELEGRAM_WEBHOOK_DOMAIN: props.apiDomain || '',
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         SECRET_PREFIX: secretPrefix,
@@ -1266,6 +1269,7 @@ export class AdminApiConstruct extends Construct {
         LLM_MODEL: 'anthropic/claude-haiku-4.5',
         LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
         API_DOMAIN: props.apiDomain || '',
+        TELEGRAM_WEBHOOK_DOMAIN: props.apiDomain || '',
         NODE_ENV: environment,
         // Internal test key for E2E tests (bypasses IP check in non-prod)
         INTERNAL_TEST_KEY: environment !== 'prod' ? internalTestKey : '',

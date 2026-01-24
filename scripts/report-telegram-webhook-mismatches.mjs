@@ -30,9 +30,17 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_CONCURRENCY = 3;
 
+function defaultExpectedDomainForEnv(env) {
+  const normalized = String(env || '').trim().toLowerCase();
+  if (normalized === 'prod' || normalized === 'production') return 'swarm.rati.chat';
+  if (normalized === 'staging') return 'staging-swarm.rati.chat';
+  return '';
+}
+
 function parseArgs(argv) {
+  const runtimeEnv = process.env.ENVIRONMENT || process.env.NODE_ENV || '';
   const args = {
-    expectedDomain: 'staging-swarm.rati.chat',
+    expectedDomain: defaultExpectedDomainForEnv(runtimeEnv),
     secretPrefix: 'swarm',
     concurrency: DEFAULT_CONCURRENCY,
     only: undefined,
@@ -54,7 +62,7 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.log(`\nUsage:\n  node scripts/report-telegram-webhook-mismatches.mjs [options]\n\nOptions:\n  --expected-domain DOMAIN      Default: staging-swarm.rati.chat\n  --secret-prefix PREFIX        Default: swarm\n  --only a,b,c                  Only process these avatar IDs\n  --concurrency N               Default: ${DEFAULT_CONCURRENCY}\n\nEnv vars:\n  SWARM_ADMIN_API_URL, SWARM_INTERNAL_TEST_KEY, AWS_REGION\n`);
+  console.log(`\nUsage:\n  node scripts/report-telegram-webhook-mismatches.mjs [options]\n\nOptions:\n  --expected-domain DOMAIN      Default: (prod->swarm.rati.chat, staging->staging-swarm.rati.chat)\n  --secret-prefix PREFIX        Default: swarm\n  --only a,b,c                  Only process these avatar IDs\n  --concurrency N               Default: ${DEFAULT_CONCURRENCY}\n\nEnv vars:\n  SWARM_ADMIN_API_URL, SWARM_INTERNAL_TEST_KEY, AWS_REGION, ENVIRONMENT/NODE_ENV\n`);
 }
 
 async function httpJson(url, { method = 'GET', headers = {}, body } = {}) {
@@ -157,6 +165,10 @@ async function main() {
   }
   if (!args.internalTestKey) {
     console.error('Missing internal test key. Set SWARM_INTERNAL_TEST_KEY');
+    process.exit(1);
+  }
+  if (!args.expectedDomain) {
+    console.error('Missing expected domain. Pass --expected-domain or set ENVIRONMENT=staging|prod');
     process.exit(1);
   }
 

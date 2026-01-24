@@ -7,10 +7,32 @@
  */
 import { randomBytes } from 'crypto';
 
-const API_DOMAIN = process.env.API_DOMAIN?.trim() || 'staging-swarm.rati.chat';
+function defaultDomainForEnv(env: string): string {
+  const normalized = env.trim().toLowerCase();
+  if (normalized === 'prod' || normalized === 'production') return 'swarm.rati.chat';
+  if (normalized === 'staging') return 'staging-swarm.rati.chat';
+  // For dev/local, callers should set API_DOMAIN/WEBHOOK_DOMAIN explicitly.
+  return 'localhost';
+}
+
+const runtimeEnv = process.env.NODE_ENV?.trim()
+  || process.env.ENVIRONMENT?.trim()
+  || '';
+
+const API_DOMAIN = process.env.API_DOMAIN?.trim() || defaultDomainForEnv(runtimeEnv);
 const WEBHOOK_DOMAIN = process.env.TELEGRAM_WEBHOOK_DOMAIN?.trim()
   || process.env.WEBHOOK_DOMAIN?.trim()
   || API_DOMAIN;
+
+// If WEBHOOK_DOMAIN ends up being a raw API Gateway host, the webhook will bypass CloudFront.
+// That can make domain cutovers confusing (bots won't follow the CloudFront CNAME).
+if (/execute-api\.[^.]+\.amazonaws\.com$/i.test(WEBHOOK_DOMAIN)) {
+  // eslint-disable-next-line no-console
+  console.warn('[telegram] WEBHOOK_DOMAIN is an API Gateway host; consider setting TELEGRAM_WEBHOOK_DOMAIN to your CloudFront domain', {
+    WEBHOOK_DOMAIN,
+    API_DOMAIN,
+  });
+}
 
 export function getTelegramWebhookUrlForAvatar(avatarId: string): string {
   return `https://${WEBHOOK_DOMAIN}/webhook/telegram/${avatarId}`;
