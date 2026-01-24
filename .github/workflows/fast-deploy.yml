@@ -1,0 +1,128 @@
+name: Fast Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options: [staging, production]
+      functions:
+        description: 'Functions to update (comma-separated, or "all")'
+        required: false
+        default: 'all'
+        type: string
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  fast-deploy:
+    name: Fast Lambda Deploy
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build handlers
+        run: pnpm --filter @swarm/core --filter @swarm/mcp-server --filter @swarm/handlers build
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: fast-deploy-${{ inputs.environment }}
+
+      - name: Bundle and deploy functions
+        env:
+          CDK_ENV: ${{ inputs.environment == 'production' && 'prod' || 'staging' }}
+          FUNCTIONS: ${{ inputs.functions }}
+        run: |
+          set -e
+          
+          # Define function mappings: handler file -> Lambda function name pattern
+          declare -A FUNCTION_MAP=(
+            ["message-processor"]="swarm-${CDK_ENV}-message-processor"
+            ["telegram-webhook-shared"]="swarm-${CDK_ENV}-telegram-webhook"
+            ["response-sender"]="swarm-${CDK_ENV}-response-sender"
+            ["media-processor"]="swarm-${CDK_ENV}-media-processor"
+            ["twitter-mention-poller"]="swarm-${CDK_ENV}-twitter-mention-poller"
+            ["autonomous-tweet-poster"]="swarm-${CDK_ENV}-autonomous-tweet-poster"
+          )
+          
+          cd packages/handlers
+          
+          # Determine which functions to deploy
+          if [ "$FUNCTIONS" = "all" ]; then
+            DEPLOY_FUNCTIONS="${!FUNCTION_MAP[@]}"
+          else
+            DEPLOY_FUNCTIONS=$(echo "$FUNCTIONS" | tr ',' ' ')
+          fi
+          
+          echo "🚀 Fast deploying to ${CDK_ENV}: ${DEPLOY_FUNCTIONS}"
+          
+          for handler in $DEPLOY_FUNCTIONS; do
+            LAMBDA_NAME="${FUNCTION_MAP[$handler]}"
+            if [ -z "$LAMBDA_NAME" ]; then
+              echo "⚠️  Unknown handler: $handler, skipping"
+              continue
+            fi
+            
+            ENTRY_FILE="src/${handler}.ts"
+            if [ ! -f "$ENTRY_FILE" ]; then
+              echo "⚠️  Entry file not found: $ENTRY_FILE, skipping"
+              continue
+            fi
+            
+            echo "📦 Bundling ${handler}..."
+            
+            # Bundle with esbuild (same settings as NodejsFunction)
+            npx esbuild "$ENTRY_FILE" \
+              --bundle \
+              --platform=node \
+              --target=node20 \
+              --format=esm \
+              --outfile="/tmp/${handler}/index.mjs" \
+              --external:@aws-sdk/* \
+              --external:sharp \
+              --sourcemap \
+              --minify
+            
+            # Create zip
+            cd /tmp/${handler}
+            zip -q "${handler}.zip" index.mjs index.mjs.map
+            
+            echo "⬆️  Uploading ${LAMBDA_NAME}..."
+            
+            # Update Lambda function code
+            aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --zip-file "fileb://${handler}.zip" \
+              --no-cli-pager
+            
+            echo "✅ ${LAMBDA_NAME} updated"
+            cd - > /dev/null
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## ⚡ Fast Deploy Complete" >> $GITHUB_STEP_SUMMARY
+          echo "Environment: **${CDK_ENV}**" >> $GITHUB_STEP_SUMMARY
+          echo "Functions: ${DEPLOY_FUNCTIONS}" >> $GITHUB_STEP_SUMMARY
