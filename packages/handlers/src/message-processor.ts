@@ -751,24 +751,12 @@ async function generateResponse(
     // Take most recent messages up to limit
     const recentHistory = historyWithoutCurrent.slice(-maxContext);
 
-    if (recentHistory.length > 0) {
-      // Add a context header so the LLM understands these are previous messages
+    // Add history messages with proper user/assistant roles
+    // Include sender name for multi-user chat context
+    for (const msg of recentHistory) {
       messages.push({
-        role: 'user',
-        content: `[CONVERSATION HISTORY - The following ${recentHistory.length} message(s) are from this chat's recent history. Your previous responses are marked as assistant messages.]`,
-      });
-
-      for (const msg of recentHistory) {
-        messages.push({
-          role: msg.isBot ? 'assistant' : 'user',
-          content: `[${msg.sender}]: ${msg.content}`,
-        });
-      }
-
-      // Add separator before current message
-      messages.push({
-        role: 'user',
-        content: '[END OF HISTORY - New message below]',
+        role: msg.isBot ? 'assistant' : 'user',
+        content: `[${msg.sender}]: ${msg.content}`,
       });
     }
 
@@ -777,10 +765,17 @@ async function generateResponse(
       historyCount: recentHistory.length,
       maxContext,
       totalHistory: channelHistory.length,
+      historyMessageIds: recentHistory.map(m => m.messageId).slice(0, 5), // Log first 5 IDs for debugging
+    });
+  } else {
+    logger.info('No channel history available', {
+      event: 'no_history',
+      channelHistoryProvided: !!channelHistory,
+      channelHistoryLength: channelHistory?.length ?? 0,
     });
   }
 
-  // Add current user message
+  // Add current user message with sender attribution for group chat context
   const sender = envelope.sender.displayName || envelope.sender.username || envelope.sender.id;
   const text = envelope.content.text || (() => {
     const mediaTypes = envelope.content.media?.map(m => m.type) || [];
