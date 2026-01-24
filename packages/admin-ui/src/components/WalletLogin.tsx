@@ -332,6 +332,18 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     setVisible(true);
   }, [setVisible, clearError, clearWalletUiError]);
 
+  // Handle connect for wallet linking - closes Account modal first to avoid z-index/focus conflicts
+  const handleConnectForLinking = useCallback(() => {
+    setShowAccount(false);
+    // Small delay to ensure Account modal closes before wallet modal opens
+    setTimeout(() => {
+      loginAttemptedRef.current = null;
+      clearError();
+      clearWalletUiError();
+      setVisible(true);
+    }, 100);
+  }, [setVisible, clearError, clearWalletUiError]);
+
   // Handle disconnect/logout - works for both auth providers
   const handleDisconnect = useCallback(async () => {
     loginAttemptedRef.current = null;
@@ -656,7 +668,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                         label="Buy on Tensor"
                       />
                       <button
-                        onClick={handleConnect}
+                        onClick={handleConnectForLinking}
                         className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium"
                       >
                         Connect wallet to link
