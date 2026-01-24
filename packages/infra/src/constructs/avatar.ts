@@ -65,6 +65,10 @@ export interface AvatarConstructProps {
    * Environment (dev, staging, prod)
    */
   environment?: string;
+  /**
+   * Optional suffix for resource names/exports (e.g., "-a1b2c3")
+   */
+  nameSuffix?: string;
 
   /**
    * CDN URL for media (e.g., https://gallery.example.com)
@@ -108,31 +112,33 @@ export class AvatarConstruct extends Construct {
       dependencyLayer,
       handlersCodePath,
       environment = 'dev',
+      nameSuffix,
       cdnUrl,
       discordCluster,
       replicateApiKeyArn,
       mediaConvertFunction,
     } = props;
+    const suffix = nameSuffix ?? '';
 
     // Create or import secrets
     if (props.secretsArn) {
       this.secrets = secretsmanager.Secret.fromSecretCompleteArn(this, 'Secrets', props.secretsArn);
     } else {
       this.secrets = new secretsmanager.Secret(this, 'Secrets', {
-        secretName: `swarm/${config.id}/secrets`,
+        secretName: `swarm/${config.id}${suffix}/secrets`,
         description: `Secrets for avatar ${config.name}`,
       });
     }
 
     // Create SQS queues with DLQ
     const dlq = new sqs.Queue(this, 'DeadLetterQueue', {
-      queueName: `${config.id}-dlq.fifo`,
+      queueName: `${config.id}${suffix}-dlq.fifo`,
       fifo: true,
       retentionPeriod: cdk.Duration.days(14),
     });
 
     this.messageQueue = new sqs.Queue(this, 'MessageQueue', {
-      queueName: `${config.id}-messages.fifo`,
+      queueName: `${config.id}${suffix}-messages.fifo`,
       fifo: true,
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.seconds(60),
@@ -143,7 +149,7 @@ export class AvatarConstruct extends Construct {
     });
 
     this.responseQueue = new sqs.Queue(this, 'ResponseQueue', {
-      queueName: `${config.id}-responses.fifo`,
+      queueName: `${config.id}${suffix}-responses.fifo`,
       fifo: true,
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.seconds(60),
@@ -154,7 +160,7 @@ export class AvatarConstruct extends Construct {
     });
 
     this.mediaQueue = new sqs.Queue(this, 'MediaQueue', {
-      queueName: `${config.id}-media.fifo`,
+      queueName: `${config.id}${suffix}-media.fifo`,
       fifo: true,
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.minutes(5),
@@ -246,7 +252,7 @@ export class AvatarConstruct extends Construct {
     // Telegram webhook handler
     if (config.platforms.telegram?.enabled) {
       const telegramHandler = new lambda.Function(this, 'TelegramWebhook', {
-        functionName: `${config.id}-telegram-webhook`,
+        functionName: `${config.id}${suffix}-telegram-webhook`,
         runtime: lambda.Runtime.NODEJS_20_X,
         handler: 'telegram-webhook.handler',
         code: lambda.Code.fromAsset(handlersCodePath),
@@ -267,7 +273,7 @@ export class AvatarConstruct extends Construct {
     // Discord interactions webhook handler
     if (config.platforms.discord?.enabled) {
       const discordHandler = new lambda.Function(this, 'DiscordWebhook', {
-        functionName: `${config.id}-discord-webhook`,
+        functionName: `${config.id}${suffix}-discord-webhook`,
         runtime: lambda.Runtime.NODEJS_20_X,
         handler: 'discord-webhook.handler',
         code: lambda.Code.fromAsset(handlersCodePath),
@@ -285,7 +291,7 @@ export class AvatarConstruct extends Construct {
     // Web chat handler
     if (config.platforms.web?.enabled) {
       const webHandler = new lambda.Function(this, 'WebChat', {
-        functionName: `${config.id}-web-chat`,
+        functionName: `${config.id}${suffix}-web-chat`,
         runtime: lambda.Runtime.NODEJS_20_X,
         handler: 'web-chat.handler',
         code: lambda.Code.fromAsset(handlersCodePath),
@@ -302,7 +308,7 @@ export class AvatarConstruct extends Construct {
 
     // Message processor (SQS triggered)
     const messageProcessor = new lambda.Function(this, 'MessageProcessor', {
-      functionName: `${config.id}-message-processor`,
+      functionName: `${config.id}${suffix}-message-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'message-processor.handler',
       code: lambda.Code.fromAsset(handlersCodePath),
@@ -319,7 +325,7 @@ export class AvatarConstruct extends Construct {
 
     // Response sender (SQS triggered)
     const responseSender = new lambda.Function(this, 'ResponseSender', {
-      functionName: `${config.id}-response-sender`,
+      functionName: `${config.id}${suffix}-response-sender`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'response-sender.handler',
       code: lambda.Code.fromAsset(handlersCodePath),
@@ -336,7 +342,7 @@ export class AvatarConstruct extends Construct {
 
     // Media processor (SQS triggered)
     const mediaProcessor = new lambda.Function(this, 'MediaProcessor', {
-      functionName: `${config.id}-media-processor`,
+      functionName: `${config.id}${suffix}-media-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'media-processor.handler',
       code: lambda.Code.fromAsset(handlersCodePath),
@@ -364,7 +370,7 @@ export class AvatarConstruct extends Construct {
         });
 
         const logGroup = new logs.LogGroup(this, 'DiscordGatewayLogs', {
-          logGroupName: `/aws/ecs/${config.id}-discord-gateway`,
+          logGroupName: `/aws/ecs/${config.id}${suffix}-discord-gateway`,
           retention: logs.RetentionDays.ONE_WEEK,
         });
 
@@ -502,7 +508,7 @@ export class AvatarConstruct extends Construct {
     const scheduledTweet = config.scheduling.tweets?.[0];
     if (config.platforms.twitter?.enabled && scheduledTweet) {
       const tweetPoster = new lambda.Function(this, 'TweetPoster', {
-        functionName: `${config.id}-tweet-poster`,
+        functionName: `${config.id}${suffix}-tweet-poster`,
         runtime: lambda.Runtime.NODEJS_20_X,
         handler: 'tweet-poster.handler',
         code: lambda.Code.fromAsset(handlersCodePath),
@@ -539,7 +545,7 @@ export class AvatarConstruct extends Construct {
     const twitterMentions = config.platforms.twitter?.features?.includes('mention_replies');
     if (config.platforms.twitter?.enabled && twitterMentions) {
       const mentionPoller = new lambda.Function(this, 'TwitterMentionPoller', {
-        functionName: `${config.id}-twitter-mention-poller`,
+        functionName: `${config.id}${suffix}-twitter-mention-poller`,
         runtime: lambda.Runtime.NODEJS_20_X,
         handler: 'twitter-mention-poller.handler',
         code: lambda.Code.fromAsset(handlersCodePath),

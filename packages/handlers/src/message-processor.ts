@@ -184,7 +184,7 @@ async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
       typingIndicator: true,
       ignoreBots: true,
       cooldownMinutes: 5,
-      maxContextMessages: 20,
+      maxContextMessages: 50,
     },
     tools: [
       'send_message', 'react', 'wait', 'ignore',

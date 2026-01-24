@@ -47,12 +47,17 @@ export interface UserRecord {
   sessionCount: number;
 }
 
+export type AuthProvider = 'wallet' | 'crossmint' | 'privy';
+
 export interface SessionRecord {
   pk: string; // SESSION#<token>
   sk: 'DATA';
   sessionToken: string;
   walletAddress: string;
   accountId?: string;
+  // New fields for unified auth model
+  authProvider?: AuthProvider;
+  authProviderId?: string; // The provider-specific ID used to authenticate
   createdAt: number;
   expiresAt: number;
   lastActiveAt: number;

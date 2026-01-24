@@ -22,6 +22,10 @@ export interface AdminApiStackProps extends cdk.StackProps {
    * Environment name (dev, staging, prod)
    */
   environment: string;
+  /**
+   * Optional suffix for resource names/exports (e.g., "-a1b2c3")
+   */
+  nameSuffix?: string;
 
   /**
    * Reference to the shared infrastructure stack
@@ -167,6 +171,7 @@ export class AdminApiStack extends cdk.Stack {
       claudeCodeUseOpenRouter = false,
       enableSharedHandlers = false,
       secretPrefix,
+      nameSuffix,
     } = props;
 
     // Import shared resources from the shared infrastructure stack
@@ -218,6 +223,7 @@ export class AdminApiStack extends cdk.Stack {
     if (enableSharedHandlers) {
       this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
         environment,
+        nameSuffix,
         dependencyLayer,
         stateTable,
         activityTable,
@@ -245,6 +251,7 @@ export class AdminApiStack extends cdk.Stack {
         privyAppSecretArn,
         privyJwtVerificationKeyArn,
         environment,
+        nameSuffix,
         adminDomain,
         apiDomain: adminDomain,
         stateTable,
@@ -262,7 +269,7 @@ export class AdminApiStack extends cdk.Stack {
     // Create Claude Code worker if enabled
     if (enableClaudeCode) {
       const claudeCodeCallbackQueue = new sqs.Queue(this, 'ClaudeCodeCallbackQueue', {
-        queueName: `swarm-claude-code-callbacks-${environment}.fifo`,
+        queueName: `swarm-claude-code-callbacks-${environment}${nameSuffix ?? ''}.fifo`,
         fifo: true,
         contentBasedDeduplication: true,
         visibilityTimeout: cdk.Duration.seconds(60),
@@ -270,6 +277,7 @@ export class AdminApiStack extends cdk.Stack {
 
       this.claudeCodeWorker = new ClaudeCodeWorker(this, 'ClaudeCodeWorker', {
         environment,
+        nameSuffix,
         cluster: discordCluster,
         stateTable,
         responseQueue: claudeCodeCallbackQueue,
@@ -285,13 +293,13 @@ export class AdminApiStack extends cdk.Stack {
       new cdk.CfnOutput(this, 'ClaudeCodeQueueUrl', {
         value: this.claudeCodeWorker.queue.queueUrl,
         description: 'Claude Code task queue URL',
-        exportName: `swarm-claude-code-queue-url-${environment}`,
+        exportName: `swarm-claude-code-queue-url-${environment}${nameSuffix ?? ''}`,
       });
 
       new cdk.CfnOutput(this, 'ClaudeCodeCallbackQueueUrl', {
         value: claudeCodeCallbackQueue.queueUrl,
         description: 'Claude Code callback queue URL',
-        exportName: `swarm-claude-code-callback-queue-url-${environment}`,
+        exportName: `swarm-claude-code-callback-queue-url-${environment}${nameSuffix ?? ''}`,
       });
     }
 

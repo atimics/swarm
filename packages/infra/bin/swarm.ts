@@ -98,6 +98,19 @@ const claudeCodeUseOpenRouter = (getContextValue<boolean>('claudeCodeUseOpenRout
 const enableSharedHandlers = (getContextValue<boolean>('enableSharedHandlers', envConfig) ?? true) as boolean;
 const anthropicApiKeyArn = getContextValue<string>('anthropicApiKeyArn', envConfig);
 const secretPrefix = getContextValue<string>('secretPrefix', envConfig);
+const stackHashRaw = getContextValue<string>('stackHash', envConfig);
+
+function normalizeStackHash(value?: string): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!/^[a-f0-9]{6}$/i.test(trimmed)) {
+    throw new Error(`Invalid stackHash "${value}". Expected 6 hex chars.`);
+  }
+  return trimmed.toLowerCase();
+}
+
+const stackHash = normalizeStackHash(stackHashRaw);
+const nameSuffix = stackHash ? `-${stackHash}` : '';
 
 // Check if we should use split stacks (new) or monolithic stack (legacy)
 // Default to false for backward compatibility during migration
@@ -120,8 +133,9 @@ if (useSplitStacks) {
   // ============================================
 
   // 1. Shared Infrastructure Stack (deploys first, rarely changes)
-  const sharedInfraStack = new SharedInfraStack(app, `SwarmShared-${environment}`, {
+  const sharedInfraStack = new SharedInfraStack(app, `SwarmShared-${environment}${nameSuffix}`, {
     environment,
+    nameSuffix,
     enableCdn: true,
     galleryDomain,
     galleryCertificateArn,
@@ -130,8 +144,9 @@ if (useSplitStacks) {
   });
 
   // 2. Admin API Stack (depends on shared, changes with code updates)
-  const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}`, {
+  const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}${nameSuffix}`, {
     environment,
+    nameSuffix,
     sharedInfraStack,
     handlersPath,
     adminDomain,
@@ -158,8 +173,9 @@ if (useSplitStacks) {
   adminApiStack.addDependency(sharedInfraStack);
 
   // 3. Admin UI Stack (depends on API for origin, changes with UI updates)
-  const adminUiStack = new AdminUiStack(app, `SwarmUi-${environment}`, {
+  const adminUiStack = new AdminUiStack(app, `SwarmUi-${environment}${nameSuffix}`, {
     environment,
+    nameSuffix,
     adminApiStack,
     adminDomain,
     adminCertificateArn,
@@ -169,8 +185,9 @@ if (useSplitStacks) {
   adminUiStack.addDependency(adminApiStack);
 
   // 4. Avatars Stack (depends on shared and API, changes with avatar updates)
-  const avatarsStack = new AvatarsStack(app, `SwarmAvatars-${environment}`, {
+  const avatarsStack = new AvatarsStack(app, `SwarmAvatars-${environment}${nameSuffix}`, {
     environment,
+    nameSuffix,
     sharedInfraStack,
     adminApiStack,
     avatarsPath,
@@ -187,8 +204,9 @@ if (useSplitStacks) {
   // ============================================
   // LEGACY: Monolithic Stack (default for now)
   // ============================================
-  new SwarmStack(app, `SwarmStack-${environment}`, {
+  new SwarmStack(app, `SwarmStack-${environment}${nameSuffix}`, {
     environment,
+    nameSuffix,
     avatarsPath,
     handlersPath,
     enableCdn: true,

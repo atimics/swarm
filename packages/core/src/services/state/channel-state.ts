@@ -14,7 +14,7 @@ import type {
 
 export const CHANNEL_CONFIG = {
   // Buffer settings
-  MAX_BUFFER_SIZE: 50,           // Max messages to keep in buffer
+  MAX_BUFFER_SIZE: 100,          // Max messages to keep in buffer
   BUFFER_TTL_SECONDS: 3600,      // 1 hour TTL for channel state
 
   // State machine timings

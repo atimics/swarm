@@ -58,6 +58,10 @@ export interface AvatarsStackProps extends cdk.StackProps {
    * Environment name (dev, staging, prod)
    */
   environment: string;
+  /**
+   * Optional suffix for resource names/exports (e.g., "-a1b2c3")
+   */
+  nameSuffix?: string;
 
   /**
    * Reference to the shared infrastructure stack
@@ -98,6 +102,7 @@ export class AvatarsStack extends cdk.Stack {
 
     const {
       environment,
+      nameSuffix,
       sharedInfraStack,
       adminApiStack,
       avatarsPath,
@@ -178,6 +183,7 @@ export class AvatarsStack extends cdk.Stack {
         handlersCodePath: handlersPath,
         cdnUrl: sharedInfraStack.cdnUrl,
         environment,
+        nameSuffix,
         discordCluster,
         replicateApiKeyArn,
         mediaConvertFunction: adminApiStack?.adminApi?.mediaConvertHandler,

@@ -32,11 +32,11 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 // === CONFIGURATION ===
 export const CHANNEL_CONFIG = {
   // Buffer settings
-  MAX_BUFFER_SIZE: 50,           // Max messages to keep in buffer
+  MAX_BUFFER_SIZE: 100,          // Max messages to keep in buffer
   BUFFER_TTL_SECONDS: 3600,      // 1 hour TTL for channel state
 
   // Context retention
-  POST_RESPONSE_CONTEXT_KEEP_MESSAGES: 20, // Keep last N messages for continuity after responding
+  POST_RESPONSE_CONTEXT_KEEP_MESSAGES: 50, // Keep last N messages for continuity after responding
 
   // Sticky engagement (after mention/reply, respond to next few messages)
   STICKY_ENGAGEMENT_WINDOW_MS: 120000,      // 2 minutes
@@ -94,7 +94,7 @@ export const MULTI_AGENT_CONFIG = {
 
 // === SHARED HISTORY CONFIGURATION ===
 export const SHARED_HISTORY_CONFIG = {
-  MAX_MESSAGES: 30,                      // Max bot messages to keep in shared history
+  MAX_MESSAGES: 50,                      // Max bot messages to keep in shared history
   TTL_SECONDS: 3600,                     // 1 hour TTL for shared history
 };
 

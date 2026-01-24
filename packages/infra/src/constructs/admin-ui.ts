@@ -14,6 +14,10 @@ export interface AdminUiProps {
    * Environment name
    */
   environment: string;
+  /**
+   * Optional suffix for resource names/exports (e.g., "-a1b2c3")
+   */
+  nameSuffix?: string;
 
   /**
    * Custom domain name (e.g., 'admin-staging.rati.chat')
@@ -40,11 +44,12 @@ export class AdminUi extends Construct {
   constructor(scope: Construct, id: string, props: AdminUiProps) {
     super(scope, id);
 
-    const { environment, domainName, certificateArn, apiDomain } = props;
+    const { environment, domainName, certificateArn, apiDomain, nameSuffix } = props;
+    const suffix = nameSuffix ?? '';
 
     // S3 bucket for static hosting
     this.bucket = new s3.Bucket(this, 'Bucket', {
-      bucketName: `swarm-admin-ui-${environment}-${cdk.Aws.ACCOUNT_ID}`,
+      bucketName: `swarm-admin-ui-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`,
       removalPolicy: environment === 'prod'
         ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
@@ -197,25 +202,25 @@ export class AdminUi extends Construct {
     new cdk.CfnOutput(this, 'BucketName', {
       value: this.bucket.bucketName,
       description: 'Admin UI S3 bucket name',
-      exportName: `swarm-admin-ui-bucket-${environment}`,
+      exportName: `swarm-admin-ui-bucket-${environment}${suffix}`,
     });
 
     new cdk.CfnOutput(this, 'DistributionId', {
       value: this.distribution.distributionId,
       description: 'CloudFront distribution ID',
-      exportName: `swarm-admin-ui-distribution-${environment}`,
+      exportName: `swarm-admin-ui-distribution-${environment}${suffix}`,
     });
 
     new cdk.CfnOutput(this, 'DistributionDomain', {
       value: this.distribution.distributionDomainName,
       description: 'CloudFront domain name',
-      exportName: `swarm-admin-ui-cf-domain-${environment}`,
+      exportName: `swarm-admin-ui-cf-domain-${environment}${suffix}`,
     });
 
     new cdk.CfnOutput(this, 'AdminUrl', {
       value: this.domainUrl,
       description: 'Admin UI URL',
-      exportName: `swarm-admin-ui-url-${environment}`,
+      exportName: `swarm-admin-ui-url-${environment}${suffix}`,
     });
   }
 }

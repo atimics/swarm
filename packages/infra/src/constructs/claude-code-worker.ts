@@ -26,6 +26,10 @@ export interface ClaudeCodeWorkerProps {
    * Environment name (dev, staging, prod)
    */
   environment: string;
+  /**
+   * Optional suffix for resource names/exports (e.g., "-a1b2c3")
+   */
+  nameSuffix?: string;
 
   /**
    * ECS cluster to deploy to
@@ -103,17 +107,18 @@ export class ClaudeCodeWorker extends Construct {
       minCapacity = 0,
       maxCapacity = 5,
     } = props;
+    const suffix = props.nameSuffix ?? '';
 
     // FIFO queue for ordered processing per avatar
     this.queue = new sqs.Queue(this, 'ClaudeCodeQueue', {
-      queueName: `swarm-claude-code-${environment}.fifo`,
+      queueName: `swarm-claude-code-${environment}${suffix}.fifo`,
       fifo: true,
       contentBasedDeduplication: false,
       visibilityTimeout: cdk.Duration.minutes(10),
       retentionPeriod: cdk.Duration.days(1),
       deadLetterQueue: {
         queue: new sqs.Queue(this, 'ClaudeCodeDLQ', {
-          queueName: `swarm-claude-code-dlq-${environment}.fifo`,
+          queueName: `swarm-claude-code-dlq-${environment}${suffix}.fifo`,
           fifo: true,
           retentionPeriod: cdk.Duration.days(7),
         }),
@@ -133,7 +138,7 @@ export class ClaudeCodeWorker extends Construct {
 
     // Log group
     const logGroup = new logs.LogGroup(this, 'LogGroup', {
-      logGroupName: `/ecs/swarm-claude-code-worker-${environment}`,
+      logGroupName: `/ecs/swarm-claude-code-worker-${environment}${suffix}`,
       retention: logs.RetentionDays.TWO_WEEKS,
       removalPolicy:
         environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
@@ -241,14 +246,14 @@ export class ClaudeCodeWorker extends Construct {
     // Callback Lambda handler (processes results and sends to users)
     if (props.handlersCodePath) {
       const callbackLogGroup = new logs.LogGroup(this, 'CallbackLogGroup', {
-        logGroupName: `/aws/lambda/swarm-claude-code-callback-${environment}`,
+        logGroupName: `/aws/lambda/swarm-claude-code-callback-${environment}${suffix}`,
         retention: logs.RetentionDays.TWO_WEEKS,
         removalPolicy:
           environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
       });
 
       const callbackLambda = new lambda.Function(this, 'CallbackHandler', {
-        functionName: `swarm-claude-code-callback-${environment}`,
+        functionName: `swarm-claude-code-callback-${environment}${suffix}`,
         runtime: lambda.Runtime.NODEJS_20_X,
         handler: 'claude-code-callback.handler',
         code: lambda.Code.fromAsset(props.handlersCodePath),
@@ -286,13 +291,13 @@ export class ClaudeCodeWorker extends Construct {
     new cdk.CfnOutput(this, 'QueueUrl', {
       value: this.queue.queueUrl,
       description: 'Claude Code queue URL',
-      exportName: `swarm-claude-code-queue-${environment}`,
+      exportName: `swarm-claude-code-queue-${environment}${suffix}`,
     });
 
     new cdk.CfnOutput(this, 'QueueArn', {
       value: this.queue.queueArn,
       description: 'Claude Code queue ARN',
-      exportName: `swarm-claude-code-queue-arn-${environment}`,
+      exportName: `swarm-claude-code-queue-arn-${environment}${suffix}`,
     });
   }
 }

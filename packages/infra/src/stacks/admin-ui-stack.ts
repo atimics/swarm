@@ -13,6 +13,10 @@ export interface AdminUiStackProps extends cdk.StackProps {
    * Environment name (dev, staging, prod)
    */
   environment: string;
+  /**
+   * Optional suffix for resource names/exports (e.g., "-a1b2c3")
+   */
+  nameSuffix?: string;
 
   /**
    * Reference to the Admin API stack (optional - if API is deployed)
@@ -36,7 +40,7 @@ export class AdminUiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: AdminUiStackProps) {
     super(scope, id, props);
 
-    const { environment, adminApiStack, adminDomain, adminCertificateArn } = props;
+    const { environment, adminApiStack, adminDomain, adminCertificateArn, nameSuffix } = props;
 
     // Get API Gateway hostname from the Admin API stack
     let apiGatewayHost: string | undefined;
@@ -52,19 +56,10 @@ export class AdminUiStack extends cdk.Stack {
       domainName: adminDomain,
       certificateArn: adminCertificateArn,
       apiDomain: apiGatewayHost,
+      nameSuffix,
     });
 
     // Outputs
-    new cdk.CfnOutput(this, 'AdminUiBucketExport', {
-      value: this.adminUi.bucket.bucketName,
-      exportName: `swarm-admin-ui-bucket-${environment}`,
-    });
-
-    new cdk.CfnOutput(this, 'AdminUiDistributionExport', {
-      value: this.adminUi.distribution.distributionId,
-      exportName: `swarm-admin-ui-distribution-${environment}`,
-    });
-
     new cdk.CfnOutput(this, 'AdminUiUrl', {
       value: adminDomain
         ? `https://${adminDomain}`

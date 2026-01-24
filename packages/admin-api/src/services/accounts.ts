@@ -4,6 +4,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { randomUUID } from 'crypto';
 
@@ -45,6 +46,14 @@ export interface AccountRecord {
   accountId: string;
   role: 'user' | 'admin';
   createdAt: number;
+  // New fields for unified account model
+  displayName?: string;
+  avatarUrl?: string;
+  email?: string;
+  inhabitedAvatarId?: string;
+  inhabitedAt?: number;
+  sessionCount?: number;
+  lastSeenAt?: number;
 }
 
 export interface IdentityMappingRecord {
@@ -68,6 +77,12 @@ export interface AccountSummary {
   accountId: string;
   role: 'user' | 'admin';
   identities: Array<{ type: IdentityType; providerId: string }>;
+  // Optional profile fields from unified account
+  displayName?: string;
+  avatarUrl?: string;
+  email?: string;
+  sessionCount?: number;
+  lastSeenAt?: number;
 }
 
 export type LinkIdentityResult =
@@ -488,5 +503,108 @@ export async function getAccountSummary(accountId: string, deps: AccountsService
     accountId: account.accountId,
     role: account.role,
     identities: identities.map(i => ({ type: i.identityType, providerId: i.providerId })),
+    displayName: account.displayName,
+    avatarUrl: account.avatarUrl,
+    email: account.email,
+    sessionCount: account.sessionCount,
+    lastSeenAt: account.lastSeenAt,
   };
+}
+
+/**
+ * Update account profile fields.
+ */
+export async function updateAccountProfile(
+  accountId: string,
+  updates: {
+    displayName?: string;
+    avatarUrl?: string;
+    email?: string;
+  },
+  deps: AccountsServiceDeps = getDefaultDeps()
+): Promise<AccountRecord | null> {
+  const expressions: string[] = [];
+  const names: Record<string, string> = {};
+  const values: Record<string, unknown> = {};
+
+  if (updates.displayName !== undefined) {
+    expressions.push('#displayName = :displayName');
+    names['#displayName'] = 'displayName';
+    values[':displayName'] = updates.displayName;
+  }
+
+  if (updates.avatarUrl !== undefined) {
+    expressions.push('#avatarUrl = :avatarUrl');
+    names['#avatarUrl'] = 'avatarUrl';
+    values[':avatarUrl'] = updates.avatarUrl;
+  }
+
+  if (updates.email !== undefined) {
+    expressions.push('#email = :email');
+    names['#email'] = 'email';
+    values[':email'] = updates.email;
+  }
+
+  if (expressions.length === 0) {
+    const result = await deps.dynamoClient.send(
+      new GetCommand({
+        TableName: deps.tableName,
+        Key: { pk: accountPk(accountId), sk: 'PROFILE' },
+      })
+    );
+    return result.Item as AccountRecord | null;
+  }
+
+  const result = await deps.dynamoClient.send(
+    new UpdateCommand({
+      TableName: deps.tableName,
+      Key: { pk: accountPk(accountId), sk: 'PROFILE' },
+      UpdateExpression: `SET ${expressions.join(', ')}`,
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ReturnValues: 'ALL_NEW',
+    })
+  );
+
+  return result.Attributes as AccountRecord | null;
+}
+
+/**
+ * Record a new session for an account (increments sessionCount, updates lastSeenAt).
+ */
+export async function recordAccountSession(
+  accountId: string,
+  deps: AccountsServiceDeps = getDefaultDeps()
+): Promise<void> {
+  const now = deps.now();
+
+  await deps.dynamoClient.send(
+    new UpdateCommand({
+      TableName: deps.tableName,
+      Key: { pk: accountPk(accountId), sk: 'PROFILE' },
+      UpdateExpression: 'SET sessionCount = if_not_exists(sessionCount, :zero) + :one, lastSeenAt = :now',
+      ExpressionAttributeValues: {
+        ':zero': 0,
+        ':one': 1,
+        ':now': now,
+      },
+    })
+  );
+}
+
+/**
+ * Get account record by ID.
+ */
+export async function getAccount(
+  accountId: string,
+  deps: AccountsServiceDeps = getDefaultDeps()
+): Promise<AccountRecord | null> {
+  const result = await deps.dynamoClient.send(
+    new GetCommand({
+      TableName: deps.tableName,
+      Key: { pk: accountPk(accountId), sk: 'PROFILE' },
+    })
+  );
+
+  return result.Item as AccountRecord | null;
 }

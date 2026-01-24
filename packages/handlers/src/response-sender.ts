@@ -162,7 +162,7 @@ async function getOutboundRuntime(avatarId: string): Promise<AvatarOutboundRunti
     llm: { provider: DEFAULT_LLM_PROVIDER, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_LLM_TEMPERATURE, maxTokens: DEFAULT_LLM_MAX_TOKENS },
     media: { image: { provider: 'replicate', model: 'black-forest-labs/flux-schnell' } },
     scheduling: {},
-    behavior: { responseDelayMs: [1000, 3000], typingIndicator: true, ignoreBots: true, cooldownMinutes: 5, maxContextMessages: 20 },
+    behavior: { responseDelayMs: [1000, 3000], typingIndicator: true, ignoreBots: true, cooldownMinutes: 5, maxContextMessages: 50 },
     tools: [],
     secrets: [],
   };

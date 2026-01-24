@@ -25,6 +25,10 @@ export interface SharedInfrastructureProps {
    * Environment name
    */
   environment: string;
+  /**
+   * Optional suffix for resource names/exports (e.g., "-a1b2c3")
+   */
+  nameSuffix?: string;
 
   /**
    * Enable CloudFront CDN for media
@@ -60,11 +64,12 @@ export class SharedInfrastructure extends Construct {
   constructor(scope: Construct, id: string, props: SharedInfrastructureProps) {
     super(scope, id);
 
-    const { environment, enableCdn = true, layerCodePath, cdnDomain, cdnCertificateArn } = props;
+    const { environment, enableCdn = true, layerCodePath, cdnDomain, cdnCertificateArn, nameSuffix } = props;
+    const suffix = nameSuffix ?? '';
 
     // State table (multi-tenant)
     this.stateTable = new dynamodb.Table(this, 'StateTable', {
-      tableName: `swarm-state-${environment}`,
+      tableName: `swarm-state-${environment}${suffix}`,
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -84,7 +89,7 @@ export class SharedInfrastructure extends Construct {
 
     // Activity table
     this.activityTable = new dynamodb.Table(this, 'ActivityTable', {
-      tableName: `swarm-activity-${environment}`,
+      tableName: `swarm-activity-${environment}${suffix}`,
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -96,7 +101,7 @@ export class SharedInfrastructure extends Construct {
 
     // Media bucket
     this.mediaBucket = new s3.Bucket(this, 'MediaBucket', {
-      bucketName: `swarm-media-${environment}-${cdk.Aws.ACCOUNT_ID}`,
+      bucketName: `swarm-media-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`,
       removalPolicy: environment === 'prod' 
         ? cdk.RemovalPolicy.RETAIN 
         : cdk.RemovalPolicy.DESTROY,
@@ -163,14 +168,14 @@ export class SharedInfrastructure extends Construct {
       new cdk.CfnOutput(this, 'MediaCdnUrl', {
         value: this.cdnUrl,
         description: 'CloudFront CDN URL for media files',
-        exportName: `swarm-cdn-url-${environment}`,
+        exportName: `swarm-cdn-url-${environment}${suffix}`,
       });
 
       if (cdnDomain) {
         new cdk.CfnOutput(this, 'CdnCnameTarget', {
           value: this.distribution.distributionDomainName,
           description: `Create CNAME: ${cdnDomain} -> this value`,
-          exportName: `swarm-cdn-cname-target-${environment}`,
+          exportName: `swarm-cdn-cname-target-${environment}${suffix}`,
         });
       }
     } else {
@@ -181,7 +186,7 @@ export class SharedInfrastructure extends Construct {
     // The layer is pre-built in CI workflow before CDK deploy
     const layerPath = path.resolve(__dirname, '../../../layer');
     this.dependencyLayer = new lambda.LayerVersion(this, 'DependencyLayer', {
-      layerVersionName: `swarm-deps-${environment}`,
+      layerVersionName: `swarm-deps-${environment}${suffix}`,
       description: 'Shared dependencies for swarm handlers',
       compatibleRuntimes: [lambda.Runtime.NODEJS_20_X],
       code: layerCodePath 
@@ -192,29 +197,29 @@ export class SharedInfrastructure extends Construct {
     const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
     this.discordCluster = new ecs.Cluster(this, 'DiscordCluster', {
       vpc,
-      clusterName: `swarm-discord-${environment}`,
+      clusterName: `swarm-discord-${environment}${suffix}`,
     });
 
     // Outputs
     new cdk.CfnOutput(this, 'StateTableName', {
       value: this.stateTable.tableName,
-      exportName: `swarm-state-table-${environment}`,
+      exportName: `swarm-state-table-${environment}${suffix}`,
     });
 
     new cdk.CfnOutput(this, 'ActivityTableName', {
       value: this.activityTable.tableName,
-      exportName: `swarm-activity-table-${environment}`,
+      exportName: `swarm-activity-table-${environment}${suffix}`,
     });
 
     new cdk.CfnOutput(this, 'MediaBucketName', {
       value: this.mediaBucket.bucketName,
-      exportName: `swarm-media-bucket-${environment}`,
+      exportName: `swarm-media-bucket-${environment}${suffix}`,
     });
 
     if (this.distribution) {
       new cdk.CfnOutput(this, 'CdnDomain', {
         value: this.distribution.distributionDomainName,
-        exportName: `swarm-cdn-domain-${environment}`,
+        exportName: `swarm-cdn-domain-${environment}${suffix}`,
       });
     }
   }

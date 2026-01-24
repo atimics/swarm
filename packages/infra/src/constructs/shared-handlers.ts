@@ -27,6 +27,10 @@ const __dirname = path.dirname(__filename);
 export interface SharedHandlersProps {
   environment: string;
   /**
+   * Optional suffix for resource names/exports (e.g., "-a1b2c3")
+   */
+  nameSuffix?: string;
+  /**
    * Optional dependency layer for native modules like sharp.
    * When using NodejsFunction bundling, this is only needed for native deps.
    */
@@ -82,6 +86,7 @@ export class SharedHandlers extends Construct {
       twitterDailyReservePct = 20,
       internalTestKey,
     } = props;
+    const suffix = props.nameSuffix ?? '';
 
     // Generate internal test key if not provided (non-production only)
     const effectiveInternalTestKey = environment !== 'prod' && environment !== 'production'
@@ -92,13 +97,13 @@ export class SharedHandlers extends Construct {
     const handlersEntry = path.join(__dirname, '../../../handlers/src');
 
     const dlq = new sqs.Queue(this, 'DeadLetterQueue', {
-      queueName: `swarm-${environment}-dlq.fifo`,
+      queueName: `swarm-${environment}${suffix}-dlq.fifo`,
       fifo: true,
       retentionPeriod: cdk.Duration.days(14),
     });
 
     this.messageQueue = new sqs.Queue(this, 'MessageQueue', {
-      queueName: `swarm-${environment}-messages.fifo`,
+      queueName: `swarm-${environment}${suffix}-messages.fifo`,
       fifo: true,
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.seconds(60),
@@ -106,7 +111,7 @@ export class SharedHandlers extends Construct {
     });
 
     this.responseQueue = new sqs.Queue(this, 'ResponseQueue', {
-      queueName: `swarm-${environment}-responses.fifo`,
+      queueName: `swarm-${environment}${suffix}-responses.fifo`,
       fifo: true,
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.seconds(60),
@@ -114,7 +119,7 @@ export class SharedHandlers extends Construct {
     });
 
     this.mediaQueue = new sqs.Queue(this, 'MediaQueue', {
-      queueName: `swarm-${environment}-media.fifo`,
+      queueName: `swarm-${environment}${suffix}-media.fifo`,
       fifo: true,
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.minutes(5),
@@ -205,7 +210,7 @@ export class SharedHandlers extends Construct {
     };
 
     const messageProcessor = new nodejs.NodejsFunction(this, 'MessageProcessor', {
-      functionName: `swarm-${environment}-message-processor`,
+      functionName: `swarm-${environment}${suffix}-message-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'message-processor.ts'),
       handler: 'handler',
@@ -218,7 +223,7 @@ export class SharedHandlers extends Construct {
     });
 
     this.telegramWebhook = new nodejs.NodejsFunction(this, 'TelegramWebhookShared', {
-      functionName: `swarm-${environment}-telegram-webhook`,
+      functionName: `swarm-${environment}${suffix}-telegram-webhook`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'telegram-webhook-shared.ts'),
       handler: 'handler',
@@ -236,7 +241,7 @@ export class SharedHandlers extends Construct {
     }));
 
     const responseSender = new nodejs.NodejsFunction(this, 'ResponseSender', {
-      functionName: `swarm-${environment}-response-sender`,
+      functionName: `swarm-${environment}${suffix}-response-sender`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'response-sender.ts'),
       handler: 'handler',
@@ -254,7 +259,7 @@ export class SharedHandlers extends Construct {
     }));
 
     const mediaProcessor = new nodejs.NodejsFunction(this, 'MediaProcessor', {
-      functionName: `swarm-${environment}-media-processor`,
+      functionName: `swarm-${environment}${suffix}-media-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'media-processor.ts'),
       handler: 'handler',
@@ -272,7 +277,7 @@ export class SharedHandlers extends Construct {
     }));
 
     const twitterMentionPoller = new nodejs.NodejsFunction(this, 'TwitterMentionPollerShared', {
-      functionName: `swarm-${environment}-twitter-mention-poller`,
+      functionName: `swarm-${environment}${suffix}-twitter-mention-poller`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'twitter-mention-poller-shared.ts'),
       handler: 'handler',
@@ -292,7 +297,7 @@ export class SharedHandlers extends Construct {
     // Autonomous Tweet Poster - runs hourly, manages per-avatar timing internally
     // Each avatar has 4-6 hour randomized intervals configured in their autonomousPosts settings
     const autonomousTweetPoster = new nodejs.NodejsFunction(this, 'AutonomousTweetPoster', {
-      functionName: `swarm-${environment}-autonomous-tweet-poster`,
+      functionName: `swarm-${environment}${suffix}-autonomous-tweet-poster`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'autonomous-tweet-poster.ts'),
       handler: 'handler',

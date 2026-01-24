@@ -193,7 +193,7 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
       typingIndicator: true,
       ignoreBots: true,
       cooldownMinutes: 1,
-      maxContextMessages: 20,
+      maxContextMessages: 50,
     },
     voice: {
       enabled: defaultVoiceConfig.enabled,

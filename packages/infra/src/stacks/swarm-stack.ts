@@ -56,6 +56,10 @@ export interface SwarmStackProps extends cdk.StackProps {
    * Environment name (dev, staging, prod)
    */
   environment: string;
+  /**
+   * Optional suffix for resource names/exports (e.g., "-a1b2c3")
+   */
+  nameSuffix?: string;
 
   /**
    * Path to avatars directory
@@ -208,6 +212,7 @@ export class SwarmStack extends cdk.Stack {
 
     const {
       environment,
+      nameSuffix,
       avatarsPath,
       handlersPath,
       enableCdn = true,
@@ -239,6 +244,7 @@ export class SwarmStack extends cdk.Stack {
     // Create shared infrastructure
     this.shared = new SharedInfrastructure(this, 'Shared', {
       environment,
+      nameSuffix,
       enableCdn,
       cdnDomain: galleryDomain,
       cdnCertificateArn: galleryCertificateArn,
@@ -253,6 +259,7 @@ export class SwarmStack extends cdk.Stack {
     if (enableSharedHandlers) {
       this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
         environment,
+        nameSuffix,
         dependencyLayer: this.shared.dependencyLayer,
         stateTable: this.shared.stateTable,
         activityTable: this.shared.activityTable,
@@ -280,6 +287,7 @@ export class SwarmStack extends cdk.Stack {
         privyAppSecretArn,
         privyJwtVerificationKeyArn,
         environment,
+        nameSuffix,
         adminDomain,
         // Use adminDomain for API callbacks - API is served via CloudFront /api/* path
         // No apiCertificateArn means no API Gateway custom domain is created
@@ -311,13 +319,14 @@ export class SwarmStack extends cdk.Stack {
       certificateArn: adminCertificateArn,
       // Use raw API Gateway endpoint hostname for CloudFront origin
       apiDomain: apiGatewayHost,
+      nameSuffix,
     });
 
     // Create Claude Code worker if enabled
     if (enableClaudeCode) {
       // Create a shared callback queue for Claude Code results
       const claudeCodeCallbackQueue = new sqs.Queue(this, 'ClaudeCodeCallbackQueue', {
-        queueName: `swarm-claude-code-callbacks-${environment}.fifo`,
+        queueName: `swarm-claude-code-callbacks-${environment}${nameSuffix ?? ''}.fifo`,
         fifo: true,
         contentBasedDeduplication: true,
         visibilityTimeout: cdk.Duration.seconds(60),
@@ -325,6 +334,7 @@ export class SwarmStack extends cdk.Stack {
 
       this.claudeCodeWorker = new ClaudeCodeWorker(this, 'ClaudeCodeWorker', {
         environment,
+        nameSuffix,
         cluster: this.shared.discordCluster, // Reuse existing ECS cluster
         stateTable: this.shared.stateTable,
         responseQueue: claudeCodeCallbackQueue,
@@ -341,13 +351,13 @@ export class SwarmStack extends cdk.Stack {
       new cdk.CfnOutput(this, 'ClaudeCodeQueueUrl', {
         value: this.claudeCodeWorker.queue.queueUrl,
         description: 'Claude Code task queue URL',
-        exportName: `swarm-claude-code-queue-url-${environment}`,
+        exportName: `swarm-claude-code-queue-url-${environment}${nameSuffix ?? ''}`,
       });
 
       new cdk.CfnOutput(this, 'ClaudeCodeCallbackQueueUrl', {
         value: claudeCodeCallbackQueue.queueUrl,
         description: 'Claude Code callback queue URL',
-        exportName: `swarm-claude-code-callback-queue-url-${environment}`,
+        exportName: `swarm-claude-code-callback-queue-url-${environment}${nameSuffix ?? ''}`,
       });
     }
 
@@ -392,6 +402,7 @@ export class SwarmStack extends cdk.Stack {
           handlersCodePath: handlersPath,
           cdnUrl: this.shared.cdnUrl,
           environment,
+          nameSuffix,
           discordCluster: this.shared.discordCluster,
           replicateApiKeyArn,
           mediaConvertFunction: this.adminApi?.mediaConvertHandler,

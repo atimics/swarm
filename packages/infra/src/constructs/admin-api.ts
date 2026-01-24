@@ -96,6 +96,10 @@ export interface AdminApiConstructProps {
    * Environment (development/production)
    */
   environment?: string;
+  /**
+   * Optional suffix for resource names/exports (e.g., "-a1b2c3")
+   */
+  nameSuffix?: string;
 
   /**
    * Admin UI domain for CORS (e.g., 'admin.example.com')
@@ -174,6 +178,7 @@ export class AdminApiConstruct extends Construct {
       cdnUrl: propsCdnUrl,
       dependencyLayer,
     } = props;
+    const suffix = props.nameSuffix ?? '';
 
     const isProd = environment === 'prod' || environment === 'production';
 
@@ -194,7 +199,7 @@ export class AdminApiConstruct extends Construct {
 
     // DynamoDB table for admin data
     this.table = new dynamodb.Table(this, 'AdminTable', {
-      tableName: `SwarmAdmin-${environment}`,
+      tableName: `SwarmAdmin-${environment}${suffix}`,
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -228,12 +233,12 @@ export class AdminApiConstruct extends Construct {
     // which puts a message in this queue. The response sender Lambda then
     // delivers the media to Telegram.
     const responseQueue = new sqs.Queue(this, 'ResponseQueue', {
-      queueName: `swarm-response-queue-${environment}`,
+      queueName: `swarm-response-queue-${environment}${suffix}`,
       visibilityTimeout: cdk.Duration.seconds(120), // Match Lambda timeout
       retentionPeriod: cdk.Duration.days(1),
       deadLetterQueue: {
         queue: new sqs.Queue(this, 'ResponseDLQ', {
-          queueName: `swarm-response-dlq-${environment}`,
+        queueName: `swarm-response-dlq-${environment}${suffix}`,
           retentionPeriod: cdk.Duration.days(14),
         }),
         maxReceiveCount: 3,
@@ -242,12 +247,12 @@ export class AdminApiConstruct extends Construct {
 
     // Chat queue for async /chat jobs (admin UI polling)
     const chatQueue = new sqs.Queue(this, 'ChatQueue', {
-      queueName: `swarm-chat-queue-${environment}`,
+      queueName: `swarm-chat-queue-${environment}${suffix}`,
       visibilityTimeout: cdk.Duration.seconds(600),
       retentionPeriod: cdk.Duration.days(1),
       deadLetterQueue: {
         queue: new sqs.Queue(this, 'ChatDLQ', {
-          queueName: `swarm-chat-dlq-${environment}`,
+        queueName: `swarm-chat-dlq-${environment}${suffix}`,
           retentionPeriod: cdk.Duration.days(14),
         }),
         maxReceiveCount: 3,
@@ -256,13 +261,13 @@ export class AdminApiConstruct extends Construct {
 
     // Dreams queue (FIFO) for async dream generation jobs
     const dreamDlq = new sqs.Queue(this, 'DreamDLQ', {
-      queueName: `swarm-dream-dlq-${environment}.fifo`,
+      queueName: `swarm-dream-dlq-${environment}${suffix}.fifo`,
       fifo: true,
       retentionPeriod: cdk.Duration.days(14),
     });
 
     const dreamQueue = new sqs.Queue(this, 'DreamQueue', {
-      queueName: `swarm-dream-queue-${environment}.fifo`,
+      queueName: `swarm-dream-queue-${environment}${suffix}.fifo`,
       fifo: true,
       // We provide explicit MessageDeduplicationId (jobId)
       contentBasedDeduplication: false,
@@ -279,7 +284,7 @@ export class AdminApiConstruct extends Construct {
     const llmApiKey = props.openRouterApiKeyArn
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'LLMApiKey', props.openRouterApiKeyArn)
       : new secretsmanager.Secret(this, 'LLMApiKey', {
-          secretName: 'swarm/admin/llm-api-key',
+          secretName: `swarm/admin/llm-api-key${suffix}`,
           description: 'API key for the admin chatbot LLM',
         });
 
@@ -1571,13 +1576,13 @@ export class AdminApiConstruct extends Construct {
       new cdk.CfnOutput(this, 'ApiCustomDomain', {
         value: props.apiDomain,
         description: 'Admin API custom domain',
-        exportName: `swarm-admin-api-domain-${environment}`,
+        exportName: `swarm-admin-api-domain-${environment}${suffix}`,
       });
 
       new cdk.CfnOutput(this, 'ApiDomainTarget', {
         value: this.customDomain.regionalDomainName,
         description: 'Target for CNAME record',
-        exportName: `swarm-admin-api-target-${environment}`,
+        exportName: `swarm-admin-api-target-${environment}${suffix}`,
       });
     }
 
@@ -1585,7 +1590,7 @@ export class AdminApiConstruct extends Construct {
     new cdk.CfnOutput(this, 'ApiEndpoint', {
       value: props.apiDomain ? `https://${props.apiDomain}` : this.api.apiEndpoint,
       description: 'Admin API endpoint URL',
-      exportName: `swarm-admin-api-url-${environment}`,
+      exportName: `swarm-admin-api-url-${environment}${suffix}`,
     });
 
     new cdk.CfnOutput(this, 'AdminTableName', {
