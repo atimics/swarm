@@ -136,7 +136,7 @@ jobs:
         run: |
           # Build layer if not cached (with Linux platform for Lambda)
           if [ "${{ steps.layer-cache.outputs.cache-hit }}" != "true" ]; then
-            cd packages/layer && mkdir -p nodejs && cp package.json nodejs/ && cd nodejs && npm i --omit=dev --platform=linux --arch=x64 && cd ../..
+            cd packages/layer && pnpm run build:layer && cd ../..
           fi
           pnpm -r --filter '!admin-ui' build
 
