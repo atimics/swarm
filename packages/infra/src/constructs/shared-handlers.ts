@@ -196,9 +196,9 @@ export class SharedHandlers extends Construct {
     }
 
     // Common bundling options: bundle AWS SDK (don't externalize) to avoid layer CJS/ESM conflicts
-    // Externalize sharp (native layer) and node-fetch (forces grammy to use native fetch in Node.js 18+)
+    // Externalize sharp (native layer). node-fetch is bundled since openai package requires it.
     const bundlingOptions = {
-      externalModules: ['sharp', 'node-fetch'],
+      externalModules: ['sharp'],
       minify: true,
       sourceMap: true,
     };
