@@ -910,6 +910,19 @@ export class AdminApiConstruct extends Construct {
       integration: avatarsIntegration,
     });
 
+    // Telegram diagnostics and repair routes
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/telegram/diagnostics',
+      methods: [apigateway.HttpMethod.GET],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/telegram/repair',
+      methods: [apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
     // Issues handler - for auto-issue tracking system (used by CI/CD, browser tests)
     const issuesHandler = new nodejs.NodejsFunction(this, 'IssuesHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
