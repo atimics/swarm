@@ -143,6 +143,20 @@ const secretPrefixForSplitStacks = (useSplitStacks && useExistingSharedResources
 const enableSharedHandlersExplicit = getContextValue<boolean>('enableSharedHandlers', envConfig);
 const enableSharedHandlers = (enableSharedHandlersExplicit ?? true) as boolean;
 
+// Migration guardrails: when adopting existing shared resources for split stacks without a suffix,
+// many resources already exist from the legacy monolithic stack.
+const isMigrationSplitWithoutSuffix = useSplitStacks && useExistingSharedResources && !nameSuffix;
+
+// In migration mode, default to NOT creating shared handlers to avoid colliding with legacy function names.
+const enableSharedHandlersForDeploy =
+  isMigrationSplitWithoutSuffix && enableSharedHandlersExplicit === undefined
+    ? false
+    : enableSharedHandlers;
+
+// In migration mode, reuse the existing SwarmAdmin table to preserve admin data.
+const useExistingAdminTable = isMigrationSplitWithoutSuffix;
+const existingAdminTableName = getContextValue<string>('existingAdminTableName', envConfig);
+
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
 const monorepoRoot = path.resolve(__dirname, '../../..');
@@ -195,7 +209,9 @@ if (useSplitStacks) {
     anthropicApiKeyArn,
     enableClaudeCode,
     claudeCodeUseOpenRouter,
-    enableSharedHandlers,
+    enableSharedHandlers: enableSharedHandlersForDeploy,
+    useExistingAdminTable,
+    existingAdminTableName,
     secretPrefix: secretPrefixForSplitStacks,
     env: stackEnv,
     description: `Swarm Admin API (${environment})`,

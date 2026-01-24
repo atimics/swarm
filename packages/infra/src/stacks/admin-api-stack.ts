@@ -136,6 +136,17 @@ export interface AdminApiStackProps extends cdk.StackProps {
    * Secrets Manager prefix
    */
   secretPrefix?: string;
+
+  /**
+   * Adopt the existing Admin DynamoDB table instead of creating a new one.
+   * Useful when migrating from the legacy monolithic stack.
+   */
+  useExistingAdminTable?: boolean;
+
+  /**
+   * Optional explicit admin table name to import when useExistingAdminTable is true.
+   */
+  existingAdminTableName?: string;
 }
 
 export class AdminApiStack extends cdk.Stack {
@@ -171,6 +182,8 @@ export class AdminApiStack extends cdk.Stack {
       claudeCodeUseOpenRouter = false,
       enableSharedHandlers = false,
       secretPrefix,
+      useExistingAdminTable = false,
+      existingAdminTableName,
       nameSuffix,
     } = props;
 
@@ -252,6 +265,8 @@ export class AdminApiStack extends cdk.Stack {
         environment,
         nameSuffix,
         secretPrefix,
+        useExistingAdminTable,
+        existingAdminTableName,
         adminDomain,
         apiDomain: adminDomain,
         stateTable,

@@ -157,6 +157,18 @@ export interface AdminApiConstructProps {
    * Should be shared across all constructs in the stack.
    */
   internalTestKey?: string;
+
+  /**
+   * Adopt an existing Admin DynamoDB table instead of creating one.
+   * Useful when migrating from the legacy monolithic stack to split stacks.
+   */
+  useExistingAdminTable?: boolean;
+
+  /**
+   * Optional explicit admin table name to import when useExistingAdminTable is true.
+   * Defaults to `SwarmAdmin-${environment}` (no suffix).
+   */
+  existingAdminTableName?: string;
 }
 
 export class AdminApiConstruct extends Construct {
@@ -181,6 +193,8 @@ export class AdminApiConstruct extends Construct {
       mediaCdn,
       cdnUrl: propsCdnUrl,
       dependencyLayer,
+      useExistingAdminTable = false,
+      existingAdminTableName,
     } = props;
     const suffix = props.nameSuffix ?? '';
     const secretPrefix = props.secretPrefix ?? 'swarm';
@@ -209,29 +223,36 @@ export class AdminApiConstruct extends Construct {
     // We intentionally do not provision a customer-managed key to avoid the monthly CMK charge.
 
     // DynamoDB table for admin data
-    this.table = new dynamodb.Table(this, 'AdminTable', {
-      tableName: `SwarmAdmin-${environment}${suffix}`,
-      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: isProd
-        ? cdk.RemovalPolicy.RETAIN 
-        : cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecoverySpecification: {
-        pointInTimeRecoveryEnabled: isProd,
-      },
-      timeToLiveAttribute: 'ttl',
-    });
+    if (useExistingAdminTable) {
+      const tableName = existingAdminTableName || `SwarmAdmin-${environment}`;
+      this.table = dynamodb.Table.fromTableAttributes(this, 'AdminTable', {
+        tableName,
+      }) as dynamodb.Table;
+    } else {
+      this.table = new dynamodb.Table(this, 'AdminTable', {
+        tableName: `SwarmAdmin-${environment}${suffix}`,
+        partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+        sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+        billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+        removalPolicy: isProd
+          ? cdk.RemovalPolicy.RETAIN 
+          : cdk.RemovalPolicy.DESTROY,
+        pointInTimeRecoverySpecification: {
+          pointInTimeRecoveryEnabled: isProd,
+        },
+        timeToLiveAttribute: 'ttl',
+      });
 
-    // GSI1 for inverted lookups (sk → pk)
-    // Used for:
-    // - Finding avatar by inhabitant: sk=INHABITANT#<wallet> returns pk=AVATAR#<avatarId>
-    // - Listing items by type: sk=CONFIG returns all avatars
-    this.table.addGlobalSecondaryIndex({
-      indexName: 'GSI1',
-      partitionKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
-    });
+      // GSI1 for inverted lookups (sk → pk)
+      // Used for:
+      // - Finding avatar by inhabitant: sk=INHABITANT#<wallet> returns pk=AVATAR#<avatarId>
+      // - Listing items by type: sk=CONFIG returns all avatars
+      this.table.addGlobalSecondaryIndex({
+        indexName: 'GSI1',
+        partitionKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+        sortKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      });
+    }
 
 
     // Note: Media jobs are queried using Scan with filter (no GSI needed)
