@@ -1315,6 +1315,13 @@ export class AdminApiConstruct extends Construct {
     llmApiKey.grantRead(dreamWorker);
     dreamQueue.grantConsumeMessages(dreamWorker);
 
+    // Grant Bedrock access for embeddings (used in dream memory search)
+    dreamWorker.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:InvokeModel'],
+      resources: ['arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0'],
+    }));
+
     // Ensure the worker processes one SQS message per invocation (avoid whole-batch retries)
     dreamWorker.addEventSource(new lambdaEventSources.SqsEventSource(dreamQueue, {
       batchSize: 1,
