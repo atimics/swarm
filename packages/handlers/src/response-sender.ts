@@ -15,7 +15,6 @@ import {
   DiscordAdapter,
   PlatformRegistry,
   createStateService,
-  createSecretsService,
   createActivityService,
   createOutboundSender,
   logger,
@@ -45,7 +44,6 @@ const IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
 // Services
 let stateService: ReturnType<typeof createStateService>;
 let activityService: ReturnType<typeof createActivityService>;
-let secretsService: ReturnType<typeof createSecretsService>;
 
 type AvatarOutboundRuntime = {
   avatarId: string;
@@ -104,7 +102,6 @@ async function initialize(): Promise<void> {
 
   stateService = createStateService(STATE_TABLE);
   activityService = createActivityService(ACTIVITY_TABLE);
-  secretsService = createSecretsService();
 }
 
 /**
