@@ -162,12 +162,38 @@ jobs:
           echo "Downloading s3://${CDK_CONTEXT_BUCKET}/${KEY} -> cdk.context.json"
           aws s3 cp "s3://${CDK_CONTEXT_BUCKET}/${KEY}" "cdk.context.json" --only-show-errors
 
+      - name: CDK Diff
+        id: diff
+        working-directory: packages/infra
+        run: |
+          STACK="${{ inputs.stack }}"
+          echo "Checking for infrastructure changes..."
+          set +e
+          npx cdk diff ${STACK:-'--all'} -c environment=${{ needs.setup.outputs.cdk_env }} 2>&1 | tee diff-output.txt
+          DIFF_EXIT=$?
+          set -e
+          
+          # Check if there are no differences (exit 0 and contains "no differences")
+          if [ $DIFF_EXIT -eq 0 ] && grep -q "There were no differences" diff-output.txt; then
+            echo "No infrastructure changes detected - skipping deploy"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "Infrastructure changes detected - proceeding with deploy"
+            cat diff-output.txt
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: CDK Deploy
+        if: steps.diff.outputs.skip != 'true'
         working-directory: packages/infra
         run: |
           HOTSWAP=${{ needs.setup.outputs.cdk_env == 'staging' && '--hotswap-fallback' || '' }}
           STACK="${{ inputs.stack }}"
           npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }}
+
+      - name: Skip Deploy (no changes)
+        if: steps.diff.outputs.skip == 'true'
+        run: echo "✅ CDK deploy skipped - no infrastructure changes detected"
 
       - name: Get stack outputs
         id: outputs
