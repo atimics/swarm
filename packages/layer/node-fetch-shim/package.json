@@ -1,0 +1,6 @@
+{
+  "name": "node-fetch",
+  "version": "2.7.0",
+  "main": "index.js",
+  "description": "Shim that redirects to native fetch for Node.js 18+"
+}

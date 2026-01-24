@@ -1,0 +1,6 @@
+{
+  "name": "abort-controller",
+  "version": "3.0.0",
+  "main": "index.js",
+  "description": "Shim that redirects to native AbortController for Node.js 18+"
+}
