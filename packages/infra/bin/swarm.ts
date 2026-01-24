@@ -113,7 +113,7 @@ const stackHash = normalizeStackHash(stackHashRaw);
 const nameSuffix = stackHash ? `-${stackHash}` : '';
 const secretPrefix = (secretPrefixRaw && secretPrefixRaw.trim())
   ? secretPrefixRaw.trim()
-  : 'swarm';
+  : (nameSuffix ? `swarm${nameSuffix}` : 'swarm');
 
 // Check if we should use split stacks (new) or monolithic stack (legacy)
 // Default to false for backward compatibility during migration

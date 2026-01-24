@@ -55,6 +55,8 @@ export {
   buildDynamicSystemPrompt,
   buildChatSystemPrompt,
   getPlatformPromptSection,
+  toolsToCategories,
+  type RuntimeContext,
 } from './prompt-builder.js';
 
 // === Legacy Processors ===

@@ -25,5 +25,7 @@ export * from './chat-voting.js';
 export * as twitterOAuth from './twitter-oauth.js';
 export * as discord from './discord.js';
 export * as propertyResearch from './property-research.js';
-export * from './dynamic-prompts.js';
-export * from './platform-prompts.js';
+
+// Prompt building is now in @swarm/core
+// Re-export for backward compatibility
+export { buildDynamicSystemPrompt, type ToolCategory, type ProcessorAvatarConfig } from '@swarm/core';

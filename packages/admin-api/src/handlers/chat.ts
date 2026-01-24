@@ -15,9 +15,11 @@ import {
   DEFAULT_LLM_MODEL,
   logger,
   // Import shared tool/prompt building from core
+  buildDynamicSystemPrompt,
   detectEnabledCategories,
   resolveAllowedToolsets,
   type ToolCategory,
+  type ProcessorAvatarConfig,
 } from '@swarm/core';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import { getCorsHeaders } from '../http/cors.js';
@@ -32,7 +34,6 @@ import {
   type ToolResult,
   type UserSession,
 } from '../types.js';
-import { buildDynamicSystemPrompt } from '../services/dynamic-prompts.js';
 import { recordError } from '../services/auto-issues.js';
 import { createAvatarAccessChecker } from '../services/chat-access.js';
 import { chatIdempotencyStore } from '../services/idempotency.js';
@@ -484,15 +485,16 @@ function buildSystemPrompt(avatar?: AvatarContext): string {
       // Default categories if not specified
       'secrets', 'profile', 'media', 'gallery', 'wallets', 'diagnostics'
     ];
-    
-    return buildDynamicSystemPrompt({
-      id: avatar.id,
+
+    const avatarConfig: ProcessorAvatarConfig = {
+      avatarId: avatar.id,
       name: avatar.name,
       description: avatar.description,
       persona: avatar.persona,
       enabledCategories: categories,
-      platform: 'admin-ui',
-    });
+    };
+    
+    return buildDynamicSystemPrompt(avatarConfig, 'admin-ui');
   }
 
   // Fallback for no avatar context

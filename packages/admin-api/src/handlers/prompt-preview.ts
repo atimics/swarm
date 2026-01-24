@@ -12,7 +12,11 @@ import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { authenticateRequest } from '../auth/cloudflare-access.js';
 import { isRequestValidationError, validateRequestBody } from '../middleware/validate.js';
-import { buildDynamicSystemPrompt, type ToolCategory } from '../services/dynamic-prompts.js';
+import {
+  buildDynamicSystemPrompt,
+  type ToolCategory,
+  type ProcessorAvatarConfig,
+} from '@swarm/core';
 import {
   ToolRegistry,
   registerAllTools,
@@ -146,15 +150,15 @@ export async function handler(
     if (enabledToolsets.includes('memory')) enabledCategories.push('memory');
     if (enabledToolsets.includes('property')) enabledCategories.push('property');
 
-    // Build system prompt
-    const systemPrompt = buildDynamicSystemPrompt({
-      id: avatarId,
+    // Build system prompt using unified prompt builder
+    const avatarConfig: ProcessorAvatarConfig = {
+      avatarId,
       name: avatarRecord.name,
       description: avatarRecord.description,
       persona: avatarRecord.persona,
       enabledCategories,
-      platform: 'admin-ui',
-    });
+    };
+    const systemPrompt = buildDynamicSystemPrompt(avatarConfig, 'admin-ui');
 
     // Get enabled toolsets from MCP config (or defaults if not configured)
     const mcpEnabledToolsets = await getEnabledToolsets(avatarId);

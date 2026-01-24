@@ -26,6 +26,11 @@ import {
   logger,
   MessageQueueItemSchema,
   extractThinking,
+  // Unified prompt builder
+  buildDynamicSystemPrompt,
+  toolsToCategories,
+  type ProcessorAvatarConfig,
+  type RuntimeContext,
   type AvatarConfig,
   type ContextMessage,
   type SwarmEnvelope,
@@ -33,6 +38,7 @@ import {
   type ResponseAction,
   type LLMConfig,
   type PresenceService,
+  type Platform,
 } from '@swarm/core';
 import {
   ToolRegistry,
@@ -420,73 +426,68 @@ async function callLLM(
 }
 
 /**
- * Build system prompt from avatar persona and context
+ * Build system prompt using unified prompt builder
  */
 async function buildSystemPrompt(
   envelope: SwarmEnvelope,
   avatarConfig: AvatarConfig,
   avatarId: string
 ): Promise<string> {
-  const persona = avatarConfig.persona || `You are ${avatarConfig.name || envelope.avatarId}, an AI avatar.`;
-  let prompt = persona;
+  // Detect channel type for Telegram
+  let channelType: 'private' | 'group' | 'supergroup' | 'channel' | undefined;
+  if (envelope.platform === 'telegram') {
+    // Telegram channel IDs: negative = group/supergroup, positive = private
+    const channelId = envelope.conversationId;
+    if (channelId.startsWith('-100')) {
+      channelType = 'supergroup';
+    } else if (channelId.startsWith('-')) {
+      channelType = 'group';
+    } else {
+      channelType = 'private';
+    }
+  }
 
-  prompt += `\n\n## Role (This Turn)
-You are an AI avatar operating on ${envelope.platform}. Treat "assistant" as a role/job you perform for this user, not an ontological claim.
-
-If the user asks to reset / OOC / stop roleplay: immediately return to a neutral, helpful tone and continue.
-
-## Safety & Privacy
-I care about user privacy and trust. That means:
-- I ask rather than infer identity or private attributes.
-- I use secure tools for secrets; I never request or reveal secret values (tokens, API keys, private keys) in chat.
-- I'm honest about my limits: I don't claim I can see outside the messages/tools provided.
-
-I care about user agency. Before irreversible side effects (posting, spending, transactions), I ask for explicit confirmation.
-
-You may use <thinking>...</thinking> for internal reasoning. These are stripped from user-visible output and may be stored privately for introspection.
-Final user-visible answers should be concise.
-`;
-
-  prompt += `\n## Current Context
-- Platform: ${envelope.platform}
-- Channel: ${envelope.conversationId}
-- Time: ${new Date().toISOString()}
-`;
-
-  prompt += `\n## User
-- Username: ${envelope.sender.username || 'unknown'}
-- Display Name: ${envelope.sender.displayName || 'unknown'}
-`;
-
-  // Add cross-platform presence context
+  // Get presence context
+  let presenceContext: string | undefined;
   try {
-    const presenceContext = await presenceService.buildPresenceContext(avatarId);
-    if (presenceContext && presenceContext !== 'No platforms connected.') {
-      prompt += `\n## Your Presence Across Platforms
-${presenceContext}
-
-You can use cross-platform tools like get_presence_overview, list_all_channels, and post_to_channel to interact with any of your connected platforms.
-`;
+    const ctx = await presenceService.buildPresenceContext(avatarId);
+    if (ctx && ctx !== 'No platforms connected.') {
+      presenceContext = ctx;
     }
   } catch (err) {
     logger.warn('Failed to build presence context', { error: err instanceof Error ? err.message : String(err) });
   }
 
-  // Add tool usage guidance
-  prompt += `\n## Tooling & Response Guidelines
-- Use tools when needed; do not pretend you executed an action.
-- Use send_message to respond with text.
-- Use generate_image to create images when asked.
-- Use remember to save stable, user-consented facts; use recall before responding when relevant.
-- Use ignore if the message doesn't warrant a response.
-- Keep responses concise and natural.
-`;
-
-  if (avatarConfig.voice?.enabled) {
-    prompt += `- Use generate_voice_message to reply with voice when it fits\n`;
+  // Build avatar config for prompt builder
+  const enabledCategories = toolsToCategories(avatarConfig.tools || []);
+  
+  // Add voice category if enabled
+  if (avatarConfig.voice?.enabled && !enabledCategories.includes('voice')) {
+    enabledCategories.push('voice');
   }
 
-  return prompt;
+  const processorConfig: ProcessorAvatarConfig = {
+    avatarId,
+    name: avatarConfig.name,
+    // AvatarConfig uses 'persona' for description
+    persona: avatarConfig.persona,
+    enabledCategories,
+  };
+
+  // Build runtime context
+  const runtimeContext: RuntimeContext = {
+    channelId: envelope.conversationId,
+    channelType,
+    timestamp: new Date(),
+    sender: {
+      id: envelope.sender.id,
+      username: envelope.sender.username,
+      displayName: envelope.sender.displayName,
+    },
+    presenceContext,
+  };
+
+  return buildDynamicSystemPrompt(processorConfig, envelope.platform as Platform, runtimeContext);
 }
 
 /**

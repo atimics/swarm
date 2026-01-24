@@ -4,10 +4,40 @@
  * Builds system prompts dynamically based on which tools/capabilities
  * are enabled for an avatar. This avoids bloating prompts with irrelevant
  * instructions about tools the avatar doesn't have access to.
+ *
+ * Unified across all platforms (admin-ui, telegram, discord, etc.) with
+ * platform-specific contextual additions.
  */
 
 import type { ToolCategory, ProcessorAvatarConfig } from './types.js';
 import type { Platform } from '../types/index.js';
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+/**
+ * Runtime context for the current interaction.
+ * This provides dynamic context about the specific message/session.
+ */
+export interface RuntimeContext {
+  /** Channel/conversation ID */
+  channelId?: string;
+  /** Channel type for group chat awareness */
+  channelType?: 'private' | 'group' | 'supergroup' | 'channel';
+  /** Current timestamp */
+  timestamp?: Date;
+  /** Sender information */
+  sender?: {
+    id: string;
+    username?: string;
+    displayName?: string;
+  };
+  /** Cross-platform presence info */
+  presenceContext?: string;
+  /** Additional custom context to inject */
+  customContext?: string;
+}
 
 // =============================================================================
 // PROMPT SECTIONS
@@ -301,20 +331,105 @@ export function getPlatformPromptSection(platform: string): string {
 }
 
 /**
+ * Build runtime context section (current platform/channel/time/sender).
+ */
+function buildRuntimeContextSection(
+  platform: string,
+  context?: RuntimeContext
+): string {
+  if (!context) return '';
+
+  const parts: string[] = ['## Current Context'];
+
+  parts.push(`- Platform: ${platform}`);
+
+  if (context.channelId) {
+    parts.push(`- Channel: ${context.channelId}`);
+  }
+
+  if (context.channelType) {
+    parts.push(`- Channel Type: ${context.channelType}`);
+  }
+
+  parts.push(`- Time: ${(context.timestamp || new Date()).toISOString()}`);
+
+  if (context.sender) {
+    parts.push('\n## User');
+    if (context.sender.username) {
+      parts.push(`- Username: ${context.sender.username}`);
+    }
+    if (context.sender.displayName) {
+      parts.push(`- Display Name: ${context.sender.displayName}`);
+    }
+  }
+
+  if (context.customContext) {
+    parts.push(`\n${context.customContext}`);
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Build tool usage guidance section.
+ */
+function buildToolGuidanceSection(categories: ToolCategory[], hasVoice: boolean): string {
+  let guidance = `## Tooling & Response Guidelines
+- Use tools when needed; do not pretend you executed an action.
+- Use send_message to respond with text.
+- Use generate_image to create images when asked.`;
+
+  if (categories.includes('memory')) {
+    guidance += `\n- Use remember to save stable, user-consented facts; use recall before responding when relevant.`;
+  }
+
+  guidance += `\n- Use ignore if the message doesn't warrant a response.
+- Keep responses concise and natural.`;
+
+  if (hasVoice) {
+    guidance += `\n- Use generate_voice_message to reply with voice when it fits.`;
+  }
+
+  guidance += `\n\nYou may use <thinking>...</thinking> for internal reasoning. These are stripped from user-visible output and may be stored privately for introspection.
+Final user-visible answers should be concise.`;
+
+  return guidance;
+}
+
+/**
  * Build a dynamic system prompt based on enabled capabilities.
  * This is the main function for generating system prompts.
+ *
+ * @param avatar - Avatar configuration with enabled categories
+ * @param platform - The platform the interaction is on
+ * @param context - Optional runtime context (sender, channel, presence, etc.)
  */
 export function buildDynamicSystemPrompt(
   avatar: ProcessorAvatarConfig,
-  platform: Platform | 'admin-ui' | 'api' | 'mcp' = 'admin-ui'
+  platform: Platform | 'admin-ui' | 'api' | 'mcp' = 'admin-ui',
+  context?: RuntimeContext
 ): string {
   const sections: string[] = [];
 
   // Base prompt is always included
   sections.push(buildBasePrompt(avatar));
 
+  // Add runtime context if provided (sender, channel, time)
+  const runtimeSection = buildRuntimeContextSection(platform, context);
+  if (runtimeSection) {
+    sections.push(runtimeSection);
+  }
+
+  // Add cross-platform presence if available
+  if (context?.presenceContext && context.presenceContext !== 'No platforms connected.') {
+    sections.push(`## Your Presence Across Platforms
+${context.presenceContext}
+
+You can use cross-platform tools like get_presence_overview, list_all_channels, and post_to_channel to interact with any of your connected platforms.`);
+  }
+
   // Add section header
-  sections.push('\n## Your Capabilities\n');
+  sections.push('## Your Capabilities\n');
 
   // Add enabled category sections
   for (const category of avatar.enabledCategories) {
@@ -324,9 +439,13 @@ export function buildDynamicSystemPrompt(
     }
   }
 
+  // Add tool guidance section
+  const hasVoice = avatar.enabledCategories.includes('voice');
+  sections.push(buildToolGuidanceSection(avatar.enabledCategories, hasVoice));
+
   // Add wallet info if available
   if (avatar.wallets && avatar.wallets.length > 0) {
-    sections.push('\n## Your Solana Wallets\n');
+    sections.push('## Your Solana Wallets\n');
     for (const wallet of avatar.wallets) {
       sections.push(`- ${wallet.name}: ${wallet.publicKey}`);
     }
@@ -378,4 +497,72 @@ export function buildChatSystemPrompt(
   }
 
   return prompt;
+}
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+/**
+ * Map avatar tools list to enabled categories.
+ * Used by message processors that have a tools array rather than service flags.
+ */
+export function toolsToCategories(tools: string[]): ToolCategory[] {
+  const categories: ToolCategory[] = [];
+
+  // Map tool names to categories
+  const toolCategoryMap: Record<string, ToolCategory> = {
+    // Secrets
+    request_secret: 'secrets',
+    configure_integration: 'secrets',
+    // Wallets
+    create_wallet: 'wallets',
+    get_wallet_balance: 'wallets',
+    // Profile
+    update_profile: 'profile',
+    set_profile_image: 'profile',
+    // Media
+    generate_image: 'media',
+    generate_video: 'media',
+    generate_sticker: 'media',
+    // Gallery
+    list_gallery: 'gallery',
+    search_gallery: 'gallery',
+    // Voice
+    generate_voice_message: 'voice',
+    transcribe_audio: 'voice',
+    // Telegram
+    send_message: 'telegram',
+    get_chat_info: 'telegram',
+    // Twitter
+    twitter_post: 'twitter',
+    twitter_reply: 'twitter',
+    // Discord
+    discord_send: 'discord',
+    // Memory
+    remember: 'memory',
+    recall: 'memory',
+    // NFT
+    check_ownership: 'nft',
+    // Property
+    research_property: 'property',
+    get_research_status: 'property',
+    // Diagnostics
+    report_issue: 'diagnostics',
+  };
+
+  // Base categories always enabled
+  categories.push('secrets', 'profile', 'diagnostics');
+
+  // Add categories based on tools
+  const seen = new Set<ToolCategory>(categories);
+  for (const tool of tools) {
+    const category = toolCategoryMap[tool];
+    if (category && !seen.has(category)) {
+      categories.push(category);
+      seen.add(category);
+    }
+  }
+
+  return categories;
 }
