@@ -348,7 +348,16 @@ export class TelegramAdapter extends PlatformAdapter {
     this.botId = botId;
 
     if (this.isConfigured()) {
-      this.bot = new Bot(botToken);
+      // Configure Bot to use native fetch to avoid node-fetch AbortSignal issues in Node.js 20+
+      this.bot = new Bot(botToken, {
+        client: {
+          // Use native fetch instead of node-fetch
+          baseFetchConfig: {
+            // @ts-expect-error grammy accepts a custom fetch function
+            fetch: globalThis.fetch,
+          },
+        },
+      });
     }
   }
 
