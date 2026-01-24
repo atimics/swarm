@@ -120,7 +120,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: packages/layer/nodejs
-          key: layer-${{ hashFiles('packages/layer/package.json') }}
+          key: layer-${{ hashFiles('packages/layer/package.json', 'packages/layer/node-fetch-shim/**', 'packages/layer/abort-controller-shim/**') }}
 
       - name: Cache CDK output
         uses: actions/cache@v4
