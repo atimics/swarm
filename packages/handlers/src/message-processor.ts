@@ -57,7 +57,77 @@ const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'https://openrouter.ai/api/v1/c
 const LLM_TIMEOUT_MS = 60_000;
 const MAX_TOOL_ITERATIONS = 5;
 
-
+/**
+ * Parse XML-style function calls that some models output in their text content
+ * instead of using proper tool_calls format.
+ * 
+ * Handles formats like:
+ * <function_calls>
+ *   <invoke name="send_message">
+ *     <parameter name="text">Hello!</parameter>
+ *   </invoke>
+ * </function_calls>
+ * 
+ * Returns extracted tool calls and cleaned content (with XML removed).
+ */
+function parseXmlToolCalls(content: string): {
+  toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+  cleanedContent: string;
+} {
+  const toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
+  
+  // Match various XML function call formats (handles both closing tag variants)
+  const functionCallsPattern = /<(?:antml:)?function_calls>([\s\S]*?)<\/(?:antml:)?function_calls>/gi;
+  
+  let cleanedContent = content;
+  let match: RegExpExecArray | null;
+  
+  while ((match = functionCallsPattern.exec(content)) !== null) {
+    const block = match[1];
+    
+    // Extract <invoke> or <invoke> blocks
+    const invokePattern = /<(?:antml:)?invoke\s+name=["']([^"']+)["']>([\s\S]*?)<\/(?:antml:)?invoke>/gi;
+    let invokeMatch: RegExpExecArray | null;
+    
+    while ((invokeMatch = invokePattern.exec(block)) !== null) {
+      const toolName = invokeMatch[1];
+      const paramsBlock = invokeMatch[2];
+      const args: Record<string, unknown> = {};
+      
+      // Extract <parameter> or <parameter> values
+      const paramPattern = /<(?:antml:)?parameter\s+name=["']([^"']+)["']>([^<]*)<\/(?:antml:)?parameter>/gi;
+      let paramMatch: RegExpExecArray | null;
+      
+      while ((paramMatch = paramPattern.exec(paramsBlock)) !== null) {
+        const paramName = paramMatch[1];
+        const paramValue = paramMatch[2].trim();
+        
+        // Try to parse as JSON, otherwise use as string
+        try {
+          args[paramName] = JSON.parse(paramValue);
+        } catch {
+          args[paramName] = paramValue;
+        }
+      }
+      
+      toolCalls.push({
+        id: `xml_${randomUUID().slice(0, 8)}`,
+        name: toolName,
+        arguments: args,
+      });
+      
+      logger.info('Parsed XML tool call from content', {
+        toolName,
+        args,
+      });
+    }
+    
+    // Remove the matched XML block from content
+    cleanedContent = cleanedContent.replace(match[0], '').trim();
+  }
+  
+  return { toolCalls, cleanedContent };
+}
 
 // Environment variable validation helper
 function getRequiredEnv(name: string): string {
@@ -401,24 +471,47 @@ async function callLLM(
       throw new Error('No response from LLM');
     }
 
+    // Parse proper tool_calls from the API response
+    const apiToolCalls = choice.tool_calls?.map(tc => {
+      let parsedArgs: Record<string, unknown> = {};
+      try {
+        parsedArgs = JSON.parse(tc.function.arguments || '{}');
+      } catch {
+        logger.warn('Failed to parse tool call arguments', {
+          toolName: tc.function.name,
+          arguments: tc.function.arguments?.slice(0, 100),
+        });
+      }
+      return {
+        id: tc.id,
+        name: tc.function.name,
+        arguments: parsedArgs,
+      };
+    }) || [];
+
+    // Also check for XML-style tool calls in content (some models output these in text)
+    let finalContent = choice.content || undefined;
+    let xmlToolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
+    
+    if (finalContent && (finalContent.includes('<function_calls>') || finalContent.includes('<invoke'))) {
+      const parsed = parseXmlToolCalls(finalContent);
+      xmlToolCalls = parsed.toolCalls;
+      finalContent = parsed.cleanedContent || undefined;
+      
+      if (xmlToolCalls.length > 0) {
+        logger.info('Extracted XML tool calls from content', {
+          count: xmlToolCalls.length,
+          tools: xmlToolCalls.map(t => t.name),
+        });
+      }
+    }
+
+    // Combine API tool calls with any XML-parsed tool calls
+    const allToolCalls = [...apiToolCalls, ...xmlToolCalls];
+
     return {
-      content: choice.content || undefined,
-      toolCalls: choice.tool_calls?.map(tc => {
-        let parsedArgs: Record<string, unknown> = {};
-        try {
-          parsedArgs = JSON.parse(tc.function.arguments || '{}');
-        } catch {
-          logger.warn('Failed to parse tool call arguments', {
-            toolName: tc.function.name,
-            arguments: tc.function.arguments?.slice(0, 100),
-          });
-        }
-        return {
-          id: tc.id,
-          name: tc.function.name,
-          arguments: parsedArgs,
-        };
-      }),
+      content: finalContent,
+      toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
     };
   } finally {
     clearTimeout(timeoutId);

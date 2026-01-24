@@ -494,3 +494,162 @@ describe('Message Processor - Tool Execution E2E', () => {
     });
   });
 });
+
+/**
+ * XML Tool Call Parser Tests
+ * 
+ * Some LLM models (especially through OpenRouter) output XML-style function calls
+ * in their text content instead of using proper tool_calls format.
+ * 
+ * Example problematic output:
+ * <function_calls>
+ *   <invoke name="send_message">
+ *     <parameter name="text">Hello!</parameter>
+ *   </invoke>
+ * </function_calls>
+ * 
+ * The parser extracts these and converts them to proper tool calls.
+ */
+describe('Message Processor - XML Tool Call Parser', () => {
+  // Helper function that mirrors the parser logic
+  function parseXmlToolCalls(content: string): {
+    toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+    cleanedContent: string;
+  } {
+    const toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
+    
+    // Match various XML function call formats (handles both closing tag variants)
+    const functionCallsPattern = /<(?:antml:)?function_calls>([\s\S]*?)<\/(?:antml:)?function_calls>/gi;
+    
+    let cleanedContent = content;
+    let match: RegExpExecArray | null;
+    
+    while ((match = functionCallsPattern.exec(content)) !== null) {
+      const block = match[1];
+      
+      const invokePattern = /<(?:antml:)?invoke\s+name=["']([^"']+)["']>([\s\S]*?)<\/(?:antml:)?invoke>/gi;
+      let invokeMatch: RegExpExecArray | null;
+      
+      while ((invokeMatch = invokePattern.exec(block)) !== null) {
+        const toolName = invokeMatch[1];
+        const paramsBlock = invokeMatch[2];
+        const args: Record<string, unknown> = {};
+        
+        const paramPattern = /<(?:antml:)?parameter\s+name=["']([^"']+)["']>([^<]*)<\/(?:antml:)?parameter>/gi;
+        let paramMatch: RegExpExecArray | null;
+        
+        while ((paramMatch = paramPattern.exec(paramsBlock)) !== null) {
+          const paramName = paramMatch[1];
+          const paramValue = paramMatch[2].trim();
+          
+          try {
+            args[paramName] = JSON.parse(paramValue);
+          } catch {
+            args[paramName] = paramValue;
+          }
+        }
+        
+        toolCalls.push({
+          id: 'xml_test',
+          name: toolName,
+          arguments: args,
+        });
+      }
+      
+      cleanedContent = cleanedContent.replace(match[0], '').trim();
+    }
+    
+    return { toolCalls, cleanedContent };
+  }
+
+  describe('Basic XML parsing', () => {
+    it('should parse standard XML function calls', () => {
+      const content = `<function_calls>
+<invoke name="send_message">
+<parameter name="text">Hello world!</parameter>
+</invoke>
+</function_calls>`;
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0].name).toBe('send_message');
+      expect(result.toolCalls[0].arguments).toEqual({ text: 'Hello world!' });
+      expect(result.cleanedContent).toBe('');
+    });
+
+    it('should parse multiple tool calls in one block', () => {
+      const content = `<function_calls>
+<invoke name="send_message">
+<parameter name="text">First message</parameter>
+</invoke>
+<invoke name="react">
+<parameter name="emoji">👍</parameter>
+<parameter name="message_id">msg-123</parameter>
+</invoke>
+</function_calls>`;
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls).toHaveLength(2);
+      expect(result.toolCalls[0].name).toBe('send_message');
+      expect(result.toolCalls[1].name).toBe('react');
+      expect(result.toolCalls[1].arguments).toEqual({ emoji: '👍', message_id: 'msg-123' });
+    });
+
+    it('should preserve content before and after XML blocks', () => {
+      const content = `Some text before.
+<function_calls>
+<invoke name="send_message">
+<parameter name="text">Hello!</parameter>
+</invoke>
+</function_calls>
+Some text after.`;
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.cleanedContent).toContain('Some text before.');
+      expect(result.cleanedContent).toContain('Some text after.');
+    });
+
+    it('should handle content with no XML tool calls', () => {
+      const content = 'Just a normal message with no tool calls.';
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls).toHaveLength(0);
+      expect(result.cleanedContent).toBe(content);
+    });
+
+    it('should parse JSON values in parameters', () => {
+      const content = `<function_calls>
+<invoke name="test_tool">
+<parameter name="count">42</parameter>
+<parameter name="enabled">true</parameter>
+<parameter name="text">plain string</parameter>
+</invoke>
+</function_calls>`;
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls[0].arguments).toEqual({
+        count: 42,
+        enabled: true,
+        text: 'plain string',
+      });
+    });
+
+    it('should handle emoji and special characters in parameters', () => {
+      const content = `<function_calls>
+<invoke name="send_message">
+<parameter name="text">🐋💕 Fluffin says hi! ✨</parameter>
+</invoke>
+</function_calls>`;
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls[0].arguments.text).toBe('🐋💕 Fluffin says hi! ✨');
+    });
+  });
+});
