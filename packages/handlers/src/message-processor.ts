@@ -62,11 +62,15 @@ const MAX_TOOL_ITERATIONS = 5;
  * instead of using proper tool_calls format.
  * 
  * Handles formats like:
- * <function_calls>
- *   <invoke name="send_message">
- *     <parameter name="text">Hello!</parameter>
- *   </invoke>
- * </function_calls>
+ * 1. Full invoke format:
+ *    <function_calls>
+ *      <invoke name="send_message">
+ *        <parameter name="text">Hello!</parameter>
+ *      </invoke>
+ *    </function_calls>
+ * 
+ * 2. Direct tool tag format:
+ *    <send_message>Hello!</send_message>
  * 
  * Returns extracted tool calls and cleaned content (with XML removed).
  */
@@ -75,17 +79,19 @@ function parseXmlToolCalls(content: string): {
   cleanedContent: string;
 } {
   const toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
-  
-  // Match various XML function call formats (handles both closing tag variants)
-  const functionCallsPattern = /<(?:antml:)?function_calls>([\s\S]*?)<\/(?:antml:)?function_calls>/gi;
-  
   let cleanedContent = content;
+  
+  // Known tool names that might appear as direct XML tags
+  const knownTools = ['send_message', 'react', 'ignore', 'wait', 'generate_image', 'remember', 'recall', 'take_selfie'];
+  
+  // Pattern 1: Match <function_calls>...</function_calls> wrapper format
+  const functionCallsPattern = /<(?:antml:)?function_calls>([\s\S]*?)<\/(?:antml:)?function_calls>/gi;
   let match: RegExpExecArray | null;
   
   while ((match = functionCallsPattern.exec(content)) !== null) {
     const block = match[1];
     
-    // Extract <invoke> or <invoke> blocks
+    // Extract <invoke> blocks
     const invokePattern = /<(?:antml:)?invoke\s+name=["']([^"']+)["']>([\s\S]*?)<\/(?:antml:)?invoke>/gi;
     let invokeMatch: RegExpExecArray | null;
     
@@ -94,7 +100,7 @@ function parseXmlToolCalls(content: string): {
       const paramsBlock = invokeMatch[2];
       const args: Record<string, unknown> = {};
       
-      // Extract <parameter> or <parameter> values
+      // Extract <parameter> values
       const paramPattern = /<(?:antml:)?parameter\s+name=["']([^"']+)["']>([^<]*)<\/(?:antml:)?parameter>/gi;
       let paramMatch: RegExpExecArray | null;
       
@@ -102,7 +108,6 @@ function parseXmlToolCalls(content: string): {
         const paramName = paramMatch[1];
         const paramValue = paramMatch[2].trim();
         
-        // Try to parse as JSON, otherwise use as string
         try {
           args[paramName] = JSON.parse(paramValue);
         } catch {
@@ -116,7 +121,7 @@ function parseXmlToolCalls(content: string): {
         arguments: args,
       });
       
-      logger.info('Parsed XML tool call from content', {
+      logger.info('Parsed XML tool call from content (invoke format)', {
         toolName,
         args,
       });
@@ -124,6 +129,37 @@ function parseXmlToolCalls(content: string): {
     
     // Remove the matched XML block from content
     cleanedContent = cleanedContent.replace(match[0], '').trim();
+  }
+  
+  // Pattern 2: Match direct tool tags like <send_message>...</send_message>
+  for (const toolName of knownTools) {
+    const directPattern = new RegExp(`<${toolName}>([\\s\\S]*?)<\\/${toolName}>`, 'gi');
+    let directMatch: RegExpExecArray | null;
+    
+    while ((directMatch = directPattern.exec(cleanedContent)) !== null) {
+      const textContent = directMatch[1].trim();
+      
+      // For send_message, the content is the text parameter
+      const args: Record<string, unknown> = toolName === 'send_message' 
+        ? { text: textContent }
+        : toolName === 'react'
+          ? { emoji: textContent }
+          : { value: textContent };
+      
+      toolCalls.push({
+        id: `xml_${randomUUID().slice(0, 8)}`,
+        name: toolName,
+        arguments: args,
+      });
+      
+      logger.info('Parsed XML tool call from content (direct tag format)', {
+        toolName,
+        args,
+      });
+      
+      // Remove the matched tag from content
+      cleanedContent = cleanedContent.replace(directMatch[0], '').trim();
+    }
   }
   
   return { toolCalls, cleanedContent };

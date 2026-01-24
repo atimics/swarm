@@ -517,11 +517,13 @@ describe('Message Processor - XML Tool Call Parser', () => {
     cleanedContent: string;
   } {
     const toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
-    
-    // Match various XML function call formats (handles both closing tag variants)
-    const functionCallsPattern = /<(?:antml:)?function_calls>([\s\S]*?)<\/(?:antml:)?function_calls>/gi;
-    
     let cleanedContent = content;
+    
+    // Known tool names that might appear as direct XML tags
+    const knownTools = ['send_message', 'react', 'ignore', 'wait', 'generate_image', 'remember', 'recall', 'take_selfie'];
+    
+    // Pattern 1: Match <function_calls>...</function_calls> wrapper format
+    const functionCallsPattern = /<(?:antml:)?function_calls>([\s\S]*?)<\/(?:antml:)?function_calls>/gi;
     let match: RegExpExecArray | null;
     
     while ((match = functionCallsPattern.exec(content)) !== null) {
@@ -559,10 +561,34 @@ describe('Message Processor - XML Tool Call Parser', () => {
       cleanedContent = cleanedContent.replace(match[0], '').trim();
     }
     
+    // Pattern 2: Match direct tool tags like <send_message>...</send_message>
+    for (const toolName of knownTools) {
+      const directPattern = new RegExp(`<${toolName}>([\\s\\S]*?)<\\/${toolName}>`, 'gi');
+      let directMatch: RegExpExecArray | null;
+      
+      while ((directMatch = directPattern.exec(cleanedContent)) !== null) {
+        const textContent = directMatch[1].trim();
+        
+        const args: Record<string, unknown> = toolName === 'send_message' 
+          ? { text: textContent }
+          : toolName === 'react'
+            ? { emoji: textContent }
+            : { value: textContent };
+        
+        toolCalls.push({
+          id: 'xml_test',
+          name: toolName,
+          arguments: args,
+        });
+        
+        cleanedContent = cleanedContent.replace(directMatch[0], '').trim();
+      }
+    }
+    
     return { toolCalls, cleanedContent };
   }
 
-  describe('Basic XML parsing', () => {
+  describe('Invoke format parsing', () => {
     it('should parse standard XML function calls', () => {
       const content = `<function_calls>
 <invoke name="send_message">
@@ -650,6 +676,70 @@ Some text after.`;
       const result = parseXmlToolCalls(content);
       
       expect(result.toolCalls[0].arguments.text).toBe('🐋💕 Fluffin says hi! ✨');
+    });
+  });
+
+  describe('Direct tag format parsing', () => {
+    it('should parse direct <send_message> tags', () => {
+      const content = `<send_message>
+Hey there ratimics! 🐱✨ My function calling is purr-fectly awesome!
+</send_message>`;
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0].name).toBe('send_message');
+      expect(result.toolCalls[0].arguments.text).toContain('ratimics');
+      expect(result.toolCalls[0].arguments.text).toContain('🐱✨');
+      expect(result.cleanedContent).toBe('');
+    });
+
+    it('should parse direct <react> tags', () => {
+      const content = `<react>👍</react>`;
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0].name).toBe('react');
+      expect(result.toolCalls[0].arguments.emoji).toBe('👍');
+    });
+
+    it('should preserve surrounding content with direct tags', () => {
+      const content = `Some preamble text.
+<send_message>Hello!</send_message>
+Some follow-up text.`;
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0].arguments.text).toBe('Hello!');
+      expect(result.cleanedContent).toContain('Some preamble text.');
+      expect(result.cleanedContent).toContain('Some follow-up text.');
+    });
+
+    it('should handle multiple direct tags', () => {
+      const content = `<send_message>First message</send_message>
+<react>😸</react>`;
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls).toHaveLength(2);
+      expect(result.toolCalls[0].name).toBe('send_message');
+      expect(result.toolCalls[1].name).toBe('react');
+    });
+
+    it('should handle multiline content in direct tags', () => {
+      const content = `<send_message>
+Line 1
+Line 2
+Line 3 with emoji 🚀
+</send_message>`;
+
+      const result = parseXmlToolCalls(content);
+      
+      expect(result.toolCalls[0].arguments.text).toContain('Line 1');
+      expect(result.toolCalls[0].arguments.text).toContain('Line 2');
+      expect(result.toolCalls[0].arguments.text).toContain('🚀');
     });
   });
 });
