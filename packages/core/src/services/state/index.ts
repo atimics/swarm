@@ -39,6 +39,9 @@ import {
   markResponseSent,
   transitionState,
   updateChannelState,
+  getAllChannelStates,
+  getChannelStatesForPlatform,
+  getActiveChannels,
 } from './channel-state.js';
 import {
   clearUserCooldown,
