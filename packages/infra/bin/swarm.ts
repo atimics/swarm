@@ -69,9 +69,12 @@ const envConfig = environments[environment] || environments[rawEnvironment] || {
 
 // Domain configuration
 // Prefer explicit adminDomain, but allow a computed stack domain for easier multi-stack deployments.
+const disableComputedAdminDomain = (getContextValue<boolean>('disableComputedAdminDomain', envConfig) ?? false) as boolean;
 const domainBase = getContextValue<string>('domainBase', envConfig) || 'rati.chat';
 const stackSubdomain = getContextValue<string>('stackSubdomain', envConfig) || 'swarm';
-const computedAdminDomain = computeStackDomain({ environment, stackSubdomain, baseDomain: domainBase });
+const computedAdminDomain = disableComputedAdminDomain
+  ? undefined
+  : computeStackDomain({ environment, stackSubdomain, baseDomain: domainBase });
 
 const adminDomain = getContextValue<string>('adminDomain', envConfig) || computedAdminDomain;
 const adminCertificateArn = getContextValue<string>('adminCertificateArn', envConfig);
