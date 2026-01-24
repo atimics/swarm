@@ -52,6 +52,11 @@ export interface SharedHandlersProps {
    * @default 20
    */
   twitterDailyReservePct?: number;
+  /**
+   * Internal test key for bypassing webhook auth in non-production environments.
+   * If not provided, one will be generated.
+   */
+  internalTestKey?: string;
 }
 
 export class SharedHandlers extends Construct {
@@ -75,7 +80,13 @@ export class SharedHandlers extends Construct {
       twitterApiTier = 'basic',
       twitterMonthlyBudget,
       twitterDailyReservePct = 20,
+      internalTestKey,
     } = props;
+
+    // Generate internal test key if not provided (non-production only)
+    const effectiveInternalTestKey = environment !== 'prod' && environment !== 'production'
+      ? internalTestKey || process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`
+      : '';
 
     // Path to handlers source files
     const handlersEntry = path.join(__dirname, '../../../handlers/src');
@@ -176,6 +187,8 @@ export class SharedHandlers extends Construct {
       ...(twitterMonthlyBudget ? { TWITTER_MONTHLY_BUDGET: String(twitterMonthlyBudget) } : {}),
       // Enable unified MessageProcessor for consistent tool access across platforms
       USE_UNIFIED_PROCESSOR: 'true',
+      // Internal test key for bypassing webhook auth in E2E tests
+      ...(effectiveInternalTestKey ? { INTERNAL_TEST_KEY: effectiveInternalTestKey } : {}),
     };
 
     if (replicateApiKeyArn) {
@@ -183,9 +196,9 @@ export class SharedHandlers extends Construct {
     }
 
     // Common bundling options: bundle AWS SDK (don't externalize) to avoid layer CJS/ESM conflicts
-    // Only externalize sharp which comes from the native layer
+    // Externalize sharp (native layer) and node-fetch (forces grammy to use native fetch in Node.js 18+)
     const bundlingOptions = {
-      externalModules: ['sharp'],
+      externalModules: ['sharp', 'node-fetch'],
       minify: true,
       sourceMap: true,
     };
