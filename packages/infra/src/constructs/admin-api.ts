@@ -1155,6 +1155,13 @@ export class AdminApiConstruct extends Construct {
 
     // Grant permissions to wallet auth handler
     this.table.grantReadWriteData(walletAuthHandler);
+    // Grant permission to query GSI1 (for finding avatars by inhabitant wallet)
+    walletAuthHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:Query'],
+        resources: [`${this.table.tableArn}/index/GSI1`],
+      })
+    );
     if (heliusApiKeySecret) {
       heliusApiKeySecret.grantRead(walletAuthHandler);
     }
