@@ -1,12 +1,24 @@
 #!/usr/bin/env node
 /**
  * CDK App Entry Point
+ * 
+ * Stacks are organized for parallel deployment:
+ * 1. SharedInfraStack - DynamoDB, S3, CDN, Lambda layer (rarely changes)
+ * 2. AdminApiStack - API Gateway, Lambda handlers (changes with code)
+ * 3. AdminUiStack - CloudFront for UI (changes with UI)
+ * 4. AvatarsStack - Avatar configs (changes with avatar updates)
+ * 
+ * Legacy SwarmStack is still available for backward compatibility.
  */
 import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { SwarmStack } from '../src/stacks/swarm-stack.js';
+import { SharedInfraStack } from '../src/stacks/shared-infra-stack.js';
+import { AdminApiStack } from '../src/stacks/admin-api-stack.js';
+import { AdminUiStack } from '../src/stacks/admin-ui-stack.js';
+import { AvatarsStack } from '../src/stacks/avatars-stack.js';
 
 // ESM equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -84,6 +96,12 @@ const enableClaudeCode = (getContextValue<boolean>('enableClaudeCode', envConfig
 const claudeCodeUseOpenRouter = (getContextValue<boolean>('claudeCodeUseOpenRouter', envConfig) ?? false) as boolean;
 // Enable shared handlers (Twitter mention polling, autonomous tweets, shared queues)
 const enableSharedHandlers = (getContextValue<boolean>('enableSharedHandlers', envConfig) ?? true) as boolean;
+const anthropicApiKeyArn = getContextValue<string>('anthropicApiKeyArn', envConfig);
+const secretPrefix = getContextValue<string>('secretPrefix', envConfig);
+
+// Check if we should use split stacks (new) or monolithic stack (legacy)
+// Default to false for backward compatibility during migration
+const useSplitStacks = (app.node.tryGetContext('splitStacks') as boolean | undefined) ?? false;
 
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
@@ -91,36 +109,112 @@ const monorepoRoot = path.resolve(__dirname, '../../..');
 const avatarsPath = path.join(monorepoRoot, 'avatars');
 const handlersPath = path.join(monorepoRoot, 'packages/handlers/dist');
 
-new SwarmStack(app, `SwarmStack-${environment}`, {
-  environment,
-  avatarsPath,
-  handlersPath,
-  enableCdn: true, // CDN required for media to be accessible (S3 bucket is private)
-  avatarIds,
-  adminDomain,
-  adminCertificateArn,
-  cloudflareTeamDomain,
-  adminEmails,
-  adminWallets,
-  openRouterApiKeyArn,
-  replicateApiKeyArn,
-  heliusApiKeyArn,
-  webSearchApiKeyArn,
-  webSearchProvider,
-  crossmintApiKeyArn,
-  privyAppId,
-  privyAppSecretArn,
-  privyJwtVerificationKeyArn,
-  galleryDomain,
-  galleryCertificateArn,
-  enableClaudeCode,
-  claudeCodeUseOpenRouter,
-  enableSharedHandlers,
-  env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT,
-    region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
-  },
-  description: `Swarm AI Avatar Framework (${environment})`,
-});
+const stackEnv = {
+  account: process.env.CDK_DEFAULT_ACCOUNT,
+  region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
+};
+
+if (useSplitStacks) {
+  // ============================================
+  // NEW: Split Stacks for Parallel Deployment
+  // ============================================
+
+  // 1. Shared Infrastructure Stack (deploys first, rarely changes)
+  const sharedInfraStack = new SharedInfraStack(app, `SwarmShared-${environment}`, {
+    environment,
+    enableCdn: true,
+    galleryDomain,
+    galleryCertificateArn,
+    env: stackEnv,
+    description: `Swarm Shared Infrastructure (${environment})`,
+  });
+
+  // 2. Admin API Stack (depends on shared, changes with code updates)
+  const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}`, {
+    environment,
+    sharedInfraStack,
+    handlersPath,
+    adminDomain,
+    cloudflareTeamDomain,
+    adminEmails,
+    adminWallets,
+    openRouterApiKeyArn,
+    replicateApiKeyArn,
+    heliusApiKeyArn,
+    webSearchApiKeyArn,
+    webSearchProvider,
+    crossmintApiKeyArn,
+    privyAppId,
+    privyAppSecretArn,
+    privyJwtVerificationKeyArn,
+    anthropicApiKeyArn,
+    enableClaudeCode,
+    claudeCodeUseOpenRouter,
+    enableSharedHandlers,
+    secretPrefix,
+    env: stackEnv,
+    description: `Swarm Admin API (${environment})`,
+  });
+  adminApiStack.addDependency(sharedInfraStack);
+
+  // 3. Admin UI Stack (depends on API for origin, changes with UI updates)
+  const adminUiStack = new AdminUiStack(app, `SwarmUi-${environment}`, {
+    environment,
+    adminApiStack,
+    adminDomain,
+    adminCertificateArn,
+    env: stackEnv,
+    description: `Swarm Admin UI (${environment})`,
+  });
+  adminUiStack.addDependency(adminApiStack);
+
+  // 4. Avatars Stack (depends on shared and API, changes with avatar updates)
+  const avatarsStack = new AvatarsStack(app, `SwarmAvatars-${environment}`, {
+    environment,
+    sharedInfraStack,
+    adminApiStack,
+    avatarsPath,
+    handlersPath,
+    avatarIds,
+    replicateApiKeyArn,
+    env: stackEnv,
+    description: `Swarm Avatars (${environment})`,
+  });
+  avatarsStack.addDependency(sharedInfraStack);
+  avatarsStack.addDependency(adminApiStack);
+
+} else {
+  // ============================================
+  // LEGACY: Monolithic Stack (default for now)
+  // ============================================
+  new SwarmStack(app, `SwarmStack-${environment}`, {
+    environment,
+    avatarsPath,
+    handlersPath,
+    enableCdn: true,
+    avatarIds,
+    adminDomain,
+    adminCertificateArn,
+    cloudflareTeamDomain,
+    adminEmails,
+    adminWallets,
+    openRouterApiKeyArn,
+    replicateApiKeyArn,
+    heliusApiKeyArn,
+    webSearchApiKeyArn,
+    webSearchProvider,
+    crossmintApiKeyArn,
+    privyAppId,
+    privyAppSecretArn,
+    privyJwtVerificationKeyArn,
+    galleryDomain,
+    galleryCertificateArn,
+    enableClaudeCode,
+    claudeCodeUseOpenRouter,
+    enableSharedHandlers,
+    env: stackEnv,
+    description: `Swarm AI Avatar Framework (${environment})`,
+  });
+}
 
 app.synth();

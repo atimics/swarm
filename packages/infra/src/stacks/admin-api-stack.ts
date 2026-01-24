@@ -1,0 +1,306 @@
+/**
+ * Admin API Stack
+ * Contains API Gateway and Lambda handlers
+ * This stack changes frequently with code updates and deploys faster than full stack
+ */
+import * as cdk from 'aws-cdk-lib';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import { Construct } from 'constructs';
+import { AdminApiConstruct } from '../constructs/admin-api.js';
+import { SharedHandlers } from '../constructs/shared-handlers.js';
+import { ClaudeCodeWorker } from '../constructs/claude-code-worker.js';
+import type { SharedInfraStack } from './shared-infra-stack.js';
+
+export interface AdminApiStackProps extends cdk.StackProps {
+  /**
+   * Environment name (dev, staging, prod)
+   */
+  environment: string;
+
+  /**
+   * Reference to the shared infrastructure stack
+   */
+  sharedInfraStack: SharedInfraStack;
+
+  /**
+   * Path to compiled handlers
+   */
+  handlersPath: string;
+
+  /**
+   * Custom domain for Admin UI (e.g., 'admin-staging.rati.chat')
+   */
+  adminDomain?: string;
+
+  /**
+   * Cloudflare Access team domain
+   */
+  cloudflareTeamDomain?: string;
+
+  /**
+   * Admin emails (comma-separated)
+   */
+  adminEmails?: string;
+
+  /**
+   * Admin wallet addresses (comma-separated Solana public keys)
+   */
+  adminWallets?: string;
+
+  /**
+   * OpenRouter API key secret ARN
+   */
+  openRouterApiKeyArn?: string;
+
+  /**
+   * Replicate API key secret ARN
+   */
+  replicateApiKeyArn?: string;
+
+  /**
+   * Helius API key secret ARN
+   */
+  heliusApiKeyArn?: string;
+
+  /**
+   * Web search API key secret ARN
+   */
+  webSearchApiKeyArn?: string;
+
+  /**
+   * Web search provider
+   */
+  webSearchProvider?: string;
+
+  /**
+   * Crossmint API key secret ARN
+   */
+  crossmintApiKeyArn?: string;
+
+  /**
+   * Privy App ID
+   */
+  privyAppId?: string;
+
+  /**
+   * Privy App Secret ARN
+   */
+  privyAppSecretArn?: string;
+
+  /**
+   * Privy JWT verification key ARN
+   */
+  privyJwtVerificationKeyArn?: string;
+
+  /**
+   * Anthropic API key secret ARN
+   */
+  anthropicApiKeyArn?: string;
+
+  /**
+   * Enable Claude Code worker
+   */
+  enableClaudeCode?: boolean;
+
+  /**
+   * Claude Code worker min capacity
+   */
+  claudeCodeMinCapacity?: number;
+
+  /**
+   * Claude Code worker max capacity
+   */
+  claudeCodeMaxCapacity?: number;
+
+  /**
+   * Use OpenRouter for Claude Code
+   */
+  claudeCodeUseOpenRouter?: boolean;
+
+  /**
+   * Enable shared handlers
+   */
+  enableSharedHandlers?: boolean;
+
+  /**
+   * Secrets Manager prefix
+   */
+  secretPrefix?: string;
+}
+
+export class AdminApiStack extends cdk.Stack {
+  public readonly adminApi?: AdminApiConstruct;
+  public readonly sharedHandlers?: SharedHandlers;
+  public readonly claudeCodeWorker?: ClaudeCodeWorker;
+  public readonly apiEndpoint?: string;
+
+  constructor(scope: Construct, id: string, props: AdminApiStackProps) {
+    super(scope, id, props);
+
+    const {
+      environment,
+      sharedInfraStack,
+      handlersPath,
+      adminDomain,
+      cloudflareTeamDomain,
+      adminEmails,
+      adminWallets,
+      openRouterApiKeyArn,
+      replicateApiKeyArn,
+      heliusApiKeyArn,
+      webSearchApiKeyArn,
+      webSearchProvider,
+      crossmintApiKeyArn,
+      privyAppId,
+      privyAppSecretArn,
+      privyJwtVerificationKeyArn,
+      anthropicApiKeyArn,
+      enableClaudeCode = false,
+      claudeCodeMinCapacity = 0,
+      claudeCodeMaxCapacity = 5,
+      claudeCodeUseOpenRouter = false,
+      enableSharedHandlers = false,
+      secretPrefix,
+    } = props;
+
+    // Import shared resources from the shared infrastructure stack
+    const stateTable = dynamodb.Table.fromTableAttributes(this, 'StateTable', {
+      tableArn: sharedInfraStack.stateTableArn,
+      tableName: sharedInfraStack.stateTableName,
+      globalIndexes: ['gsi1'],
+    });
+
+    const activityTable = dynamodb.Table.fromTableAttributes(this, 'ActivityTable', {
+      tableArn: sharedInfraStack.activityTableArn,
+      tableName: sharedInfraStack.activityTableName,
+    });
+
+    const mediaBucket = s3.Bucket.fromBucketAttributes(this, 'MediaBucket', {
+      bucketArn: sharedInfraStack.mediaBucketArn,
+      bucketName: sharedInfraStack.mediaBucketName,
+    });
+
+    const dependencyLayer = lambda.LayerVersion.fromLayerVersionArn(
+      this,
+      'DependencyLayer',
+      sharedInfraStack.dependencyLayerArn
+    );
+
+    const mediaCdn = sharedInfraStack.cdnDistributionId
+      ? cloudfront.Distribution.fromDistributionAttributes(this, 'MediaCdn', {
+          distributionId: sharedInfraStack.cdnDistributionId,
+          domainName: sharedInfraStack.cdnUrl?.replace('https://', '') || '',
+        })
+      : undefined;
+
+    // Look up default VPC for ECS cluster
+    const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
+    const discordCluster = ecs.Cluster.fromClusterAttributes(this, 'DiscordCluster', {
+      clusterArn: sharedInfraStack.discordClusterArn,
+      clusterName: sharedInfraStack.discordClusterName,
+      vpc,
+      securityGroups: [],
+    });
+
+    // Generate internal test key for non-production
+    const isProd = environment === 'prod' || environment === 'production';
+    const internalTestKey = isProd
+      ? ''
+      : process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+
+    // Create shared handlers if enabled
+    if (enableSharedHandlers) {
+      this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
+        environment,
+        dependencyLayer,
+        stateTable,
+        activityTable,
+        mediaBucket,
+        cdnUrl: sharedInfraStack.cdnUrl,
+        replicateApiKeyArn,
+        secretPrefix,
+        internalTestKey,
+      });
+    }
+
+    // Create Admin API if configured
+    if (cloudflareTeamDomain && adminEmails) {
+      this.adminApi = new AdminApiConstruct(this, 'AdminApi', {
+        cloudflareTeamDomain,
+        adminEmails,
+        adminWallets,
+        openRouterApiKeyArn,
+        replicateApiKeyArn,
+        heliusApiKeyArn,
+        webSearchApiKeyArn,
+        webSearchProvider,
+        crossmintApiKeyArn,
+        privyAppId,
+        privyAppSecretArn,
+        privyJwtVerificationKeyArn,
+        environment,
+        adminDomain,
+        apiDomain: adminDomain,
+        stateTable,
+        mediaBucket,
+        mediaCdn,
+        cdnUrl: sharedInfraStack.cdnUrl,
+        dependencyLayer,
+        telegramWebhookFunction: this.sharedHandlers?.telegramWebhook,
+        internalTestKey,
+      });
+
+      this.apiEndpoint = this.adminApi.apiEndpoint;
+    }
+
+    // Create Claude Code worker if enabled
+    if (enableClaudeCode) {
+      const claudeCodeCallbackQueue = new sqs.Queue(this, 'ClaudeCodeCallbackQueue', {
+        queueName: `swarm-claude-code-callbacks-${environment}.fifo`,
+        fifo: true,
+        contentBasedDeduplication: true,
+        visibilityTimeout: cdk.Duration.seconds(60),
+      });
+
+      this.claudeCodeWorker = new ClaudeCodeWorker(this, 'ClaudeCodeWorker', {
+        environment,
+        cluster: discordCluster,
+        stateTable,
+        responseQueue: claudeCodeCallbackQueue,
+        anthropicApiKeyArn,
+        openRouterApiKeyArn,
+        useOpenRouter: claudeCodeUseOpenRouter,
+        minCapacity: claudeCodeMinCapacity,
+        maxCapacity: claudeCodeMaxCapacity,
+        handlersCodePath: handlersPath,
+        dependencyLayer,
+      });
+
+      new cdk.CfnOutput(this, 'ClaudeCodeQueueUrl', {
+        value: this.claudeCodeWorker.queue.queueUrl,
+        description: 'Claude Code task queue URL',
+        exportName: `swarm-claude-code-queue-url-${environment}`,
+      });
+
+      new cdk.CfnOutput(this, 'ClaudeCodeCallbackQueueUrl', {
+        value: claudeCodeCallbackQueue.queueUrl,
+        description: 'Claude Code callback queue URL',
+        exportName: `swarm-claude-code-callback-queue-url-${environment}`,
+      });
+    }
+
+    // Export API endpoint
+    if (this.apiEndpoint) {
+      new cdk.CfnOutput(this, 'ApiEndpointExport', {
+        value: this.apiEndpoint,
+        exportName: `swarm-api-endpoint-${environment}`,
+      });
+    }
+  }
+}
