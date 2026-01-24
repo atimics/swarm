@@ -1026,3 +1026,80 @@ export function buildCombinedConversationContext(
 
   return lines.join('\n');
 }
+
+// ========================================
+// KNOWN USERS QUERY
+// ========================================
+
+export interface KnownTelegramUser {
+  userId: number;
+  username?: string;
+  displayName: string;
+  lastSeen: number;
+  chatId: number;
+  chatTitle?: string;
+  chatType: 'private' | 'group' | 'supergroup' | 'channel';
+}
+
+/**
+ * Get all known Telegram users who have interacted with this avatar.
+ * Queries all active channel states and extracts unique users.
+ *
+ * Since channel states have a 1-hour TTL, this returns users from recent activity only.
+ */
+export async function getKnownTelegramUsers(
+  avatarId: string
+): Promise<KnownTelegramUser[]> {
+  const { ScanCommand } = await import('@aws-sdk/lib-dynamodb');
+
+  try {
+    // Scan for all channel states for this avatar
+    const result = await dynamoClient.send(new ScanCommand({
+      TableName: ADMIN_TABLE,
+      FilterExpression: 'begins_with(pk, :prefix) AND sk = :sk',
+      ExpressionAttributeValues: {
+        ':prefix': `CHANNEL#${avatarId}#`,
+        ':sk': 'STATE',
+      },
+    }));
+
+    if (!result.Items || result.Items.length === 0) {
+      return [];
+    }
+
+    // Extract unique users from all channel states
+    const userMap = new Map<number, KnownTelegramUser>();
+    const now = Date.now();
+
+    for (const item of result.Items) {
+      const state = item as ChannelStateRecord;
+
+      // Skip expired records
+      if (state.ttl && now / 1000 > state.ttl) continue;
+
+      for (const msg of state.messageBuffer || []) {
+        // Skip bot messages
+        if (msg.isFromBot) continue;
+
+        const existing = userMap.get(msg.userId);
+        if (!existing || msg.timestamp > existing.lastSeen) {
+          userMap.set(msg.userId, {
+            userId: msg.userId,
+            username: msg.username,
+            displayName: msg.userName,
+            lastSeen: msg.timestamp,
+            chatId: state.chatId,
+            chatTitle: state.chatTitle,
+            chatType: state.chatType,
+          });
+        }
+      }
+    }
+
+    // Sort by last seen (most recent first)
+    return Array.from(userMap.values()).sort((a, b) => b.lastSeen - a.lastSeen);
+  } catch (err) {
+    console.warn('[ChannelState] Failed to get known Telegram users:', err);
+    return [];
+  }
+}

@@ -21,6 +21,7 @@ import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
 import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
 import { computeTelegramRepairPlan } from '../services/telegram-repair.js';
+import { getKnownTelegramUsers } from '../services/channel-state.js';
 import { validateReplicateApiKey } from '../services/replicate.js';
 import { SecretType } from '../types.js';
 import { resumeChatAfterToolResult } from './chat.js';
@@ -493,6 +494,30 @@ export async function handler(
           webhookInfo: result.webhookInfo,
         },
       });
+    }
+
+    // GET /avatars/{id}/telegram/known-users - Get users who have interacted with this avatar
+    const telegramKnownUsersMatch = path.match(/^\/avatars\/([^/]+)\/telegram\/known-users$/);
+    if (method === 'GET' && telegramKnownUsersMatch) {
+      const avatarId = telegramKnownUsersMatch[1];
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      try {
+        const users = await getKnownTelegramUsers(avatarId);
+        return jsonResponse(corsHeaders, 200, { users });
+      } catch (err) {
+        logger.error('Failed to get known Telegram users', { event: 'telegram_known_users_failed', error: err });
+        return jsonResponse(corsHeaders, 500, { error: 'Failed to get known Telegram users' });
+      }
     }
 
     // POST /avatars/{id}/secrets - Save a secret for an avatar

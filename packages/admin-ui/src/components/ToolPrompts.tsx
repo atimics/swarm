@@ -183,6 +183,15 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const [telegramDiagnosisLoading, setTelegramDiagnosisLoading] = useState(false);
   const [telegramRepairLoading, setTelegramRepairLoading] = useState(false);
   const [telegramRepairError, setTelegramRepairError] = useState<string | null>(null);
+  const [knownTelegramUsers, setKnownTelegramUsers] = useState<Array<{
+    userId: number;
+    username?: string;
+    displayName: string;
+    lastSeen: number;
+    chatId: number;
+    chatTitle?: string;
+    chatType: 'private' | 'group' | 'supergroup' | 'channel';
+  }>>([]);
 
   // Twitter-specific state
   const [twitterFeatures, setTwitterFeatures] = useState<string[]>(['mention_replies']);
@@ -224,6 +233,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     setTelegramDiagnosisLoading(false);
     setTelegramRepairLoading(false);
     setTelegramRepairError(null);
+    setKnownTelegramUsers([]);
     didInitFromStatus.current = null;
     // Reset Twitter state
     setTwitterFeatures(['mention_replies']);
@@ -311,12 +321,46 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   };
 
   // When opening the Telegram integration panel (or switching avatars), show current
-  // integration health immediately.
+  // integration health and auto-repair fixable issues.
   useEffect(() => {
     if (args.integration !== 'telegram') return;
     if (!activeAgent?.id) return;
-    void runTelegramDiagnostics();
-    // Intentionally omit runTelegramDiagnostics from deps to avoid re-running on every render.
+
+    const diagnoseAndRepair = async () => {
+      const diagnosis = await runTelegramDiagnostics();
+      if (!diagnosis) return;
+
+      // Auto-repair if there are fixable webhook issues
+      const hasFixableIssues = diagnosis.issues.some(
+        (i) =>
+          i.code === 'webhook_url_mismatch' ||
+          i.code === 'webhook_pending_updates' ||
+          i.code === 'webhook_last_error'
+      );
+
+      if (hasFixableIssues) {
+        await repairTelegramWebhook();
+      }
+    };
+
+    const fetchKnownUsers = async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/avatars/${activeAgent.id}/telegram/known-users`, {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (resp.ok) {
+          const data = (await resp.json()) as { users: typeof knownTelegramUsers };
+          setKnownTelegramUsers(data.users || []);
+        }
+      } catch {
+        // Silently ignore - known users is a nice-to-have
+      }
+    };
+
+    void diagnoseAndRepair();
+    void fetchKnownUsers();
+    // Intentionally omit functions from deps to avoid re-running on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolCall.id, args.integration, activeAgent?.id]);
 
@@ -1056,25 +1100,15 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                   </ul>
                 )}
 
-                {/* Auto-fix button for webhook issues */}
-                {telegramDiagnosis.issues.some(i =>
-                  i.code === 'webhook_url_mismatch' ||
-                  i.code === 'webhook_pending_updates' ||
-                  i.code === 'webhook_last_error'
-                ) && (
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => void repairTelegramWebhook()}
-                      disabled={disabled || telegramRepairLoading || !activeAgent?.id}
-                      className="w-full px-3 py-2 text-sm bg-brand-600 hover:bg-brand-700 disabled:bg-[var(--color-bg-tertiary)] disabled:opacity-50 text-white rounded-lg transition-colors font-medium"
-                    >
-                      {telegramRepairLoading ? 'Fixing...' : 'Fix Webhook Issues'}
-                    </button>
-                    {telegramRepairError && (
-                      <p className="mt-1 text-xs text-red-400">{telegramRepairError}</p>
-                    )}
+                {/* Show repair status if auto-repair is in progress or failed */}
+                {telegramRepairLoading && (
+                  <div className="mt-3 flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+                    <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                    Auto-fixing webhook issues...
                   </div>
+                )}
+                {telegramRepairError && (
+                  <p className="mt-3 text-xs text-red-400">{telegramRepairError}</p>
                 )}
 
                 <div className="mt-2 grid grid-cols-1 gap-1">
@@ -1627,6 +1661,34 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                       Add
                     </button>
                   </div>
+                  {/* Known users suggestions */}
+                  {knownTelegramUsers.filter(u => u.chatType === 'private' && !allowedDmUserIds.includes(String(u.userId))).length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-xs text-[var(--color-text-muted)] mb-1">Recently active users:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {knownTelegramUsers
+                          .filter(u => u.chatType === 'private' && !allowedDmUserIds.includes(String(u.userId)))
+                          .slice(0, 10)
+                          .map((u) => (
+                            <button
+                              key={u.userId}
+                              type="button"
+                              onClick={() => {
+                                setSavedAt(null);
+                                setSaveError(null);
+                                setAllowedDmUserIds((prev) => stableSorted([...prev, String(u.userId)]));
+                              }}
+                              disabled={disabled}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-brand-600/20 hover:bg-brand-600/40 border border-brand-500/30 rounded-full text-brand-300 transition-colors"
+                              title={`Add ${u.displayName} (ID: ${u.userId})`}
+                            >
+                              <span>+</span>
+                              <span>{u.username ? `@${u.username}` : u.displayName}</span>
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                   {allowedDmUserIds.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {stableSorted(allowedDmUserIds).map((id) => (
@@ -1687,6 +1749,39 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                       Add
                     </button>
                   </div>
+                  {/* Known groups suggestions */}
+                  {knownTelegramUsers.filter(u => (u.chatType === 'group' || u.chatType === 'supergroup') && !allowedGroupChatIds.includes(String(u.chatId))).length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-xs text-[var(--color-text-muted)] mb-1">Recently active groups:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {knownTelegramUsers
+                          .filter(u => (u.chatType === 'group' || u.chatType === 'supergroup') && !allowedGroupChatIds.includes(String(u.chatId)))
+                          .reduce((acc, u) => {
+                            // Deduplicate by chatId since multiple users may be from same group
+                            if (!acc.find(x => x.chatId === u.chatId)) acc.push(u);
+                            return acc;
+                          }, [] as typeof knownTelegramUsers)
+                          .slice(0, 10)
+                          .map((u) => (
+                            <button
+                              key={u.chatId}
+                              type="button"
+                              onClick={() => {
+                                setSavedAt(null);
+                                setSaveError(null);
+                                setAllowedGroupChatIds((prev) => stableSorted([...prev, String(u.chatId)]));
+                              }}
+                              disabled={disabled}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-brand-600/20 hover:bg-brand-600/40 border border-brand-500/30 rounded-full text-brand-300 transition-colors"
+                              title={`Add ${u.chatTitle || 'group'} (ID: ${u.chatId})`}
+                            >
+                              <span>+</span>
+                              <span>{u.chatTitle || String(u.chatId)}</span>
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                   {allowedGroupChatIds.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {stableSorted(allowedGroupChatIds).map((id) => (
