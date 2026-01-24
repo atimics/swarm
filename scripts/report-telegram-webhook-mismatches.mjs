@@ -21,6 +21,7 @@
  *   --secret-prefix swarm
  *   --only a,b,c
  *   --concurrency 3
+ *   --only-mismatches
  */
 
 import { execFile } from 'node:child_process';
@@ -44,6 +45,7 @@ function parseArgs(argv) {
     secretPrefix: 'swarm',
     concurrency: DEFAULT_CONCURRENCY,
     only: undefined,
+    onlyMismatches: false,
     baseUrl: process.env.SWARM_ADMIN_API_URL || process.env.API_URL || '',
     internalTestKey: process.env.SWARM_INTERNAL_TEST_KEY || process.env.INTERNAL_TEST_KEY || '',
     region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1',
@@ -55,6 +57,7 @@ function parseArgs(argv) {
     else if (a === '--secret-prefix') args.secretPrefix = argv[++i] || args.secretPrefix;
     else if (a === '--concurrency') args.concurrency = Number.parseInt(argv[++i] || '', 10);
     else if (a === '--only') args.only = (argv[++i] || '').split(',').map(s => s.trim()).filter(Boolean);
+    else if (a === '--only-mismatches') args.onlyMismatches = true;
     else if (a === '--help' || a === '-h') args.help = true;
   }
 
@@ -62,7 +65,7 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.log(`\nUsage:\n  node scripts/report-telegram-webhook-mismatches.mjs [options]\n\nOptions:\n  --expected-domain DOMAIN      Default: (prod->swarm.rati.chat, staging->staging-swarm.rati.chat)\n  --secret-prefix PREFIX        Default: swarm\n  --only a,b,c                  Only process these avatar IDs\n  --concurrency N               Default: ${DEFAULT_CONCURRENCY}\n\nEnv vars:\n  SWARM_ADMIN_API_URL, SWARM_INTERNAL_TEST_KEY, AWS_REGION, ENVIRONMENT/NODE_ENV\n`);
+  console.log(`\nUsage:\n  node scripts/report-telegram-webhook-mismatches.mjs [options]\n\nOptions:\n  --expected-domain DOMAIN      Default: (prod->swarm.rati.chat, staging->staging-swarm.rati.chat)\n  --secret-prefix PREFIX        Default: swarm\n  --only a,b,c                  Only process these avatar IDs\n  --concurrency N               Default: ${DEFAULT_CONCURRENCY}\n  --only-mismatches             Print only mismatches (and errors)\n\nEnv vars:\n  SWARM_ADMIN_API_URL, SWARM_INTERNAL_TEST_KEY, AWS_REGION, ENVIRONMENT/NODE_ENV\n`);
 }
 
 async function httpJson(url, { method = 'GET', headers = {}, body } = {}) {
@@ -272,7 +275,9 @@ async function main() {
 
     if (r.isMatch) {
       summary.matches += 1;
-      console.log(`[telegram-webhook-report] OK avatar=${r.avatarId} pending=${r.pending}`);
+      if (!args.onlyMismatches) {
+        console.log(`[telegram-webhook-report] OK avatar=${r.avatarId} pending=${r.pending}`);
+      }
     } else {
       summary.mismatches += 1;
       console.log(`[telegram-webhook-report] MISMATCH avatar=${r.avatarId} actual=${r.actual} expected=${r.expected}`);
