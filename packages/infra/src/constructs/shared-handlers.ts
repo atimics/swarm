@@ -10,17 +10,27 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import type * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import type * as s3 from 'aws-cdk-lib/aws-s3';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+// ESM equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface SharedHandlersProps {
   environment: string;
-  handlersCodePath: string;
-  dependencyLayer: lambda.ILayerVersion;
+  /**
+   * Optional dependency layer for native modules like sharp.
+   * When using NodejsFunction bundling, this is only needed for native deps.
+   */
+  dependencyLayer?: lambda.ILayerVersion;
   stateTable: dynamodb.ITable;
   activityTable: dynamodb.ITable;
   mediaBucket: s3.IBucket;
@@ -55,7 +65,6 @@ export class SharedHandlers extends Construct {
 
     const {
       environment,
-      handlersCodePath,
       dependencyLayer,
       stateTable,
       activityTable,
@@ -67,6 +76,9 @@ export class SharedHandlers extends Construct {
       twitterMonthlyBudget,
       twitterDailyReservePct = 20,
     } = props;
+
+    // Path to handlers source files
+    const handlersEntry = path.join(__dirname, '../../../handlers/src');
 
     const dlq = new sqs.Queue(this, 'DeadLetterQueue', {
       queueName: `swarm-${environment}-dlq.fifo`,
@@ -159,24 +171,24 @@ export class SharedHandlers extends Construct {
       commonEnv.REPLICATE_API_KEY_SECRET_ARN = replicateApiKeyArn;
     }
 
-    const messageProcessor = new lambda.Function(this, 'MessageProcessor', {
+    const messageProcessor = new nodejs.NodejsFunction(this, 'MessageProcessor', {
       functionName: `swarm-${environment}-message-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'message-processor.handler',
-      code: lambda.Code.fromAsset(handlersCodePath),
-      layers: [dependencyLayer],
+      entry: path.join(handlersEntry, 'message-processor.ts'),
+      handler: 'handler',
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(60),
       memorySize: 1024,
       environment: commonEnv,
     });
 
-    this.telegramWebhook = new lambda.Function(this, 'TelegramWebhookShared', {
+    this.telegramWebhook = new nodejs.NodejsFunction(this, 'TelegramWebhookShared', {
       functionName: `swarm-${environment}-telegram-webhook`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'telegram-webhook-shared.handler',
-      code: lambda.Code.fromAsset(handlersCodePath),
-      layers: [dependencyLayer],
+      entry: path.join(handlersEntry, 'telegram-webhook-shared.ts'),
+      handler: 'handler',
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
@@ -188,12 +200,12 @@ export class SharedHandlers extends Construct {
       reportBatchItemFailures: true,
     }));
 
-    const responseSender = new lambda.Function(this, 'ResponseSender', {
+    const responseSender = new nodejs.NodejsFunction(this, 'ResponseSender', {
       functionName: `swarm-${environment}-response-sender`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'response-sender.handler',
-      code: lambda.Code.fromAsset(handlersCodePath),
-      layers: [dependencyLayer],
+      entry: path.join(handlersEntry, 'response-sender.ts'),
+      handler: 'handler',
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
       role: lambdaRole,
       timeout: cdk.Duration.seconds(60),
       memorySize: 1024,
@@ -205,12 +217,12 @@ export class SharedHandlers extends Construct {
       reportBatchItemFailures: true,
     }));
 
-    const mediaProcessor = new lambda.Function(this, 'MediaProcessor', {
+    const mediaProcessor = new nodejs.NodejsFunction(this, 'MediaProcessor', {
       functionName: `swarm-${environment}-media-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'media-processor.handler',
-      code: lambda.Code.fromAsset(handlersCodePath),
-      layers: [dependencyLayer],
+      entry: path.join(handlersEntry, 'media-processor.ts'),
+      handler: 'handler',
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
       role: lambdaRole,
       timeout: cdk.Duration.minutes(5),
       memorySize: 1024,
@@ -222,12 +234,12 @@ export class SharedHandlers extends Construct {
       reportBatchItemFailures: true,
     }));
 
-    const twitterMentionPoller = new lambda.Function(this, 'TwitterMentionPollerShared', {
+    const twitterMentionPoller = new nodejs.NodejsFunction(this, 'TwitterMentionPollerShared', {
       functionName: `swarm-${environment}-twitter-mention-poller`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'twitter-mention-poller-shared.handler',
-      code: lambda.Code.fromAsset(handlersCodePath),
-      layers: [dependencyLayer],
+      entry: path.join(handlersEntry, 'twitter-mention-poller-shared.ts'),
+      handler: 'handler',
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
       role: lambdaRole,
       timeout: cdk.Duration.minutes(2),
       memorySize: 512,
@@ -241,12 +253,12 @@ export class SharedHandlers extends Construct {
 
     // Autonomous Tweet Poster - runs hourly, manages per-avatar timing internally
     // Each avatar has 4-6 hour randomized intervals configured in their autonomousPosts settings
-    const autonomousTweetPoster = new lambda.Function(this, 'AutonomousTweetPoster', {
+    const autonomousTweetPoster = new nodejs.NodejsFunction(this, 'AutonomousTweetPoster', {
       functionName: `swarm-${environment}-autonomous-tweet-poster`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'autonomous-tweet-poster.handler',
-      code: lambda.Code.fromAsset(handlersCodePath),
-      layers: [dependencyLayer],
+      entry: path.join(handlersEntry, 'autonomous-tweet-poster.ts'),
+      handler: 'handler',
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
       role: lambdaRole,
       timeout: cdk.Duration.minutes(5), // Longer timeout for multi-avatar processing
       memorySize: 1024,

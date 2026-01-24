@@ -247,7 +247,6 @@ export class SwarmStack extends cdk.Stack {
     if (enableSharedHandlers) {
       this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
         environment,
-        handlersCodePath: handlersPath,
         dependencyLayer: this.shared.dependencyLayer,
         stateTable: this.shared.stateTable,
         activityTable: this.shared.activityTable,
