@@ -97,6 +97,10 @@ export interface AdminApiConstructProps {
    */
   environment?: string;
   /**
+   * Secrets Manager prefix (e.g., "swarm" or "swarm-abcdef")
+   */
+  secretPrefix?: string;
+  /**
    * Optional suffix for resource names/exports (e.g., "-a1b2c3")
    */
   nameSuffix?: string;
@@ -179,6 +183,7 @@ export class AdminApiConstruct extends Construct {
       dependencyLayer,
     } = props;
     const suffix = props.nameSuffix ?? '';
+    const secretPrefix = props.secretPrefix ?? 'swarm';
 
     const isProd = environment === 'prod' || environment === 'production';
 
@@ -189,6 +194,12 @@ export class AdminApiConstruct extends Construct {
     const allowedOrigins = adminDomain 
       ? [`https://${adminDomain}`]
       : ['http://localhost:5173', 'http://localhost:3000'];
+
+    const secretPrefixSet = new Set([secretPrefix, 'swarm']);
+    const secretNamePatterns = Array.from(secretPrefixSet).map(prefix => `${prefix}/*`);
+    const secretArnPatterns = Array.from(secretPrefixSet).map(prefix =>
+      `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:${prefix}/*`
+    );
 
     // NOTE: ApiGatewayV2 CORS allowOrigins does not support wildcard origins.
     // Bot subdomains are expected to use the same-origin CloudFront `/api/*` proxy,
@@ -284,7 +295,7 @@ export class AdminApiConstruct extends Construct {
     const llmApiKey = props.openRouterApiKeyArn
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'LLMApiKey', props.openRouterApiKeyArn)
       : new secretsmanager.Secret(this, 'LLMApiKey', {
-          secretName: `swarm/admin/llm-api-key${suffix}`,
+          secretName: `${secretPrefix}/admin/llm-api-key`,
           description: 'API key for the admin chatbot LLM',
         });
 
@@ -352,7 +363,7 @@ export class AdminApiConstruct extends Construct {
         STATE_TABLE: stateTable?.tableName || '',
         DREAM_QUEUE_URL: dreamQueue.queueUrl,
         DREAMS_ENABLED: isProd ? 'false' : 'true',
-        SECRET_PREFIX: 'swarm',
+        SECRET_PREFIX: secretPrefix,
         CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
         LLM_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions',
@@ -434,7 +445,7 @@ export class AdminApiConstruct extends Construct {
       resources: ['*'],
       conditions: {
         'StringLike': {
-          'secretsmanager:Name': 'swarm/*',
+          'secretsmanager:Name': secretNamePatterns,
         },
       },
     }));
@@ -450,9 +461,7 @@ export class AdminApiConstruct extends Construct {
         'secretsmanager:GetSecretValue',
         'secretsmanager:TagResource',
       ],
-      resources: [
-        `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:swarm/*`,
-      ],
+      resources: secretArnPatterns,
     }));
 
     // ListSecrets needs wildcard resource (API limitation)
@@ -510,7 +519,7 @@ export class AdminApiConstruct extends Construct {
         STATE_TABLE: stateTable?.tableName || '',
         DREAM_QUEUE_URL: dreamQueue.queueUrl,
         DREAMS_ENABLED: isProd ? 'false' : 'true',
-        SECRET_PREFIX: 'swarm',
+        SECRET_PREFIX: secretPrefix,
         // LLM config (worker is not API-gateway constrained)
         LLM_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions',
         LLM_MODEL: 'anthropic/claude-haiku-4.5',
@@ -573,7 +582,7 @@ export class AdminApiConstruct extends Construct {
       resources: ['*'],
       conditions: {
         'StringLike': {
-          'secretsmanager:Name': 'swarm/*',
+          'secretsmanager:Name': secretNamePatterns,
         },
       },
     }));
@@ -589,7 +598,7 @@ export class AdminApiConstruct extends Construct {
         'secretsmanager:TagResource',
       ],
       resources: [
-        `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:swarm/*`,
+        ...secretArnPatterns,
       ],
     }));
 
@@ -763,7 +772,7 @@ export class AdminApiConstruct extends Construct {
         ADMIN_WALLETS: props.adminWallets || '',
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
-        SECRET_PREFIX: 'swarm',
+        SECRET_PREFIX: secretPrefix,
         REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
         // Internal testing (non-production only)
         INTERNAL_TEST_KEY: internalTestKey,
@@ -785,14 +794,14 @@ export class AdminApiConstruct extends Construct {
     // CreateSecret needs wildcard since the secret doesn't exist yet
     avatarsHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['secretsmanager:CreateSecret'],
-      resources: ['*'],
-      conditions: {
-        'StringLike': {
-          'secretsmanager:Name': 'swarm/*',
+        actions: ['secretsmanager:CreateSecret'],
+        resources: ['*'],
+        conditions: {
+          'StringLike': {
+            'secretsmanager:Name': secretNamePatterns,
+          },
         },
-      },
-    }));
+      }));
 
     avatarsHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
@@ -806,7 +815,7 @@ export class AdminApiConstruct extends Construct {
         'secretsmanager:TagResource',
       ],
       resources: [
-        `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:swarm/*`,
+        ...secretArnPatterns,
       ],
     }));
 
@@ -1285,7 +1294,7 @@ export class AdminApiConstruct extends Construct {
         effect: iam.Effect.ALLOW,
         actions: ['secretsmanager:GetSecretValue'],
         resources: [
-          `arn:aws:secretsmanager:*:${cdk.Stack.of(this).account}:secret:swarm/*`,
+          ...secretArnPatterns,
         ],
       }));
 
@@ -1430,7 +1439,7 @@ export class AdminApiConstruct extends Construct {
       effect: iam.Effect.ALLOW,
       actions: ['secretsmanager:GetSecretValue'],
       resources: [
-        `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:swarm/*`,
+        ...secretArnPatterns,
       ],
     }));
 
@@ -1454,7 +1463,7 @@ export class AdminApiConstruct extends Construct {
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         ADMIN_UI_URL: allowedOrigins[0] || 'http://localhost:5173',
-        SECRET_PREFIX: 'swarm',
+        SECRET_PREFIX: secretPrefix,
         // Twitter App credentials from Secrets Manager
         TWITTER_APP_CREDENTIALS_ARN: twitterAppCredentialsSecret.secretArn,
         TWITTER_OAUTH_CALLBACK_URL: twitterOAuthCallbackUrl,
@@ -1478,14 +1487,14 @@ export class AdminApiConstruct extends Construct {
     // Grant Secrets Manager permissions for storing Twitter tokens
     twitterOAuthHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['secretsmanager:CreateSecret'],
-      resources: ['*'],
-      conditions: {
-        'StringLike': {
-          'secretsmanager:Name': 'swarm/*',
+        actions: ['secretsmanager:CreateSecret'],
+        resources: ['*'],
+        conditions: {
+          'StringLike': {
+            'secretsmanager:Name': secretNamePatterns,
+          },
         },
-      },
-    }));
+      }));
 
     twitterOAuthHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
@@ -1498,7 +1507,7 @@ export class AdminApiConstruct extends Construct {
         'secretsmanager:TagResource',
       ],
       resources: [
-        `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:swarm/*`,
+        ...secretArnPatterns,
       ],
     }));
 

@@ -97,7 +97,7 @@ const claudeCodeUseOpenRouter = (getContextValue<boolean>('claudeCodeUseOpenRout
 // Enable shared handlers (Twitter mention polling, autonomous tweets, shared queues)
 const enableSharedHandlers = (getContextValue<boolean>('enableSharedHandlers', envConfig) ?? true) as boolean;
 const anthropicApiKeyArn = getContextValue<string>('anthropicApiKeyArn', envConfig);
-const secretPrefix = getContextValue<string>('secretPrefix', envConfig);
+const secretPrefixRaw = getContextValue<string>('secretPrefix', envConfig);
 const stackHashRaw = getContextValue<string>('stackHash', envConfig);
 
 function normalizeStackHash(value?: string): string | undefined {
@@ -111,6 +111,9 @@ function normalizeStackHash(value?: string): string | undefined {
 
 const stackHash = normalizeStackHash(stackHashRaw);
 const nameSuffix = stackHash ? `-${stackHash}` : '';
+const secretPrefix = (secretPrefixRaw && secretPrefixRaw.trim())
+  ? secretPrefixRaw.trim()
+  : 'swarm';
 
 // Check if we should use split stacks (new) or monolithic stack (legacy)
 // Default to false for backward compatibility during migration
@@ -194,6 +197,7 @@ if (useSplitStacks) {
     handlersPath,
     avatarIds,
     replicateApiKeyArn,
+    secretPrefix,
     env: stackEnv,
     description: `Swarm Avatars (${environment})`,
   });
@@ -230,6 +234,7 @@ if (useSplitStacks) {
     enableClaudeCode,
     claudeCodeUseOpenRouter,
     enableSharedHandlers,
+    secretPrefix,
     env: stackEnv,
     description: `Swarm AI Avatar Framework (${environment})`,
   });

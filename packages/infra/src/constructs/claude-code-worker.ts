@@ -85,6 +85,10 @@ export interface ClaudeCodeWorkerProps {
    * Lambda layer with dependencies
    */
   dependencyLayer?: lambda.ILayerVersion;
+  /**
+   * Secrets Manager prefix (e.g., "swarm" or "swarm-abcdef")
+   */
+  secretPrefix?: string;
 }
 
 export class ClaudeCodeWorker extends Construct {
@@ -108,6 +112,7 @@ export class ClaudeCodeWorker extends Construct {
       maxCapacity = 5,
     } = props;
     const suffix = props.nameSuffix ?? '';
+    const secretPrefix = props.secretPrefix ?? 'swarm';
 
     // FIFO queue for ordered processing per avatar
     this.queue = new sqs.Queue(this, 'ClaudeCodeQueue', {
@@ -274,7 +279,7 @@ export class ClaudeCodeWorker extends Construct {
       callbackLambda.addToRolePolicy(
         new iam.PolicyStatement({
           actions: ['secretsmanager:GetSecretValue'],
-          resources: [`arn:aws:secretsmanager:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:secret:swarm/*`],
+          resources: [`arn:aws:secretsmanager:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:secret:${secretPrefix}/*`],
         })
       );
 

@@ -94,7 +94,7 @@ async function getAvatarContext(avatarId: string) {
       typingIndicator: true,
       ignoreBots: true,
       cooldownMinutes: 5,
-      maxContextMessages: 50,
+      maxContextMessages: 20,
     },
     tools: [],
     secrets: [],

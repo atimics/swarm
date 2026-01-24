@@ -86,6 +86,10 @@ export interface AvatarConstructProps {
    * JSON does not include Replicate credentials.
    */
   replicateApiKeyArn?: string;
+  /**
+   * Secrets Manager prefix (e.g., "swarm" or "swarm-abcdef")
+   */
+  secretPrefix?: string;
 
   /**
    * Optional shared media conversion Lambda (ffmpeg) used for audio/video transcoding.
@@ -113,19 +117,21 @@ export class AvatarConstruct extends Construct {
       handlersCodePath,
       environment = 'dev',
       nameSuffix,
+      secretPrefix,
       cdnUrl,
       discordCluster,
       replicateApiKeyArn,
       mediaConvertFunction,
     } = props;
     const suffix = nameSuffix ?? '';
+    const secretsPrefix = secretPrefix ?? 'swarm';
 
     // Create or import secrets
     if (props.secretsArn) {
       this.secrets = secretsmanager.Secret.fromSecretCompleteArn(this, 'Secrets', props.secretsArn);
     } else {
       this.secrets = new secretsmanager.Secret(this, 'Secrets', {
-        secretName: `swarm/${config.id}${suffix}/secrets`,
+        secretName: `${secretsPrefix}/${config.id}/secrets`,
         description: `Secrets for avatar ${config.name}`,
       });
     }
@@ -175,6 +181,7 @@ export class AvatarConstruct extends Construct {
       NODE_OPTIONS: '--enable-source-maps',
       AVATAR_ID: config.id,
       AVATAR_NAME: config.name,
+      SECRET_PREFIX: secretsPrefix,
       STATE_TABLE: stateTable.tableName,
       ACTIVITY_TABLE: activityTable.tableName,
       MEDIA_BUCKET: mediaBucket.bucketName,

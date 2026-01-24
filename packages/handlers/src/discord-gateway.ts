@@ -101,7 +101,7 @@ async function initialize(): Promise<void> {
       typingIndicator: true,
       ignoreBots: true,
       cooldownMinutes: 5,
-      maxContextMessages: 50,
+      maxContextMessages: 20,
     },
     tools: ['send_message', 'react', 'ignore', 'wait', 'take_selfie'],
     secrets: ['DISCORD_BOT_TOKEN'],

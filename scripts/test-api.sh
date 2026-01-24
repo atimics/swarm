@@ -16,6 +16,12 @@ BODY=${3:-'{}'}
 METHOD=${4:-POST}
 
 TEST_API_QUIET=${TEST_API_QUIET:-}
+STACK_HASH=${STACK_HASH:-${SWARM_STACK_HASH:-}}
+
+STACK_SUFFIX=""
+if [ -n "$STACK_HASH" ]; then
+  STACK_SUFFIX="-$STACK_HASH"
+fi
 
 # Optional override for environments where AWS discovery isn't available (e.g. CI)
 # Example:
@@ -23,7 +29,7 @@ TEST_API_QUIET=${TEST_API_QUIET:-}
 SWARM_ADMIN_API_URL=${SWARM_ADMIN_API_URL:-${API_URL:-}}
 SWARM_INTERNAL_TEST_KEY=${SWARM_INTERNAL_TEST_KEY:-${INTERNAL_TEST_KEY:-}}
 
-STACK_NAME=${STACK_NAME:-"SwarmStack-$ENV"}
+STACK_NAME=${STACK_NAME:-"SwarmStack-$ENV$STACK_SUFFIX"}
 
 function _warn() {
   echo "[test-api] $1" >&2
@@ -72,7 +78,7 @@ if [ -z "$API_URL" ] && _has_aws_creds && [ -n "$AWS_REGION_EFFECTIVE" ]; then
   # Fallback: CloudFormation output export (may be a custom domain)
   API_URL=$(aws cloudformation describe-stacks \
     --stack-name "$STACK_NAME" \
-    --query "Stacks[0].Outputs[?ExportName=='swarm-admin-api-url-${ENV}'].OutputValue | [0]" \
+    --query "Stacks[0].Outputs[?ExportName=='swarm-admin-api-url-${ENV}${STACK_SUFFIX}'].OutputValue | [0]" \
     --output text 2>/dev/null || true)
 fi
 

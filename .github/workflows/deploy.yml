@@ -22,6 +22,10 @@ on:
         required: false
         default: false
         type: boolean
+      stack_hash:
+        description: 'Six-digit hash suffix for parallel stacks'
+        required: false
+        type: string
       run_browser_tests:
         description: 'Run Browser Visual Tests (expensive)'
         required: false
@@ -172,11 +176,12 @@ jobs:
         working-directory: packages/infra
         env:
           SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
           STACK="${{ inputs.stack }}"
           echo "Checking for infrastructure changes..."
           set +e
-          npx cdk diff ${STACK:-'--all'} -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS 2>&1 | tee diff-output.txt
+          npx cdk diff ${STACK:-'--all'} -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c stackHash=$STACK_HASH 2>&1 | tee diff-output.txt
           DIFF_EXIT=$?
           set -e
           
@@ -195,10 +200,11 @@ jobs:
         working-directory: packages/infra
         env:
           SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
           HOTSWAP=${{ needs.setup.outputs.cdk_env == 'staging' && '--hotswap-fallback' || '' }}
           STACK="${{ inputs.stack }}"
-          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS
+          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c stackHash=$STACK_HASH
 
       - name: Skip Deploy (no changes)
         if: steps.diff.outputs.skip == 'true'
@@ -208,15 +214,20 @@ jobs:
         id: outputs
         env:
           SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
+          STACK_SUFFIX=""
+          if [ -n "$STACK_HASH" ]; then
+            STACK_SUFFIX="-$STACK_HASH"
+          fi
           # Use UI stack for split stacks, monolithic stack otherwise
           if [ "$SPLIT_STACKS" = "true" ]; then
-            STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}"
+            STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
           else
-            STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}"
+            STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
           fi
-          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
 
   # Admin UI build (runs in parallel with CDK)
   admin-ui-build:
@@ -272,15 +283,20 @@ jobs:
         id: outputs
         env:
           SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
+          STACK_SUFFIX=""
+          if [ -n "$STACK_HASH" ]; then
+            STACK_SUFFIX="-$STACK_HASH"
+          fi
           # Use UI stack for split stacks, monolithic stack otherwise
           if [ "$SPLIT_STACKS" = "true" ]; then
-            STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}"
+            STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
           else
-            STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}"
+            STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
           fi
-          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
 
   admin-ui-deploy:
     name: Deploy Admin UI

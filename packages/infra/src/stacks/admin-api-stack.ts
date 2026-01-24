@@ -252,6 +252,7 @@ export class AdminApiStack extends cdk.Stack {
         privyJwtVerificationKeyArn,
         environment,
         nameSuffix,
+        secretPrefix,
         adminDomain,
         apiDomain: adminDomain,
         stateTable,
@@ -288,6 +289,7 @@ export class AdminApiStack extends cdk.Stack {
         maxCapacity: claudeCodeMaxCapacity,
         handlersCodePath: handlersPath,
         dependencyLayer,
+        secretPrefix,
       });
 
       new cdk.CfnOutput(this, 'ClaudeCodeQueueUrl', {
@@ -307,7 +309,7 @@ export class AdminApiStack extends cdk.Stack {
     if (this.apiEndpoint) {
       new cdk.CfnOutput(this, 'ApiEndpointExport', {
         value: this.apiEndpoint,
-        exportName: `swarm-api-endpoint-${environment}`,
+        exportName: `swarm-api-endpoint-${environment}${nameSuffix ?? ''}`,
       });
     }
   }

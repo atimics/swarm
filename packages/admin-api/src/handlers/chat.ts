@@ -97,6 +97,9 @@ const LLM_TOOL_MAX_TOKENS = clampIntMinMax(parseIntEnv('LLM_TOOL_MAX_TOKENS', is
 const LLM_RETRY_BASE_DELAY_MS = 250;
 const LLM_RETRY_MAX_DELAY_MS = 2_000;
 
+// Context window management - limit messages sent to LLM for efficiency
+const MAX_CONTEXT_MESSAGES = parseIntEnv('MAX_CONTEXT_MESSAGES', 20);
+
 // Rate limiting configuration for public access mode (daily limits)
 const PUBLIC_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const PUBLIC_RATE_LIMIT_DEFAULT = 10; // Non-Orb holders: 10 messages/day
@@ -824,9 +827,19 @@ function toSdkMessages(messages: AdminChatMessage[]): Array<{ role: 'user' | 'as
 
 function buildModelInput(systemPrompt: string, messages: AdminChatMessage[]) {
   const sanitizedMessages = sanitizeMessages(messages);
+  // Limit context to prevent token bloat - keep most recent messages
+  const truncatedMessages = sanitizedMessages.slice(-MAX_CONTEXT_MESSAGES);
+  if (sanitizedMessages.length > truncatedMessages.length) {
+    logger.info('Truncated conversation history for LLM', {
+      event: 'history_truncated',
+      originalCount: sanitizedMessages.length,
+      truncatedCount: truncatedMessages.length,
+      maxContextMessages: MAX_CONTEXT_MESSAGES,
+    });
+  }
   const inputMessages = [
     { role: 'system' as const, content: systemPrompt },
-    ...sanitizedMessages,
+    ...truncatedMessages,
   ];
   // Cast to any to work around OpenRouter SDK's strict internal types
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

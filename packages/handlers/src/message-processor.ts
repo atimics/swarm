@@ -184,7 +184,7 @@ async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
       typingIndicator: true,
       ignoreBots: true,
       cooldownMinutes: 5,
-      maxContextMessages: 50,
+      maxContextMessages: 20,
     },
     tools: [
       'send_message', 'react', 'wait', 'ignore',
@@ -596,7 +596,8 @@ async function generateResponse(
   envelope: SwarmEnvelope,
   toolClient: ReturnType<typeof createToolClient>,
   toolContext: ToolContext,
-  avatarRuntime: AvatarRuntime
+  avatarRuntime: AvatarRuntime,
+  channelHistory?: ContextMessage[]
 ): Promise<SwarmResponse> {
   await maybeTranscribeAudio(envelope, toolClient, toolContext, avatarRuntime.avatarConfig);
   const systemPrompt = await buildSystemPrompt(envelope, avatarRuntime.avatarConfig, avatarRuntime.avatarId);
@@ -605,16 +606,49 @@ async function generateResponse(
     .filter((tool: { name: string }) => avatarRuntime.avatarConfig.tools.includes(tool.name));
   const enabledTools = toolClient.getOpenAIToolsForTools(toolDefinitions);
 
-  // Build initial messages
+  // Build initial messages from channel history + current message
+  const maxContext = avatarRuntime.avatarConfig.behavior.maxContextMessages || 20;
   const messages: LLMMessage[] = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: (() => {
-      if (envelope.content.text) return envelope.content.text;
-      const mediaTypes = envelope.content.media?.map(m => m.type) || [];
-      if (mediaTypes.includes('audio')) return '[voice message received]';
-      return '[media received]';
-    })() },
   ];
+  
+  // Add channel history (excluding the current message which we'll add separately)
+  if (channelHistory && channelHistory.length > 0) {
+    // Filter out the current message from history (it might already be there)
+    const historyWithoutCurrent = channelHistory.filter(
+      msg => msg.messageId !== envelope.messageId
+    );
+    // Take most recent messages up to limit
+    const recentHistory = historyWithoutCurrent.slice(-maxContext);
+    
+    for (const msg of recentHistory) {
+      messages.push({
+        role: msg.isBot ? 'assistant' : 'user',
+        content: `[${msg.sender}]: ${msg.content}`,
+      });
+    }
+    
+    logger.info('Added channel history to context', {
+      event: 'history_added',
+      historyCount: recentHistory.length,
+      maxContext,
+      totalHistory: channelHistory.length,
+    });
+  }
+  
+  // Add current user message
+  messages.push({
+    role: 'user',
+    content: (() => {
+      const sender = envelope.sender.displayName || envelope.sender.username || envelope.sender.id;
+      const text = envelope.content.text || (() => {
+        const mediaTypes = envelope.content.media?.map(m => m.type) || [];
+        if (mediaTypes.includes('audio')) return '[voice message received]';
+        return '[media received]';
+      })();
+      return `[${sender}]: ${text}`;
+    })(),
+  });
 
   const allToolResults: Array<{ name: string; result: { success: boolean; data?: unknown; media?: { type: string; url: string } } }> = [];
   let finalContent: string | undefined;
@@ -891,7 +925,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
         replyToMessageId: envelope.messageId,
       };
 
-      const response = await generateResponse(envelope, toolClient, toolContext, avatarRuntime);
+      const response = await generateResponse(envelope, toolClient, toolContext, avatarRuntime, updatedState.recentMessages);
 
       logger.info('Response generated', {
         event: 'response_generated',

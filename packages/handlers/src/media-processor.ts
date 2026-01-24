@@ -134,7 +134,7 @@ async function initialize(): Promise<void> {
       typingIndicator: true,
       ignoreBots: true,
       cooldownMinutes: 5,
-      maxContextMessages: 50,
+      maxContextMessages: 20,
     },
     tools: [],
     secrets: ['OPENROUTER_API_KEY', 'REPLICATE_API_KEY'],

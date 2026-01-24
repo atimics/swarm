@@ -112,7 +112,7 @@ async function initialize(): Promise<void> {
     llm: { provider: DEFAULT_LLM_PROVIDER, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_LLM_TEMPERATURE, maxTokens: DEFAULT_LLM_MAX_TOKENS },
     media: { image: { provider: 'replicate', model: 'black-forest-labs/flux-schnell' } },
     scheduling: {},
-    behavior: { responseDelayMs: [0, 0], typingIndicator: false, ignoreBots: true, cooldownMinutes: 0, maxContextMessages: 50 },
+    behavior: { responseDelayMs: [0, 0], typingIndicator: false, ignoreBots: true, cooldownMinutes: 0, maxContextMessages: 20 },
     tools: ['send_message'],
     secrets: [],
   };

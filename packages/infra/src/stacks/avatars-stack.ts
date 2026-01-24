@@ -92,6 +92,10 @@ export interface AvatarsStackProps extends cdk.StackProps {
    * Replicate API key secret ARN
    */
   replicateApiKeyArn?: string;
+  /**
+   * Secrets Manager prefix (e.g., "swarm" or "swarm-abcdef")
+   */
+  secretPrefix?: string;
 }
 
 export class AvatarsStack extends cdk.Stack {
@@ -109,6 +113,7 @@ export class AvatarsStack extends cdk.Stack {
       handlersPath,
       avatarIds: requestedAvatarIds,
       replicateApiKeyArn,
+      secretPrefix,
     } = props;
 
     // Import shared resources
@@ -184,6 +189,7 @@ export class AvatarsStack extends cdk.Stack {
         cdnUrl: sharedInfraStack.cdnUrl,
         environment,
         nameSuffix,
+        secretPrefix,
         discordCluster,
         replicateApiKeyArn,
         mediaConvertFunction: adminApiStack?.adminApi?.mediaConvertHandler,

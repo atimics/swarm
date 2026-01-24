@@ -288,6 +288,7 @@ export class SwarmStack extends cdk.Stack {
         privyJwtVerificationKeyArn,
         environment,
         nameSuffix,
+        secretPrefix,
         adminDomain,
         // Use adminDomain for API callbacks - API is served via CloudFront /api/* path
         // No apiCertificateArn means no API Gateway custom domain is created
@@ -345,6 +346,7 @@ export class SwarmStack extends cdk.Stack {
         maxCapacity: claudeCodeMaxCapacity,
         handlersCodePath: handlersPath,
         dependencyLayer: this.shared.dependencyLayer,
+        secretPrefix,
       });
 
       // Output the queue URL for avatars to use
@@ -403,6 +405,7 @@ export class SwarmStack extends cdk.Stack {
           cdnUrl: this.shared.cdnUrl,
           environment,
           nameSuffix,
+          secretPrefix,
           discordCluster: this.shared.discordCluster,
           replicateApiKeyArn,
           mediaConvertFunction: this.adminApi?.mediaConvertHandler,

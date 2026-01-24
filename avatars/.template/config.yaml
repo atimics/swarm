@@ -84,7 +84,7 @@ behavior:
   cooldownMinutes: 5
   
   # Max messages to include in context
-  maxContextMessages: 50
+  maxContextMessages: 20
 
 # Enabled tools
 tools:
