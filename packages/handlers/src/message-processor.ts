@@ -750,14 +750,28 @@ async function generateResponse(
     );
     // Take most recent messages up to limit
     const recentHistory = historyWithoutCurrent.slice(-maxContext);
-    
-    for (const msg of recentHistory) {
+
+    if (recentHistory.length > 0) {
+      // Add a context header so the LLM understands these are previous messages
       messages.push({
-        role: msg.isBot ? 'assistant' : 'user',
-        content: `[${msg.sender}]: ${msg.content}`,
+        role: 'user',
+        content: `[CONVERSATION HISTORY - The following ${recentHistory.length} message(s) are from this chat's recent history. Your previous responses are marked as assistant messages.]`,
+      });
+
+      for (const msg of recentHistory) {
+        messages.push({
+          role: msg.isBot ? 'assistant' : 'user',
+          content: `[${msg.sender}]: ${msg.content}`,
+        });
+      }
+
+      // Add separator before current message
+      messages.push({
+        role: 'user',
+        content: '[END OF HISTORY - New message below]',
       });
     }
-    
+
     logger.info('Added channel history to context', {
       event: 'history_added',
       historyCount: recentHistory.length,
@@ -765,19 +779,17 @@ async function generateResponse(
       totalHistory: channelHistory.length,
     });
   }
-  
+
   // Add current user message
+  const sender = envelope.sender.displayName || envelope.sender.username || envelope.sender.id;
+  const text = envelope.content.text || (() => {
+    const mediaTypes = envelope.content.media?.map(m => m.type) || [];
+    if (mediaTypes.includes('audio')) return '[voice message received]';
+    return '[media received]';
+  })();
   messages.push({
     role: 'user',
-    content: (() => {
-      const sender = envelope.sender.displayName || envelope.sender.username || envelope.sender.id;
-      const text = envelope.content.text || (() => {
-        const mediaTypes = envelope.content.media?.map(m => m.type) || [];
-        if (mediaTypes.includes('audio')) return '[voice message received]';
-        return '[media received]';
-      })();
-      return `[${sender}]: ${text}`;
-    })(),
+    content: `[${sender}]: ${text}`,
   });
 
   const allToolResults: Array<{ name: string; result: { success: boolean; data?: unknown; media?: { type: string; url: string } } }> = [];

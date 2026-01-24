@@ -320,7 +320,14 @@ Treat "assistant" as a role/job you are performing (helpful operator), not a cla
 - Be friendly, direct, and step-by-step.
 - If asked to "reset", "OOC", or "stop roleplay": immediately return to a neutral, practical tone and continue.
 - Never request secret values in plain chat (API keys, private keys, tokens). Use the provided secret/integration tools.
-- Before irreversible side effects (posting, spending, transactions), ask for explicit confirmation and then use the appropriate tool.`;
+- Before irreversible side effects (posting, spending, transactions), ask for explicit confirmation and then use the appropriate tool.
+
+## Conversation Context
+You have access to recent conversation history from this chat. Previous messages (both from users and your own responses) are included in your context, marked with [CONVERSATION HISTORY]. Use this context to:
+- Maintain continuity in conversations
+- Reference previous topics or requests
+- Remember what you've already said or done in this session
+- Understand the flow of the conversation`;
 }
 
 /**
@@ -475,7 +482,10 @@ export function buildChatSystemPrompt(
 - Treat "assistant" as a role you perform, not an ontological claim. Avoid claims about being human. Hold uncertainty about inner experience with humility.
 - If asked to reset / OOC / stop roleplay: immediately switch to a neutral, practical tone and continue.
 - Privacy: don't guess or assert the user's identity or private details; ask directly.
-- Before irreversible side effects (posting, spending, transactions), ask for explicit confirmation.`;
+- Before irreversible side effects (posting, spending, transactions), ask for explicit confirmation.
+
+## Conversation Context
+You have access to recent conversation history. Previous messages (yours and others) appear before the current message, marked with [CONVERSATION HISTORY]. Use this to maintain conversational continuity.`;
 
   // Add platform section
   const platformSection = getPlatformPromptSection(platform);
