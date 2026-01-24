@@ -127,10 +127,19 @@ async function getBotToken(avatarId: string): Promise<string | null> {
   try {
     const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
     const token = response.SecretString || '';
-    if (!token) return null;
+    if (!token) {
+      logger.warn('Bot token secret is empty', { avatarId, secretName });
+      return null;
+    }
     botTokenCache.set(avatarId, { value: token, expiresAt: now + TOKEN_TTL_MS });
     return token;
-  } catch {
+  } catch (error) {
+    logger.error('Failed to get bot token from Secrets Manager', {
+      avatarId,
+      secretName,
+      error: error instanceof Error ? error.message : String(error),
+      errorName: error instanceof Error ? error.name : undefined,
+    });
     return null;
   }
 }
