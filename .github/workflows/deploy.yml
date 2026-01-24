@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      use_existing_shared_resources:
+        description: 'Adopt existing shared resources (migration mode for split stacks)'
+        required: false
+        default: false
+        type: boolean
       stack_hash:
         description: 'Six-digit hash suffix for parallel stacks'
         required: false
@@ -176,12 +181,19 @@ jobs:
         working-directory: packages/infra
         env:
           SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
+          # Safety: when migrating staging to split stacks (no stack_hash), shared resources already exist.
+          # Auto-enable adoption mode to avoid early validation failures.
+          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
           STACK="${{ inputs.stack }}"
           echo "Checking for infrastructure changes..."
           set +e
-          npx cdk diff ${STACK:-'--all'} -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c stackHash=$STACK_HASH 2>&1 | tee diff-output.txt
+          npx cdk diff ${STACK:-'--all'} -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c stackHash=$STACK_HASH 2>&1 | tee diff-output.txt
           DIFF_EXIT=$?
           set -e
           
@@ -200,11 +212,18 @@ jobs:
         working-directory: packages/infra
         env:
           SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
+          # Safety: when migrating staging to split stacks (no stack_hash), shared resources already exist.
+          # Auto-enable adoption mode to avoid early validation failures.
+          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
           HOTSWAP=${{ needs.setup.outputs.cdk_env == 'staging' && '--hotswap-fallback' || '' }}
           STACK="${{ inputs.stack }}"
-          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c stackHash=$STACK_HASH
+          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c stackHash=$STACK_HASH
 
       - name: Skip Deploy (no changes)
         if: steps.diff.outputs.skip == 'true'
