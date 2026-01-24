@@ -181,6 +181,8 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const [telegramDiagnosis, setTelegramDiagnosis] = useState<TelegramDiagnosis | null>(null);
   const [telegramDiagnosisError, setTelegramDiagnosisError] = useState<string | null>(null);
   const [telegramDiagnosisLoading, setTelegramDiagnosisLoading] = useState(false);
+  const [telegramRepairLoading, setTelegramRepairLoading] = useState(false);
+  const [telegramRepairError, setTelegramRepairError] = useState<string | null>(null);
 
   // Twitter-specific state
   const [twitterFeatures, setTwitterFeatures] = useState<string[]>(['mention_replies']);
@@ -220,6 +222,8 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     setTelegramDiagnosis(null);
     setTelegramDiagnosisError(null);
     setTelegramDiagnosisLoading(false);
+    setTelegramRepairLoading(false);
+    setTelegramRepairError(null);
     didInitFromStatus.current = null;
     // Reset Twitter state
     setTwitterFeatures(['mention_replies']);
@@ -264,6 +268,45 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
       return null;
     } finally {
       setTelegramDiagnosisLoading(false);
+    }
+  };
+
+  const repairTelegramWebhook = async (): Promise<void> => {
+    if (!activeAgent?.id) return;
+    setTelegramRepairLoading(true);
+    setTelegramRepairError(null);
+    try {
+      const resp = await fetch(`${API_BASE}/avatars/${activeAgent.id}/telegram/repair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          dryRun: false,
+          repairOnPendingUpdates: true,
+          repairOnLastError: true,
+        }),
+      });
+
+      const payload = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const message = (payload as { error?: string; message?: string }).error
+          || (payload as { error?: string; message?: string }).message
+          || `Failed to repair webhook (HTTP ${resp.status})`;
+        setTelegramRepairError(message);
+        return;
+      }
+
+      const result = payload as { action?: string; reason?: string };
+      if (result.action === 'repaired') {
+        // Re-run diagnostics to show the fixed state
+        await runTelegramDiagnostics();
+      } else if (result.action === 'skipped') {
+        setTelegramRepairError(`Skipped: ${result.reason || 'No repair needed'}`);
+      }
+    } catch {
+      setTelegramRepairError('Failed to repair webhook');
+    } finally {
+      setTelegramRepairLoading(false);
     }
   };
 
@@ -1013,6 +1056,27 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                   </ul>
                 )}
 
+                {/* Auto-fix button for webhook issues */}
+                {telegramDiagnosis.issues.some(i =>
+                  i.code === 'webhook_url_mismatch' ||
+                  i.code === 'webhook_pending_updates' ||
+                  i.code === 'webhook_last_error'
+                ) && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => void repairTelegramWebhook()}
+                      disabled={disabled || telegramRepairLoading || !activeAgent?.id}
+                      className="w-full px-3 py-2 text-sm bg-brand-600 hover:bg-brand-700 disabled:bg-[var(--color-bg-tertiary)] disabled:opacity-50 text-white rounded-lg transition-colors font-medium"
+                    >
+                      {telegramRepairLoading ? 'Fixing...' : 'Fix Webhook Issues'}
+                    </button>
+                    {telegramRepairError && (
+                      <p className="mt-1 text-xs text-red-400">{telegramRepairError}</p>
+                    )}
+                  </div>
+                )}
+
                 <div className="mt-2 grid grid-cols-1 gap-1">
                   {typeof telegramDiagnosis.webhook.pendingUpdateCount === 'number' && (
                     <div className="text-xs text-[var(--color-text-muted)]">
@@ -1530,8 +1594,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                 {/* DM allowlist */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-[var(--color-text-secondary)]">
-                    Users who can DM the bot (Telegram user IDs)
+                    Users who can DM the bot
                   </label>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Enter Telegram user IDs. To find your ID, DM the bot and it will tell you, or use @userinfobot on Telegram.
+                  </p>
                   <div className="flex gap-2">
                     <input
                       value={newDmUserId}
@@ -1540,7 +1607,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                         setSaveError(null);
                         setNewDmUserId(e.target.value);
                       }}
-                      placeholder="e.g. 123456789"
+                      placeholder="User ID (e.g. 123456789)"
                       className="flex-1 px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)]"
                       disabled={disabled}
                     />
@@ -1587,8 +1654,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                 {/* Group allowlist */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-[var(--color-text-secondary)]">
-                    Groups the bot can be added to (Telegram chat IDs)
+                    Groups the bot can join
                   </label>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Enter Telegram chat IDs. Add the bot to a group, and it will report the chat ID. Group IDs start with -100.
+                  </p>
                   <div className="flex gap-2">
                     <input
                       value={newGroupChatId}
@@ -1597,7 +1667,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                         setSaveError(null);
                         setNewGroupChatId(e.target.value);
                       }}
-                      placeholder="e.g. -1001234567890"
+                      placeholder="Chat ID (e.g. -1001234567890)"
                       className="flex-1 px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)]"
                       disabled={disabled}
                     />
