@@ -18,7 +18,7 @@ interface PublicChatPageProps {
 }
 
 export function PublicChatPage({ botId }: PublicChatPageProps) {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, gateStatus } = useAuth();
   const { avatars, setActiveAvatar, fetchAvatars } = useAvatarStore();
 
   const [avatarInfo, setAvatarInfo] = useState<ChannelAvatarInfo | null>(null);
@@ -210,6 +210,10 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
     );
   }
 
+  // Determine if user is an Orb holder (affects message limits)
+  const isOrbHolder = (gateStatus?.nftsHeld ?? 0) > 0;
+  const dailyLimit = isOrbHolder ? 100 : 10;
+
   // Authenticated - render ChatPanel with the public avatar
   return (
     <div className="h-[100dvh] flex flex-col bg-[var(--color-bg)]">
@@ -231,9 +235,22 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
               )}
             </div>
             <div className="min-w-0">
-              <h1 className="text-base font-semibold text-[var(--color-text)] truncate">
-                {displayName}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-semibold text-[var(--color-text)] truncate">
+                  {displayName}
+                </h1>
+                {/* Limited Mode indicator */}
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                    isOrbHolder
+                      ? 'bg-brand-500/20 text-brand-400'
+                      : 'bg-yellow-500/20 text-yellow-400'
+                  }`}
+                  title={isOrbHolder ? `Orb holder: ${dailyLimit}/day` : `Limited: ${dailyLimit}/day. Hold an Orb for 100/day.`}
+                >
+                  {isOrbHolder ? 'Orb' : 'Limited'}
+                </span>
+              </div>
               {avatarInfo?.description && (
                 <p className="text-xs text-[var(--color-text-muted)] truncate">
                   {avatarInfo.description}

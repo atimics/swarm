@@ -55,6 +55,12 @@ interface PendingJob {
   purpose?: string;
 }
 
+interface RateLimitInfo {
+  remaining: number;
+  limit: number;
+  isOrbHolder: boolean;
+}
+
 interface ChatResponse {
   response: string;
   history: Array<{
@@ -71,6 +77,7 @@ interface ChatResponse {
   };
   pendingToolCall?: PendingToolCall;
   error?: string;
+  rateLimit?: RateLimitInfo;
 }
 
 interface AvatarContext {

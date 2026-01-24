@@ -2,28 +2,124 @@
  * Simple Privy Login Button
  * For use in public pages like shared chat where we only want Privy auth
  */
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useAuth } from '../store/auth';
+import { usePrivyAuth } from '../store/privyAuth';
 
 interface PrivyLoginButtonProps {
   className?: string;
 }
 
-export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
-  const { login, logout } = usePrivy();
-  const { isAuthenticated, isLoading, user } = useAuth();
+/**
+ * Extract Solana wallet address from Privy user object
+ */
+function getSolanaWalletAddressFromPrivyUser(user: unknown): string | null {
+  if (!user || typeof user !== 'object') return null;
+  const typedUser = user as {
+    wallet?: { address?: string; chainType?: string };
+    linkedAccounts?: Array<{ type: string; address?: string; chainType?: string }>;
+  };
 
-  const handleLogin = useCallback(() => {
+  // Check embedded wallet first
+  if (typedUser.wallet?.address && typedUser.wallet?.chainType === 'solana') {
+    return typedUser.wallet.address;
+  }
+
+  // Check linked accounts
+  if (Array.isArray(typedUser.linkedAccounts)) {
+    const solanaWallet = typedUser.linkedAccounts.find(
+      (acc) => acc.type === 'wallet' && acc.chainType === 'solana' && acc.address
+    );
+    if (solanaWallet?.address) return solanaWallet.address;
+  }
+
+  return null;
+}
+
+export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
+  const { login, logout: privyLogout, ready, authenticated, user: privyUser, getAccessToken } = usePrivy();
+  const { isAuthenticated, isLoading, user, logout: authLogout } = useAuth();
+  const privyAuth = usePrivyAuth();
+
+  // Track sync attempts to prevent infinite loops
+  const syncAttemptedRef = useRef(false);
+  const lastTokenRef = useRef<string | null>(null);
+  const lastWalletAddressRef = useRef<string | null>(null);
+
+  const walletAddress = getSolanaWalletAddressFromPrivyUser(privyUser);
+
+  // Sync Privy auth state with backend when Privy is authenticated but our store isn't
+  useEffect(() => {
+    if (!ready) return;
+    if (!authenticated) return;
+    if (!privyUser) return;
+    if (privyAuth.isAuthenticated) return;
+
+    const doSync = async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) return;
+
+        const isNewToken = token !== lastTokenRef.current;
+        const isNewWallet = walletAddress && walletAddress !== lastWalletAddressRef.current;
+        if (syncAttemptedRef.current && !isNewToken && !isNewWallet) return;
+
+        syncAttemptedRef.current = true;
+        lastTokenRef.current = token;
+        lastWalletAddressRef.current = walletAddress ?? null;
+
+        await privyAuth.syncWithBackend(token, {
+          id: (privyUser as { id: string }).id,
+          email: (privyUser as { email?: string })?.email,
+          walletAddress: walletAddress ?? undefined,
+        });
+      } catch (error) {
+        console.error('[PrivyLoginButton] Privy backend sync error:', error);
+        syncAttemptedRef.current = false;
+      }
+    };
+
+    void doSync();
+  }, [ready, authenticated, privyUser, getAccessToken, walletAddress, privyAuth]);
+
+  const handleLogin = useCallback(async () => {
+    // If Privy is already authenticated but backend sync hasn't happened yet, force sync
+    if (ready && authenticated && privyUser && !privyAuth.isAuthenticated) {
+      privyAuth.setLoading(true);
+      try {
+        const token = await getAccessToken();
+        if (token) {
+          await privyAuth.syncWithBackend(token, {
+            id: (privyUser as { id: string }).id,
+            email: (privyUser as { email?: string })?.email,
+            walletAddress: getSolanaWalletAddressFromPrivyUser(privyUser) ?? undefined,
+          });
+        }
+      } catch (error) {
+        console.error('[PrivyLoginButton] Privy backend sync error:', error);
+      } finally {
+        privyAuth.setLoading(false);
+      }
+      return;
+    }
+
+    // Otherwise, trigger Privy login flow
     login();
-  }, [login]);
+  }, [login, ready, authenticated, privyUser, privyAuth, getAccessToken]);
 
   const handleLogout = useCallback(async () => {
-    await logout();
-  }, [logout]);
+    // Logout from both Privy SDK AND clear backend session/store
+    await Promise.all([
+      privyLogout(),
+      authLogout(),
+    ]);
+    // Force page reload to clear any stale state
+    window.location.reload();
+  }, [privyLogout, authLogout]);
 
   // Loading state
-  if (isLoading) {
+  if (isLoading || privyAuth.isLoading) {
     return (
       <button
         className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] ${className}`}

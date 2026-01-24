@@ -55,6 +55,7 @@ import { syncAvatarConfig } from '../services/config-sync.js';
 import { resolveChatModel } from '../services/llm-model-resolution.js';
 import { mapAdminChatHandlerError } from './chat-error-mapping.js';
 import { isProbablyPrivateMediaUrl, redactMediaUrlsFromText } from '../utils/redact-media-urls.js';
+import { getGateStatus } from '../services/nft-gate.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
 const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
@@ -96,10 +97,11 @@ const LLM_TOOL_MAX_TOKENS = clampIntMinMax(parseIntEnv('LLM_TOOL_MAX_TOKENS', is
 const LLM_RETRY_BASE_DELAY_MS = 250;
 const LLM_RETRY_MAX_DELAY_MS = 2_000;
 
-// Rate limiting configuration for public access mode
-const PUBLIC_RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute window
-const PUBLIC_RATE_LIMIT_MAX_MESSAGES = 10; // Max messages per user per window per avatar
-const PUBLIC_RATE_LIMIT_TTL_SECONDS = 120; // TTL for rate limit records (2 minutes)
+// Rate limiting configuration for public access mode (daily limits)
+const PUBLIC_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+const PUBLIC_RATE_LIMIT_DEFAULT = 10; // Non-Orb holders: 10 messages/day
+const PUBLIC_RATE_LIMIT_ORB_HOLDERS = 100; // Orb holders: 100 messages/day
+const PUBLIC_RATE_LIMIT_TTL_SECONDS = 25 * 60 * 60; // TTL for rate limit records (25 hours)
 
 // DynamoDB client for rate limiting
 const ADMIN_TABLE = process.env.ADMIN_TABLE || 'SwarmAdminTable';
@@ -107,42 +109,59 @@ const rateLimitDynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({})
   marshallOptions: { removeUndefinedValues: true },
 });
 
+interface PublicRateLimitResult {
+  limited: boolean;
+  retryAfter?: number;
+  remaining: number;
+  limit: number;
+  isOrbHolder: boolean;
+}
+
 /**
  * Check if user is rate limited (for public access mode)
- * Returns { limited: true, retryAfter: seconds } if rate limited
+ * Uses daily limits based on Orb ownership (10/day default, 100/day for Orb holders)
  */
 async function checkPublicRateLimit(
   walletAddress: string,
-  avatarId: string
-): Promise<{ limited: boolean; retryAfter?: number }> {
+  avatarId: string,
+  hasOrb: boolean
+): Promise<PublicRateLimitResult> {
   const now = Date.now();
   const windowStart = now - PUBLIC_RATE_LIMIT_WINDOW_MS;
   const rateLimitKey = `RATE_LIMIT#${avatarId}#${walletAddress}`;
+  const maxMessages = hasOrb ? PUBLIC_RATE_LIMIT_ORB_HOLDERS : PUBLIC_RATE_LIMIT_DEFAULT;
 
   try {
     const result = await rateLimitDynamoClient.send(new GetCommand({
       TableName: ADMIN_TABLE,
       Key: {
         pk: rateLimitKey,
-        sk: 'CHAT_MESSAGES',
+        sk: 'CHAT_MESSAGES_DAILY',
       },
     }));
 
     if (!result.Item) {
-      return { limited: false };
+      return { limited: false, remaining: maxMessages, limit: maxMessages, isOrbHolder: hasOrb };
     }
 
     const timestamps: number[] = result.Item.timestamps || [];
     const recentTimestamps = timestamps.filter(ts => ts > windowStart);
+    const remaining = Math.max(0, maxMessages - recentTimestamps.length);
 
-    if (recentTimestamps.length >= PUBLIC_RATE_LIMIT_MAX_MESSAGES) {
+    if (recentTimestamps.length >= maxMessages) {
       // Calculate when the oldest message in the window will expire
       const oldestInWindow = Math.min(...recentTimestamps);
       const retryAfter = Math.ceil((oldestInWindow + PUBLIC_RATE_LIMIT_WINDOW_MS - now) / 1000);
-      return { limited: true, retryAfter: Math.max(1, retryAfter) };
+      return {
+        limited: true,
+        retryAfter: Math.max(1, retryAfter),
+        remaining: 0,
+        limit: maxMessages,
+        isOrbHolder: hasOrb,
+      };
     }
 
-    return { limited: false };
+    return { limited: false, remaining, limit: maxMessages, isOrbHolder: hasOrb };
   } catch (error) {
     // On error, allow the request (fail open for rate limiting)
     logger.warn('Rate limit check failed, allowing request', {
@@ -150,7 +169,7 @@ async function checkPublicRateLimit(
       avatarId,
       error: error instanceof Error ? error.message : String(error),
     });
-    return { limited: false };
+    return { limited: false, remaining: maxMessages, limit: maxMessages, isOrbHolder: hasOrb };
   }
 }
 
@@ -172,7 +191,7 @@ async function recordPublicRateLimit(
       TableName: ADMIN_TABLE,
       Key: {
         pk: rateLimitKey,
-        sk: 'CHAT_MESSAGES',
+        sk: 'CHAT_MESSAGES_DAILY',
       },
     }));
 
@@ -184,7 +203,7 @@ async function recordPublicRateLimit(
       TableName: ADMIN_TABLE,
       Key: {
         pk: rateLimitKey,
-        sk: 'CHAT_MESSAGES',
+        sk: 'CHAT_MESSAGES_DAILY',
       },
       UpdateExpression: 'SET timestamps = :timestamps, #ttl = :ttl',
       ExpressionAttributeNames: {
@@ -1942,27 +1961,53 @@ export async function handler(
     const accessError = await ensureAvatarAccess(avatar?.id);
     if (accessError) return accessError;
 
-    // Apply rate limiting for public access mode
+    // Apply rate limiting for public access mode (daily limits based on Orb ownership)
+    let publicRateLimitInfo: PublicRateLimitResult | null = null;
     if (publicAccess && avatar?.id && session.userId) {
-      const rateLimitStatus = await checkPublicRateLimit(session.userId, avatar.id);
+      // Check if user holds an Orb NFT (determines rate limit tier)
+      let hasOrb = false;
+      try {
+        const gateStatus = await getGateStatus(session.userId);
+        hasOrb = gateStatus.nftsHeld > 0;
+      } catch (error) {
+        // On error, assume no Orb (default rate limit)
+        logger.warn('Failed to check Orb ownership for rate limiting', {
+          subsystem: 'chat',
+          userId: session.userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      const rateLimitStatus = await checkPublicRateLimit(session.userId, avatar.id, hasOrb);
+      publicRateLimitInfo = rateLimitStatus;
+
       if (rateLimitStatus.limited) {
+        const limitMessage = hasOrb
+          ? `Daily limit of ${rateLimitStatus.limit} messages reached. Try again tomorrow.`
+          : `Daily limit of ${rateLimitStatus.limit} messages reached. Hold an Orb NFT for ${PUBLIC_RATE_LIMIT_ORB_HOLDERS} messages/day.`;
+
         logger.info('Rate limited public chat request', {
           event: 'rate_limited',
           subsystem: 'chat',
           avatarId: avatar.id,
           userId: session.userId,
           retryAfter: rateLimitStatus.retryAfter,
+          hasOrb,
+          limit: rateLimitStatus.limit,
         });
         return {
           statusCode: 429,
           headers: {
             ...corsHeaders,
             'Content-Type': 'application/json',
-            'Retry-After': String(rateLimitStatus.retryAfter || 60),
+            'Retry-After': String(rateLimitStatus.retryAfter || 3600),
           },
           body: JSON.stringify({
-            error: 'Too many messages. Please slow down.',
+            error: limitMessage,
             retryAfter: rateLimitStatus.retryAfter,
+            remaining: 0,
+            limit: rateLimitStatus.limit,
+            isOrbHolder: hasOrb,
           }),
         };
       }
@@ -2089,6 +2134,12 @@ export async function handler(
         pendingToolCall: result.pendingToolCall,
         // Include avatar updates (e.g., profile image changes)
         avatarUpdates: result.avatarUpdates,
+        // Include rate limit info for public access mode (limited mode indicator)
+        rateLimit: publicRateLimitInfo ? {
+          remaining: publicRateLimitInfo.remaining - 1, // Subtract 1 for current message
+          limit: publicRateLimitInfo.limit,
+          isOrbHolder: publicRateLimitInfo.isOrbHolder,
+        } : undefined,
       }),
     };
 
