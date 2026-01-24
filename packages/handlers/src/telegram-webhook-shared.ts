@@ -15,7 +15,6 @@ import { randomUUID, timingSafeEqual } from 'crypto';
 import {
   TelegramAdapter,
   createMessageEvaluator,
-  createSecretsService,
   createStateService,
   logger,
   type AvatarConfig,
@@ -30,7 +29,6 @@ const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
 
 // Lazy-initialized services
 let stateService: ReturnType<typeof createStateService>;
-let secretsService: ReturnType<typeof createSecretsService>;
 
 // Per-avatar caches
 const avatarConfigCache = new Map<string, { value: AvatarConfig; expiresAt: number }>();
@@ -68,9 +66,8 @@ export function isTelegramChatAllowed(
 }
 
 async function initialize(): Promise<void> {
-  if (stateService && secretsService) return;
+  if (stateService) return;
   stateService = createStateService(STATE_TABLE);
-  secretsService = createSecretsService();
 }
 
 function ok(): APIGatewayProxyResultV2 {
@@ -125,13 +122,17 @@ async function getBotToken(avatarId: string): Promise<string | null> {
   const cached = botTokenCache.get(avatarId);
   if (cached && cached.expiresAt > now) return cached.value;
 
-  const secretName = `${SECRET_PREFIX}/${avatarId}/secrets`;
-  const secrets = await secretsService.getSecretJson<Record<string, string>>(secretName);
-  const token = secrets.TELEGRAM_BOT_TOKEN || secrets.telegram_bot_token || '';
-  if (!token) return null;
-
-  botTokenCache.set(avatarId, { value: token, expiresAt: now + TOKEN_TTL_MS });
-  return token;
+  // Use direct Secrets Manager path (same pattern as getWebhookSecret)
+  const secretName = `${SECRET_PREFIX}/${avatarId}/telegram_bot_token/default`;
+  try {
+    const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
+    const token = response.SecretString || '';
+    if (!token) return null;
+    botTokenCache.set(avatarId, { value: token, expiresAt: now + TOKEN_TTL_MS });
+    return token;
+  } catch {
+    return null;
+  }
 }
 
 async function getTelegramAdapter(avatarId: string, avatarConfig: AvatarConfig): Promise<TelegramAdapter | null> {
