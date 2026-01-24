@@ -123,21 +123,25 @@ body {
    Marquee (Chat Job Prompt)
    ============================================ */
 .marquee {
-  display: inline-block;
+  display: inline-flex;
   max-width: 100%;
   overflow: hidden;
   vertical-align: bottom;
+  mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
 }
 
 .marquee__inner {
   display: inline-block;
-  animation: marquee-scroll 14s linear infinite;
+  padding-left: 100%;
+  animation: marquee-scroll 12s linear infinite;
   will-change: transform;
+  white-space: nowrap;
 }
 
 @keyframes marquee-scroll {
   0% {
-    transform: translateX(100%);
+    transform: translateX(0);
   }
   100% {
     transform: translateX(-100%);

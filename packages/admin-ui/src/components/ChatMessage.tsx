@@ -1103,19 +1103,19 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
             
             {/* Render generated images inline */}
             {images.length > 0 && (
-              <div className={`grid gap-2 ${cleanedContent || visibleToolResults.length > 0 ? 'mt-3' : ''} ${
-                images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+              <div className={`grid gap-2 max-w-full ${cleanedContent || visibleToolResults.length > 0 ? 'mt-3' : ''} ${
+                images.length === 1 ? 'grid-cols-1 max-w-xs sm:max-w-sm' : 'grid-cols-2'
               }`}>
                 {images.slice(0, 4).map((url, idx) => (
-                  <button 
-                    key={idx} 
+                  <button
+                    key={idx}
                     onClick={() => setSelectedImage(url)}
                     className="block rounded-lg overflow-hidden hover:opacity-90 transition-opacity cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
-                    <img 
-                      src={url} 
+                    <img
+                      src={url}
                       alt={`Generated image ${idx + 1}`}
-                      className="w-full h-auto max-w-md rounded-lg"
+                      className="w-full h-auto rounded-lg"
                       loading="lazy"
                     />
                   </button>
@@ -1181,22 +1181,24 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
             {activeJobs.length > 0 && (
               <div className={`${message.content || images.length > 0 ? 'mt-3' : ''}`}>
                 {activeJobs.map((job) => (
-                  <div key={job.jobId} className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] bg-[var(--color-bg-tertiary)] rounded-lg px-3 py-2 overflow-hidden">
-                    <div className="animate-spin w-4 h-4 border-2 border-brand-400 border-t-transparent rounded-full" />
-                    <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">
-                      {job.status === 'processing' ? 'Generating' : 'Starting'} {job.type}...
+                  <div key={job.jobId} className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] bg-[var(--color-bg-tertiary)] rounded-lg px-3 py-2 max-w-full overflow-hidden">
+                    <div className="animate-spin w-4 h-4 border-2 border-brand-400 border-t-transparent rounded-full flex-shrink-0" />
+                    <div className="min-w-0 flex-1 flex items-center overflow-hidden">
+                      <span className="flex-shrink-0 whitespace-nowrap">
+                        {job.status === 'processing' ? 'Generating' : 'Starting'} {job.type}...
+                      </span>
                       {job.prompt && (
                         job.prompt.length > 50
                           ? (
-                            <span className="ml-2 text-[var(--color-text-muted)] marquee" aria-label={job.prompt}>
+                            <span className="ml-2 text-[var(--color-text-muted)] marquee min-w-0 flex-1" aria-label={job.prompt}>
                               <span className="marquee__inner">"{job.prompt}"</span>
                             </span>
                           )
                           : (
-                            <span className="ml-2 text-[var(--color-text-muted)]">"{job.prompt}"</span>
+                            <span className="ml-2 text-[var(--color-text-muted)] truncate">"{job.prompt}"</span>
                           )
                       )}
-                    </span>
+                    </div>
                   </div>
                 ))}
               </div>
