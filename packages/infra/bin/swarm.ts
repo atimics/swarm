@@ -123,11 +123,25 @@ const useExistingSharedResources = (getContextValue<boolean>('useExistingSharedR
 const existingDependencyLayerArn = getContextValue<string>('existingDependencyLayerArn', envConfig);
 const existingCdnDistributionId = getContextValue<string>('existingCdnDistributionId', envConfig);
 
+// Stack/resource suffix strategy:
+// - Normal mode: stackHash (nameSuffix) applies to stack IDs and resource names.
+// - Migration mode (useExistingSharedResources=true): keep stack IDs stable (no suffix),
+//   adopt existing shared resources (no suffix), and suffix ONLY non-shared resources with
+//   '-split' when no stackHash is provided to avoid collisions with the legacy monolithic stack.
+const stackIdSuffix = (useSplitStacks && !useExistingSharedResources) ? nameSuffix : '';
+const sharedResourceSuffix = useExistingSharedResources ? '' : nameSuffix;
+const nonSharedResourceSuffix = (useExistingSharedResources && !nameSuffix) ? '-split' : nameSuffix;
+
+// If we are creating a parallel set of non-shared resources during migration and the user
+// didn't provide an explicit secretPrefix, avoid collisions by defaulting to a suffixed prefix.
+const secretPrefixForSplitStacks = (useSplitStacks && useExistingSharedResources && !secretPrefixRaw && nonSharedResourceSuffix)
+  ? `swarm${nonSharedResourceSuffix}`
+  : secretPrefix;
+
 // Enable shared handlers (Twitter mention polling, autonomous tweets, shared queues)
-// Default to true for monolithic stack, but default to false during split-stack migration
-// to avoid Lambda name collisions with the legacy deployment.
+// Default to true. Collisions are avoided via nonSharedResourceSuffix in migration mode.
 const enableSharedHandlersExplicit = getContextValue<boolean>('enableSharedHandlers', envConfig);
-const enableSharedHandlers = (enableSharedHandlersExplicit ?? (!useSplitStacks || !useExistingSharedResources)) as boolean;
+const enableSharedHandlers = (enableSharedHandlersExplicit ?? true) as boolean;
 
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
@@ -146,9 +160,9 @@ if (useSplitStacks) {
   // ============================================
 
   // 1. Shared Infrastructure Stack (deploys first, rarely changes)
-  const sharedInfraStack = new SharedInfraStack(app, `SwarmShared-${environment}${nameSuffix}`, {
+  const sharedInfraStack = new SharedInfraStack(app, `SwarmShared-${environment}${stackIdSuffix}`, {
     environment,
-    nameSuffix,
+    nameSuffix: sharedResourceSuffix,
     enableCdn: true,
     galleryDomain,
     galleryCertificateArn,
@@ -160,9 +174,9 @@ if (useSplitStacks) {
   });
 
   // 2. Admin API Stack (depends on shared, changes with code updates)
-  const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}${nameSuffix}`, {
+  const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}${stackIdSuffix}`, {
     environment,
-    nameSuffix,
+    nameSuffix: nonSharedResourceSuffix,
     sharedInfraStack,
     handlersPath,
     adminDomain,
@@ -182,16 +196,16 @@ if (useSplitStacks) {
     enableClaudeCode,
     claudeCodeUseOpenRouter,
     enableSharedHandlers,
-    secretPrefix,
+    secretPrefix: secretPrefixForSplitStacks,
     env: stackEnv,
     description: `Swarm Admin API (${environment})`,
   });
   adminApiStack.addDependency(sharedInfraStack);
 
   // 3. Admin UI Stack (depends on API for origin, changes with UI updates)
-  const adminUiStack = new AdminUiStack(app, `SwarmUi-${environment}${nameSuffix}`, {
+  const adminUiStack = new AdminUiStack(app, `SwarmUi-${environment}${stackIdSuffix}`, {
     environment,
-    nameSuffix,
+    nameSuffix: nonSharedResourceSuffix,
     adminApiStack,
     adminDomain,
     adminCertificateArn,
@@ -201,16 +215,16 @@ if (useSplitStacks) {
   adminUiStack.addDependency(adminApiStack);
 
   // 4. Avatars Stack (depends on shared and API, changes with avatar updates)
-  const avatarsStack = new AvatarsStack(app, `SwarmAvatars-${environment}${nameSuffix}`, {
+  const avatarsStack = new AvatarsStack(app, `SwarmAvatars-${environment}${stackIdSuffix}`, {
     environment,
-    nameSuffix,
+    nameSuffix: nonSharedResourceSuffix,
     sharedInfraStack,
     adminApiStack,
     avatarsPath,
     handlersPath,
     avatarIds,
     replicateApiKeyArn,
-    secretPrefix,
+    secretPrefix: secretPrefixForSplitStacks,
     env: stackEnv,
     description: `Swarm Avatars (${environment})`,
   });
