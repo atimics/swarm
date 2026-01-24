@@ -124,6 +124,8 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   const [linkingPrivy, setLinkingPrivy] = useState(false);
   const [linkPrivyError, setLinkPrivyError] = useState<string | null>(null);
   const [pendingWalletConnect, setPendingWalletConnect] = useState(false);
+  // Track if wallet connection was initiated specifically for linking (skip the Link/Switch/Ignore prompt)
+  const [connectingForLink, setConnectingForLink] = useState(false);
 
   // Check auth on mount
   useEffect(() => {
@@ -286,7 +288,16 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   const handleIgnoreConnectedWallet = useCallback(() => {
     setPendingWalletSwitch(null);
     setLinkWalletError(null);
+    setConnectingForLink(false);
   }, []);
+
+  // Auto-link when user initiated "Connect wallet to link" flow
+  useEffect(() => {
+    if (connectingForLink && pendingWalletSwitch && !linkingWallet) {
+      setConnectingForLink(false);
+      handleLinkConnectedWallet();
+    }
+  }, [connectingForLink, pendingWalletSwitch, linkingWallet, handleLinkConnectedWallet]);
 
   // Link Privy identity to an existing wallet account (without switching sessions)
   useEffect(() => {
@@ -351,6 +362,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   // Handle connect for wallet linking - closes Account modal first to avoid z-index/focus conflicts
   const handleConnectForLinking = useCallback(() => {
     setShowAccount(false);
+    setConnectingForLink(true);
     setPendingWalletConnect(true);
   }, []);
 
