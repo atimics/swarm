@@ -175,15 +175,14 @@ export class AdminApiStack extends cdk.Stack {
     } = props;
 
     // Import shared resources from the shared infrastructure stack
+    // Note: CDK requires only one of tableArn or tableName, not both
     const stateTable = dynamodb.Table.fromTableAttributes(this, 'StateTable', {
       tableArn: sharedInfraStack.stateTableArn,
-      tableName: sharedInfraStack.stateTableName,
       globalIndexes: ['gsi1'],
     });
 
     const activityTable = dynamodb.Table.fromTableAttributes(this, 'ActivityTable', {
       tableArn: sharedInfraStack.activityTableArn,
-      tableName: sharedInfraStack.activityTableName,
     });
 
     const mediaBucket = s3.Bucket.fromBucketAttributes(this, 'MediaBucket', {
