@@ -1346,6 +1346,21 @@ export class AdminApiConstruct extends Construct {
         ],
       }));
 
+      // KMS permissions for Secrets Manager (AWS-managed key) - required for decrypting secrets
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'kms:Decrypt',
+          'kms:GenerateDataKey',
+        ],
+        resources: ['*'],
+        conditions: {
+          StringEquals: {
+            'kms:ViaService': `secretsmanager.${cdk.Stack.of(this).region}.amazonaws.com`,
+          },
+        },
+      }));
+
       (fn.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
         'Environment.Variables.MEDIA_CONVERT_FUNCTION',
         mediaConvertHandler.functionName
