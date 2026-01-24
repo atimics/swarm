@@ -171,6 +171,14 @@ export class SharedHandlers extends Construct {
       commonEnv.REPLICATE_API_KEY_SECRET_ARN = replicateApiKeyArn;
     }
 
+    // Common bundling options: bundle AWS SDK (don't externalize) to avoid layer CJS/ESM conflicts
+    // Only externalize sharp which comes from the native layer
+    const bundlingOptions = {
+      externalModules: ['sharp'],
+      minify: true,
+      sourceMap: true,
+    };
+
     const messageProcessor = new nodejs.NodejsFunction(this, 'MessageProcessor', {
       functionName: `swarm-${environment}-message-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -181,6 +189,7 @@ export class SharedHandlers extends Construct {
       timeout: cdk.Duration.seconds(60),
       memorySize: 1024,
       environment: commonEnv,
+      bundling: bundlingOptions,
     });
 
     this.telegramWebhook = new nodejs.NodejsFunction(this, 'TelegramWebhookShared', {
@@ -193,6 +202,7 @@ export class SharedHandlers extends Construct {
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       environment: commonEnv,
+      bundling: bundlingOptions,
     });
 
     messageProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.messageQueue, {
@@ -210,6 +220,7 @@ export class SharedHandlers extends Construct {
       timeout: cdk.Duration.seconds(60),
       memorySize: 1024,
       environment: commonEnv,
+      bundling: bundlingOptions,
     });
 
     responseSender.addEventSource(new lambdaEventSources.SqsEventSource(this.responseQueue, {
@@ -227,6 +238,7 @@ export class SharedHandlers extends Construct {
       timeout: cdk.Duration.minutes(5),
       memorySize: 1024,
       environment: commonEnv,
+      bundling: bundlingOptions,
     });
 
     mediaProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.mediaQueue, {
@@ -244,6 +256,7 @@ export class SharedHandlers extends Construct {
       timeout: cdk.Duration.minutes(2),
       memorySize: 512,
       environment: commonEnv,
+      bundling: bundlingOptions,
     });
 
     new events.Rule(this, 'TwitterMentionPollSchedule', {
@@ -263,6 +276,7 @@ export class SharedHandlers extends Construct {
       timeout: cdk.Duration.minutes(5), // Longer timeout for multi-avatar processing
       memorySize: 1024,
       environment: commonEnv,
+      bundling: bundlingOptions,
     });
 
     new events.Rule(this, 'AutonomousTweetSchedule', {
