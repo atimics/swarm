@@ -314,20 +314,28 @@ export async function updateAvatar(
  */
 export async function listAvatars(): Promise<AvatarRecord[]> {
   // Use a scan with filter for CONFIG records
-  // In production, use a GSI for better performance
-  const result = await dynamoClient.send(new ScanCommand({
-    TableName: ADMIN_TABLE,
-    FilterExpression: 'sk = :sk AND #status <> :deleted',
-    ExpressionAttributeNames: {
-      '#status': 'status',
-    },
-    ExpressionAttributeValues: {
-      ':sk': 'CONFIG',
-      ':deleted': 'deleted',
-    },
-  }));
+  // Paginate to handle tables exceeding 1MB scan limit
+  const items: AvatarRecord[] = [];
+  let lastKey: Record<string, unknown> | undefined;
 
-  return (result.Items as AvatarRecord[]) || [];
+  do {
+    const result = await dynamoClient.send(new ScanCommand({
+      TableName: ADMIN_TABLE,
+      FilterExpression: 'sk = :sk AND #status <> :deleted',
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
+      ExpressionAttributeValues: {
+        ':sk': 'CONFIG',
+        ':deleted': 'deleted',
+      },
+      ExclusiveStartKey: lastKey,
+    }));
+    items.push(...(result.Items as AvatarRecord[]) || []);
+    lastKey = result.LastEvaluatedKey;
+  } while (lastKey);
+
+  return items;
 }
 
 /**
@@ -338,20 +346,29 @@ export async function listAvatars(): Promise<AvatarRecord[]> {
  * This ensures wallet users see all avatars they have access to
  */
 export async function listAvatarsByWallet(walletAddress: string): Promise<AvatarRecord[]> {
-  const result = await dynamoClient.send(new ScanCommand({
-    TableName: ADMIN_TABLE,
-    FilterExpression: 'sk = :sk AND #status <> :deleted AND (creatorWallet = :wallet OR inhabitantWallet = :wallet)',
-    ExpressionAttributeNames: {
-      '#status': 'status',
-    },
-    ExpressionAttributeValues: {
-      ':sk': 'CONFIG',
-      ':deleted': 'deleted',
-      ':wallet': walletAddress,
-    },
-  }));
+  // Paginate to handle tables exceeding 1MB scan limit
+  const items: AvatarRecord[] = [];
+  let lastKey: Record<string, unknown> | undefined;
 
-  return (result.Items as AvatarRecord[]) || [];
+  do {
+    const result = await dynamoClient.send(new ScanCommand({
+      TableName: ADMIN_TABLE,
+      FilterExpression: 'sk = :sk AND #status <> :deleted AND (creatorWallet = :wallet OR inhabitantWallet = :wallet)',
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
+      ExpressionAttributeValues: {
+        ':sk': 'CONFIG',
+        ':deleted': 'deleted',
+        ':wallet': walletAddress,
+      },
+      ExclusiveStartKey: lastKey,
+    }));
+    items.push(...(result.Items as AvatarRecord[]) || []);
+    lastKey = result.LastEvaluatedKey;
+  } while (lastKey);
+
+  return items;
 }
 
 /**
