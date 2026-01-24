@@ -123,11 +123,27 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   const [showAccount, setShowAccount] = useState(false);
   const [linkingPrivy, setLinkingPrivy] = useState(false);
   const [linkPrivyError, setLinkPrivyError] = useState<string | null>(null);
+  const [pendingWalletConnect, setPendingWalletConnect] = useState(false);
 
   // Check auth on mount
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  // Open wallet modal after Account modal closes (for wallet linking flow)
+  useEffect(() => {
+    if (pendingWalletConnect && !showAccount) {
+      // Use requestAnimationFrame to ensure DOM is fully updated
+      const frameId = requestAnimationFrame(() => {
+        setPendingWalletConnect(false);
+        loginAttemptedRef.current = null;
+        clearError();
+        clearWalletUiError();
+        setVisible(true);
+      });
+      return () => cancelAnimationFrame(frameId);
+    }
+  }, [pendingWalletConnect, showAccount, setVisible, clearError, clearWalletUiError]);
 
   // When wallet connects or changes, trigger login flow
   useEffect(() => {
@@ -335,14 +351,8 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   // Handle connect for wallet linking - closes Account modal first to avoid z-index/focus conflicts
   const handleConnectForLinking = useCallback(() => {
     setShowAccount(false);
-    // Small delay to ensure Account modal closes before wallet modal opens
-    setTimeout(() => {
-      loginAttemptedRef.current = null;
-      clearError();
-      clearWalletUiError();
-      setVisible(true);
-    }, 100);
-  }, [setVisible, clearError, clearWalletUiError]);
+    setPendingWalletConnect(true);
+  }, []);
 
   // Handle disconnect/logout - works for both auth providers
   const handleDisconnect = useCallback(async () => {
