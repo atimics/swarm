@@ -1,4 +1,4 @@
-import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, UpdateCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type {
   ChannelState,
@@ -555,4 +555,83 @@ function randomDelay(): number {
     CHANNEL_CONFIG.MIN_RESPONSE_DELAY_MS +
     Math.random() * (CHANNEL_CONFIG.MAX_RESPONSE_DELAY_MS - CHANNEL_CONFIG.MIN_RESPONSE_DELAY_MS)
   );
+}
+
+// =============================================================================
+// CROSS-PLATFORM QUERIES
+// =============================================================================
+
+/**
+ * Get all channel states for an avatar (across all platforms)
+ */
+export async function getAllChannelStates(
+  docClient: DynamoDBDocumentClient,
+  tableName: string,
+  avatarId: string,
+  limit: number = 50
+): Promise<ChannelState[]> {
+  const result = await docClient.send(new QueryCommand({
+    TableName: tableName,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: {
+      ':pk': `AVATAR#${avatarId}`,
+      ':prefix': 'CHANNEL#',
+    },
+    Limit: limit,
+  }));
+
+  return (result.Items || [])
+    .filter(item => item.sk?.endsWith('#STATE'))
+    .map(item => ({
+      avatarId: item.avatarId,
+      channelId: item.channelId,
+      platform: item.platform,
+      recentMessages: item.recentMessages || [],
+      summary: item.summary,
+      summaryUpdatedAt: item.summaryUpdatedAt,
+      lastActivityAt: item.lastActivityAt,
+      messageCount: item.messageCount || 0,
+      state: item.state,
+      stateChangedAt: item.stateChangedAt,
+      chatType: item.chatType,
+      chatTitle: item.chatTitle,
+      lastResponseAt: item.lastResponseAt,
+      lastResponseMessageId: item.lastResponseMessageId,
+      pendingResponseAt: item.pendingResponseAt,
+      directEngagementAt: item.directEngagementAt,
+      ttl: item.ttl,
+    }));
+}
+
+/**
+ * Get channel states for a specific platform
+ */
+export async function getChannelStatesForPlatform(
+  docClient: DynamoDBDocumentClient,
+  tableName: string,
+  avatarId: string,
+  platform: Platform,
+  limit: number = 50
+): Promise<ChannelState[]> {
+  // Get all channels then filter by platform
+  // Note: For better performance with many channels, consider adding a GSI
+  const allChannels = await getAllChannelStates(docClient, tableName, avatarId, limit * 4);
+  return allChannels.filter(ch => ch.platform === platform).slice(0, limit);
+}
+
+/**
+ * Get active channels (channels with recent activity)
+ */
+export async function getActiveChannels(
+  docClient: DynamoDBDocumentClient,
+  tableName: string,
+  avatarId: string,
+  maxAgeMs: number = 24 * 60 * 60 * 1000 // 24 hours default
+): Promise<ChannelState[]> {
+  const channels = await getAllChannelStates(docClient, tableName, avatarId);
+  const cutoff = Date.now() - maxAgeMs;
+
+  return channels
+    .filter(ch => ch.lastActivityAt > cutoff)
+    .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 }

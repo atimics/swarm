@@ -114,6 +114,17 @@ export interface TwitterServices {
    * Get a specific tweet by ID
    */
   getTweet?: (tweetId: string) => Promise<Tweet | null>;
+
+  /**
+   * Get activity summary for cross-platform awareness
+   */
+  getActivitySummary?: () => Promise<{
+    pendingMentions: number;
+    lastMentionAt?: string;
+    lastPostAt?: string;
+    recentTopics?: string[];
+    summary?: string;
+  } | null>;
 }
 
 /**
@@ -571,6 +582,60 @@ export function createTwitterTools(services: TwitterServices) {
             tweetId: result.tweetId,
             url: result.url,
             message: `Quote tweet posted! ${result.url}`,
+          },
+        };
+      },
+    }),
+
+    // =========================================================================
+    // Cross-Platform Awareness
+    // =========================================================================
+
+    defineTool({
+      name: 'twitter_get_activity_summary',
+      description: 'Get a summary of recent Twitter activity for cross-platform awareness. Shows pending mentions, recent posts, and activity overview.',
+      category: 'readonly',
+      toolset: 'twitter',
+      platforms: ['admin-ui', 'api', 'mcp', 'telegram', 'discord'],
+      inputSchema: z.object({}),
+      execute: async (_input, _context): Promise<ToolResult> => {
+        const status = await services.getConnectionStatus();
+        if (!status.connected) {
+          return { success: false, error: 'Twitter is not connected.' };
+        }
+
+        // If we have a dedicated activity summary method, use it
+        if (services.getActivitySummary) {
+          const summary = await services.getActivitySummary();
+          if (!summary) {
+            return { success: true, data: { summary: 'No recent activity' } };
+          }
+          return { success: true, data: summary };
+        }
+
+        // Fall back to building summary from mentions
+        let pendingMentions = 0;
+        let lastMentionAt: string | undefined;
+
+        if (services.getMentions) {
+          const mentions = await services.getMentions(undefined, 10);
+          pendingMentions = mentions.length;
+          if (mentions.length > 0) {
+            lastMentionAt = mentions[0].createdAt;
+          }
+        }
+
+        return {
+          success: true,
+          data: {
+            connected: true,
+            username: status.username,
+            pendingMentions,
+            lastMentionAt,
+            charLimit: status.charLimit ?? 280,
+            summary: pendingMentions > 0
+              ? `${pendingMentions} pending mention(s) to review`
+              : 'No pending mentions',
           },
         };
       },

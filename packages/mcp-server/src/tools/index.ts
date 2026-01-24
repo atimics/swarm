@@ -78,6 +78,13 @@ export {
   type McpConfig,
   type ExternalMcpServer,
 } from './mcp-admin.js';
+export {
+  createPresenceTools,
+  type PresenceServices,
+  type PlatformStatus,
+  type ChannelOverview,
+  type RateLimitInfo,
+} from './presence.js';
 
 import { createMediaTools, type CreditServices as MediaCreditServices } from './media.js';
 import { createGalleryTools } from './gallery.js';
@@ -99,6 +106,7 @@ import { createPropertyTools } from './property.js';
 import { createStickerTools } from './stickers.js';
 import { createClaudeCodeTools } from './claude-code.js';
 import { createMcpAdminTools } from './mcp-admin.js';
+import { createPresenceTools } from './presence.js';
 import type { ToolRegistry } from '../registry.js';
 
 /**
@@ -128,6 +136,8 @@ export interface AllServices {
   mcpAdmin?: import('./mcp-admin.js').McpAdminServices;
   // Unified integrations configuration service
   integrations?: import('./admin.js').AdminToolServices['integrations'];
+  // Cross-platform presence
+  presence?: import('./presence.js').PresenceServices;
 }
 
 /**
@@ -176,5 +186,8 @@ export function registerAllTools(
   }
   if (services.mcpAdmin) {
     registry.registerAll(createMcpAdminTools(services.mcpAdmin));
+  }
+  if (services.presence) {
+    registry.registerAll(createPresenceTools(services.presence));
   }
 }

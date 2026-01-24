@@ -54,7 +54,12 @@ import {
   saveFact,
 } from './fact-store.js';
 
-export { CHANNEL_CONFIG } from './channel-state.js';
+export {
+  CHANNEL_CONFIG,
+  getAllChannelStates,
+  getChannelStatesForPlatform,
+  getActiveChannels,
+} from './channel-state.js';
 
 export class DynamoDBStateService implements StateService {
   private docClient: DynamoDBDocumentClient;
@@ -327,6 +332,26 @@ export class DynamoDBStateService implements StateService {
 
   async getFacts(avatarId: string, query: string, userId?: string): Promise<MemoryFact[]> {
     return getFacts(this.docClient, this.tableName, avatarId, query, userId);
+  }
+
+  // =====================================================================
+  // CROSS-PLATFORM QUERIES
+  // =====================================================================
+
+  async getAllChannelStates(avatarId: string, limit?: number): Promise<ChannelState[]> {
+    return getAllChannelStates(this.docClient, this.tableName, avatarId, limit);
+  }
+
+  async getChannelStatesForPlatform(
+    avatarId: string,
+    platform: Platform,
+    limit?: number
+  ): Promise<ChannelState[]> {
+    return getChannelStatesForPlatform(this.docClient, this.tableName, avatarId, platform, limit);
+  }
+
+  async getActiveChannels(avatarId: string, maxAgeMs?: number): Promise<ChannelState[]> {
+    return getActiveChannels(this.docClient, this.tableName, avatarId, maxAgeMs);
   }
 }
 

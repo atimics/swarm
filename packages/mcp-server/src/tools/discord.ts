@@ -133,6 +133,16 @@ export interface DiscordServices {
    * Set the bot's status/presence
    */
   setPresence?: (status: 'online' | 'idle' | 'dnd' | 'invisible', activity?: string) => Promise<boolean>;
+
+  /**
+   * Get LLM-generated summary for a channel
+   */
+  getChannelSummary?: (channelId: string) => Promise<string | null>;
+
+  /**
+   * List all channels the bot can see (across all guilds) for cross-platform awareness
+   */
+  listAllChannels?: () => Promise<DiscordChannel[]>;
 }
 
 /**
@@ -585,6 +595,135 @@ export function createDiscordTools(services: DiscordServices) {
             status: input.status,
             activity: input.activity,
             message: `Status set to ${input.status}${input.activity ? ` - ${input.activity}` : ''}`,
+          },
+        };
+      },
+    }),
+
+    // =========================================================================
+    // Cross-Platform Awareness
+    // =========================================================================
+
+    defineTool({
+      name: 'discord_get_channel_summary',
+      description: 'Get an LLM-generated summary of recent activity in a Discord channel.',
+      category: 'readonly',
+      toolset: 'discord',
+      inputSchema: z.object({
+        channelId: z.string().describe('The channel ID to summarize'),
+      }),
+      execute: async (input, _context): Promise<ToolResult> => {
+        const status = await services.getConnectionStatus();
+        if (!status.connected || status.mode === 'webhook') {
+          return {
+            success: false,
+            error: 'Discord bot is not connected.',
+          };
+        }
+
+        if (!services.getChannelSummary) {
+          // Fall back to getting messages and returning a simple summary
+          if (services.getMessages) {
+            const messages = await services.getMessages(input.channelId, 10);
+            if (messages.length === 0) {
+              return {
+                success: true,
+                data: { summary: 'No recent activity' },
+              };
+            }
+            const summary = `${messages.length} recent messages from ${new Set(messages.map(m => m.authorUsername)).size} participants`;
+            return { success: true, data: { summary } };
+          }
+          return { success: false, error: 'Channel summary is not available.' };
+        }
+
+        const summary = await services.getChannelSummary(input.channelId);
+        if (!summary) {
+          return { success: true, data: { summary: 'No activity to summarize' } };
+        }
+
+        return {
+          success: true,
+          data: {
+            channelId: input.channelId,
+            summary,
+          },
+        };
+      },
+    }),
+
+    defineTool({
+      name: 'discord_list_all_channels',
+      description: 'List all Discord channels the bot can access across all servers. Useful for cross-platform awareness.',
+      category: 'readonly',
+      toolset: 'discord',
+      platforms: ['admin-ui', 'api', 'mcp'],
+      inputSchema: z.object({
+        type: z.enum(['text', 'voice', 'all']).optional().default('text').describe('Filter by channel type'),
+      }),
+      execute: async (input, _context): Promise<ToolResult> => {
+        const status = await services.getConnectionStatus();
+        if (!status.connected || status.mode === 'webhook') {
+          return {
+            success: false,
+            error: 'Discord bot is not connected.',
+          };
+        }
+
+        if (!services.listAllChannels) {
+          // Fall back to listing guilds then channels for each
+          if (services.listGuilds && services.listChannels) {
+            const guilds = await services.listGuilds();
+            const allChannels: DiscordChannel[] = [];
+
+            for (const guild of guilds.slice(0, 10)) { // Limit to 10 guilds
+              const channels = await services.listChannels(guild.id);
+              allChannels.push(...channels.map(c => ({ ...c, guildName: guild.name })));
+            }
+
+            let filtered = allChannels;
+            if (input.type === 'text') {
+              filtered = allChannels.filter(c => c.type === 'text' || c.type === 'announcement');
+            } else if (input.type === 'voice') {
+              filtered = allChannels.filter(c => c.type === 'voice');
+            }
+
+            return {
+              success: true,
+              data: {
+                count: filtered.length,
+                channels: filtered.slice(0, 50).map(c => ({
+                  id: c.id,
+                  name: c.name,
+                  type: c.type,
+                  guildId: c.guildId,
+                  guildName: c.guildName,
+                })),
+              },
+            };
+          }
+          return { success: false, error: 'Channel listing is not available.' };
+        }
+
+        let channels = await services.listAllChannels();
+
+        if (input.type === 'text') {
+          channels = channels.filter(c => c.type === 'text' || c.type === 'announcement');
+        } else if (input.type === 'voice') {
+          channels = channels.filter(c => c.type === 'voice');
+        }
+
+        return {
+          success: true,
+          data: {
+            count: channels.length,
+            channels: channels.slice(0, 50).map(c => ({
+              id: c.id,
+              name: c.name,
+              type: c.type,
+              guildId: c.guildId,
+              guildName: c.guildName,
+            })),
           },
         };
       },

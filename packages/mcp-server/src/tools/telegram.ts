@@ -55,6 +55,19 @@ export interface TelegramStatus {
   webhookSet?: boolean;
 }
 
+/**
+ * Telegram chat info for channel listing
+ */
+export interface TelegramChatInfo {
+  chatId: number | string;
+  title?: string;
+  type: 'private' | 'group' | 'supergroup' | 'channel';
+  username?: string;
+  memberCount?: number;
+  lastActivityAt?: number;
+  summary?: string;
+}
+
 export interface TelegramServices {
   /** Get Telegram integration status */
   getTelegramStatus?: (avatarId: string) => Promise<TelegramStatus>;
@@ -140,6 +153,27 @@ export interface TelegramServices {
     success: boolean;
     error?: string;
   }>;
+
+  // === Channel Discovery & Cross-Platform Tools ===
+
+  /** List all known chats for this avatar */
+  listChats?: (avatarId: string) => Promise<TelegramChatInfo[]>;
+
+  /** Get detailed info about a specific chat */
+  getChatInfo?: (avatarId: string, chatId: number | string) => Promise<TelegramChatInfo | null>;
+
+  /** Send message to a specific chat (cross-platform posting) */
+  sendToChat?: (avatarId: string, chatId: number | string, text: string, options?: {
+    parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
+    replyToMessageId?: number;
+    disableNotification?: boolean;
+  }) => Promise<{ messageId: number } | null>;
+
+  /** Get chat summary with LLM-generated description */
+  getChatSummary?: (avatarId: string, chatId: number | string) => Promise<string | null>;
+
+  /** Discover new chats from recent updates (for channel discovery) */
+  discoverChats?: (avatarId: string) => Promise<TelegramChatInfo[]>;
 }
 
 // ============================================================================
@@ -590,6 +624,176 @@ export const createTelegramTools = (services: TelegramServices) => [
               ? new Date(result.nextAllowedAt).toISOString() 
               : null,
             reason: result.reason,
+          },
+        };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
+    },
+  }),
+
+  // === Channel Discovery & Cross-Platform Tools ===
+
+  defineTool({
+    name: 'telegram_list_chats',
+    description: 'List all Telegram chats (groups, channels, DMs) that I am a member of. Useful for cross-platform awareness and posting.',
+    category: 'readonly',
+    toolset: 'telegram',
+    platforms: ['telegram', 'admin-ui', 'api', 'mcp'],
+    inputSchema: z.object({}),
+    execute: async (_input, context): Promise<ToolResult> => {
+      if (!services.listChats) {
+        return { success: false, error: 'Chat listing service is not available' };
+      }
+
+      try {
+        const chats = await services.listChats(context.avatarId);
+
+        return {
+          success: true,
+          data: {
+            count: chats.length,
+            chats: chats.map(c => ({
+              chatId: c.chatId,
+              title: c.title,
+              type: c.type,
+              username: c.username,
+              memberCount: c.memberCount,
+              lastActive: c.lastActivityAt
+                ? new Date(c.lastActivityAt).toISOString()
+                : undefined,
+              summary: c.summary,
+            })),
+          },
+        };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
+    },
+  }),
+
+  defineTool({
+    name: 'telegram_get_chat_info',
+    description: 'Get detailed information about a specific Telegram chat, including recent activity summary.',
+    category: 'readonly',
+    toolset: 'telegram',
+    platforms: ['telegram', 'admin-ui', 'api', 'mcp'],
+    inputSchema: z.object({
+      chatId: z.union([z.number(), z.string()]).describe('Telegram chat ID'),
+    }),
+    execute: async (input, context): Promise<ToolResult> => {
+      if (!services.getChatInfo) {
+        return { success: false, error: 'Chat info service is not available' };
+      }
+
+      try {
+        const chat = await services.getChatInfo(context.avatarId, input.chatId);
+
+        if (!chat) {
+          return { success: false, error: 'Chat not found or not accessible' };
+        }
+
+        // Get summary if available
+        let summary = chat.summary;
+        if (!summary && services.getChatSummary) {
+          summary = await services.getChatSummary(context.avatarId, input.chatId) || undefined;
+        }
+
+        return {
+          success: true,
+          data: {
+            chatId: chat.chatId,
+            title: chat.title,
+            type: chat.type,
+            username: chat.username,
+            memberCount: chat.memberCount,
+            lastActive: chat.lastActivityAt
+              ? new Date(chat.lastActivityAt).toISOString()
+              : undefined,
+            summary,
+          },
+        };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
+    },
+  }),
+
+  defineTool({
+    name: 'telegram_send_to_chat',
+    description: 'Send a message to a specific Telegram chat. Use this for cross-platform posting or proactive messaging to known chats.',
+    category: 'telegram',
+    toolset: 'telegram',
+    platforms: ['telegram', 'admin-ui', 'api', 'mcp'],
+    inputSchema: z.object({
+      chatId: z.union([z.number(), z.string()]).describe('Telegram chat ID to send to'),
+      text: z.string().min(1).max(4096).describe('Message text (1-4096 characters)'),
+      parseMode: z.enum(['HTML', 'Markdown', 'MarkdownV2']).optional()
+        .describe('Parse mode for formatting'),
+      disableNotification: z.boolean().optional()
+        .describe('Send silently without notification'),
+    }),
+    execute: async (input, context): Promise<ToolResult> => {
+      if (!services.sendToChat) {
+        return { success: false, error: 'Send to chat service is not available' };
+      }
+
+      try {
+        const result = await services.sendToChat(
+          context.avatarId,
+          input.chatId,
+          input.text,
+          {
+            parseMode: input.parseMode,
+            disableNotification: input.disableNotification,
+          }
+        );
+
+        if (!result) {
+          return { success: false, error: 'Failed to send message' };
+        }
+
+        return {
+          success: true,
+          data: {
+            messageId: result.messageId,
+            chatId: input.chatId,
+            message: 'Message sent successfully',
+          },
+        };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
+    },
+  }),
+
+  defineTool({
+    name: 'telegram_discover_chats',
+    description: 'Discover new Telegram chats from recent bot updates. Use this to find chats the bot has been added to.',
+    category: 'diagnostics',
+    toolset: 'telegram',
+    platforms: ['admin-ui', 'api', 'mcp'],
+    inputSchema: z.object({}),
+    execute: async (_input, context): Promise<ToolResult> => {
+      if (!services.discoverChats) {
+        return { success: false, error: 'Chat discovery service is not available' };
+      }
+
+      try {
+        const chats = await services.discoverChats(context.avatarId);
+
+        return {
+          success: true,
+          data: {
+            discovered: chats.length,
+            chats: chats.map(c => ({
+              chatId: c.chatId,
+              title: c.title,
+              type: c.type,
+            })),
+            message: chats.length > 0
+              ? `Discovered ${chats.length} new chat(s)`
+              : 'No new chats discovered',
           },
         };
       } catch (err) {

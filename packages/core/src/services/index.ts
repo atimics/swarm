@@ -34,3 +34,20 @@ export { DynamoDBStateService, createStateService, CHANNEL_CONFIG } from './stat
 export { AWSSecretsService, createSecretsService } from './secrets.js';
 export { ActivityService, createActivityService, type ActivityEvent } from './activity.js';
 export { DynamoDBUsageMeteringService, createUsageMeteringService } from './usage.js';
+export {
+  DynamoDBPresenceService,
+  createPresenceService,
+  PRESENCE_CONFIG,
+  type PresenceService,
+  type PlatformConnection,
+  type ChannelInfo,
+  type ChannelDetail,
+  type RateLimitStatus,
+} from './presence.js';
+export {
+  OpenRouterChannelSummaryService,
+  SimpleChannelSummaryService,
+  createChannelSummaryService,
+  SUMMARY_CONFIG,
+  type ChannelSummaryService,
+} from './channel-summary.js';

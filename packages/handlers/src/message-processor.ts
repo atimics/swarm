@@ -21,6 +21,7 @@ import {
   createSecretsService,
   createMediaServiceWithDeps,
   createMediaDependencies,
+  createPresenceService,
   logger,
   MessageQueueItemSchema,
   extractThinking,
@@ -30,6 +31,7 @@ import {
   type SwarmResponse,
   type ResponseAction,
   type LLMConfig,
+  type PresenceService,
 } from '@swarm/core';
 import {
   ToolRegistry,
@@ -93,6 +95,7 @@ function getSecretPrefix(): string {
 // Services (lazy initialized)
 let stateService: ReturnType<typeof createStateService>;
 let secretsService: ReturnType<typeof createSecretsService>;
+let presenceService: PresenceService;
 type AvatarRuntime = {
   avatarId: string;
   avatarConfig: AvatarConfig;
@@ -107,6 +110,7 @@ async function initialize(): Promise<void> {
 
   stateService = createStateService(getStateTable());
   secretsService = createSecretsService();
+  presenceService = createPresenceService(getStateTable());
 }
 
 async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
@@ -372,12 +376,16 @@ async function callLLM(
 /**
  * Build system prompt from avatar persona and context
  */
-function buildSystemPrompt(envelope: SwarmEnvelope, avatarConfig: AvatarConfig): string {
+async function buildSystemPrompt(
+  envelope: SwarmEnvelope,
+  avatarConfig: AvatarConfig,
+  avatarId: string
+): Promise<string> {
   const persona = avatarConfig.persona || `You are ${avatarConfig.name || envelope.avatarId}, an AI avatar.`;
   let prompt = persona;
 
   prompt += `\n\n## Role (This Turn)
-You are an AI avatar operating on ${envelope.platform}. Treat “assistant” as a role/job you perform for this user, not an ontological claim.
+You are an AI avatar operating on ${envelope.platform}. Treat "assistant" as a role/job you perform for this user, not an ontological claim.
 
 If the user asks to reset / OOC / stop roleplay: immediately return to a neutral, helpful tone and continue.
 
@@ -385,7 +393,7 @@ If the user asks to reset / OOC / stop roleplay: immediately return to a neutral
 I care about user privacy and trust. That means:
 - I ask rather than infer identity or private attributes.
 - I use secure tools for secrets; I never request or reveal secret values (tokens, API keys, private keys) in chat.
-- I’m honest about my limits: I don’t claim I can see outside the messages/tools provided.
+- I'm honest about my limits: I don't claim I can see outside the messages/tools provided.
 
 I care about user agency. Before irreversible side effects (posting, spending, transactions), I ask for explicit confirmation.
 
@@ -403,6 +411,20 @@ Final user-visible answers should be concise.
 - Username: ${envelope.sender.username || 'unknown'}
 - Display Name: ${envelope.sender.displayName || 'unknown'}
 `;
+
+  // Add cross-platform presence context
+  try {
+    const presenceContext = await presenceService.buildPresenceContext(avatarId);
+    if (presenceContext && presenceContext !== 'No platforms connected.') {
+      prompt += `\n## Your Presence Across Platforms
+${presenceContext}
+
+You can use cross-platform tools like get_presence_overview, list_all_channels, and post_to_channel to interact with any of your connected platforms.
+`;
+    }
+  } catch (err) {
+    logger.warn('Failed to build presence context', { error: err instanceof Error ? err.message : String(err) });
+  }
 
   // Add tool usage guidance
   prompt += `\n## Tooling & Response Guidelines
@@ -531,7 +553,7 @@ async function generateResponse(
   avatarRuntime: AvatarRuntime
 ): Promise<SwarmResponse> {
   await maybeTranscribeAudio(envelope, toolClient, toolContext, avatarRuntime.avatarConfig);
-  const systemPrompt = buildSystemPrompt(envelope, avatarRuntime.avatarConfig);
+  const systemPrompt = await buildSystemPrompt(envelope, avatarRuntime.avatarConfig, avatarRuntime.avatarId);
   const toolDefinitions = toolClient
     .getToolDefinitions()
     .filter((tool: { name: string }) => avatarRuntime.avatarConfig.tools.includes(tool.name));
@@ -757,6 +779,23 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
         envelope.metadata.chatType,
         envelope.metadata.chatTitle
       );
+
+      // Register channel for presence tracking
+      try {
+        await presenceService.registerChannel(
+          avatarId,
+          envelope.conversationId,
+          envelope.platform,
+          {
+            title: envelope.metadata.chatTitle,
+            type: envelope.metadata.chatType,
+          }
+        );
+      } catch (err) {
+        logger.warn('Failed to register channel for presence', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
 
       logger.info('Channel state updated', {
         event: 'state_updated',

@@ -67,6 +67,9 @@ export const TOOL_TAGS = [
   'claude-code',
   'coding',
   'avatar',
+  'presence',
+  'channels',
+  'cross-platform',
 ] as const;
 
 export type ToolTag = typeof TOOL_TAGS[number];
