@@ -82,8 +82,25 @@ class Logger {
         errorData.errorName = error.name;
         errorData.errorMessage = error.message;
         errorData.errorStack = error.stack;
-      } else if (error) {
-        errorData.error = String(error);
+      } else if (error !== null && error !== undefined) {
+        // Handle AWS SDK errors and other objects with message/name properties
+        const errObj = error as Record<string, unknown>;
+        if (typeof errObj === 'object') {
+          if (errObj.message) errorData.errorMessage = String(errObj.message);
+          if (errObj.name) errorData.errorName = String(errObj.name);
+          if (errObj.code) errorData.errorCode = String(errObj.code);
+          if (errObj.$metadata) errorData.errorMetadata = errObj.$metadata;
+          // If no useful properties found, stringify the object
+          if (!errObj.message && !errObj.name && !errObj.code) {
+            try {
+              errorData.error = JSON.stringify(error);
+            } catch {
+              errorData.error = String(error);
+            }
+          }
+        } else {
+          errorData.error = String(error);
+        }
       }
 
       console.error(this.formatMessage('error', message, errorData));

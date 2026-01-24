@@ -137,7 +137,7 @@ async function getBotToken(avatarId: string): Promise<string | null> {
     return token;
   } catch (error: unknown) {
     const err = error as { name?: string; message?: string; code?: string; $metadata?: unknown };
-    logger.error('Failed to get bot token from Secrets Manager', {
+    logger.error('Failed to get bot token from Secrets Manager', undefined, {
       avatarId,
       secretName,
       errorMessage: err.message || 'Unknown error',
