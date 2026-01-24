@@ -6,6 +6,7 @@ import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { randomUUID } from 'crypto';
 import {
   TelegramAdapter,
@@ -28,6 +29,7 @@ import {
 } from '@swarm/core';
 
 const sqs = new SQSClient({});
+const secretsClient = new SecretsManagerClient({});
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
@@ -105,6 +107,51 @@ async function initialize(): Promise<void> {
   secretsService = createSecretsService();
 }
 
+/**
+ * Fetch individual secrets from Secrets Manager using direct paths
+ * Falls back to global secrets if avatar-specific secrets are not found
+ */
+async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, string>> {
+  const secrets: Record<string, string> = {};
+
+  // Define secret types to fetch and their normalized key names
+  const secretTypes = [
+    { type: 'telegram_bot_token', key: 'TELEGRAM_BOT_TOKEN' },
+    { type: 'twitter_api_key', key: 'TWITTER_API_KEY' },
+    { type: 'twitter_api_secret', key: 'TWITTER_API_SECRET' },
+    { type: 'twitter_access_token', key: 'TWITTER_ACCESS_TOKEN' },
+    { type: 'twitter_access_secret', key: 'TWITTER_ACCESS_SECRET' },
+    { type: 'discord_bot_token', key: 'DISCORD_BOT_TOKEN' },
+  ];
+
+  for (const { type, key } of secretTypes) {
+    // Try avatar-specific secret first
+    let secretName = `${SECRET_PREFIX}/${avatarId}/${type}/default`;
+    try {
+      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
+      if (response.SecretString) {
+        secrets[key] = response.SecretString;
+        continue;
+      }
+    } catch {
+      // Avatar secret not found, try global
+    }
+
+    // Fall back to global secret
+    secretName = `${SECRET_PREFIX}/global/${type}/default`;
+    try {
+      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
+      if (response.SecretString) {
+        secrets[key] = response.SecretString;
+      }
+    } catch {
+      // Global secret not found either - continue without it
+    }
+  }
+
+  return secrets;
+}
+
 async function getOutboundRuntime(avatarId: string): Promise<AvatarOutboundRuntime> {
   const cached = outboundCache.get(avatarId);
   if (cached) return cached;
@@ -123,8 +170,8 @@ async function getOutboundRuntime(avatarId: string): Promise<AvatarOutboundRunti
     secrets: [],
   };
 
-  const secretsId = process.env.SECRETS_ARN || `${SECRET_PREFIX}/${avatarId}/secrets`;
-  const secrets = await secretsService.getSecretJson<Record<string, string>>(secretsId);
+  // Fetch individual secrets from Secrets Manager using direct paths
+  const secrets = await fetchAvatarSecrets(avatarId);
 
   const platformRegistry = new PlatformRegistry();
 
