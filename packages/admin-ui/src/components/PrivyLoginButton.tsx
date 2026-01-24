@@ -11,27 +11,65 @@ interface PrivyLoginButtonProps {
   className?: string;
 }
 
+interface WalletLike {
+  address?: string;
+  publicKey?: string;
+}
+
+interface LinkedAccountLike {
+  type?: string;
+  address?: string;
+  chainType?: string;
+}
+
+interface PrivyUserLike {
+  wallet?: WalletLike & { chainType?: string };
+  embeddedWallet?: WalletLike;
+  wallets?: WalletLike[];
+  linkedWallets?: WalletLike[];
+  linkedAccounts?: LinkedAccountLike[];
+  linked_accounts?: LinkedAccountLike[];
+}
+
 /**
  * Extract Solana wallet address from Privy user object
+ * More permissive version that checks multiple fields
  */
 function getSolanaWalletAddressFromPrivyUser(user: unknown): string | null {
   if (!user || typeof user !== 'object') return null;
-  const typedUser = user as {
-    wallet?: { address?: string; chainType?: string };
-    linkedAccounts?: Array<{ type: string; address?: string; chainType?: string }>;
-  };
+  const privyUser = user as PrivyUserLike;
 
-  // Check embedded wallet first
-  if (typedUser.wallet?.address && typedUser.wallet?.chainType === 'solana') {
-    return typedUser.wallet.address;
+  // Check direct wallet fields (embedded wallet may not have chainType set initially)
+  const direct =
+    privyUser?.wallet?.address ||
+    privyUser?.wallet?.publicKey ||
+    privyUser?.embeddedWallet?.address ||
+    privyUser?.embeddedWallet?.publicKey;
+  if (typeof direct === 'string' && direct.length >= 32) return direct;
+
+  // Check wallets array
+  const wallets = privyUser?.wallets || privyUser?.linkedWallets;
+  if (Array.isArray(wallets)) {
+    const first = wallets.find((w) => typeof w?.address === 'string')?.address;
+    if (typeof first === 'string' && first.length >= 32) return first;
   }
 
-  // Check linked accounts
-  if (Array.isArray(typedUser.linkedAccounts)) {
-    const solanaWallet = typedUser.linkedAccounts.find(
-      (acc) => acc.type === 'wallet' && acc.chainType === 'solana' && acc.address
+  // Check linked accounts (with Solana chainType preference)
+  if (Array.isArray(privyUser?.linkedAccounts)) {
+    // First try to find a Solana wallet specifically
+    const solanaWallet = privyUser.linkedAccounts.find(
+      (acc) => acc?.type === 'wallet' && acc?.chainType === 'solana' && typeof acc?.address === 'string'
     );
-    if (solanaWallet?.address) return solanaWallet.address;
+    if (typeof solanaWallet?.address === 'string' && solanaWallet.address.length >= 32) {
+      return solanaWallet.address;
+    }
+    // Fall back to any wallet
+    const anyWallet = privyUser.linkedAccounts.find(
+      (acc) => acc?.type === 'wallet' && typeof acc?.address === 'string'
+    );
+    if (typeof anyWallet?.address === 'string' && anyWallet.address.length >= 32) {
+      return anyWallet.address;
+    }
   }
 
   return null;
@@ -49,12 +87,17 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
 
   const walletAddress = getSolanaWalletAddressFromPrivyUser(privyUser);
 
-  // Sync Privy auth state with backend when Privy is authenticated but our store isn't
+  // Track if we're waiting for wallet creation
+  const isWaitingForWalletCreation = ready && authenticated && privyUser && !walletAddress;
+
+  // Sync Privy auth state with backend when Privy is authenticated and wallet is ready
   useEffect(() => {
     if (!ready) return;
     if (!authenticated) return;
     if (!privyUser) return;
     if (privyAuth.isAuthenticated) return;
+    // Wait for wallet to be available before syncing
+    if (!walletAddress) return;
 
     const doSync = async () => {
       try {
@@ -62,17 +105,17 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
         if (!token) return;
 
         const isNewToken = token !== lastTokenRef.current;
-        const isNewWallet = walletAddress && walletAddress !== lastWalletAddressRef.current;
+        const isNewWallet = walletAddress !== lastWalletAddressRef.current;
         if (syncAttemptedRef.current && !isNewToken && !isNewWallet) return;
 
         syncAttemptedRef.current = true;
         lastTokenRef.current = token;
-        lastWalletAddressRef.current = walletAddress ?? null;
+        lastWalletAddressRef.current = walletAddress;
 
         await privyAuth.syncWithBackend(token, {
           id: (privyUser as { id: string }).id,
           email: (privyUser as { email?: string })?.email,
-          walletAddress: walletAddress ?? undefined,
+          walletAddress,
         });
       } catch (error) {
         console.error('[PrivyLoginButton] Privy backend sync error:', error);
@@ -82,6 +125,27 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
 
     void doSync();
   }, [ready, authenticated, privyUser, getAccessToken, walletAddress, privyAuth]);
+
+  // Poll for wallet creation when Privy is authenticated but wallet isn't ready yet
+  // This handles the async nature of embedded wallet creation
+  useEffect(() => {
+    if (!isWaitingForWalletCreation) return;
+    if (privyAuth.isAuthenticated) return;
+
+    // The wallet should appear in privyUser when Privy finishes creating it
+    // The walletAddress variable will update, triggering the sync effect above
+    // This effect just logs the waiting state for debugging
+    console.log('[PrivyLoginButton] Waiting for embedded wallet creation...');
+
+    // Set a timeout to warn if wallet creation takes too long
+    const timeoutId = setTimeout(() => {
+      if (!getSolanaWalletAddressFromPrivyUser(privyUser)) {
+        console.warn('[PrivyLoginButton] Embedded wallet creation is taking longer than expected');
+      }
+    }, 10000);
+
+    return () => clearTimeout(timeoutId);
+  }, [isWaitingForWalletCreation, privyUser, privyAuth.isAuthenticated]);
 
   const handleLogin = useCallback(async () => {
     // If Privy is already authenticated but backend sync hasn't happened yet, force sync
@@ -120,16 +184,24 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
 
   // Determine if we're waiting for backend sync (Privy is authenticated but our store isn't)
   const isWaitingForSync = ready && authenticated && privyUser && !privyAuth.isAuthenticated;
+  // Waiting for wallet = Privy authenticated but embedded wallet not yet created
+  const isWaitingForWallet = isWaitingForSync && !walletAddress;
 
   // Loading state - show when auth is loading OR when Privy is authenticated but backend sync pending
   if (isLoading || privyAuth.isLoading || isWaitingForSync) {
+    const loadingMessage = isWaitingForWallet
+      ? 'Creating wallet...'
+      : isWaitingForSync
+      ? 'Syncing...'
+      : 'Connecting...';
+
     return (
       <button
         className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] ${className}`}
         disabled
       >
         <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-        <span className="text-sm">{isWaitingForSync ? 'Syncing...' : 'Connecting...'}</span>
+        <span className="text-sm">{loadingMessage}</span>
       </button>
     );
   }
