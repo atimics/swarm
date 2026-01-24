@@ -118,15 +118,18 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
     window.location.reload();
   }, [privyLogout, authLogout]);
 
-  // Loading state
-  if (isLoading || privyAuth.isLoading) {
+  // Determine if we're waiting for backend sync (Privy is authenticated but our store isn't)
+  const isWaitingForSync = ready && authenticated && privyUser && !privyAuth.isAuthenticated;
+
+  // Loading state - show when auth is loading OR when Privy is authenticated but backend sync pending
+  if (isLoading || privyAuth.isLoading || isWaitingForSync) {
     return (
       <button
         className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] ${className}`}
         disabled
       >
         <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-        <span className="text-sm">Connecting...</span>
+        <span className="text-sm">{isWaitingForSync ? 'Syncing...' : 'Connecting...'}</span>
       </button>
     );
   }
