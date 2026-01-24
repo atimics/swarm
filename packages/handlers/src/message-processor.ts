@@ -14,6 +14,7 @@
  */
 import type { SQSEvent, Context } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { randomUUID } from 'crypto';
 import { DEFAULT_LLM_MODEL } from '@swarm/core';
 import {
@@ -43,6 +44,7 @@ import { createPlatformMCPServices } from './services/platform-mcp-adapter.js';
 import { ensureReplicateKey } from './utils/system-replicate-key.js';
 
 const sqs = new SQSClient({});
+const secretsClient = new SecretsManagerClient({});
 
 // LLM Configuration
 const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'https://openrouter.ai/api/v1/chat/completions';
@@ -105,6 +107,50 @@ type AvatarRuntime = {
 
 const avatarRuntimeCache = new Map<string, AvatarRuntime>();
 
+/**
+ * Fetch individual secrets from Secrets Manager using direct paths.
+ * Uses the pattern: {prefix}/{avatarId}/{secretType}/default
+ * Falls back to global secrets if avatar-specific not found.
+ */
+async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, string>> {
+  const prefix = getSecretPrefix();
+  const secrets: Record<string, string> = {};
+
+  // Define secret types to fetch and their normalized key names
+  const secretTypes = [
+    { type: 'openrouter_api_key', key: 'OPENROUTER_API_KEY' },
+    { type: 'replicate_api_key', key: 'REPLICATE_API_KEY' },
+    { type: 'telegram_bot_token', key: 'TELEGRAM_BOT_TOKEN' },
+  ];
+
+  for (const { type, key } of secretTypes) {
+    // Try avatar-specific secret first
+    let secretName = `${prefix}/${avatarId}/${type}/default`;
+    try {
+      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
+      if (response.SecretString) {
+        secrets[key] = response.SecretString;
+        continue;
+      }
+    } catch {
+      // Avatar secret not found, try global
+    }
+
+    // Fall back to global secret
+    secretName = `${prefix}/global/${type}/default`;
+    try {
+      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
+      if (response.SecretString) {
+        secrets[key] = response.SecretString;
+      }
+    } catch {
+      // Global secret not found either - continue without it
+    }
+  }
+
+  return secrets;
+}
+
 async function initialize(): Promise<void> {
   if (stateService) return;
 
@@ -147,8 +193,8 @@ async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
     secrets: ['OPENROUTER_API_KEY', 'REPLICATE_API_KEY'],
   };
 
-  const secretsId = process.env.SECRETS_ARN || `${getSecretPrefix()}/${avatarId}/secrets`;
-  const secrets = await secretsService.getSecretJson<Record<string, string>>(secretsId);
+  // Fetch individual secrets from Secrets Manager using direct paths
+  const secrets = await fetchAvatarSecrets(avatarId);
 
   // If avatar secrets don't include Replicate, fall back to a system key (if configured).
   try {
