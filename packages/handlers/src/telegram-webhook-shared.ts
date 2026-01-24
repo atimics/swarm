@@ -26,6 +26,7 @@ const secretsClient = new SecretsManagerClient({});
 const MESSAGE_QUEUE_URL = process.env.MESSAGE_QUEUE_URL!;
 const STATE_TABLE = process.env.STATE_TABLE!;
 const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
+const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
 
 // Lazy-initialized services
 let stateService: ReturnType<typeof createStateService>;
@@ -196,18 +197,24 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     }
 
     // Verify webhook secret token if configured, otherwise fall back to adapter verification
-    const webhookSecret = await getWebhookSecret(avatarId);
-    if (webhookSecret) {
-      const provided = headers['x-telegram-bot-api-secret-token'];
-      if (!verifySecretToken(provided, webhookSecret)) {
-        logger.warn('Invalid webhook secret', { event: 'validation_error', reason: 'invalid_secret' });
-        return { statusCode: 401, body: 'Unauthorized' };
-      }
-    } else {
-      const isValid = await telegramAdapter.verifyRequest(body, headers);
-      if (!isValid) {
-        logger.warn('Invalid request signature', { event: 'validation_error', reason: 'invalid_signature' });
-        return { statusCode: 401, body: 'Unauthorized' };
+    // Allow bypass with internal test key for E2E testing
+    const internalTestKey = headers['x-internal-test-key'];
+    const bypassAuth = INTERNAL_TEST_KEY && internalTestKey === INTERNAL_TEST_KEY;
+    
+    if (!bypassAuth) {
+      const webhookSecret = await getWebhookSecret(avatarId);
+      if (webhookSecret) {
+        const provided = headers['x-telegram-bot-api-secret-token'];
+        if (!verifySecretToken(provided, webhookSecret)) {
+          logger.warn('Invalid webhook secret', { event: 'validation_error', reason: 'invalid_secret' });
+          return { statusCode: 401, body: 'Unauthorized' };
+        }
+      } else {
+        const isValid = await telegramAdapter.verifyRequest(body, headers);
+        if (!isValid) {
+          logger.warn('Invalid request signature', { event: 'validation_error', reason: 'invalid_signature' });
+          return { statusCode: 401, body: 'Unauthorized' };
+        }
       }
     }
 

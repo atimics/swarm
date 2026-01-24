@@ -143,6 +143,12 @@ export interface AdminApiConstructProps {
    * When provided, Admin API will route the webhook to this function (preferred for shared runtime).
    */
   telegramWebhookFunction?: lambda.IFunction;
+
+  /**
+   * Internal test key for bypassing auth in E2E tests.
+   * Should be shared across all constructs in the stack.
+   */
+  internalTestKey?: string;
 }
 
 export class AdminApiConstruct extends Construct {
@@ -322,9 +328,9 @@ export class AdminApiConstruct extends Construct {
     let replicateWebhookUrl = ''; // Will be updated after API is created
 
     // Internal test key for direct API testing (only in non-production)
-    // Generate a random key if not in production
+    // Use passed key if provided, otherwise generate a random key
     const internalTestKey = environment !== 'production' 
-      ? process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`
+      ? props.internalTestKey || process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`
       : '';
 
     // Lambda function for chat handler

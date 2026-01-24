@@ -244,6 +244,12 @@ export class SwarmStack extends cdk.Stack {
       cdnCertificateArn: galleryCertificateArn,
     });
 
+    // Generate a single internal test key for all constructs in non-production environments
+    const isProd = environment === 'prod' || environment === 'production';
+    const sharedInternalTestKey = isProd 
+      ? '' 
+      : process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+
     if (enableSharedHandlers) {
       this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
         environment,
@@ -254,6 +260,7 @@ export class SwarmStack extends cdk.Stack {
         cdnUrl: this.shared.cdnUrl,
         replicateApiKeyArn,
         secretPrefix,
+        internalTestKey: sharedInternalTestKey,
       });
     }
 
@@ -286,6 +293,8 @@ export class SwarmStack extends cdk.Stack {
         dependencyLayer: this.shared.dependencyLayer,
         // Prefer shared multi-tenant Telegram ingress when enabled
         telegramWebhookFunction: this.sharedHandlers?.telegramWebhook,
+        // Share the same internal test key across all constructs
+        internalTestKey: sharedInternalTestKey,
       });
     }
 
