@@ -5,7 +5,14 @@
  */
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { SharedInfrastructure } from '../constructs/shared.js';
+
+// ESM __dirname equivalent
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface SharedInfraStackProps extends cdk.StackProps {
   /**
@@ -31,10 +38,31 @@ export interface SharedInfraStackProps extends cdk.StackProps {
    * ACM certificate ARN for gallery CDN (must be in us-east-1)
    */
   galleryCertificateArn?: string;
+
+  /**
+   * Adopt existing shared resources instead of creating them.
+   *
+   * Use this when migrating from the legacy monolithic stack to split stacks in an account
+   * where the shared tables/bucket/cluster already exist.
+   */
+  useExistingResources?: boolean;
+
+  /**
+   * Optional: explicitly provide an existing dependency layer version ARN.
+   * If omitted and useExistingResources is true, SharedInfraStack will create a new layer
+   * with a non-colliding name.
+   */
+  existingDependencyLayerArn?: string;
+
+  /**
+   * Optional: explicitly provide an existing CloudFront distribution ID.
+   * If omitted and useExistingResources is true, cdnDistributionId will be left undefined.
+   */
+  existingCdnDistributionId?: string;
 }
 
 export class SharedInfraStack extends cdk.Stack {
-  public readonly shared: SharedInfrastructure;
+  public readonly shared?: SharedInfrastructure;
 
   // Cross-stack references (exported via CloudFormation)
   public readonly stateTableArn: string;
@@ -52,30 +80,93 @@ export class SharedInfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: SharedInfraStackProps) {
     super(scope, id, props);
 
-    const { environment, enableCdn = true, galleryDomain, galleryCertificateArn, nameSuffix } = props;
+    const {
+      environment,
+      enableCdn = true,
+      galleryDomain,
+      galleryCertificateArn,
+      nameSuffix,
+      useExistingResources = false,
+      existingDependencyLayerArn,
+      existingCdnDistributionId,
+    } = props;
     const suffix = nameSuffix ?? '';
 
-    // Create shared infrastructure
-    this.shared = new SharedInfrastructure(this, 'Shared', {
-      environment,
-      nameSuffix,
-      enableCdn,
-      cdnDomain: galleryDomain,
-      cdnCertificateArn: galleryCertificateArn,
-    });
+    if (useExistingResources) {
+      // Import/export compatibility: legacy monolithic stack exports these names.
+      this.stateTableName = cdk.Fn.importValue(`swarm-state-table-${environment}${suffix}`);
+      this.activityTableName = cdk.Fn.importValue(`swarm-activity-table-${environment}${suffix}`);
+      this.mediaBucketName = cdk.Fn.importValue(`swarm-media-bucket-${environment}${suffix}`);
 
-    // Store references for cross-stack access
-    this.stateTableArn = this.shared.stateTable.tableArn;
-    this.stateTableName = this.shared.stateTable.tableName;
-    this.activityTableArn = this.shared.activityTable.tableArn;
-    this.activityTableName = this.shared.activityTable.tableName;
-    this.mediaBucketArn = this.shared.mediaBucket.bucketArn;
-    this.mediaBucketName = this.shared.mediaBucket.bucketName;
-    this.dependencyLayerArn = this.shared.dependencyLayer.layerVersionArn;
-    this.cdnUrl = this.shared.cdnUrl;
-    this.cdnDistributionId = this.shared.distribution?.distributionId;
-    this.discordClusterArn = this.shared.discordCluster.clusterArn;
-    this.discordClusterName = this.shared.discordCluster.clusterName;
+      // Derive ARNs from imported names.
+      this.stateTableArn = cdk.Stack.of(this).formatArn({
+        service: 'dynamodb',
+        resource: 'table',
+        resourceName: this.stateTableName,
+      });
+      this.activityTableArn = cdk.Stack.of(this).formatArn({
+        service: 'dynamodb',
+        resource: 'table',
+        resourceName: this.activityTableName,
+      });
+      this.mediaBucketArn = cdk.Arn.format(
+        {
+          partition: cdk.Stack.of(this).partition,
+          service: 's3',
+          region: '',
+          account: '',
+          resource: this.mediaBucketName,
+        },
+        this
+      );
+
+      this.discordClusterName = `swarm-discord-${environment}${suffix}`;
+      this.discordClusterArn = cdk.Stack.of(this).formatArn({
+        service: 'ecs',
+        resource: 'cluster',
+        resourceName: this.discordClusterName,
+      });
+
+      // Prefer importing CDN URL from legacy exports.
+      this.cdnUrl = enableCdn ? cdk.Fn.importValue(`swarm-cdn-url-${environment}${suffix}`) : undefined;
+      this.cdnDistributionId = existingCdnDistributionId;
+
+      // Dependency layer: either import an explicit version ARN or create a new layer with a unique name.
+      if (existingDependencyLayerArn) {
+        this.dependencyLayerArn = existingDependencyLayerArn;
+      } else {
+        const layerPath = path.resolve(__dirname, '../../../layer');
+        const layer = new lambda.LayerVersion(this, 'DependencyLayer', {
+          layerVersionName: `swarm-deps-${environment}${suffix}-split`,
+          description: 'Shared dependencies for swarm handlers (split-stack migration layer)',
+          compatibleRuntimes: [lambda.Runtime.NODEJS_20_X],
+          code: lambda.Code.fromAsset(layerPath),
+        });
+        this.dependencyLayerArn = layer.layerVersionArn;
+      }
+    } else {
+      // Create shared infrastructure
+      this.shared = new SharedInfrastructure(this, 'Shared', {
+        environment,
+        nameSuffix,
+        enableCdn,
+        cdnDomain: galleryDomain,
+        cdnCertificateArn: galleryCertificateArn,
+      });
+
+      // Store references for cross-stack access
+      this.stateTableArn = this.shared.stateTable.tableArn;
+      this.stateTableName = this.shared.stateTable.tableName;
+      this.activityTableArn = this.shared.activityTable.tableArn;
+      this.activityTableName = this.shared.activityTable.tableName;
+      this.mediaBucketArn = this.shared.mediaBucket.bucketArn;
+      this.mediaBucketName = this.shared.mediaBucket.bucketName;
+      this.dependencyLayerArn = this.shared.dependencyLayer.layerVersionArn;
+      this.cdnUrl = this.shared.cdnUrl;
+      this.cdnDistributionId = this.shared.distribution?.distributionId;
+      this.discordClusterArn = this.shared.discordCluster.clusterArn;
+      this.discordClusterName = this.shared.discordCluster.clusterName;
+    }
 
     // Export values for cross-stack references
     new cdk.CfnOutput(this, 'StateTableArnExport', {

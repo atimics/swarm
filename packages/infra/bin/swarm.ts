@@ -119,6 +119,12 @@ const secretPrefix = (secretPrefixRaw && secretPrefixRaw.trim())
 // Default to false for backward compatibility during migration
 const useSplitStacks = (app.node.tryGetContext('splitStacks') as boolean | undefined) ?? false;
 
+// When migrating from the monolithic stack, shared resources may already exist.
+// This flag makes SharedInfraStack adopt/import those shared resources instead of creating them.
+const useExistingSharedResources = (getContextValue<boolean>('useExistingSharedResources', envConfig) ?? false) as boolean;
+const existingDependencyLayerArn = getContextValue<string>('existingDependencyLayerArn', envConfig);
+const existingCdnDistributionId = getContextValue<string>('existingCdnDistributionId', envConfig);
+
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
 const monorepoRoot = path.resolve(__dirname, '../../..');
@@ -142,6 +148,9 @@ if (useSplitStacks) {
     enableCdn: true,
     galleryDomain,
     galleryCertificateArn,
+    useExistingResources: useExistingSharedResources,
+    existingDependencyLayerArn,
+    existingCdnDistributionId,
     env: stackEnv,
     description: `Swarm Shared Infrastructure (${environment})`,
   });
