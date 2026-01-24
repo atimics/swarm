@@ -13,7 +13,7 @@ import type { ChannelInfo, PresenceService } from './presence.js';
 
 export const SUMMARY_CONFIG = {
   // Model settings
-  MODEL: 'anthropic/claude-3-haiku-20240307', // Fast, cheap model for summaries
+  MODEL: 'anthropic/claude-haiku-4.5', // Fast, cheap model for summaries (Haiku 4.5)
   MAX_TOKENS: 100,
   TEMPERATURE: 0.3,
 
