@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { useUnifiedWalletContext } from '@jup-ag/wallet-adapter';
 import { useWalletAuth } from '../store/walletAuth';
 import { usePrivy } from '@privy-io/react-auth';
 import { usePrivyAuth } from '../store/privyAuth';
@@ -16,7 +16,7 @@ interface LoginOptionsProps {
 }
 
 export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsProps) {
-  const { setVisible } = useWalletModal();
+  const { setShowModal } = useUnifiedWalletContext();
   const walletAuth = useWalletAuth();
   const privyAuth = usePrivyAuth();
   const walletError = useWalletUi((s) => s.walletError);
@@ -115,8 +115,8 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     solanaLoginAttemptedRef.current = null; // Allow fresh attempt
     walletAuth.clearError();
     clearWalletError();
-    setVisible(true);
-  }, [setVisible, walletAuth, clearWalletError]);
+    setShowModal(true);
+  }, [setShowModal, walletAuth, clearWalletError]);
 
   const handlePrivyLogin = useCallback(async () => {
     privyAuth.clearError();

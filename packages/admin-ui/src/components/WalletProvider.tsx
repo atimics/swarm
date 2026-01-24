@@ -1,30 +1,13 @@
 /**
  * Solana Wallet Provider
- * Wraps the app with Solana wallet adapter context
+ * Uses Jupiter's Unified Wallet Kit for better wallet integration UX
+ * Built on top of @solana/wallet-adapter-* for compatibility
  *
- * Note: While Phantom and Solflare support Wallet Standard auto-registration,
- * there's a known bug where clicking on them in the modal does nothing.
- * We explicitly add adapters as a workaround.
- * See: https://github.com/anza-xyz/wallet-adapter/issues/1111
+ * See: https://github.com/TeamRaccoons/Unified-Wallet-Kit
  */
-import { useCallback, useMemo, type ReactNode } from 'react';
-import {
-  ConnectionProvider,
-  WalletProvider as SolanaWalletProvider,
-} from '@solana/wallet-adapter-react';
-import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import {
-  CoinbaseWalletAdapter,
-  PhantomWalletAdapter,
-  SolflareWalletAdapter,
-} from '@solana/wallet-adapter-wallets';
-import { humanizeWalletAdapterError, useWalletUi } from '../store/walletUi';
-
-// Import wallet adapter styles
-import '@solana/wallet-adapter-react-ui/styles.css';
-
-// Solana RPC endpoint (mainnet-beta)
-const SOLANA_RPC = import.meta.env.VITE_SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
+import { type ReactNode, useMemo } from 'react';
+import { UnifiedWalletProvider } from '@jup-ag/wallet-adapter';
+import { useWalletUi } from '../store/walletUi';
 
 interface WalletProviderProps {
   children: ReactNode;
@@ -33,32 +16,46 @@ interface WalletProviderProps {
 export function WalletProvider({ children }: WalletProviderProps) {
   const setWalletError = useWalletUi((s) => s.setWalletError);
 
-  // Explicitly add wallet adapters as a workaround for Wallet Standard detection issues.
-  // See: https://github.com/anza-xyz/wallet-adapter/issues/1111
-  const wallets = useMemo(
-    () => [
-      new PhantomWalletAdapter(),
-      new SolflareWalletAdapter(),
-      new CoinbaseWalletAdapter(),
-    ],
-    []
-  );
-
-  const onError = useCallback(
-    (error: unknown) => {
-      console.error('[WalletProvider] Wallet error:', error);
-      setWalletError(humanizeWalletAdapterError(error));
-    },
+  const notificationCallback = useMemo(
+    () => ({
+      onConnect: (props: { walletName: string; shortAddress: string }) => {
+        console.log('[WalletProvider] Connected:', props.walletName, props.shortAddress);
+      },
+      onConnecting: (props: { walletName: string }) => {
+        console.log('[WalletProvider] Connecting:', props.walletName);
+      },
+      onDisconnect: (props: { walletName: string }) => {
+        console.log('[WalletProvider] Disconnected:', props.walletName);
+      },
+      onNotInstalled: (props: { walletName: string }) => {
+        console.log('[WalletProvider] Not installed:', props.walletName);
+        setWalletError(`${props.walletName} is not installed. Please install it and try again.`);
+      },
+    }),
     [setWalletError]
   );
 
   return (
-    <ConnectionProvider endpoint={SOLANA_RPC}>
-      <SolanaWalletProvider wallets={wallets} onError={onError} autoConnect={false}>
-        <WalletModalProvider>
-          {children}
-        </WalletModalProvider>
-      </SolanaWalletProvider>
-    </ConnectionProvider>
+    <UnifiedWalletProvider
+      wallets={[]} // Empty = auto-detect via Wallet Standard (works better with Jupiter's kit)
+      config={{
+        autoConnect: false,
+        env: 'mainnet-beta',
+        metadata: {
+          name: 'Swarm',
+          description: 'Multi-tenant social media avatar platform',
+          url: 'https://swarm.rati.chat',
+          iconUrls: ['https://swarm.rati.chat/swarm.svg'],
+        },
+        theme: 'dark',
+        lang: 'en',
+        walletlistExplanation: {
+          href: 'https://station.jup.ag/docs/additional-topics/wallet-list',
+        },
+        notificationCallback,
+      }}
+    >
+      {children}
+    </UnifiedWalletProvider>
   );
 }

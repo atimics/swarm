@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { useUnifiedWalletContext } from '@jup-ag/wallet-adapter';
 import { usePrivy } from '@privy-io/react-auth';
 import { useWalletAuth } from '../store/walletAuth';
 import { usePrivyAuth } from '../store/privyAuth';
@@ -78,7 +78,7 @@ function getSolanaWalletAddressFromPrivyUser(privyUser: unknown): string | null 
 
 export function WalletLogin({ className = '' }: WalletLoginProps) {
   const { publicKey, connected, signMessage, disconnect } = useWallet();
-  const { setVisible } = useWalletModal();
+  const { setShowModal } = useUnifiedWalletContext();
   const walletAuth = useWalletAuth();
   const privyAuth = usePrivyAuth();
   const walletUiError = useWalletUi((s) => s.walletError);
@@ -139,11 +139,11 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
         loginAttemptedRef.current = null;
         clearError();
         clearWalletUiError();
-        setVisible(true);
+        setShowModal(true);
       });
       return () => cancelAnimationFrame(frameId);
     }
-  }, [pendingWalletConnect, showAccount, setVisible, clearError, clearWalletUiError]);
+  }, [pendingWalletConnect, showAccount, setShowModal, clearError, clearWalletUiError]);
 
   // When wallet connects or changes, trigger login flow
   useEffect(() => {
@@ -345,8 +345,8 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     loginAttemptedRef.current = null; // Allow fresh attempt
     clearError();
     clearWalletUiError();
-    setVisible(true);
-  }, [setVisible, clearError, clearWalletUiError]);
+    setShowModal(true);
+  }, [setShowModal, clearError, clearWalletUiError]);
 
   // Handle connect for wallet linking - closes Account modal first to avoid z-index/focus conflicts
   const handleConnectForLinking = useCallback(() => {
