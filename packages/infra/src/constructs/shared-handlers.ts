@@ -135,6 +135,17 @@ export class SharedHandlers extends Construct {
       ],
     }));
 
+    // KMS: allow decrypting secrets (required for KMS-encrypted secrets)
+    lambdaRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['kms:Decrypt'],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'kms:ViaService': `secretsmanager.${cdk.Aws.REGION}.amazonaws.com`,
+        },
+      },
+    }));
+
     if (replicateApiKeyArn) {
       lambdaRole.addToPolicy(new iam.PolicyStatement({
         actions: ['secretsmanager:GetSecretValue'],
