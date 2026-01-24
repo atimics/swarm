@@ -116,6 +116,15 @@ export interface AdminApiConstructProps {
   apiDomain?: string;
 
   /**
+   * Domain used specifically for Telegram webhooks (host only, no scheme).
+   * Useful when the main apiDomain is protected by Cloudflare Access/WAF rules
+   * that Telegram cannot satisfy.
+   *
+   * Example: "hs38po7mq0.execute-api.us-east-1.amazonaws.com"
+   */
+  telegramWebhookDomain?: string;
+
+  /**
    * ACM certificate ARN for the API custom domain
    */
   apiCertificateArn?: string;
@@ -527,6 +536,13 @@ export class AdminApiConstruct extends Construct {
       },
     });
 
+    // Telegram needs a publicly reachable webhook URL. In non-prod environments,
+    // our custom domain is often protected by Cloudflare Access/WAF rules, so
+    // default Telegram webhooks to the raw execute-api host (still stable per stack).
+    const rawApiHost = cdk.Fn.select(2, cdk.Fn.split('/', this.api.apiEndpoint));
+    const telegramWebhookDomain = props.telegramWebhookDomain
+      || (isProd ? (props.apiDomain || rawApiHost) : rawApiHost);
+
     // Chat Worker Lambda - processes async admin chat jobs
     const chatWorkerHandler = new nodejs.NodejsFunction(this, 'ChatWorkerHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -793,7 +809,7 @@ export class AdminApiConstruct extends Construct {
         ADMIN_WALLETS: props.adminWallets || '',
         // Public domain used to compute Telegram webhook URLs (bots should follow CloudFront cutovers).
         API_DOMAIN: props.apiDomain || '',
-        TELEGRAM_WEBHOOK_DOMAIN: props.apiDomain || '',
+        TELEGRAM_WEBHOOK_DOMAIN: telegramWebhookDomain,
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         SECRET_PREFIX: secretPrefix,
@@ -1269,7 +1285,7 @@ export class AdminApiConstruct extends Construct {
         LLM_MODEL: 'anthropic/claude-haiku-4.5',
         LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
         API_DOMAIN: props.apiDomain || '',
-        TELEGRAM_WEBHOOK_DOMAIN: props.apiDomain || '',
+        TELEGRAM_WEBHOOK_DOMAIN: telegramWebhookDomain,
         NODE_ENV: environment,
         // Internal test key for E2E tests (bypasses IP check in non-prod)
         INTERNAL_TEST_KEY: environment !== 'prod' ? internalTestKey : '',
