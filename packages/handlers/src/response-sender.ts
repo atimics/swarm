@@ -287,6 +287,17 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
         actions: response.actions.length,
       });
 
+      // Log Twitter-specific reply targeting for observability
+      if (response.platform === 'twitter') {
+        logger.info('Twitter reply targeting', {
+          event: 'twitter_reply_target',
+          subsystem: 'outbound',
+          avatarId,
+          threadId: response.conversationId,
+          replyToMessageId: response.replyToMessageId,
+        });
+      }
+
       // Check for media generation actions - queue them first
       const mediaActions = response.actions.filter(
         (a: ResponseAction) => a.type === 'take_selfie' || a.type === 'generate_video'
