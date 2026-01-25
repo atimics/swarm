@@ -46,6 +46,25 @@ export interface BackfillResult {
 /**
  * Memory services required by these tools
  */
+/**
+ * Result of memory consolidation
+ */
+export interface ConsolidationResult {
+  success: boolean;
+  decay: {
+    recent: { decayed: number; pruned: number };
+    core: { decayed: number; pruned: number };
+  };
+  promotion: { promoted: number };
+  identity?: {
+    generated: boolean;
+    statement?: string;
+    error?: string;
+  };
+  durationMs: number;
+  error?: string;
+}
+
 export interface MemoryServices {
   /**
    * Save a fact to memory
@@ -66,6 +85,11 @@ export interface MemoryServices {
    * Backfill embeddings for memories that lack them (optional)
    */
   backfillEmbeddings?: (options?: { dryRun?: boolean }) => Promise<BackfillResult>;
+
+  /**
+   * Trigger memory consolidation (decay, promotion, identity evolution)
+   */
+  consolidate?: (options?: { skipIdentity?: boolean }) => Promise<ConsolidationResult>;
 }
 
 // ============================================================================
@@ -231,6 +255,62 @@ export const createMemoryTools = (memory: MemoryServices) => [
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to backfill embeddings',
+        };
+      }
+    },
+  }),
+
+  defineTool({
+    name: 'consolidate_memories',
+    description: 'Trigger memory consolidation: decay old memories, promote immediate to recent tier, and generate identity evolution. Normally runs automatically daily, but can be triggered manually.',
+    category: 'config',
+    toolset: 'memory',
+    inputSchema: z.object({
+      skipIdentity: z.boolean().optional().describe('If true, skip identity evolution generation'),
+    }),
+    execute: async (input, _context): Promise<ToolResult> => {
+      try {
+        if (!memory.consolidate) {
+          return {
+            success: false,
+            error: 'Memory consolidation not available for this avatar',
+          };
+        }
+
+        const result = await memory.consolidate({ skipIdentity: input.skipIdentity });
+
+        if (!result.success) {
+          return {
+            success: false,
+            error: result.error || 'Consolidation failed',
+          };
+        }
+
+        const summary = [
+          `Decay: ${result.decay.recent.decayed + result.decay.core.decayed} memories decayed, ${result.decay.recent.pruned + result.decay.core.pruned} pruned`,
+          `Promotion: ${result.promotion.promoted} memories promoted to recent tier`,
+        ];
+
+        if (result.identity?.generated) {
+          summary.push(`Identity: "${result.identity.statement}"`);
+        } else if (result.identity?.error) {
+          summary.push(`Identity: skipped (${result.identity.error})`);
+        }
+
+        return {
+          success: true,
+          data: {
+            decay: result.decay,
+            promotion: result.promotion,
+            identity: result.identity,
+            durationMs: result.durationMs,
+            message: summary.join('\n'),
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to consolidate memories',
         };
       }
     },

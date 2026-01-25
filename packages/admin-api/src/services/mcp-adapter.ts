@@ -36,6 +36,7 @@ import * as stickers from '../services/stickers.js';
 import * as avatarvents from '../services/avatar-events.js';
 import * as memory from '../services/memory.js';
 import * as memoryMigration from '../services/memory-migration.js';
+import * as memoryConsolidation from '../services/memory-consolidation.js';
 import * as observability from '../services/observability.js';
 import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
 import { createWebSearch } from '../services/web-search.js';
@@ -1050,6 +1051,12 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
       backfillEmbeddings: async (options?: { dryRun?: boolean }) => {
         return memoryMigration.backfillEmbeddings(avatarId, {
           dryRun: options?.dryRun,
+        });
+      },
+
+      consolidate: async (options?: { skipIdentity?: boolean }) => {
+        return memoryConsolidation.triggerConsolidation(avatarId, {
+          skipIdentity: options?.skipIdentity,
         });
       },
     },

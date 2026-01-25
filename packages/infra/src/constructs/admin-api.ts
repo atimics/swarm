@@ -22,6 +22,8 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 
 export interface AdminApiConstructProps {
   /**
@@ -1445,6 +1447,55 @@ export class AdminApiConstruct extends Construct {
     dreamWorker.addEventSource(new lambdaEventSources.SqsEventSource(dreamQueue, {
       batchSize: 1,
     }));
+
+    // Memory Consolidation Worker: scheduled daily to decay/promote/evolve memories
+    const consolidationWorker = new nodejs.NodejsFunction(this, 'ConsolidationWorkerHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/consolidation-worker.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.minutes(10),
+      memorySize: 512,
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
+      environment: {
+        ADMIN_TABLE: this.table.tableName,
+        STATE_TABLE: stateTable?.tableName || '',
+        LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
+        OPENROUTER_API_KEY: '', // Populated from secret at runtime
+        CONSOLIDATION_MODEL: 'anthropic/claude-3-5-haiku-latest',
+        NODE_ENV: environment,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    this.table.grantReadWriteData(consolidationWorker);
+    if (stateTable) {
+      stateTable.grantReadData(consolidationWorker);
+    }
+    llmApiKey.grantRead(consolidationWorker);
+
+    // Grant Bedrock access for embeddings (used in identity evolution memory search)
+    consolidationWorker.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:InvokeModel'],
+      resources: ['arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0'],
+    }));
+
+    // Schedule consolidation to run daily at 3 AM UTC
+    new events.Rule(this, 'ConsolidationSchedule', {
+      schedule: events.Schedule.cron({
+        minute: '0',
+        hour: '3',
+        day: '*',
+        month: '*',
+        weekDay: '*',
+      }),
+      targets: [new targets.LambdaFunction(consolidationWorker)],
+      description: 'Daily memory consolidation for all avatars',
+    });
 
     const telegramIntegration = new integrations.HttpLambdaIntegration(
       'TelegramWebhookIntegration',
