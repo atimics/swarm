@@ -36,6 +36,7 @@ import * as stickers from '../services/stickers.js';
 import * as avatarvents from '../services/avatar-events.js';
 import * as memory from '../services/memory.js';
 import * as memoryMigration from '../services/memory-migration.js';
+import * as observability from '../services/observability.js';
 import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
 import { createWebSearch } from '../services/web-search.js';
 import { createMcpAdminServices } from '../services/mcp-config.js';
@@ -1795,6 +1796,22 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
           feature: params.feature,
           feedback: params.feedback,
         });
+      },
+    },
+
+    // =========================================================================
+    // Observability Services
+    // =========================================================================
+    observability: {
+      getSystemStatus: async (options) => {
+        return observability.getSystemStatus(options);
+      },
+      getAvatarActivity: async (avatarId, options) => {
+        const activity = await observability.getAvatarActivity(avatarId, options);
+        return {
+          ...activity,
+          items: activity.items.map(item => item as unknown as Record<string, unknown>),
+        };
       },
     },
 

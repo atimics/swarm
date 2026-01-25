@@ -200,9 +200,11 @@ export async function recordError(params: {
 
   if (isNew) {
     // Create new issue
-    const issue: AutoIssue & { pk: string; sk: string; ttl: number } = {
+    const issue: AutoIssue & { pk: string; sk: string; ttl: number; gsi1pk: string; gsi1sk: number } = {
       pk: `ISSUE#${issueId}`,
       sk: 'META',
+      gsi1pk: 'ISSUES',
+      gsi1sk: now,
       issueId,
       fingerprint,
       title: generateTitle(error, subsystem),
@@ -243,12 +245,14 @@ export async function recordError(params: {
         pk: `ISSUE#${issueId}`,
         sk: 'META',
       },
-      UpdateExpression: 'SET lastSeenAt = :now, occurrenceCount = occurrenceCount + :one, #ttl = :ttl',
+      UpdateExpression: 'SET lastSeenAt = :now, occurrenceCount = occurrenceCount + :one, #ttl = :ttl, gsi1sk = :gsi1sk, gsi1pk = :gsi1pk',
       ExpressionAttributeNames: { '#ttl': 'ttl' },
       ExpressionAttributeValues: {
         ':now': now,
         ':one': 1,
         ':ttl': Math.floor(now / 1000) + ISSUE_TTL_SECONDS,
+        ':gsi1sk': now,
+        ':gsi1pk': 'ISSUES',
       },
     }));
   }
@@ -289,15 +293,31 @@ export async function listIssues(options: {
   limit?: number;
 } = {}): Promise<AutoIssue[]> {
   // For simplicity, scan with filters. In production, use GSI.
+  const filterParts: string[] = [];
+  const exprNames: Record<string, string> = {};
   const result = await dynamoClient.send(new QueryCommand({
     TableName: ADMIN_TABLE,
     IndexName: 'gsi1',
     KeyConditionExpression: 'gsi1pk = :pk',
-    FilterExpression: options.status ? '#status = :status' : undefined,
-    ExpressionAttributeNames: options.status ? { '#status': 'status' } : undefined,
+    FilterExpression: (() => {
+      if (options.status) {
+        filterParts.push('#status = :status');
+        exprNames['#status'] = 'status';
+      }
+      if (options.severity) {
+        filterParts.push('severity = :severity');
+      }
+      if (options.subsystem) {
+        filterParts.push('subsystem = :subsystem');
+      }
+      return filterParts.length ? filterParts.join(' AND ') : undefined;
+    })(),
+    ExpressionAttributeNames: Object.keys(exprNames).length ? exprNames : undefined,
     ExpressionAttributeValues: {
       ':pk': 'ISSUES',
       ...(options.status && { ':status': options.status }),
+      ...(options.severity && { ':severity': options.severity }),
+      ...(options.subsystem && { ':subsystem': options.subsystem }),
     },
     Limit: options.limit || 100,
     ScanIndexForward: false,

@@ -18,6 +18,7 @@ import * as avatarventsService from '../services/avatar-events.js';
 import * as galleryService from '../services/gallery.js';
 import * as integrationsService from '../services/integrations.js';
 import * as twitterFeedService from '../services/twitter-feed.js';
+import * as observabilityService from '../services/observability.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
 import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
@@ -47,6 +48,14 @@ function parseSinceParam(since: string): number | undefined {
            : unit === 'd' ? value * 24 * 60 * 60 * 1000
            : 0;
   return Date.now() - ms;
+}
+
+function parseSinceQueryParam(value?: string): number | undefined {
+  if (!value) return undefined;
+  const relative = parseSinceParam(value);
+  if (relative !== undefined) return relative;
+  const numeric = Number.parseInt(value, 10);
+  return Number.isFinite(numeric) ? numeric : undefined;
 }
 
 /**
@@ -120,6 +129,20 @@ export async function handler(
       : rawPath.startsWith('/api/')
         ? rawPath.slice('/api'.length)
         : rawPath;
+
+    // GET /system/status - Admin-only system overview
+    if (method === 'GET' && path === '/system/status') {
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+      }
+      const params = event.queryStringParameters || {};
+      const since = parseSinceQueryParam(params.since);
+      const avatarId = params.avatarId;
+
+      const status = await observabilityService.getSystemStatus({ since, avatarId });
+
+      return jsonResponse(corsHeaders, 200, status);
+    }
 
     // GET /integrations/models - Centralized model catalog for configuration UI
     if (method === 'GET' && path === '/integrations/models') {
@@ -912,6 +935,33 @@ export async function handler(
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...responseBody, source: 'cloudwatch' }),
+      };
+    }
+
+    // GET /avatars/{id}/activity - Unified activity timeline (logs + events + jobs)
+    const activityMatch = path.match(/^\/avatars\/([^/]+)\/activity$/);
+    if (method === 'GET' && activityMatch) {
+      const avatarId = activityMatch[1];
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const params = event.queryStringParameters || {};
+      const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
+      const since = parseSinceQueryParam(params.since);
+
+      const activity = await observabilityService.getAvatarActivity(avatarId, { since, limit });
+
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(activity),
       };
     }
 

@@ -320,6 +320,58 @@ function getOpenRouterClient(): OpenRouter {
   return cachedOpenRouter;
 }
 
+type LlmUsage = {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+};
+
+function normalizeUsage(raw?: {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+}): LlmUsage | undefined {
+  if (!raw) return undefined;
+  const promptTokens = raw.prompt_tokens ?? raw.input_tokens;
+  const completionTokens = raw.completion_tokens ?? raw.output_tokens;
+  const totalTokens = raw.total_tokens ?? (promptTokens && completionTokens
+    ? promptTokens + completionTokens
+    : undefined);
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+  };
+}
+
+function logLlmMetrics(params: {
+  avatarId?: string;
+  model: string;
+  latencyMs: number;
+  usage?: LlmUsage;
+  toolCalls: number;
+  finishReason?: string;
+  mode: 'sdk' | 'fallback';
+  step?: number;
+}): void {
+  logger.info('LLM call completed', {
+    subsystem: 'llm',
+    event: 'llm_call_completed',
+    avatarId: params.avatarId,
+    model: params.model,
+    latencyMs: params.latencyMs,
+    promptTokens: params.usage?.promptTokens,
+    completionTokens: params.usage?.completionTokens,
+    totalTokens: params.usage?.totalTokens,
+    toolCalls: params.toolCalls,
+    finishReason: params.finishReason,
+    mode: params.mode,
+    step: params.step,
+  });
+}
+
 /**
  * Fallback direct API call when SDK streaming validation fails
  * Uses non-streaming API to avoid SDK's Zod validation issues with null usage fields
@@ -332,8 +384,11 @@ async function callLlmDirectFallback(
 ): Promise<{
   content: string;
   toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+  usage?: LlmUsage;
+  latencyMs: number;
 }> {
   const apiKey = await getLlmApiKey();
+  const start = Date.now();
   
   const body: Record<string, unknown> = {
     model,
@@ -420,6 +475,13 @@ async function callLlmDirectFallback(
         }>;
       };
     }>;
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      input_tokens?: number;
+      output_tokens?: number;
+    };
   };
   
   const choice = data.choices?.[0]?.message;
@@ -430,7 +492,7 @@ async function callLlmDirectFallback(
     arguments: JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>,
   }));
   
-  return { content, toolCalls };
+  return { content, toolCalls, usage: normalizeUsage(data.usage), latencyMs: Date.now() - start };
 }
 
 /**
@@ -1187,6 +1249,10 @@ export async function processChat(
   let modelResult: ReturnType<typeof getOpenRouterClient.prototype.callModel> | null = null;
   let usedFallback = false;
   let fallbackResponse = '';
+  let lastLlmStart = 0;
+  let lastLlmMode: 'sdk' | 'fallback' | null = null;
+  let lastFallbackUsage: LlmUsage | undefined;
+  let lastFallbackLatency: number | undefined;
 
   const runLlmAttempt = async (): Promise<void> => {
     if (!llmCircuitBreaker.canExecute()) {
@@ -1198,10 +1264,17 @@ export async function processChat(
     modelResult = null;
     usedFallback = false;
     fallbackResponse = '';
+    lastLlmStart = 0;
+    lastLlmMode = null;
+    lastFallbackUsage = undefined;
+    lastFallbackLatency = undefined;
 
     try {
       try {
         // Tools from the SDK are already in the correct format
+        const callStart = Date.now();
+        lastLlmStart = callStart;
+        lastLlmMode = 'sdk';
         modelResult = getOpenRouterClient().callModel({
           model: effectiveModel,
           input,
@@ -1211,6 +1284,17 @@ export async function processChat(
 
         toolCalls = await modelResult.getToolCalls();
         adminToolCalls = toolCalls.map(toAdminToolCall);
+
+        if (toolCalls.length > 0) {
+          logLlmMetrics({
+            avatarId,
+            model: effectiveModel,
+            latencyMs: Date.now() - callStart,
+            usage: undefined,
+            toolCalls: toolCalls.length,
+            mode: 'sdk',
+          });
+        }
       } catch (sdkError) {
         // Check if this is a Zod validation/schema error (SDK uses zod/v4 internally)
         const errorName = sdkError instanceof Error ? sdkError.name : '';
@@ -1244,6 +1328,9 @@ export async function processChat(
 
         usedFallback = true;
         fallbackResponse = fallbackResult.content;
+        lastLlmMode = 'fallback';
+        lastFallbackUsage = fallbackResult.usage;
+        lastFallbackLatency = fallbackResult.latencyMs;
 
         // Convert fallback tool calls to admin format
         adminToolCalls = fallbackResult.toolCalls.map(tc => ({
@@ -1261,6 +1348,17 @@ export async function processChat(
           name: tc.name,
           arguments: tc.arguments,
         })) as unknown as SdkToolCall[];
+
+        if (toolCalls.length > 0) {
+          logLlmMetrics({
+            avatarId,
+            model: effectiveModel,
+            latencyMs: fallbackResult.latencyMs,
+            usage: fallbackResult.usage,
+            toolCalls: toolCalls.length,
+            mode: 'fallback',
+          });
+        }
       }
 
       llmCircuitBreaker.recordSuccess();
@@ -1283,10 +1381,33 @@ export async function processChat(
       // No tool calls: fetch response now, and retry if empty.
       if (usedFallback) {
         response = fallbackResponse;
+        if (toolCalls.length === 0 && lastLlmMode === 'fallback' && typeof lastFallbackLatency === 'number') {
+          logLlmMetrics({
+            avatarId,
+            model: effectiveModel,
+            latencyMs: lastFallbackLatency,
+            usage: lastFallbackUsage,
+            toolCalls: 0,
+            mode: 'fallback',
+          });
+        }
       } else if (modelResult) {
         const finalResponse = await modelResult.getResponse();
         const assistantMessage = toChatMessage(finalResponse);
         response = typeof assistantMessage.content === 'string' ? assistantMessage.content : '';
+        if (toolCalls.length === 0) {
+          const finishReason = (finalResponse as { choices?: Array<{ finish_reason?: string }> })
+            ?.choices?.[0]?.finish_reason;
+          logLlmMetrics({
+            avatarId,
+            model: effectiveModel,
+            latencyMs: lastLlmStart ? Date.now() - lastLlmStart : 0,
+            usage: normalizeUsage((finalResponse as { usage?: Record<string, unknown> }).usage),
+            toolCalls: 0,
+            finishReason,
+            mode: 'sdk',
+          });
+        }
       }
 
       if (response) {
@@ -1585,6 +1706,16 @@ export async function processChat(
         effectiveMaxOutputTokens,
         tools.length > 0 ? tools : undefined
       );
+
+      logLlmMetrics({
+        avatarId,
+        model: effectiveModel,
+        latencyMs: next.latencyMs,
+        usage: next.usage,
+        toolCalls: next.toolCalls.length,
+        mode: 'fallback',
+        step: fallbackStep,
+      });
 
       currentAssistantContent = next.content;
       currentToolCalls = next.toolCalls.map(tc => ({

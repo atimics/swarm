@@ -264,6 +264,26 @@ async function executeToolFromRegistry(
 
 import type { ProcessorMessage, ProcessorLLMResponse } from '@swarm/core';
 
+function normalizeUsage(raw?: {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+}): { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined {
+  if (!raw) return undefined;
+  const promptTokens = raw.prompt_tokens ?? raw.input_tokens;
+  const completionTokens = raw.completion_tokens ?? raw.output_tokens;
+  const totalTokens = raw.total_tokens ?? (promptTokens && completionTokens
+    ? promptTokens + completionTokens
+    : undefined);
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+  };
+}
+
 async function callLLM(params: {
   messages: ProcessorMessage[];
   tools: LLMTool[];
@@ -346,6 +366,13 @@ async function callLLM(params: {
         };
         finish_reason: string;
       }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        input_tokens?: number;
+        output_tokens?: number;
+      };
     };
 
     const choice = data.choices[0];
@@ -357,6 +384,7 @@ async function callLLM(params: {
       content: choice.message.content || '',
       toolCalls: choice.message.tool_calls,
       finishReason: choice.finish_reason as 'stop' | 'tool_calls' | 'length' | 'content_filter',
+      usage: normalizeUsage(data.usage),
     };
   } finally {
     clearTimeout(timeoutId);

@@ -37,6 +37,7 @@ import {
   type FilterableToolDefinition,
 } from './tool-builder.js';
 import { buildDynamicSystemPrompt, buildChatSystemPrompt } from './prompt-builder.js';
+import { logger } from '../utils/logger.js';
 
 // =============================================================================
 // TYPES
@@ -68,6 +69,11 @@ export interface LLMResponse {
     };
   }>;
   finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter';
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
 }
 
 /**
@@ -346,12 +352,29 @@ export class MessageProcessor {
       iterations++;
 
       // Call LLM
+      const callStart = Date.now();
       const llmResponse = await this.deps.callLLM({
         messages,
         tools,
         model: options.model || avatar.llmConfig?.model,
         maxTokens: options.maxTokens || avatar.llmConfig?.maxTokens,
         temperature: avatar.llmConfig?.temperature,
+      });
+      const latencyMs = Date.now() - callStart;
+
+      logger.info('LLM call completed', {
+        subsystem: 'llm',
+        event: 'llm_call_completed',
+        avatarId: avatar.avatarId,
+        platform: context.platform,
+        model: options.model || avatar.llmConfig?.model,
+        latencyMs,
+        promptTokens: llmResponse.usage?.promptTokens,
+        completionTokens: llmResponse.usage?.completionTokens,
+        totalTokens: llmResponse.usage?.totalTokens,
+        finishReason: llmResponse.finishReason,
+        toolCalls: llmResponse.toolCalls?.length || 0,
+        iteration: iterations,
       });
 
       // If no tool calls, we're done

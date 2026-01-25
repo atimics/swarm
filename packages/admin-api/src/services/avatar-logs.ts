@@ -61,6 +61,11 @@ export interface LogQueryOptions {
   query?: string; // text search
 }
 
+export interface LogCountOptions {
+  since?: number;
+  maxPages?: number;
+}
+
 // ============================================================================
 // Write Operations  
 // ============================================================================
@@ -251,6 +256,47 @@ export async function listLogsByLevel(
     logs: items.slice(0, limit),
     hasMore,
   };
+}
+
+/**
+ * Count logs by level across all avatars (for dashboards)
+ */
+export async function countLogsByLevel(
+  level: LogLevel,
+  options: LogCountOptions = {}
+): Promise<{ count: number; truncated: boolean }> {
+  const since = options.since || (Date.now() - 24 * 60 * 60 * 1000);
+  const maxPages = options.maxPages ?? 3;
+
+  let count = 0;
+  let truncated = false;
+  let lastKey: Record<string, unknown> | undefined;
+  let pages = 0;
+
+  do {
+    const result = await dynamoClient.send(new QueryCommand({
+      TableName: ADMIN_TABLE,
+      IndexName: 'gsi1',
+      KeyConditionExpression: 'gsi1pk = :gsi1pk AND gsi1sk >= :since',
+      ExpressionAttributeValues: {
+        ':gsi1pk': `LOGS#${level}`,
+        ':since': since,
+      },
+      Select: 'COUNT',
+      ExclusiveStartKey: lastKey,
+    }));
+
+    count += result.Count || 0;
+    lastKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+    pages += 1;
+
+    if (lastKey && pages >= maxPages) {
+      truncated = true;
+      break;
+    }
+  } while (lastKey);
+
+  return { count, truncated };
 }
 
 /**

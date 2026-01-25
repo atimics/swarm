@@ -964,6 +964,12 @@ export class AdminApiConstruct extends Construct {
     });
 
     this.api.addRoutes({
+      path: '/system/status',
+      methods: [apigateway.HttpMethod.GET],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
       path: '/avatars/{avatarId}/logs',
       methods: [apigateway.HttpMethod.GET],
       integration: avatarsIntegration,
@@ -978,6 +984,12 @@ export class AdminApiConstruct extends Construct {
     this.api.addRoutes({
       path: '/avatars/{avatarId}/events',
       methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.PATCH],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/activity',
+      methods: [apigateway.HttpMethod.GET],
       integration: avatarsIntegration,
     });
 

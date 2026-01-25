@@ -85,6 +85,12 @@ export {
   type ChannelOverview,
   type RateLimitInfo,
 } from './presence.js';
+export {
+  createObservabilityTools,
+  type ObservabilityServices,
+  type SystemStatusResult,
+  type AvatarActivityResult,
+} from './observability.js';
 
 import { createMediaTools, type CreditServices as MediaCreditServices } from './media.js';
 import { createGalleryTools } from './gallery.js';
@@ -107,6 +113,7 @@ import { createStickerTools } from './stickers.js';
 import { createClaudeCodeTools } from './claude-code.js';
 import { createMcpAdminTools } from './mcp-admin.js';
 import { createPresenceTools } from './presence.js';
+import { createObservabilityTools } from './observability.js';
 import type { ToolRegistry } from '../registry.js';
 
 /**
@@ -138,6 +145,7 @@ export interface AllServices {
   integrations?: import('./admin.js').AdminToolServices['integrations'];
   // Cross-platform presence
   presence?: import('./presence.js').PresenceServices;
+  observability?: import('./observability.js').ObservabilityServices;
 }
 
 /**
@@ -189,5 +197,8 @@ export function registerAllTools(
   }
   if (services.presence) {
     registry.registerAll(createPresenceTools(services.presence));
+  }
+  if (services.observability) {
+    registry.registerAll(createObservabilityTools(services.observability));
   }
 }
