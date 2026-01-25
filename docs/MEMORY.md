@@ -128,6 +128,9 @@ When memory is enabled, avatar system prompts include:
 
 ## Roadmap
 
+> **Integration Note**: Phases 2-4 are prerequisites for [DYNAMIC-CONTEXT-RFC.md](./DYNAMIC-CONTEXT-RFC.md).
+> Complete these before implementing channel summaries, pinned memories, or contextual retrieval.
+
 ### Phase 2: Wire up scheduled consolidation (1 week)
 
 **Goal**: Automatic memory management via scheduled jobs (EventBridge → Lambda) using the consolidation helpers already present in the memory service.
@@ -192,6 +195,16 @@ interface AgentIdentitySnapshot {
 - Cache embeddings in separate table for faster queries
 - Build centroid of all embeddings for "interest space"
 - Score novelty: how different is this from what avatar knows?
+
+### Phase 4.5: Pinned Memories (from DYNAMIC-CONTEXT-RFC)
+
+**Goal**: Avatar self-curates important facts that bypass decay.
+
+This phase is defined in [DYNAMIC-CONTEXT-RFC.md](./DYNAMIC-CONTEXT-RFC.md) but fits here in the memory roadmap:
+- Add `pinned` boolean to memory schema
+- Pinned memories always included in prompt (max 10)
+- Avatar controls via `pin_memory` / `unpin_memory` tools
+- Respects retention policies from M1 P1.3
 
 ### Phase 5: Relationship Tracking (2-3 weeks)
 

@@ -121,7 +121,15 @@ Reference:
 
 ## P3 (defer until after M1 unless explicitly pulled forward)
 
-### Step Functions “durable agent runtime”
+### Dynamic Context & Prompt Reduction
+- Implements channel summaries, pinned memories, toolset activation, prompt reduction.
+- Depends on M1 P1.3 (memory retention) and MEMORY.md Phases 2-4.
+- See [DYNAMIC-CONTEXT-RFC.md](DYNAMIC-CONTEXT-RFC.md) for full specification.
+
+Reference:
+- [docs/DYNAMIC-CONTEXT-RFC.md](DYNAMIC-CONTEXT-RFC.md)
+
+### Step Functions "durable agent runtime"
 - Defer until P0/P1 stability work lands.
 
 Reference:
