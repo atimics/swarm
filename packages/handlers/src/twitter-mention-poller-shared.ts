@@ -26,6 +26,7 @@ import {
 } from '@swarm/core';
 import { createTwitterUsageService, type TwitterUsageService } from './services/twitter-usage.js';
 import { maxTwitterId } from './utils/twitter-id.js';
+import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
 
 const sqsClient = new SQSClient({});
 
@@ -164,9 +165,7 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       const avatarConfig = await stateService.getAvatarConfig(avatarId);
       logger.setContext({ avatarId });
 
-      const secrets = await secretsService.getSecretJson<Record<string, string>>(
-        `${SECRET_PREFIX}/${avatarId}/secrets`
-      );
+      const secrets = await loadAvatarSecrets(secretsService, avatarId, SECRET_PREFIX);
 
       const twitterAdapter = new TwitterAdapter(avatarConfig!, {
         appKey: secrets.TWITTER_API_KEY,

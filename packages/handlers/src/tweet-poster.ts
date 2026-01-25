@@ -17,6 +17,7 @@ import {
   type AvatarConfig,
 } from '@swarm/core';
 import { ensureReplicateKey } from './utils/system-replicate-key.js';
+import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
 
 // Environment variables
 const STATE_TABLE = process.env.STATE_TABLE!;
@@ -57,9 +58,8 @@ async function initialize(): Promise<void> {
     secrets: [],
   };
 
-  secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${AVATAR_ID}/secrets`
-  );
+  const secretPrefix = process.env.SECRET_PREFIX || 'swarm';
+  secrets = await loadAvatarSecrets(secretsService, AVATAR_ID, secretPrefix, process.env.SECRETS_ARN);
 
   // Scheduled media generation should work even if the avatar secret JSON omits Replicate.
   try {

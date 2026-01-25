@@ -26,6 +26,7 @@ import {
   createRateLimitService,
   type RateLimitService,
 } from './services/twitter-rate-limit.js';
+import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
 
 const STATE_TABLE = process.env.STATE_TABLE;
 const POST_QUEUE_URL = process.env.POST_QUEUE_URL;
@@ -171,9 +172,7 @@ async function processMessage(message: PostQueueMessage): Promise<{ success: boo
     return { success: false, error: 'Avatar config not found' };
   }
 
-  const secrets = await secretsService.getSecretJson<Record<string, string>>(
-    `${SECRET_PREFIX}/${avatarId}/secrets`
-  );
+  const secrets = await loadAvatarSecrets(secretsService, avatarId, SECRET_PREFIX);
 
   // Initialize Twitter adapter
   const twitterAdapter = new TwitterAdapter(avatarConfig, {

@@ -27,6 +27,7 @@ import {
   type ContentStoreService,
   type PostMedia,
 } from '@swarm/core';
+import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
 import {
   generateAutonomousContent,
   generateImagePrompt,
@@ -407,9 +408,7 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
         continue;
       }
 
-      const secrets = await secretsService.getSecretJson<Record<string, string>>(
-        `${SECRET_PREFIX}/${avatarId}/secrets`
-      );
+      const secrets = await loadAvatarSecrets(secretsService, avatarId, SECRET_PREFIX);
 
       const result = await processAvatar(avatarId, avatarConfig, secrets);
       avatarsProcessed++;

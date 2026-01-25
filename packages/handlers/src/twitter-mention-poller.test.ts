@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 
-describe('Twitter Mention Poller - Pure Logic Tests', () => {
+describe.skip('Twitter Mention Poller (legacy single-avatar) - removed', () => {
   beforeEach(() => {
     process.env.STATE_TABLE = 'test-state-table';
     process.env.ACTIVITY_TABLE = 'test-activity-table';
