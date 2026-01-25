@@ -1,10 +1,18 @@
 # Semantic Memory Search - Design Specification
 
-**Status**: Proposed
-**Priority**: High (Phase 4 accelerated)
-**Estimated Effort**: 1-2 weeks
-**Author**: Claude Code
-**Date**: 2025-01-15
+**Status**: Implemented (initial)
+**Priority**: High
+**Estimated Effort**: 1-2 weeks (hardening + backfill)
+**Author**: Internal
+**Date**: 2025-01-15 (updated 2026-01-25)
+
+## Status update (2026-01)
+
+The core implementation described in this spec is now present in the repository:
+- Embedding generation: `packages/admin-api/src/services/embedding.ts`
+- Hybrid recall (semantic + recency + strength): `packages/admin-api/src/services/memory.ts`
+
+What remains is mostly operational hardening: safe backfills for older memories, metrics/visibility into embedding coverage, and tuning thresholds for latency and relevance.
 
 ## Executive Summary
 

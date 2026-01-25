@@ -1,4 +1,6 @@
-# Avatar Memory System - Research & Roadmap
+# Avatar Memory System - Research, Current State, and Roadmap
+
+**Last reviewed:** 2026-01-25
 
 This document describes the memory system architecture for AWS Swarm avatars, synthesizing learnings from prior experiments (cosyworld, kyro, mirquo) and outlining a roadmap for dynamic personality evolution.
 
@@ -60,6 +62,11 @@ Without memory, every conversation starts from zero. The avatar has no history, 
 
 ## Current Implementation (Phase 1)
 
+Implementation lives primarily in:
+- `packages/admin-api/src/services/memory.ts` (storage, consolidation helpers, recall scoring)
+- `packages/admin-api/src/services/embedding.ts` (Bedrock/OpenRouter embeddings)
+- `packages/mcp-server/src/tools/memory.ts` (tool interface)
+
 ### Architecture
 
 ```
@@ -100,8 +107,8 @@ interface AgentMemory {
 
 | Tool | Purpose |
 |------|---------|
-| `remember` | Save a fact (creates immediate memory) |
-| `recall` | Search memories by keyword |
+| `remember` | Save a fact (creates immediate memory; attempts to generate an embedding when available) |
+| `recall` | Search memories (semantic/hybrid scoring when embeddings are available; falls back to keyword search) |
 
 ### Prompt Injection
 
@@ -121,9 +128,9 @@ When memory is enabled, avatar system prompts include:
 
 ## Roadmap
 
-### Phase 2: Consolidation Service (1 week)
+### Phase 2: Wire up scheduled consolidation (1 week)
 
-**Goal**: Automatic memory management via scheduled jobs
+**Goal**: Automatic memory management via scheduled jobs (EventBridge → Lambda) using the consolidation helpers already present in the memory service.
 
 **Implementation**:
 1. **EventBridge Rule**: Trigger nightly at 3 AM UTC
@@ -137,13 +144,8 @@ When memory is enabled, avatar system prompts include:
    5. Generate identity evolution statement
    ```
 
-**Key Functions**:
-```typescript
-// Already implemented in memory.ts:
-applyDecay(avatarId, tier, decayRate)
-promoteImmediateToRecent(avatarId, maxImmediate)
-saveIdentitySnapshot(avatarId, statement, triggeringMemories)
-```
+**Notes**:
+- The memory service already contains consolidation primitives (decay, promotion, identity snapshots). The remaining work is orchestration + scheduling + operational controls.
 
 **New Infrastructure**:
 - `packages/infra/src/constructs/memory-consolidation.ts`
@@ -174,18 +176,17 @@ interface AgentIdentitySnapshot {
 
 **UI Component**: Identity timeline showing personality drift over time
 
-### Phase 4: Semantic Search (2 weeks)
+### Phase 4: Semantic search hardening (1–2 weeks)
 
-**Goal**: Find memories by meaning, not just keywords
+**Goal**: Make meaning-based retrieval reliable and operationally safe.
 
-**Implementation**:
-1. **Embedding Generation**: On memory create, generate embedding via OpenAI
-2. **Storage**: Store embedding in memory record (1536 dimensions)
-3. **Search**: Cosine similarity against query embedding
-4. **Hybrid Scoring** (from cosyworld):
-   ```
-   score = (0.55 × semantic) + (0.25 × recency) + (0.15 × strength) + (0.05 × about_match)
-   ```
+**Current behavior (implemented)**:
+- Embeddings are generated on write when available (Bedrock primary; OpenRouter fallback).
+- Recall uses cosine similarity + hybrid scoring when it has embeddings, otherwise falls back to keyword search.
+
+**Hardening work**:
+- Add an operational backfill path for older memories without embeddings.
+- Add metrics/logging around embedding coverage and latency.
 
 **Optimization**:
 - Cache embeddings in separate table for faster queries

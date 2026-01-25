@@ -1,5 +1,3 @@
-git clone https://github.com/your-org/aws-swarm.git
-pnpm cdk bootstrap
 # AWS Swarm
 
 AI avatar stack for Telegram-first social bots, with a chat-based admin UI, Solana wallet authentication, NFT gating, channel-aware webhook handler, reusable media/gallery services, and an SQS-driven processing pipeline.
@@ -38,10 +36,17 @@ AI avatar stack for Telegram-first social bots, with a chat-based admin UI, Sola
 
 ## Quick Start
 ```bash
+git clone https://github.com/atimics/aws-swarm.git
+cd aws-swarm
 pnpm install
 pnpm build
 pnpm test   # optional: runs package tests
 ```
+
+Roadmaps and planning:
+- Milestone summary: [ROADMAP.md](ROADMAP.md)
+- M1 execution plan: [docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md](docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md)
+- Next-milestone task list: [PLAN.md](PLAN.md)
 
 Local dev expects AWS credentials and the core tables/buckets configured (see CDK stacks in [packages/infra](packages/infra)). Environment variables most handlers rely on: `ADMIN_TABLE`, `STATE_TABLE`, `ACTIVITY_TABLE`, `MESSAGE_QUEUE_URL`, `RESPONSE_QUEUE_URL`, `MEDIA_BUCKET`, `SECRETS_ARN`, and `LLM_API_KEY_SECRET_ARN`.
 

@@ -2,6 +2,8 @@
 
 **Status:** Active plan (source of truth for MVP sequencing)
 
+**Last reviewed:** 2026-01-25
+
 This document consolidates the MVP-critical work into a single execution plan.
 It is intentionally biased toward shipping a self-serve, reliable paid Telegram avatar.
 
@@ -21,8 +23,8 @@ An operator can:
 Primary references:
 - Plan definition: [PLAN.md](../PLAN.md)
 - Near-term milestone summary: [ROADMAP.md](../ROADMAP.md)
-- Verified shipped + remaining gaps: [docs/engineering-report-platform-status-2026-01-18.md](engineering-report-platform-status-2026-01-18.md)
-- Auth/onboarding spec: [docs/AUTHENTICATION-IMPROVEMENTS.md](AUTHENTICATION-IMPROVEMENTS.md)
+- Verified shipped + remaining gaps: [engineering-report-platform-status-2026-01-18.md](engineering-report-platform-status-2026-01-18.md)
+- Auth/onboarding spec: [AUTHENTICATION-IMPROVEMENTS.md](AUTHENTICATION-IMPROVEMENTS.md)
 
 ## P0 (Week 1–2): unblock users + make failures diagnosable
 

@@ -2,12 +2,18 @@
 
 This roadmap focuses on product and platform milestones.
 
+**Last reviewed:** 2026-01-25
+
+## Current focus (late Jan 2026)
+- **M1 is the active milestone.** Auth/onboarding foundations (Account+Identity, cookie/session consistency, explicit link vs switch) are largely shipped.
+- Next highest-leverage work is: Telegram setup diagnostics/verification UX, access-mode hardening, then entitlements + runtime enforcement + memory opt-in.
+
 For the execution-level, MVP-focused plan (2-week slices and P0→P3 sequencing), see:
 - [docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md](docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md)
 
 ## Near (0-3 months)
 Milestone M1: Paid Telegram MVP
-- Billing and entitlements with runtime enforcement.
+- Billing and entitlements with runtime enforcement (manual entitlements are acceptable for MVP; Stripe can follow).
 - Memory opt-in and retention defaults (stateless free tier).
 - Deploy or activate from admin UI and API.
 - Authentication improvements (wallet + Crossmint): cookie/session consistency, backend-session bootstrap, explicit identity linking (Account + Identity), and account-level gating.

@@ -3,6 +3,8 @@
 Goal: deliver a self-serve paid Telegram avatar with enforced entitlements, opt-in
 memory, and a deploy or activate flow.
 
+**Last reviewed:** 2026-01-25
+
 ## Milestone definition
 - Create avatar in admin UI, connect Telegram, purchase plan or apply entitlement,
   deploy or activate, verify via logs.
@@ -22,11 +24,10 @@ Reference spec: `docs/AUTHENTICATION-IMPROVEMENTS.md`
 - [x] Add explicit “Link vs Switch” API endpoints (link challenge/verify; Crossmint link) and wire minimal UI to link.
 - [x] Make Orb/NFT gating account-level (evaluate across linked wallets; surface which wallet has Orbs).
 - [x] Decide/implement production auth posture (no origin/referer fallback; CF token OR first-party session cookie; admin allowlists).
-- [ ] Finish the remaining onboarding UX items in `packages/plan-tests/authentication-signup.todo.test.ts` (3 TODOs).
+- [x] Encode and cover remaining onboarding UX requirements in `packages/plan-tests/authentication-signup.todo.test.ts` (no pending TODOs).
 
 ### Billing and entitlements
-- [ ] Decide billing provider and plan model (Stripe or manual entitlements) and
-      document it in `ROADMAP.md` and `README.md`.
+- [ ] Decide M1 billing posture (manual entitlements first vs Stripe-first) and document it in `ROADMAP.md` and `README.md`.
 - [ ] Define an entitlement schema (plan, limits, memory flags) shared by admin API
       and runtime packages.
 - [ ] Store entitlements in DynamoDB and expose them via admin API.
@@ -56,7 +57,8 @@ Reference spec: `docs/AUTHENTICATION-IMPROVEMENTS.md`
 
 ## Out of scope for M1
 - Discord gateway and full multi-platform parity.
-- Marketplace templates and NFT gating.
+- Marketplace templates/persona packs.
+- Expanding NFT gating beyond the existing Orb-based access/slot model.
 - Protocol specification work.
 
 ## Legacy
