@@ -73,6 +73,8 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /** Optional internal reasoning extracted from <thinking> tags. */
+  thinking?: string[];
   timestamp: number;
   isLoading?: boolean;
   /** UI-only: message originated from a tool result (role=tool on backend). Excluded from outbound history. */

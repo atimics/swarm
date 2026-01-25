@@ -278,6 +278,7 @@ export const useAvatarStore = create<Avatartate>()(
               id: `synced-${index}`,
               role: (msg.role === 'tool' ? 'assistant' : msg.role) as 'user' | 'assistant',
               content: msg.content,
+              thinking: (msg as unknown as { thinking?: string[] }).thinking,
               isToolResult: msg.role === 'tool',
               timestamp: Date.now() - (history.length - index) * 1000,
               // Include media if present (for images to persist across refresh)

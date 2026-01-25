@@ -6,6 +6,7 @@ export { AvatarConfigModal } from './AvatarConfigModal';
 export { ChatPanel } from './ChatPanel';
 export { ToolPrompt, SecretPrompt, ConfirmPrompt } from './ToolPrompts';
 export { AvatarLogsPanel } from './AvatarLogsPanel';
+export { TwitterFeedPanel } from './TwitterFeedPanel';
 export { IssueCard, IssueNavigation } from './IssueCard';
 export { ThemeToggle } from './ThemeToggle';
 export { WalletProvider } from './WalletProvider';

@@ -66,6 +66,7 @@ interface ChatResponse {
   history: Array<{
     role: string;
     content: string;
+    thinking?: string[];
     tool_calls?: unknown[];
     media?: MediaItem[];
   }>;

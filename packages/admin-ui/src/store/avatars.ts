@@ -86,6 +86,7 @@ export const useAvatarStore = create<AvatarState>()(
             creatorWallet: response.creatorWallet,
             inhabitantWallet: response.inhabitantWallet,
             inhabitedAt: response.inhabitedAt,
+            platforms: response.platforms,
             createdAt: response.createdAt,
             updatedAt: response.updatedAt,
           };
@@ -187,6 +188,7 @@ export const useAvatarStore = create<AvatarState>()(
             creatorWallet: r.creatorWallet,
             inhabitantWallet: r.inhabitantWallet,
             inhabitedAt: r.inhabitedAt,
+            platforms: r.platforms,
             createdAt: r.createdAt,
             updatedAt: r.updatedAt,
           }));
@@ -284,6 +286,7 @@ export const useAvatarStore = create<AvatarState>()(
               id: `synced-${index}`,
               role: (msg.role === 'tool' ? 'assistant' : msg.role) as 'user' | 'assistant',
               content: msg.content,
+              thinking: (msg as unknown as { thinking?: string[] }).thinking,
               isToolResult: msg.role === 'tool',
               timestamp: Date.now() - (history.length - index) * 1000,
               // Include media if present (for images to persist across refresh)

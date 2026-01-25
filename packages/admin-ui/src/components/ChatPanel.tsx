@@ -20,9 +20,10 @@ const activePollers = new Map<string, { controller: AbortController; avatarId: s
 interface ChatPanelProps {
   onMenuClick?: () => void;
   onOpenLogs?: (avatarId: string) => void;
+  onOpenTwitter?: (avatarId: string) => void;
 }
 
-export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
+export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelProps) {
   const activeAvatar = useActiveAvatar();
   const messages = useActiveChat();
   const { addMessage, updateMessage, removeMessage, clearChat, updateAvatar, isLoading, setLoading, setError, createAvatar } = useAvatarStore();
@@ -268,6 +269,16 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
           // Pull tool-result messages (role=tool) from the backend response history
           // so rich cards (Twitter Connected / Tweet Posted) show immediately.
           const historyFromServer = Array.isArray(response.history) ? response.history : [];
+          const assistantFromServer = (() => {
+            for (let i = historyFromServer.length - 1; i >= 0; i--) {
+              const msg = historyFromServer[i] as { role?: unknown; content?: unknown };
+              if (msg?.role === 'assistant' && typeof msg.content === 'string' && msg.content.trim().length > 0) {
+                return historyFromServer[i] as { thinking?: string[] };
+              }
+            }
+            return undefined;
+          })();
+          const thinkingFromServer = Array.isArray(assistantFromServer?.thinking) ? assistantFromServer?.thinking : undefined;
           const lastUserIndex = (() => {
             for (let i = historyFromServer.length - 1; i >= 0; i--) {
               const msg = historyFromServer[i];
@@ -312,6 +323,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
             ...loadingMessage,
             content: responseText,
             isLoading: false,
+            thinking: thinkingFromServer,
             toolCalls: pendingToolCall
               ? [{
                   id: pendingToolCall.id,
@@ -940,6 +952,17 @@ export function ChatPanel({ onMenuClick, onOpenLogs }: ChatPanelProps) {
               className="px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs font-medium transition-colors"
             >
               View logs
+            </button>
+          )}
+          {onOpenTwitter && (accessMode === 'admin' || accessMode === 'chat') && activeAvatar.platforms?.twitter?.enabled && (
+            <button
+              onClick={() => onOpenTwitter(activeAvatar.id)}
+              className="px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs font-medium transition-colors flex items-center gap-1.5"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+              </svg>
+              Twitter
             </button>
           )}
         </div>

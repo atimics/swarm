@@ -5,7 +5,7 @@ import { useAuth } from './store/auth';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
 import { getTwitterConnectionStatus } from './api/twitter';
 import { appendSystemMessage } from './api/chat';
-import { AvatarSidebar, AvatarLogsPanel, ChatPanel, LandingPage, PublicChatPage } from './components';
+import { AvatarSidebar, AvatarLogsPanel, ChatPanel, LandingPage, PublicChatPage, TwitterFeedPanel } from './components';
 
 const TWITTER_OAUTH_STORAGE_KEY = 'swarm:oauth:twitter:lastResult';
 
@@ -15,6 +15,11 @@ type TwitterOAuthResult =
 
 function getLogsAvatarId(pathname: string): string | null {
   const match = pathname.match(/^\/avatars\/([^/]+)\/logs\/?$/);
+  return match?.[1] || null;
+}
+
+function getTwitterFeedAvatarId(pathname: string): string | null {
+  const match = pathname.match(/^\/avatars\/([^/]+)\/twitter(?:\/feed)?\/?$/);
   return match?.[1] || null;
 }
 
@@ -77,6 +82,9 @@ function App() {
   const [logsAvatarId, setLogsAvatarId] = useState<string | null>(
     () => getLogsAvatarId(window.location.pathname)
   );
+  const [twitterFeedAvatarId, setTwitterFeedAvatarId] = useState<string | null>(
+    () => getTwitterFeedAvatarId(window.location.pathname)
+  );
   const [inhabitAvatarId, setInhabitAvatarId] = useState<string | null>(
     () => getInhabitAvatarId(window.location.pathname)
   );
@@ -90,6 +98,7 @@ function App() {
   const [chatSynced, setChatSynced] = useState(false);
 
   const isLogsRoute = useMemo(() => Boolean(logsAvatarId), [logsAvatarId]);
+  const isTwitterRoute = useMemo(() => Boolean(twitterFeedAvatarId), [twitterFeedAvatarId]);
 
   // Clean up OAuth query params immediately on mount (before anything else)
   useEffect(() => {
@@ -407,11 +416,20 @@ function App() {
     const nextPath = `/avatars/${avatarId}/logs`;
     window.history.pushState({}, '', nextPath);
     setLogsAvatarId(avatarId);
+    setTwitterFeedAvatarId(null);
+  }, []);
+
+  const openTwitterFeed = useCallback((avatarId: string) => {
+    const nextPath = `/avatars/${avatarId}/twitter`;
+    window.history.pushState({}, '', nextPath);
+    setTwitterFeedAvatarId(avatarId);
+    setLogsAvatarId(null);
   }, []);
 
   const openChat = useCallback(() => {
     window.history.pushState({}, '', '/');
     setLogsAvatarId(null);
+    setTwitterFeedAvatarId(null);
   }, []);
 
   // Handle avatar selection from sidebar - updates store, URL, and chatAvatarId state
@@ -474,10 +492,17 @@ function App() {
             onMenuClick={() => setSidebarOpen(true)}
             onBack={openChat}
           />
+        ) : isTwitterRoute && twitterFeedAvatarId ? (
+          <TwitterFeedPanel
+            avatarId={twitterFeedAvatarId}
+            onMenuClick={() => setSidebarOpen(true)}
+            onBack={openChat}
+          />
         ) : (
           <ChatPanel
             onMenuClick={() => setSidebarOpen(true)}
             onOpenLogs={openLogs}
+            onOpenTwitter={openTwitterFeed}
           />
         )}
       </div>

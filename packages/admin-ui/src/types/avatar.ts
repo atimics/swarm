@@ -9,6 +9,20 @@ export interface AvatarSecret {
   isSet: boolean;
 }
 
+export interface PlatformConfig {
+  enabled: boolean;
+  botUsername?: string;
+  username?: string;
+  guildId?: string;
+  allowedChatIds?: string[];
+  allowedDmUserIds?: string[];
+  simulation?: {
+    enabled: boolean;
+    feedVisibility: 'self' | 'linked';
+    autoApprove: boolean;
+  };
+}
+
 export interface AvatarConfig {
   id: string;
   name: string;
@@ -30,6 +44,12 @@ export interface AvatarConfig {
   // Health status indicators
   healthStatus?: 'healthy' | 'rate_limited' | 'error' | 'inactive';
   healthMessage?: string;
+  // Platform configurations
+  platforms?: {
+    telegram?: PlatformConfig;
+    twitter?: PlatformConfig;
+    discord?: PlatformConfig;
+  };
   // Legacy fields (deprecated)
   ownerWallet?: string;
   ownerClaimedAt?: number;
@@ -78,6 +98,8 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /** Optional internal reasoning extracted from <thinking> tags. */
+  thinking?: string[];
   timestamp: number;
   isLoading?: boolean;
   /** UI-only: message originated from a tool result (role=tool on backend). Excluded from outbound history. */
