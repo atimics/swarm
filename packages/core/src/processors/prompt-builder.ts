@@ -9,6 +9,9 @@
  * platform-specific contextual additions.
  */
 
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ToolCategory, ProcessorAvatarConfig } from './types.js';
 import type { Platform } from '../types/index.js';
 
@@ -243,6 +246,46 @@ You can report issues to help improve the system:
 /**
  * Platform-specific prompt sections.
  */
+const DEFAULT_TWITTER_PLATFORM_PROMPT = `## Platform: Twitter/X
+
+You are posting on Twitter. Be mindful of character limits.
+
+Guidelines:
+- Keep tweets under 280 characters (or 10,000 if Premium)
+- Make posts engaging and shareable
+- Use hashtags sparingly
+- Include media to boost engagement`;
+
+let cachedTwitterPlatformPrompt: string | null = null;
+
+function loadTwitterPlatformPrompt(): string {
+  if (cachedTwitterPlatformPrompt) return cachedTwitterPlatformPrompt;
+
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(here, '../../../..');
+  const candidates = [
+    path.join(process.cwd(), 'prompts', 'platforms', 'twitter.md'),
+    path.join(process.cwd(), 'packages', 'core', 'prompts', 'platforms', 'twitter.md'),
+    path.join(repoRoot, 'prompts', 'platforms', 'twitter.md'),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (!existsSync(candidate)) continue;
+      const content = readFileSync(candidate, 'utf8').trim();
+      if (content) {
+        cachedTwitterPlatformPrompt = content;
+        return cachedTwitterPlatformPrompt;
+      }
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  cachedTwitterPlatformPrompt = DEFAULT_TWITTER_PLATFORM_PROMPT;
+  return cachedTwitterPlatformPrompt;
+}
+
 const PLATFORM_PROMPT_SECTIONS: Record<string, string> = {
   'admin-ui': `## Platform: Admin UI
 
@@ -334,6 +377,9 @@ You have access to recent conversation history from this chat. Previous messages
  * Get the platform-specific prompt section.
  */
 export function getPlatformPromptSection(platform: string): string {
+  if (platform === 'twitter') {
+    return loadTwitterPlatformPrompt();
+  }
   return PLATFORM_PROMPT_SECTIONS[platform] || '';
 }
 

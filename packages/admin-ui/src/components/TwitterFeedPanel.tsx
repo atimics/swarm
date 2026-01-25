@@ -22,7 +22,7 @@ import {
   type TwitterFeedResponse,
 } from '../api/twitter-feed';
 import { useActiveAvatar, useAvatarStore } from '../store/avatars';
-import { useWalletAuth } from '../store/walletAuth';
+import { useAuth } from '../store/auth';
 import { AvatarDisplay } from './AvatarSidebar';
 
 interface TwitterFeedPanelProps {
@@ -330,7 +330,7 @@ function ModerationSettings({
 export function TwitterFeedPanel({ avatarId, onMenuClick, onBack, readOnly = false }: TwitterFeedPanelProps) {
   const activeAvatar = useActiveAvatar();
   const { setActiveAvatar } = useAvatarStore();
-  const { user, isAuthenticated } = useWalletAuth();
+  const { user, isAuthenticated } = useAuth();
 
   const [feed, setFeed] = useState<TwitterFeedResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -441,15 +441,17 @@ export function TwitterFeedPanel({ avatarId, onMenuClick, onBack, readOnly = fal
       <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 lg:px-6 py-3 lg:py-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 lg:gap-4 min-w-0">
-            <button
-              onClick={onMenuClick}
-              className="w-10 h-10 flex items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
-              aria-label="Open menu"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
-              </svg>
-            </button>
+            {onMenuClick && (
+              <button
+                onClick={onMenuClick}
+                className="w-10 h-10 flex items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
+                aria-label="Open menu"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                  <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
+                </svg>
+              </button>
+            )}
             {activeAvatar && <AvatarDisplay avatar={activeAvatar} size="md" />}
             <div className="min-w-0">
               <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)] truncate flex items-center gap-2">

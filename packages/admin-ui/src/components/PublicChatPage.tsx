@@ -7,10 +7,10 @@
  * 3. Renders ChatPanel with public access mode
  */
 import { useEffect, useState, useMemo } from 'react';
-import { useAvatarStore } from '../store';
 import { useAuth } from '../store/auth';
 import { PrivyLoginButton } from './PrivyLoginButton';
-import { ChatPanel } from './ChatPanel';
+import { SharedChatPanel } from './SharedChatPanel';
+import { TwitterFeedPanel } from './TwitterFeedPanel';
 import { getChannelAvatar, type ChannelAvatarInfo } from '../api/sharedChat';
 
 interface PublicChatPageProps {
@@ -19,11 +19,11 @@ interface PublicChatPageProps {
 
 export function PublicChatPage({ botId }: PublicChatPageProps) {
   const { isAuthenticated, isLoading: authLoading, gateStatus } = useAuth();
-  const { avatars, setActiveAvatar, fetchAvatars } = useAvatarStore();
 
   const [avatarInfo, setAvatarInfo] = useState<ChannelAvatarInfo | null>(null);
   const [loadingAvatar, setLoadingAvatar] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<'chat' | 'twitter'>('chat');
 
   // Fetch avatar info on mount (public endpoint, no auth required)
   useEffect(() => {
@@ -45,52 +45,10 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
     void fetchAvatar();
   }, [botId]);
 
-  // When authenticated and avatar info is loaded, ensure avatar is in store
+  // If auth status changes, default back to chat
   useEffect(() => {
-    if (!isAuthenticated || !avatarInfo) return;
-
-    // Check if avatar is already in store
-    const existingAvatar = avatars.find(a => a.id === botId);
-    if (existingAvatar) {
-      // Avatar already in store, just set it as active
-      setActiveAvatar(botId);
-      return;
-    }
-
-    // Avatar not in store - fetch avatars (which should include public avatars)
-    // Then set the target avatar as active
-    void fetchAvatars().then(() => {
-      // After fetch, try to set active again
-      const store = useAvatarStore.getState();
-      const avatarInStore = store.avatars.find(a => a.id === botId);
-      if (avatarInStore) {
-        setActiveAvatar(botId);
-      } else {
-        // Avatar still not in store - add it manually as a "public" avatar
-        // This allows ChatPanel to display it even if user doesn't own it
-        const now = Date.now();
-        const publicAvatar = {
-          id: botId,
-          name: avatarInfo.name,
-          description: avatarInfo.description || '',
-          avatar: avatarInfo.profileImageUrl || '',
-          persona: avatarInfo.persona || '',
-          color: '#6366f1', // Default color
-          secrets: [],
-          status: 'active' as const,
-          createdAt: now,
-          updatedAt: now,
-          // Note: no creatorWallet means this is a public avatar
-        };
-
-        // Add to store using setState and set active
-        useAvatarStore.setState((state) => ({
-          avatars: [...state.avatars, publicAvatar],
-        }));
-        setActiveAvatar(botId);
-      }
-    }).catch(console.error);
-  }, [isAuthenticated, avatarInfo, avatars, botId, setActiveAvatar, fetchAvatars]);
+    if (!isAuthenticated) setView('chat');
+  }, [isAuthenticated]);
 
   // Display name for header
   const displayName = useMemo(() => {
@@ -214,6 +172,8 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
   const isOrbHolder = (gateStatus?.nftsHeld ?? 0) > 0;
   const dailyLimit = isOrbHolder ? 100 : 10;
 
+  const effectiveAvatarId = avatarInfo?.avatarId || botId;
+
   // Authenticated - render ChatPanel with the public avatar
   return (
     <div className="h-[100dvh] flex flex-col bg-[var(--color-bg)]">
@@ -258,13 +218,29 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
               )}
             </div>
           </div>
-          <PrivyLoginButton />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setView(view === 'chat' ? 'twitter' : 'chat')}
+              className="px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs font-medium transition-colors"
+            >
+              {view === 'chat' ? 'Twitter' : 'Back to chat'}
+            </button>
+            <PrivyLoginButton />
+          </div>
         </div>
       </header>
 
-      {/* ChatPanel in full height */}
+      {/* Content */}
       <div className="flex-1 min-h-0">
-        <ChatPanel />
+        {view === 'chat' ? (
+          <SharedChatPanel channelId={botId} />
+        ) : (
+          <TwitterFeedPanel
+            avatarId={effectiveAvatarId}
+            readOnly
+            onBack={() => setView('chat')}
+          />
+        )}
       </div>
     </div>
   );

@@ -7,7 +7,8 @@
  * - Browse mode: Read-only profile view (no wallet connected)
  */
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
-import { useAvatarStore, useActiveAvatar, useActiveChat, useWalletAuth } from '../store';
+import { useAvatarStore, useActiveAvatar, useActiveChat } from '../store';
+import { useAuth } from '../store/auth';
 import { sendChatMessage, saveAvatarSecret, submitToolResult, pollJobCompletion, updateAvatar as updateAvatarApi, transcribeAudio, type JobStatus } from '../api';
 import { ChatMessage as ChatMessageComponent } from './ChatMessage';
 import { ChatInput } from './ChatInput';
@@ -27,7 +28,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
   const activeAvatar = useActiveAvatar();
   const messages = useActiveChat();
   const { addMessage, updateMessage, removeMessage, clearChat, updateAvatar, isLoading, setLoading, setError, createAvatar } = useAvatarStore();
-  const { user: walletUser, isAuthenticated: isWalletAuthenticated, gateStatus } = useWalletAuth();
+  const { user: user, isAuthenticated, gateStatus } = useAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
@@ -116,12 +117,12 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
   // - 'chat': Has Orb but not admin - full chat access
   // - 'admin': Inhabiting or created - full admin access
   const accessMode = useMemo(() => {
-    if (!isWalletAuthenticated || !walletUser) {
+    if (!isAuthenticated || !user) {
       return 'browse'; // Not authenticated - read-only
     }
     
-    const isInhabited = walletUser.inhabitedAvatarId === activeAvatar?.id;
-    const isCreator = activeAvatar?.creatorWallet === walletUser.walletAddress;
+    const isInhabited = user.inhabitedAvatarId === activeAvatar?.id;
+    const isCreator = activeAvatar?.creatorWallet === user.walletAddress;
     
     if (isInhabited || isCreator) {
       return 'admin'; // Full admin access
@@ -132,7 +133,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
     }
     
     return 'chat'; // Can chat but no admin tools
-  }, [isWalletAuthenticated, walletUser, activeAvatar, hasOrb]);
+  }, [isAuthenticated, user, activeAvatar, hasOrb]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -179,11 +180,11 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
       if (accessMode === 'browse') return; // Can't send in browse mode
 
       // Build sender context from wallet auth
-      const sender = isWalletAuthenticated && walletUser ? {
-        walletAddress: walletUser.walletAddress,
-        displayName: walletUser.displayName,
-        avatarUrl: walletUser.avatarUrl,
-        inhabitedAvatarId: walletUser.inhabitedAvatarId,
+      const sender = isAuthenticated && user ? {
+        walletAddress: user.walletAddress,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        inhabitedAvatarId: user.inhabitedAvatarId,
       } : undefined;
 
       // Add user message with sender info
@@ -499,7 +500,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
         setLoading(false);
       }
     },
-    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isWalletAuthenticated, walletUser, updateAvatar, formatUserFacingError, extractPendingJobsFromText]
+    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isAuthenticated, user, updateAvatar, formatUserFacingError, extractPendingJobsFromText]
   );
 
   // Handle audio message - transcribe and send as text
@@ -828,16 +829,18 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
         {/* Minimal header with menu button */}
         <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 lg:px-6 py-3 lg:py-4">
           <div className="flex items-center gap-3 lg:gap-4">
-            <button
-              onClick={onMenuClick}
-              className="w-10 h-10 flex items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
-              aria-label="Open menu"
-              data-testid="menu-button"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
-              </svg>
-            </button>
+            {onMenuClick && (
+              <button
+                onClick={onMenuClick}
+                className="w-10 h-10 flex items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
+                aria-label="Open menu"
+                data-testid="menu-button"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                  <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
+                </svg>
+              </button>
+            )}
             <div className="w-10 h-10 lg:w-12 lg:h-12 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 lg:w-6 lg:h-6 text-white">
                 <path d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 9a.75.75 0 00-1.5 0v2.25H9a.75.75 0 000 1.5h2.25V15a.75.75 0 001.5 0v-2.25H15a.75.75 0 000-1.5h-2.25V9z" />
@@ -891,16 +894,18 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 lg:gap-4">
             {/* Hamburger menu - mobile only */}
-            <button
-              onClick={onMenuClick}
-              className="w-10 h-10 flex items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
-              aria-label="Open menu"
-              data-testid="menu-button"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
-              </svg>
-            </button>
+            {onMenuClick && (
+              <button
+                onClick={onMenuClick}
+                className="w-10 h-10 flex items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
+                aria-label="Open menu"
+                data-testid="menu-button"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                  <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
+                </svg>
+              </button>
+            )}
             <AvatarDisplay avatar={activeAvatar} size="md" />
             <div className="min-w-0">
               <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)] truncate">{activeAvatar.name}</h1>

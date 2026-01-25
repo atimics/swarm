@@ -15,3 +15,4 @@ export { ImageModal, useImageModal } from './ImageModal';
 export { PromptPreviewPanel } from './PromptPreviewPanel';
 export { LandingPage } from './LandingPage';
 export { PublicChatPage } from './PublicChatPage';
+export { SharedChatPanel } from './SharedChatPanel';
