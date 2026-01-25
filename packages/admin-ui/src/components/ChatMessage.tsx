@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import { useMemo, useState } from 'react';
+import { extractThinkingTags } from '../utils/thinkingTags';
 import type { ChatMessage as ChatMessageType, MessageSender } from '../types';
 import { useWalletAuth } from '../store';
 import { ToolPrompt } from './ToolPrompts';
@@ -538,13 +539,33 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
     status: 'idle' | 'loading' | 'success' | 'error';
     error?: string;
   }>>({});
+
+  const { contentForDisplay, thoughts } = useMemo(() => {
+    const raw = message.content || '';
+    const extracted = extractThinkingTags(raw);
+    const fromFieldRaw = (message as unknown as { thinking?: unknown }).thinking;
+    const fromField = Array.isArray(fromFieldRaw) ? fromFieldRaw : [];
+    const merged = [...fromField, ...extracted.thinkingBlocks]
+      .map((t) => String(t).trim())
+      .filter((t) => t.length > 0);
+
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+    for (const t of merged) {
+      if (seen.has(t)) continue;
+      seen.add(t);
+      deduped.push(t);
+    }
+
+    return { contentForDisplay: extracted.cleanContent, thoughts: deduped };
+  }, [message.content, (message as unknown as { thinking?: unknown }).thinking]);
   
   // Process message content to extract embedded JSON, images, and audio
   const { cleanedContent, embeddedImages, embeddedAudios, toolResults } = useMemo(
-    () => message.content
-      ? processMessageContent(message.content, { stripAllJson: message.isToolResult })
+    () => contentForDisplay
+      ? processMessageContent(contentForDisplay, { stripAllJson: message.isToolResult })
       : { cleanedContent: '', embeddedImages: [], embeddedAudios: [], toolResults: [] },
-    [message.content, message.isToolResult]
+    [contentForDisplay, message.isToolResult]
   );
   
   const imagesFromTools = extractImagesFromToolCalls(message.toolCalls);
@@ -601,6 +622,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
   const hasVisibleContent = 
     message.isLoading ||
     cleanedContent ||
+    (!isUser && thoughts.length > 0) ||
     actionResults.length > 0 ||
     walletResults.length > 0 ||
     tweetResults.length > 0 ||
@@ -692,6 +714,17 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
                   <ReactMarkdown>{cleanedContent}</ReactMarkdown>
                 </div>
               )
+            )}
+
+            {!isUser && !message.isToolResult && thoughts.length > 0 && (
+              <details className={`${cleanedContent ? 'mt-2' : ''} text-xs ${isUser ? 'text-white/80' : 'text-[var(--color-text-muted)]'}`}>
+                <summary className="cursor-pointer select-none hover:opacity-90">
+                  Thoughts
+                </summary>
+                <div className={`mt-2 whitespace-pre-wrap font-mono rounded-lg border px-3 py-2 ${isUser ? 'border-white/20 bg-white/10 text-white/90' : 'border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/40 text-[var(--color-text-secondary)]'}`}>
+                  {thoughts.join('\n\n')}
+                </div>
+              </details>
             )}
 
             {/* Render unknown JSON tool results as structured cards instead of raw JSON */}
