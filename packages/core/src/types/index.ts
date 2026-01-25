@@ -71,6 +71,15 @@ export interface TelegramConfig {
    * Use string form.
    */
   allowedDmUserIds?: string[];
+  /**
+   * Primary home channel chat ID (e.g., "-1001234567890").
+   * The avatar can only respond in this channel or other ratibots' home channels.
+   */
+  homeChannelId?: string;
+  /**
+   * Display-friendly channel username without @ (e.g., "ratibots").
+   */
+  homeChannelUsername?: string;
 }
 
 export interface DiscordConfig {
@@ -716,6 +725,8 @@ export const TelegramConfigSchema = z.object({
   allowedChatTypes: z.array(z.enum(['private', 'group', 'supergroup', 'channel'])).optional(),
   allowedChatIds: z.array(z.string()).optional(),
   allowedDmUserIds: z.array(z.string()).optional(),
+  homeChannelId: z.string().optional(),
+  homeChannelUsername: z.string().optional(),
 });
 
 export const DiscordConfigSchema = z.object({

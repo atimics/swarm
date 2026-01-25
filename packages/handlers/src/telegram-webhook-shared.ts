@@ -11,6 +11,8 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { randomUUID, timingSafeEqual } from 'crypto';
 import {
   TelegramAdapter,
@@ -22,9 +24,13 @@ import {
 
 const sqs = new SQSClient({});
 const secretsClient = new SecretsManagerClient({});
+const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
 
 const MESSAGE_QUEUE_URL = process.env.MESSAGE_QUEUE_URL!;
 const STATE_TABLE = process.env.STATE_TABLE!;
+const ADMIN_TABLE = process.env.ADMIN_TABLE;
 const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
 
@@ -40,15 +46,193 @@ const webhookSecretCache = new Map<string, { value: string; expiresAt: number }>
 const CONFIG_TTL_MS = 60_000;
 const TOKEN_TTL_MS = 5 * 60_000;
 const WEBHOOK_SECRET_TTL_MS = 5 * 60_000;
+const HOME_CHANNEL_CACHE_TTL_MS = 60_000;
+const ACTIVE_CHANNEL_CACHE_TTL_MS = 60_000;
 
+// Home channel cache (set of chat IDs that are home channels)
+let homeChannelCache: { ids: Set<string>; expiresAt: number } | null = null;
+
+// Per-avatar active channel cache (most recently active channel)
+const activeChannelCache = new Map<string, { chatId: string; expiresAt: number }>();
+
+// Redirect message for blocked channels/DMs
+const REDIRECT_MESSAGE = `I can only chat in my home channel! Join us:
+
+🌐 https://swarm.rati.chat/
+💬 https://t.me/ratichat
+🪙 $RATiOS: 281Qdc3ZcPQtn8odD9p4GyhzBSko1r5jmQrNU1dQBAGS`;
+
+/**
+ * Get the most recently active channel for an avatar.
+ * Used as a fallback when no home channel is explicitly configured.
+ * Queries channel state records and returns the one with most recent activity.
+ */
+async function getMostRecentActiveChannel(avatarId: string): Promise<string | null> {
+  const now = Date.now();
+  const cached = activeChannelCache.get(avatarId);
+  if (cached && cached.expiresAt > now) {
+    return cached.chatId;
+  }
+
+  if (!ADMIN_TABLE) {
+    return null;
+  }
+
+  try {
+    // Scan channel state records for this avatar
+    // Channel records have pk like "CHANNEL#{avatarId}#{chatId}"
+    const result = await dynamoClient.send(new ScanCommand({
+      TableName: ADMIN_TABLE,
+      FilterExpression: 'begins_with(pk, :prefix) AND sk = :sk AND chatType <> :private',
+      ExpressionAttributeValues: {
+        ':prefix': `CHANNEL#${avatarId}#`,
+        ':sk': 'STATE',
+        ':private': 'private',
+      },
+      ProjectionExpression: 'chatId, lastActivityAt, messageCount',
+    }));
+
+    if (!result.Items || result.Items.length === 0) {
+      return null;
+    }
+
+    // Find the channel with most recent activity (or highest message count as tiebreaker)
+    let bestChannel: { chatId: number; lastActivityAt: number; messageCount: number } | null = null;
+    for (const item of result.Items) {
+      const chatId = item.chatId as number;
+      const lastActivityAt = (item.lastActivityAt as number) || 0;
+      const messageCount = (item.messageCount as number) || 0;
+
+      if (!bestChannel ||
+          lastActivityAt > bestChannel.lastActivityAt ||
+          (lastActivityAt === bestChannel.lastActivityAt && messageCount > bestChannel.messageCount)) {
+        bestChannel = { chatId, lastActivityAt, messageCount };
+      }
+    }
+
+    if (bestChannel) {
+      const chatIdStr = String(bestChannel.chatId);
+      activeChannelCache.set(avatarId, { chatId: chatIdStr, expiresAt: now + ACTIVE_CHANNEL_CACHE_TTL_MS });
+      logger.info('Found most recent active channel', { avatarId, chatId: chatIdStr, lastActivityAt: bestChannel.lastActivityAt });
+      return chatIdStr;
+    }
+
+    return null;
+  } catch (err) {
+    logger.warn('Failed to fetch active channels', { avatarId, error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
+/**
+ * Get all home channel IDs from the registry.
+ * Uses in-memory caching with 60 second TTL.
+ */
+async function getHomeChannelIds(): Promise<Set<string>> {
+  if (!ADMIN_TABLE) {
+    // ADMIN_TABLE not configured, home channel feature disabled
+    return new Set();
+  }
+
+  const now = Date.now();
+  if (homeChannelCache && homeChannelCache.expiresAt > now) {
+    return homeChannelCache.ids;
+  }
+
+  try {
+    const result = await dynamoClient.send(new QueryCommand({
+      TableName: ADMIN_TABLE,
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: {
+        ':pk': 'HOME_CHANNELS',
+      },
+      ProjectionExpression: 'sk', // sk = chatId
+    }));
+
+    const ids = new Set<string>();
+    for (const item of result.Items || []) {
+      if (item.sk) {
+        ids.add(item.sk as string);
+      }
+    }
+
+    homeChannelCache = { ids, expiresAt: now + HOME_CHANNEL_CACHE_TTL_MS };
+    return ids;
+  } catch (err) {
+    logger.warn('Failed to fetch home channels', { error: err instanceof Error ? err.message : String(err) });
+    return new Set();
+  }
+}
+
+/**
+ * Create a home channel checker for a specific avatar.
+ * Checks if a chat ID is a registered home channel, with fallback to most recently active channel.
+ */
+function createHomeChannelChecker(avatarId: string): HomeChannelChecker {
+  return {
+    async isHomeChannel(chatId: string, avatarHomeChannelId?: string): Promise<boolean> {
+      // Fast path: check if it's the avatar's own home channel
+      if (avatarHomeChannelId && chatId === avatarHomeChannelId) {
+        return true;
+      }
+
+      // Check against all registered home channels
+      const homeChannelIds = await getHomeChannelIds();
+      if (homeChannelIds.has(chatId)) {
+        return true;
+      }
+
+      // Fallback: if avatar has no home channel configured, allow most recently active channel
+      // This prevents avatars from being completely blocked when first deploying
+      if (!avatarHomeChannelId && homeChannelIds.size === 0) {
+        // No home channels registered at all - allow all (legacy behavior during migration)
+        logger.info('No home channels registered, allowing all channels (migration mode)');
+        return true;
+      }
+
+      if (!avatarHomeChannelId) {
+        // Avatar has no home channel configured - check if this is their most active channel
+        const mostActiveChannel = await getMostRecentActiveChannel(avatarId);
+        if (mostActiveChannel && chatId === mostActiveChannel) {
+          logger.info('Allowing most recently active channel as fallback', { avatarId, chatId });
+          return true;
+        }
+      }
+
+      return false;
+    },
+  };
+}
+
+/**
+ * Interface for home channel checking (dependency injection).
+ * This allows the webhook handler to check home channels without depending on admin-api.
+ */
+export interface HomeChannelChecker {
+  isHomeChannel: (chatId: string, avatarHomeChannelId?: string) => Promise<boolean>;
+}
+
+/**
+ * Check if a Telegram chat is allowed for this avatar.
+ *
+ * For DMs (private chats): Uses allowedDmUserIds allowlist.
+ * For groups/channels: Uses home channel logic if homeChannelChecker is provided,
+ *                      otherwise falls back to allowedChatIds allowlist.
+ *
+ * @param envelope - The message envelope with chat info
+ * @param telegramCfg - The avatar's Telegram configuration
+ * @param homeChannelChecker - Optional: checker for home channel validation
+ * @returns true if the chat is allowed, false otherwise
+ */
 export function isTelegramChatAllowed(
   envelope: {
     conversationId: string;
     sender: { id: string | number; platformUserId?: string | number };
     metadata: { chatType?: string };
   },
-  telegramCfg: { allowedChatIds?: string[]; allowedDmUserIds?: string[] } | undefined
-): boolean {
+  telegramCfg: { allowedChatIds?: string[]; allowedDmUserIds?: string[]; homeChannelId?: string } | undefined,
+  homeChannelChecker?: HomeChannelChecker
+): boolean | Promise<boolean> {
   // DMs: allow only if user is allowlisted
   if (envelope.metadata.chatType === 'private') {
     const allowedDmUserIds = telegramCfg?.allowedDmUserIds;
@@ -57,7 +241,15 @@ export function isTelegramChatAllowed(
     return !!allowedDmUserIds && allowedDmUserIds.length > 0 && allowedDmUserIds.includes(String(userId));
   }
 
-  // Groups/channels: optional allowlist by chat ID
+  // Groups/channels: use home channel logic if checker is provided
+  if (homeChannelChecker) {
+    return homeChannelChecker.isHomeChannel(
+      envelope.conversationId,
+      telegramCfg?.homeChannelId
+    );
+  }
+
+  // Fallback: optional allowlist by chat ID (legacy behavior)
   const allowedChatIds = telegramCfg?.allowedChatIds;
   if (allowedChatIds && allowedChatIds.length > 0) {
     return allowedChatIds.includes(envelope.conversationId);
@@ -232,13 +424,39 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     envelope.traceId = traceId;
 
     const telegramCfg = avatarConfig.platforms.telegram;
-    if (!isTelegramChatAllowed(envelope, telegramCfg)) {
+    // Use home channel checker for groups/channels if ADMIN_TABLE is configured
+    const homeChecker = ADMIN_TABLE ? createHomeChannelChecker(avatarId) : undefined;
+    const chatAllowed = await Promise.resolve(isTelegramChatAllowed(envelope, telegramCfg, homeChecker));
+    if (!chatAllowed) {
+      const isMentioned = envelope.metadata.isMention || envelope.metadata.isReplyToBot;
+
       if (envelope.metadata.chatType === 'private') {
         const userId = envelope.sender.platformUserId ?? envelope.sender.id;
         logger.info('DM blocked (not allowlisted)', { event: 'chat_blocked', chatType: 'private', userId });
       } else {
-        logger.info('Chat not allowlisted', { event: 'chat_blocked', chatId: envelope.conversationId });
+        logger.info('Chat not in home channel registry', { event: 'chat_blocked', chatId: envelope.conversationId });
       }
+
+      // Send redirect message if the avatar was mentioned or replied to
+      if (isMentioned) {
+        try {
+          const bot = telegramAdapter.getBot();
+          if (bot) {
+            await bot.api.sendMessage(
+              parseInt(envelope.conversationId),
+              REDIRECT_MESSAGE,
+              { reply_to_message_id: parseInt(envelope.messageId) }
+            );
+            logger.info('Sent redirect message', { event: 'redirect_sent', chatId: envelope.conversationId });
+          }
+        } catch (err) {
+          logger.warn('Failed to send redirect message', {
+            error: err instanceof Error ? err.message : String(err),
+            chatId: envelope.conversationId
+          });
+        }
+      }
+
       return ok();
     }
 

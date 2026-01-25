@@ -345,6 +345,10 @@ export interface AvatarRecord {
       allowedChatIds?: string[];
       /** Allowlist of user IDs the bot may respond to in DMs. */
       allowedDmUserIds?: string[];
+      /** Primary home channel chat ID (e.g., "-1001234567890"). */
+      homeChannelId?: string;
+      /** Display-friendly channel username without @ (e.g., "ratibots"). */
+      homeChannelUsername?: string;
     };
     twitter?: {
       enabled: boolean;
@@ -1398,4 +1402,26 @@ export interface MemoryQueryOptions {
     query: string;
     threshold?: number;      // Minimum similarity (default: 0.5)
   };
+}
+
+// ============================================================================
+// Home Channel Registry (for multi-bot channel filtering)
+// ============================================================================
+
+/**
+ * Home channel record
+ * Tracks which chat IDs are "home channels" for any ratibot avatar.
+ * Avatars can only respond in their own home channel OR home channels of other ratibots.
+ * Key: pk=HOME_CHANNELS, sk={chatId}
+ */
+export interface HomeChannelRecord {
+  pk: string;              // "HOME_CHANNELS"
+  sk: string;              // "{chatId}" (e.g., "-1001234567890")
+  chatId: string;          // Chat ID as string
+  avatarId: string;        // Avatar that owns this home channel
+  botUsername: string;     // Bot username for reference
+  channelUsername?: string; // Channel @username without @ (e.g., "ratibots")
+  channelTitle?: string;   // Human-readable title
+  registeredAt: number;    // When first registered
+  updatedAt: number;       // Last update timestamp
 }

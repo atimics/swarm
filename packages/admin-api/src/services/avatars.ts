@@ -23,6 +23,10 @@ import {
   type GateStatus,
   type ClaimableNFT,
 } from './nft-gate.js';
+import {
+  registerHomeChannel,
+  unregisterHomeChannelForAvatar,
+} from './home-channel.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -306,6 +310,22 @@ export async function updateAvatar(
   // Sync to state table so handlers can access it
   await syncAvatarConfig(updated);
 
+  // Register home channel if configured
+  const telegramConfig = updated.platforms?.telegram;
+  if (telegramConfig?.homeChannelId && telegramConfig?.botUsername) {
+    try {
+      await registerHomeChannel(
+        avatarId,
+        telegramConfig.homeChannelId,
+        telegramConfig.botUsername,
+        telegramConfig.homeChannelUsername
+      );
+    } catch (err) {
+      console.warn(`[Avatars] Failed to register home channel for ${avatarId}:`, err);
+      // Don't fail the update if home channel registration fails
+    }
+  }
+
   return updated;
 }
 
@@ -382,6 +402,15 @@ export async function deleteAvatar(
   if (existing?.creatorWallet && existing.status !== 'deleted') {
     await decrementCreatorCount(existing.creatorWallet);
   }
+
+  // Unregister home channel if configured
+  try {
+    await unregisterHomeChannelForAvatar(avatarId);
+  } catch (err) {
+    console.warn(`[Avatars] Failed to unregister home channel for ${avatarId}:`, err);
+    // Don't fail the delete if home channel unregistration fails
+  }
+
   await updateAvatar(avatarId, { status: 'deleted' }, session);
 }
 
