@@ -17,6 +17,7 @@ import {
   DEFAULT_LLM_MAX_TOKENS,
   type AvatarConfig,
 } from '@swarm/core';
+import { maxTwitterId } from './utils/twitter-id.js';
 
 // Environment variables
 const STATE_TABLE = process.env.STATE_TABLE!;
@@ -103,6 +104,13 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
     // Get the last processed mention ID from state
     const sinceId = await stateService.getLastMentionId(AVATAR_ID);
 
+    logger.info('Cursor state before poll', {
+      event: 'cursor_state',
+      subsystem: 'twitter',
+      avatarId: AVATAR_ID,
+      cursorBefore: sinceId,
+    });
+
     logger.info('Fetching mentions', {
       event: 'api_request',
       subsystem: 'twitter',
@@ -130,6 +138,8 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
     // Process mentions (oldest first)
     const sortedMentions = mentions.sort((a, b) => a.timestamp - b.timestamp);
     let newestMentionId = sinceId;
+    let mentionsQueued = 0;
+    let mentionsFiltered = 0;
 
     for (const envelope of sortedMentions) {
       const traceId = randomUUID();
@@ -140,14 +150,45 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
         messageId: envelope.messageId,
       });
 
+      // Log mention processing context
+      logger.debug('Processing mention', {
+        event: 'mention_processing',
+        subsystem: 'twitter',
+        avatarId: AVATAR_ID,
+        tweetId: envelope.messageId,
+        threadId: envelope.conversationId,
+        senderId: envelope.sender.id,
+        senderUsername: envelope.sender.username,
+      });
+
       // Skip self-mentions (our own tweets)
       if (envelope.sender.username === avatarConfig.platforms.twitter?.username) {
         logger.debug('Skipping self-mention', {
-          event: 'mention_skipped',
+          event: 'mention_filtered',
           subsystem: 'twitter',
+          avatarId: AVATAR_ID,
+          tweetId: envelope.messageId,
           reason: 'self_mention',
-          messageId: envelope.messageId,
         });
+        mentionsFiltered++;
+        // Still update cursor to prevent re-polling (using numeric comparison)
+        newestMentionId = maxTwitterId(newestMentionId, envelope.messageId);
+        continue;
+      }
+
+      // Ingest idempotency - check if we've already processed this tweet
+      const idempotencyKey = `twitter:${AVATAR_ID}:${envelope.messageId}`;
+      const isNewMention = await stateService.checkAndSetIdempotency(idempotencyKey, 24 * 60 * 60);
+      if (!isNewMention) {
+        logger.info('Duplicate mention detected at ingest, skipping', {
+          event: 'ingest_dedupe_hit',
+          subsystem: 'twitter',
+          avatarId: AVATAR_ID,
+          tweetId: envelope.messageId,
+          idempotencyKey,
+        });
+        // Still update cursor to prevent re-polling
+        newestMentionId = maxTwitterId(newestMentionId, envelope.messageId);
         continue;
       }
 
@@ -160,6 +201,9 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       );
 
       // Send to message queue for processing
+      const deduplicationId = `twitter-mention-${AVATAR_ID}-${envelope.messageId}`;
+      const messageGroupId = `${AVATAR_ID}#${envelope.conversationId}`;
+
       await sqsClient.send(new SendMessageCommand({
         QueueUrl: MESSAGE_QUEUE_URL,
         MessageBody: JSON.stringify({
@@ -174,32 +218,42 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
             StringValue: traceId,
           },
         },
-        MessageGroupId: `${AVATAR_ID}#${envelope.conversationId}`,
-        MessageDeduplicationId: `twitter-mention-${AVATAR_ID}-${envelope.messageId}`,
+        MessageGroupId: messageGroupId,
+        MessageDeduplicationId: deduplicationId,
       }));
 
-      logger.info('Queued mention for processing', {
-        event: 'mention_queued',
+      logger.debug('Message enqueued', {
+        event: 'mention_enqueued',
         subsystem: 'twitter',
-        messageId: envelope.messageId,
-        from: envelope.sender.username,
+        avatarId: AVATAR_ID,
+        tweetId: envelope.messageId,
+        threadId: envelope.conversationId,
+        deduplicationId,
+        messageGroupId,
       });
 
-      // Track the newest mention ID
-      if (!newestMentionId || envelope.messageId > newestMentionId) {
-        newestMentionId = envelope.messageId;
-      }
+      mentionsQueued++;
+
+      // Update cursor using numeric comparison for Twitter snowflake IDs
+      newestMentionId = maxTwitterId(newestMentionId, envelope.messageId);
     }
 
     // Update the last processed mention ID
     if (newestMentionId && newestMentionId !== sinceId) {
       await stateService.setLastMentionId(AVATAR_ID, newestMentionId);
-      logger.info('Updated last mention ID', {
-        event: 'state_updated',
-        subsystem: 'twitter',
-        lastMentionId: newestMentionId,
-      });
     }
+
+    logger.info('Cursor state after poll', {
+      event: 'cursor_updated',
+      subsystem: 'twitter',
+      avatarId: AVATAR_ID,
+      cursorBefore: sinceId,
+      cursorAfter: newestMentionId,
+      cursorAdvanced: newestMentionId !== sinceId,
+      mentionsRead: sortedMentions.length,
+      mentionsQueued,
+      mentionsFiltered,
+    });
 
     logger.info('Mention polling complete', {
       event: 'poll_complete',

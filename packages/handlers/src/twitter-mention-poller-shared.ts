@@ -25,6 +25,7 @@ import {
   type SwarmEnvelope,
 } from '@swarm/core';
 import { createTwitterUsageService, type TwitterUsageService } from './services/twitter-usage.js';
+import { maxTwitterId } from './utils/twitter-id.js';
 
 const sqsClient = new SQSClient({});
 
@@ -186,6 +187,13 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       totalPolled++;
       const sinceId = await stateService.getLastMentionId(avatarId);
 
+      logger.info('Cursor state before poll', {
+        event: 'cursor_state',
+        subsystem: 'twitter',
+        avatarId,
+        cursorBefore: sinceId,
+      });
+
       // Fetch with budget-aware limit
       const effectiveLimit = Math.min(perAvatarLimit, currentBudget.daily);
       const mentions = await twitterAdapter.getMentions(sinceId ?? undefined, {
@@ -207,23 +215,63 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       // Sort oldest first for processing order
       const sortedMentions = mentions.sort((a, b) => a.timestamp - b.timestamp);
       let newestMentionId = sinceId;
+      let avatarQueued = 0;
+      let avatarFiltered = 0;
 
       for (const envelope of sortedMentions) {
         const traceId = randomUUID();
         envelope.traceId = traceId;
+
+        // Log mention processing context
+        const raw = envelope.raw as { in_reply_to_user_id?: string };
+        const isReplyToBot = raw.in_reply_to_user_id === botUserId;
+        const hasMentionInText = botUsername
+          ? (envelope.content.text?.toLowerCase().includes(`@${botUsername.toLowerCase()}`) ?? false)
+          : false;
+
+        logger.debug('Processing mention', {
+          event: 'mention_processing',
+          subsystem: 'twitter',
+          avatarId,
+          tweetId: envelope.messageId,
+          threadId: envelope.conversationId,
+          senderId: envelope.sender.id,
+          senderUsername: envelope.sender.username,
+          isReplyToBot,
+          hasMentionInText,
+        });
 
         // Filter to only processable mentions using the new logic
         if (!shouldProcessMention(envelope, botUserId, botUsername)) {
           logger.debug('Skipping non-processable mention', {
             event: 'mention_filtered',
             subsystem: 'twitter',
+            avatarId,
+            tweetId: envelope.messageId,
             senderId: envelope.sender.id,
             senderUsername: envelope.sender.username,
+            isReplyToBot,
+            hasMentionInText,
           });
-          // Still update the cursor even for filtered mentions
-          if (!newestMentionId || envelope.messageId > newestMentionId) {
-            newestMentionId = envelope.messageId;
-          }
+          avatarFiltered++;
+          // Still update the cursor even for filtered mentions (using numeric comparison)
+          newestMentionId = maxTwitterId(newestMentionId, envelope.messageId);
+          continue;
+        }
+
+        // Ingest idempotency - check if we've already processed this tweet
+        const idempotencyKey = `twitter:${avatarId}:${envelope.messageId}`;
+        const isNewMention = await stateService.checkAndSetIdempotency(idempotencyKey, 24 * 60 * 60);
+        if (!isNewMention) {
+          logger.info('Duplicate mention detected at ingest, skipping', {
+            event: 'ingest_dedupe_hit',
+            subsystem: 'twitter',
+            avatarId,
+            tweetId: envelope.messageId,
+            idempotencyKey,
+          });
+          // Still update cursor to prevent re-polling
+          newestMentionId = maxTwitterId(newestMentionId, envelope.messageId);
           continue;
         }
 
@@ -233,6 +281,9 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
           envelope.sender.displayName || envelope.sender.username || 'Unknown',
           envelope.content.text || ''
         );
+
+        const deduplicationId = `twitter-mention-${avatarId}-${envelope.messageId}`;
+        const messageGroupId = `${avatarId}#${envelope.conversationId}`;
 
         await sqsClient.send(new SendMessageCommand({
           QueueUrl: MESSAGE_QUEUE_URL,
@@ -248,20 +299,42 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
               StringValue: traceId,
             },
           },
-          MessageGroupId: `${avatarId}#${envelope.conversationId}`,
-          MessageDeduplicationId: `twitter-mention-${avatarId}-${envelope.messageId}`,
+          MessageGroupId: messageGroupId,
+          MessageDeduplicationId: deduplicationId,
         }));
 
-        totalQueued++;
+        logger.debug('Message enqueued', {
+          event: 'mention_enqueued',
+          subsystem: 'twitter',
+          avatarId,
+          tweetId: envelope.messageId,
+          threadId: envelope.conversationId,
+          deduplicationId,
+          messageGroupId,
+        });
 
-        if (!newestMentionId || envelope.messageId > newestMentionId) {
-          newestMentionId = envelope.messageId;
-        }
+        totalQueued++;
+        avatarQueued++;
+
+        // Update cursor using numeric comparison for Twitter snowflake IDs
+        newestMentionId = maxTwitterId(newestMentionId, envelope.messageId);
       }
 
       if (newestMentionId && newestMentionId !== sinceId) {
         await stateService.setLastMentionId(avatarId, newestMentionId);
       }
+
+      logger.info('Cursor state after poll', {
+        event: 'cursor_updated',
+        subsystem: 'twitter',
+        avatarId,
+        cursorBefore: sinceId,
+        cursorAfter: newestMentionId,
+        cursorAdvanced: newestMentionId !== sinceId,
+        mentionsRead: sortedMentions.length,
+        mentionsQueued: avatarQueued,
+        mentionsFiltered: avatarFiltered,
+      });
     } catch (error) {
       logger.error('Failed to poll Twitter mentions for avatar', error, {
         event: 'handler_error',
