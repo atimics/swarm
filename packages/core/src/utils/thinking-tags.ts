@@ -48,7 +48,10 @@ export function extractThinking(content: string): ThinkingExtractionResult {
   const thinkingBlocks: string[] = [];
   
   // Match <thinking>...</thinking> tags (case-insensitive, multiline, non-greedy)
-  const thinkingRegex = /<thinking>([\s\S]*?)<\/thinking>/gi;
+  const thinkingRegex = /<\s*thinking\s*>([\s\S]*?)<\s*\/\s*thinking\s*>/gi;
+  const thinkingOrphanOpenRegex = /\s*<\s*thinking\s*>\s*/gi;
+  const thinkingOrphanCloseRegex = /\s*<\s*\/\s*thinking\s*>\s*/gi;
+  const thinkingSelfClosingRegex = /\s*<\s*thinking\s*\/\s*>\s*/gi;
   
   let match;
   while ((match = thinkingRegex.exec(content)) !== null) {
@@ -60,6 +63,13 @@ export function extractThinking(content: string): ThinkingExtractionResult {
 
   // Remove all thinking blocks from the content
   let cleanContent = content.replace(thinkingRegex, '').trim();
+
+  // Remove any remaining orphan/self-closing tags
+  cleanContent = cleanContent
+    .replace(thinkingSelfClosingRegex, ' ')
+    .replace(thinkingOrphanOpenRegex, ' ')
+    .replace(thinkingOrphanCloseRegex, ' ')
+    .trim();
   
   // Clean up any double whitespace or newlines left behind
   cleanContent = cleanContent.replace(/\n\s*\n\s*\n/g, '\n\n').trim();

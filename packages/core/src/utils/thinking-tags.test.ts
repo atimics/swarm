@@ -84,6 +84,27 @@ Line 2
     expect(result.thinkingBlocks).toEqual([]);
     expect(result.hasThinking).toBe(false);
   });
+
+  it('should strip orphan opening thinking tags', () => {
+    const content = 'Hello <thinking>World';
+    const result = extractThinking(content);
+    expect(result.cleanContent).toBe('Hello World');
+    expect(result.thinkingBlocks).toEqual([]);
+  });
+
+  it('should strip orphan closing thinking tags', () => {
+    const content = 'Hello</thinking> World';
+    const result = extractThinking(content);
+    expect(result.cleanContent).toBe('Hello World');
+    expect(result.thinkingBlocks).toEqual([]);
+  });
+
+  it('should strip self-closing thinking tags', () => {
+    const content = 'Hello <thinking/> World';
+    const result = extractThinking(content);
+    expect(result.cleanContent).toBe('Hello World');
+    expect(result.thinkingBlocks).toEqual([]);
+  });
 });
 
 describe('formatThinkingForMemory', () => {
