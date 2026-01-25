@@ -43,6 +43,36 @@ export interface Tweet {
 }
 
 /**
+ * Post in the content store (for review/moderation)
+ */
+export interface ContentStorePost {
+  postId: string;
+  avatarId: string;
+  text: string;
+  media?: Array<{ type: string; url: string }>;
+  source: 'ingested' | 'generated' | 'simulation';
+  status: 'pending_review' | 'approved' | 'rejected' | 'queued' | 'posted' | 'failed';
+  qualityScore: number;
+  twitterId?: string;
+  communityId?: string;
+  communityName?: string;
+  createdAt: number;
+  reviewerId?: string;
+  reviewReason?: string;
+}
+
+/**
+ * Moderation configuration
+ */
+export interface ModerationConfig {
+  mode: 'pre' | 'post' | 'none';
+  autoGraduateAfter: number;
+  requireApprovalFor: ('tweets' | 'replies' | 'media')[];
+  approvedPostCount: number;
+  hasGraduated: boolean;
+}
+
+/**
  * Services required by Twitter tools
  */
 export interface TwitterServices {
@@ -125,6 +155,58 @@ export interface TwitterServices {
     recentTopics?: string[];
     summary?: string;
   } | null>;
+
+  // =========================================================================
+  // Content Store / Post Review Services
+  // =========================================================================
+
+  /**
+   * List posts pending review
+   */
+  listPendingPosts?: (limit?: number) => Promise<ContentStorePost[]>;
+
+  /**
+   * Approve a post for publishing
+   */
+  approvePost?: (postId: string, reviewerId: string) => Promise<ContentStorePost | null>;
+
+  /**
+   * Reject a post
+   */
+  rejectPost?: (postId: string, reviewerId: string, reason: string) => Promise<ContentStorePost | null>;
+
+  /**
+   * Downrank a post (reduce quality score)
+   */
+  downrankPost?: (postId: string, amount: number) => Promise<ContentStorePost | null>;
+
+  /**
+   * Get moderation configuration
+   */
+  getModerationConfig?: () => Promise<ModerationConfig>;
+
+  /**
+   * Set moderation mode
+   */
+  setModerationMode?: (mode: 'pre' | 'post' | 'none') => Promise<ModerationConfig>;
+
+  /**
+   * Get moderation statistics
+   */
+  getModerationStats?: () => Promise<{
+    pendingCount: number;
+    approvedCount: number;
+    rejectedCount: number;
+    moderationMode: 'pre' | 'post' | 'none';
+    hasGraduated: boolean;
+    approvedPostCount: number;
+    autoGraduateAfter: number;
+  }>;
+
+  /**
+   * Get simulated feed (for simulation mode)
+   */
+  getSimulatedFeed?: (limit?: number) => Promise<ContentStorePost[]>;
 }
 
 /**
@@ -636,6 +718,229 @@ export function createTwitterTools(services: TwitterServices) {
             summary: pendingMentions > 0
               ? `${pendingMentions} pending mention(s) to review`
               : 'No pending mentions',
+          },
+        };
+      },
+    }),
+
+    // =========================================================================
+    // Content Store / Post Review Tools
+    // =========================================================================
+
+    defineTool({
+      name: 'twitter_list_pending_posts',
+      description: 'List posts that are pending review before being published to Twitter. Use this to see what content needs approval.',
+      category: 'readonly',
+      toolset: 'twitter',
+      inputSchema: z.object({
+        limit: z.number().min(1).max(50).optional().default(10).describe('Maximum number of posts to return'),
+      }),
+      shouldShow: async (_context) => !!services.listPendingPosts,
+      execute: async (input, _context): Promise<ToolResult> => {
+        if (!services.listPendingPosts) {
+          return { success: false, error: 'Post review service is not available.' };
+        }
+
+        const posts = await services.listPendingPosts(input.limit);
+        return {
+          success: true,
+          data: {
+            count: posts.length,
+            posts: posts.map(p => ({
+              postId: p.postId,
+              text: p.text,
+              source: p.source,
+              qualityScore: p.qualityScore,
+              communityName: p.communityName,
+              hasMedia: (p.media?.length ?? 0) > 0,
+              createdAt: new Date(p.createdAt).toISOString(),
+            })),
+          },
+        };
+      },
+    }),
+
+    defineTool({
+      name: 'twitter_approve_post',
+      description: 'Approve a pending post for publishing to Twitter. The post will be queued for delivery.',
+      category: 'config',
+      toolset: 'twitter',
+      inputSchema: z.object({
+        postId: z.string().describe('The ID of the post to approve'),
+      }),
+      shouldShow: async (_context) => !!services.approvePost,
+      execute: async (input, context): Promise<ToolResult> => {
+        if (!services.approvePost) {
+          return { success: false, error: 'Post approval service is not available.' };
+        }
+
+        const reviewerId = context.userId || 'unknown';
+        const post = await services.approvePost(input.postId, reviewerId);
+
+        if (!post) {
+          return { success: false, error: 'Post not found or could not be approved.' };
+        }
+
+        return {
+          success: true,
+          data: {
+            postId: post.postId,
+            status: post.status,
+            message: `Post approved and queued for publishing.`,
+          },
+        };
+      },
+    }),
+
+    defineTool({
+      name: 'twitter_reject_post',
+      description: 'Reject a pending post. It will not be published to Twitter.',
+      category: 'config',
+      toolset: 'twitter',
+      inputSchema: z.object({
+        postId: z.string().describe('The ID of the post to reject'),
+        reason: z.string().describe('Reason for rejection (helps improve future content)'),
+      }),
+      shouldShow: async (_context) => !!services.rejectPost,
+      execute: async (input, context): Promise<ToolResult> => {
+        if (!services.rejectPost) {
+          return { success: false, error: 'Post rejection service is not available.' };
+        }
+
+        const reviewerId = context.userId || 'unknown';
+        const post = await services.rejectPost(input.postId, reviewerId, input.reason);
+
+        if (!post) {
+          return { success: false, error: 'Post not found or could not be rejected.' };
+        }
+
+        return {
+          success: true,
+          data: {
+            postId: post.postId,
+            status: post.status,
+            message: `Post rejected: ${input.reason}`,
+          },
+        };
+      },
+    }),
+
+    defineTool({
+      name: 'twitter_downrank_post',
+      description: 'Reduce the quality score of a post. Posts below score 50 are excluded from feeds. Use this to gradually downrank low-quality content.',
+      category: 'config',
+      toolset: 'twitter',
+      inputSchema: z.object({
+        postId: z.string().describe('The ID of the post to downrank'),
+        amount: z.number().min(1).max(100).default(10).describe('Amount to reduce quality score by (1-100)'),
+      }),
+      shouldShow: async (_context) => !!services.downrankPost,
+      execute: async (input, _context): Promise<ToolResult> => {
+        if (!services.downrankPost) {
+          return { success: false, error: 'Post downranking service is not available.' };
+        }
+
+        const post = await services.downrankPost(input.postId, -input.amount);
+
+        if (!post) {
+          return { success: false, error: 'Post not found or could not be downranked.' };
+        }
+
+        return {
+          success: true,
+          data: {
+            postId: post.postId,
+            newQualityScore: post.qualityScore,
+            message: `Quality score reduced to ${post.qualityScore}.`,
+          },
+        };
+      },
+    }),
+
+    defineTool({
+      name: 'twitter_set_moderation_mode',
+      description: 'Set the moderation mode for this avatar. Pre-moderation requires approval before posting, post-moderation reviews after posting, none disables moderation.',
+      category: 'config',
+      toolset: 'twitter',
+      inputSchema: z.object({
+        mode: z.enum(['pre', 'post', 'none']).describe('Moderation mode: pre (approve before posting), post (review after), none (no moderation)'),
+      }),
+      shouldShow: async (_context) => !!services.setModerationMode,
+      execute: async (input, _context): Promise<ToolResult> => {
+        if (!services.setModerationMode) {
+          return { success: false, error: 'Moderation configuration service is not available.' };
+        }
+
+        const config = await services.setModerationMode(input.mode);
+
+        return {
+          success: true,
+          data: {
+            mode: config.mode,
+            hasGraduated: config.hasGraduated,
+            approvedPostCount: config.approvedPostCount,
+            message: `Moderation mode set to "${input.mode}".`,
+          },
+        };
+      },
+    }),
+
+    defineTool({
+      name: 'twitter_get_moderation_stats',
+      description: 'Get moderation statistics for this avatar, including pending posts count and moderation settings.',
+      category: 'readonly',
+      toolset: 'twitter',
+      inputSchema: z.object({}),
+      shouldShow: async (_context) => !!services.getModerationStats,
+      execute: async (_input, _context): Promise<ToolResult> => {
+        if (!services.getModerationStats) {
+          return { success: false, error: 'Moderation stats service is not available.' };
+        }
+
+        const stats = await services.getModerationStats();
+
+        return {
+          success: true,
+          data: {
+            ...stats,
+            graduationProgress: stats.hasGraduated
+              ? 'Graduated'
+              : `${stats.approvedPostCount}/${stats.autoGraduateAfter} posts approved`,
+          },
+        };
+      },
+    }),
+
+    defineTool({
+      name: 'twitter_get_simulated_feed',
+      description: 'Get the simulated feed for this avatar (only visible in simulation mode). Shows posts that would have been published to Twitter.',
+      category: 'readonly',
+      toolset: 'twitter',
+      inputSchema: z.object({
+        limit: z.number().min(1).max(50).optional().default(20).describe('Maximum number of posts to return'),
+      }),
+      shouldShow: async (_context) => !!services.getSimulatedFeed,
+      execute: async (input, _context): Promise<ToolResult> => {
+        if (!services.getSimulatedFeed) {
+          return { success: false, error: 'Simulated feed service is not available.' };
+        }
+
+        const posts = await services.getSimulatedFeed(input.limit);
+
+        return {
+          success: true,
+          data: {
+            count: posts.length,
+            posts: posts.map(p => ({
+              postId: p.postId,
+              text: p.text,
+              source: p.source,
+              status: p.status,
+              qualityScore: p.qualityScore,
+              communityName: p.communityName,
+              hasMedia: (p.media?.length ?? 0) > 0,
+              createdAt: new Date(p.createdAt).toISOString(),
+            })),
           },
         };
       },
