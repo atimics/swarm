@@ -12,7 +12,7 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand, DeleteCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { randomUUID, timingSafeEqual } from 'crypto';
 import {
   TelegramAdapter,
@@ -128,6 +128,89 @@ async function cleanupChannelState(avatarId: string, chatId: string): Promise<vo
 }
 
 /**
+ * Register a home channel from the webhook handler.
+ * This is a lightweight version that writes directly to ADMIN_TABLE.
+ */
+async function registerHomeChannelFromWebhook(
+  avatarId: string,
+  chatId: string,
+  botUsername: string,
+  channelUsername?: string,
+  channelTitle?: string
+): Promise<void> {
+  if (!ADMIN_TABLE) return;
+
+  const now = Date.now();
+
+  await dynamoClient.send(new PutCommand({
+    TableName: ADMIN_TABLE,
+    Item: {
+      pk: 'HOME_CHANNELS',
+      sk: chatId,
+      chatId,
+      avatarId,
+      botUsername,
+      channelUsername,
+      channelTitle,
+      registeredAvatars: [{ avatarId, botUsername }],
+      registeredAt: now,
+      updatedAt: now,
+    },
+  }));
+}
+
+/**
+ * Update avatar config with home channel info.
+ * Uses UpdateCommand to only modify the home channel fields.
+ */
+async function updateAvatarHomeChannel(
+  avatarId: string,
+  chatId: string,
+  channelUsername?: string,
+  _channelTitle?: string // Unused but kept for potential future use
+): Promise<void> {
+  if (!STATE_TABLE) return;
+
+  // Build the update expression dynamically
+  const updateParts: string[] = [
+    '#platforms.#telegram.#homeChannelId = :chatId',
+  ];
+  const expressionNames: Record<string, string> = {
+    '#platforms': 'platforms',
+    '#telegram': 'telegram',
+    '#homeChannelId': 'homeChannelId',
+  };
+  const expressionValues: Record<string, unknown> = {
+    ':chatId': chatId,
+  };
+
+  if (channelUsername) {
+    updateParts.push('#platforms.#telegram.#homeChannelUsername = :username');
+    expressionNames['#homeChannelUsername'] = 'homeChannelUsername';
+    expressionValues[':username'] = channelUsername;
+
+    // Also set the home channel URL
+    updateParts.push('#platforms.#telegram.#homeChannelUrl = :url');
+    expressionNames['#homeChannelUrl'] = 'homeChannelUrl';
+    expressionValues[':url'] = `https://t.me/${channelUsername}`;
+  }
+
+  await dynamoClient.send(new UpdateCommand({
+    TableName: STATE_TABLE,
+    Key: {
+      pk: `AVATAR#${avatarId}`,
+      sk: 'CONFIG',
+    },
+    UpdateExpression: `SET ${updateParts.join(', ')}`,
+    ExpressionAttributeNames: expressionNames,
+    ExpressionAttributeValues: expressionValues,
+  }));
+
+  // Invalidate the avatar config cache
+  avatarConfigCache.delete(avatarId);
+}
+
+/**
  * Get all home channel IDs from the registry.
  * Uses in-memory caching with 60 second TTL.
  */
@@ -217,12 +300,34 @@ export function isTelegramChatAllowed(
     sender: { id: string | number; platformUserId?: string | number };
     metadata: { chatType?: string };
   },
-  telegramCfg: { allowedChatIds?: string[]; allowedDmUserIds?: string[]; homeChannelId?: string } | undefined,
+  telegramCfg: {
+    allowedChatIds?: string[];
+    allowedDmUserIds?: string[];
+    allowedChats?: Array<{ chatId: string }>;
+    allowedDmUsers?: Array<{ userId: string }>;
+    homeChannelId?: string;
+  } | undefined,
   homeChannelChecker?: HomeChannelChecker
 ): boolean | Promise<boolean> {
+  const getAllowedDmUserIds = (): string[] | undefined => {
+    // New format takes precedence if present (even if empty).
+    if (telegramCfg && 'allowedDmUsers' in telegramCfg) {
+      return telegramCfg.allowedDmUsers?.map((u) => String(u.userId)) || [];
+    }
+    return telegramCfg?.allowedDmUserIds;
+  };
+
+  const getAllowedChatIds = (): string[] | undefined => {
+    // New format takes precedence if present (even if empty).
+    if (telegramCfg && 'allowedChats' in telegramCfg) {
+      return telegramCfg.allowedChats?.map((c) => String(c.chatId)) || [];
+    }
+    return telegramCfg?.allowedChatIds;
+  };
+
   // DMs: allow only if user is allowlisted
   if (envelope.metadata.chatType === 'private') {
-    const allowedDmUserIds = telegramCfg?.allowedDmUserIds;
+    const allowedDmUserIds = getAllowedDmUserIds();
     const userId = envelope.sender.platformUserId ?? envelope.sender.id;
 
     return !!allowedDmUserIds && allowedDmUserIds.length > 0 && allowedDmUserIds.includes(String(userId));
@@ -230,7 +335,7 @@ export function isTelegramChatAllowed(
 
   // Groups/channels: use home channel logic if checker is provided
   if (homeChannelChecker) {
-    const allowedChatIds = telegramCfg?.allowedChatIds;
+    const allowedChatIds = getAllowedChatIds();
     if (allowedChatIds && allowedChatIds.length > 0 && allowedChatIds.includes(envelope.conversationId)) {
       return true;
     }
@@ -242,7 +347,7 @@ export function isTelegramChatAllowed(
   }
 
   // Fallback: optional allowlist by chat ID (legacy behavior)
-  const allowedChatIds = telegramCfg?.allowedChatIds;
+  const allowedChatIds = getAllowedChatIds();
   if (allowedChatIds && allowedChatIds.length > 0) {
     return allowedChatIds.includes(envelope.conversationId);
   }
@@ -410,16 +515,74 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       return { statusCode: 400, body: 'Invalid JSON' };
     }
 
-    // Handle bot removal from channel (my_chat_member update)
+    // Handle bot added/removed from channel (my_chat_member update)
     if (update.my_chat_member) {
       const myChatMember = update.my_chat_member as {
-        chat?: { id?: number };
+        chat?: {
+          id?: number;
+          type?: string;
+          username?: string;
+          title?: string;
+        };
         new_chat_member?: { status?: string };
       };
       const newStatus = myChatMember.new_chat_member?.status;
       const chatId = myChatMember.chat?.id;
+      const chatUsername = myChatMember.chat?.username;
+      const chatTitle = myChatMember.chat?.title;
+      const chatType = myChatMember.chat?.type;
 
-      // If bot was removed (left or kicked), clean up channel state
+      // Bot was ADDED to a group/supergroup/channel
+      if (chatId && (newStatus === 'member' || newStatus === 'administrator')) {
+        // Only auto-register for groups, supergroups, channels (not private chats)
+        if (chatType === 'group' || chatType === 'supergroup' || chatType === 'channel') {
+          // Skip @ratibots (the default community channel)
+          if (chatUsername?.toLowerCase() !== 'ratibots') {
+            // Check if avatar already has a home channel configured
+            const hasHomeChannel = Boolean(avatarConfig.platforms.telegram?.homeChannelId);
+
+            if (!hasHomeChannel && ADMIN_TABLE) {
+              try {
+                // Register as home channel
+                const botUsername = avatarConfig.platforms.telegram?.botUsername || '';
+                await registerHomeChannelFromWebhook(
+                  avatarId,
+                  String(chatId),
+                  botUsername,
+                  chatUsername,
+                  chatTitle
+                );
+
+                // Update avatar config with home channel info
+                await updateAvatarHomeChannel(
+                  avatarId,
+                  String(chatId),
+                  chatUsername,
+                  chatTitle
+                );
+
+                logger.info('Auto-registered home channel', {
+                  event: 'home_channel_auto_registered',
+                  avatarId,
+                  chatId: String(chatId),
+                  chatUsername,
+                  chatTitle,
+                });
+              } catch (err) {
+                logger.warn('Failed to auto-register home channel', {
+                  event: 'home_channel_auto_register_failed',
+                  avatarId,
+                  chatId: String(chatId),
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
+            }
+          }
+        }
+        return ok();
+      }
+
+      // Bot was REMOVED (left or kicked), clean up channel state
       if (chatId && (newStatus === 'left' || newStatus === 'kicked')) {
         logger.info('Bot removed from channel, cleaning up state', {
           event: 'bot_removed',

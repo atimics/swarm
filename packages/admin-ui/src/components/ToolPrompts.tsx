@@ -144,6 +144,19 @@ type TelegramDiagnosis = {
   issues: Array<{ code: string; message: string }>;
 };
 
+// Types for username-based allowlists
+type TelegramUserRef = {
+  userId: string;
+  username?: string;
+  displayName?: string;
+};
+
+type TelegramChatRef = {
+  chatId: string;
+  username?: string;
+  title?: string;
+};
+
 const PRIORITY_MODEL_PROVIDERS = ['anthropic', 'openai', 'google', 'meta-llama', 'mistralai', 'cohere', 'deepseek'] as const;
 
 // Capability labels for display
@@ -159,12 +172,16 @@ const CAPABILITY_LABELS: Record<string, string> = {
 export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPromptProps) {
   const activeAgent = useActiveAvatar();
   const [token, setToken] = useState('');
-  const [allowedDmUserIds, setAllowedDmUserIds] = useState<string[]>([]);
-  const [allowedGroupChatIds, setAllowedGroupChatIds] = useState<string[]>([]);
-  const [newDmUserId, setNewDmUserId] = useState('');
-  const [newGroupChatId, setNewGroupChatId] = useState('');
+  // New format: store full refs with display info
+  const [allowedDmUsers, setAllowedDmUsers] = useState<TelegramUserRef[]>([]);
+  const [allowedChats, setAllowedChats] = useState<TelegramChatRef[]>([]);
+  const [newDmInput, setNewDmInput] = useState('');
+  const [newGroupInput, setNewGroupInput] = useState('');
+  const [dmInputError, setDmInputError] = useState<string | null>(null);
+  const [groupInputError, setGroupInputError] = useState<string | null>(null);
+  const [isResolvingGroup, setIsResolvingGroup] = useState(false);
   const [policyLoadError, setPolicyLoadError] = useState<string | null>(null);
-  const initialPolicyRef = useRef<{ allowedDmUserIds: string[]; allowedGroupChatIds: string[] } | null>(null);
+  const initialPolicyRef = useRef<{ allowedDmUsers: TelegramUserRef[]; allowedChats: TelegramChatRef[] } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
@@ -234,6 +251,15 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     setTelegramRepairLoading(false);
     setTelegramRepairError(null);
     setKnownTelegramUsers([]);
+    // Reset Telegram policy state
+    setAllowedDmUsers([]);
+    setAllowedChats([]);
+    setNewDmInput('');
+    setNewGroupInput('');
+    setDmInputError(null);
+    setGroupInputError(null);
+    setIsResolvingGroup(false);
+    initialPolicyRef.current = null;
     didInitFromStatus.current = null;
     // Reset Twitter state
     setTwitterFeatures(['mention_replies']);
@@ -549,15 +575,13 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const hasTelegramPolicyChanges = (() => {
     if (args.integration !== 'telegram') return false;
     if (!initialPolicyRef.current) return false;
-    const current = {
-      allowedDmUserIds: stableSorted(allowedDmUserIds),
-      allowedGroupChatIds: stableSorted(allowedGroupChatIds),
-    };
-    const initial = {
-      allowedDmUserIds: stableSorted(initialPolicyRef.current.allowedDmUserIds),
-      allowedGroupChatIds: stableSorted(initialPolicyRef.current.allowedGroupChatIds),
-    };
-    return JSON.stringify(current) !== JSON.stringify(initial);
+    // Compare by userId/chatId for stable comparison
+    const currentDmIds = allowedDmUsers.map(u => u.userId).sort();
+    const currentChatIds = allowedChats.map(c => c.chatId).sort();
+    const initialDmIds = initialPolicyRef.current.allowedDmUsers.map(u => u.userId).sort();
+    const initialChatIds = initialPolicyRef.current.allowedChats.map(c => c.chatId).sort();
+    return JSON.stringify({ dm: currentDmIds, chat: currentChatIds }) !==
+           JSON.stringify({ dm: initialDmIds, chat: initialChatIds });
   })();
 
   const hasTwitterConfigChanges = (() => {
@@ -603,14 +627,43 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
           setPolicyLoadError(`Failed to load current Telegram settings (HTTP ${response.status})`);
           return;
         }
-        const payload = (await response.json().catch(() => ({}))) as { platforms?: { telegram?: { allowedDmUserIds?: unknown; allowedChatIds?: unknown } } };
+        const payload = (await response.json().catch(() => ({}))) as {
+          platforms?: {
+            telegram?: {
+              allowedDmUserIds?: string[];
+              allowedChatIds?: string[];
+              allowedDmUsers?: TelegramUserRef[];
+              allowedChats?: TelegramChatRef[];
+            };
+          };
+        };
         const telegram = payload?.platforms?.telegram || {};
-        const dm = normalizeList(telegram.allowedDmUserIds);
-        const chats = normalizeList(telegram.allowedChatIds);
 
-        setAllowedDmUserIds(dm);
-        setAllowedGroupChatIds(chats);
-        initialPolicyRef.current = { allowedDmUserIds: dm, allowedGroupChatIds: chats };
+        // Handle new format (allowedDmUsers/allowedChats) with fallback to old format
+        let dmUsers: TelegramUserRef[];
+        let chats: TelegramChatRef[];
+
+        if (telegram.allowedDmUsers && telegram.allowedDmUsers.length > 0) {
+          dmUsers = telegram.allowedDmUsers;
+        } else if (telegram.allowedDmUserIds && telegram.allowedDmUserIds.length > 0) {
+          // Migrate from old format
+          dmUsers = normalizeList(telegram.allowedDmUserIds).map(id => ({ userId: id }));
+        } else {
+          dmUsers = [];
+        }
+
+        if (telegram.allowedChats && telegram.allowedChats.length > 0) {
+          chats = telegram.allowedChats;
+        } else if (telegram.allowedChatIds && telegram.allowedChatIds.length > 0) {
+          // Migrate from old format
+          chats = normalizeList(telegram.allowedChatIds).map(id => ({ chatId: id }));
+        } else {
+          chats = [];
+        }
+
+        setAllowedDmUsers(dmUsers);
+        setAllowedChats(chats);
+        initialPolicyRef.current = { allowedDmUsers: dmUsers, allowedChats: chats };
       } catch {
         setPolicyLoadError('Failed to load current Telegram settings');
       }
@@ -618,7 +671,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
     void run();
     // Only re-run when switching avatars
-     
+
   }, [args.integration, activeAgent?.id]);
 
   useEffect(() => {
@@ -848,6 +901,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
       // Persist Telegram policy (DM allowlist + allowed group chats)
       if (args.integration === 'telegram' && hasTelegramPolicyChanges) {
+        // Save in new format with display info, and also old format for backwards compatibility
         const policyResponse = await fetch(`${API_BASE}/avatars/${activeAgent.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -855,8 +909,12 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
           body: JSON.stringify({
             platforms: {
               telegram: {
-                allowedDmUserIds: stableSorted(allowedDmUserIds),
-                allowedChatIds: stableSorted(allowedGroupChatIds),
+                // New format with display info
+                allowedDmUsers: allowedDmUsers,
+                allowedChats: allowedChats,
+                // Old format for backwards compatibility with webhook handler
+                allowedDmUserIds: allowedDmUsers.map(u => u.userId),
+                allowedChatIds: allowedChats.map(c => c.chatId),
               },
             },
           }),
@@ -867,8 +925,8 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
           throw new Error(payload.error || payload.message || `Failed to save Telegram policy (HTTP ${policyResponse.status})`);
         }
         initialPolicyRef.current = {
-          allowedDmUserIds: stableSorted(allowedDmUserIds),
-          allowedGroupChatIds: stableSorted(allowedGroupChatIds),
+          allowedDmUsers: [...allowedDmUsers],
+          allowedChats: [...allowedChats],
         };
       }
 
@@ -1024,55 +1082,29 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
           </div>
         )}
 
+        {/* Telegram Health Status Indicator */}
         {args.integration === 'telegram' && (
           <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium text-[var(--color-text)]">Telegram Diagnostics</p>
-              <button
-                type="button"
-                onClick={() => void runTelegramDiagnostics()}
-                disabled={disabled || telegramDiagnosisLoading || !activeAgent?.id}
-                className="px-3 py-1.5 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
-              >
-                {telegramDiagnosisLoading ? 'Running…' : 'Re-run'}
-              </button>
-            </div>
-
-            {telegramDiagnosisError && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg">
-                <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                <span className="text-sm text-red-300">{telegramDiagnosisError}</span>
+            {telegramDiagnosisLoading ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg">
+                <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm text-[var(--color-text-secondary)]">Checking connection...</span>
               </div>
-            )}
-
-            {telegramDiagnosis && (
+            ) : telegramDiagnosisError ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <span className="text-lg">🔴</span>
+                <span className="text-sm text-red-300">Not configured</span>
+              </div>
+            ) : telegramDiagnosis ? (
               <div
                 className={
                   telegramDiagnosis.issues.length === 0
-                    ? 'px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg'
-                    : 'px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg'
+                    ? 'flex items-center justify-between gap-2 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg'
+                    : 'flex items-center justify-between gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg'
                 }
               >
                 <div className="flex items-center gap-2">
-                  <svg
-                    className={
-                      telegramDiagnosis.issues.length === 0
-                        ? 'w-4 h-4 text-green-400'
-                        : 'w-4 h-4 text-yellow-400'
-                    }
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d={telegramDiagnosis.issues.length === 0 ? 'M5 13l4 4L19 7' : 'M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}
-                    />
-                  </svg>
+                  <span className="text-lg">{telegramDiagnosis.issues.length === 0 ? '🟢' : '🟡'}</span>
                   <span
                     className={
                       telegramDiagnosis.issues.length === 0
@@ -1080,50 +1112,31 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                         : 'text-sm text-yellow-300'
                     }
                   >
-                    {telegramDiagnosis.issues.length === 0 ? 'Verified' : 'Needs attention'}
-                    {telegramDiagnosis.bot?.username ? ` (@${telegramDiagnosis.bot.username})` : ''}
+                    {telegramDiagnosis.issues.length === 0
+                      ? `Connected${telegramDiagnosis.bot?.username ? ` as @${telegramDiagnosis.bot.username}` : ''}`
+                      : 'Webhook issues'}
                   </span>
                 </div>
-
-                {telegramDiagnosis.issues.length > 0 && (
-                  <ul className="mt-2 space-y-1">
-                    {telegramDiagnosis.issues.slice(0, 3).map((issue) => (
-                      <li key={issue.code} className="text-xs text-[var(--color-text-secondary)]">
-                        • {issue.message}
-                      </li>
-                    ))}
-                    {telegramDiagnosis.issues.length > 3 && (
-                      <li className="text-xs text-[var(--color-text-muted)]">
-                        …and {telegramDiagnosis.issues.length - 3} more
-                      </li>
-                    )}
-                  </ul>
+                {telegramDiagnosis.issues.length > 0 && !telegramRepairLoading && (
+                  <button
+                    type="button"
+                    onClick={() => void repairTelegramWebhook()}
+                    disabled={disabled || telegramRepairLoading}
+                    className="px-2 py-1 text-xs bg-yellow-600 hover:bg-yellow-700 text-white rounded transition-colors"
+                  >
+                    Repair
+                  </button>
                 )}
-
-                {/* Show repair status if auto-repair is in progress or failed */}
                 {telegramRepairLoading && (
-                  <div className="mt-3 flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-                    <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-                    Auto-fixing webhook issues...
+                  <div className="flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
+                    <div className="w-3 h-3 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                    Fixing...
                   </div>
                 )}
-                {telegramRepairError && (
-                  <p className="mt-3 text-xs text-red-400">{telegramRepairError}</p>
-                )}
-
-                <div className="mt-2 grid grid-cols-1 gap-1">
-                  {typeof telegramDiagnosis.webhook.pendingUpdateCount === 'number' && (
-                    <div className="text-xs text-[var(--color-text-muted)]">
-                      Pending updates: {telegramDiagnosis.webhook.pendingUpdateCount}
-                    </div>
-                  )}
-                  {telegramDiagnosis.lastUpdate?.secondsAgo !== undefined && (
-                    <div className="text-xs text-[var(--color-text-muted)]">
-                      Last webhook activity: {telegramDiagnosis.lastUpdate.secondsAgo}s ago
-                    </div>
-                  )}
-                </div>
               </div>
+            ) : null}
+            {telegramRepairError && (
+              <p className="text-xs text-red-400">{telegramRepairError}</p>
             )}
           </div>
         )}
@@ -1631,43 +1644,90 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                     Users who can DM the bot
                   </label>
                   <p className="text-xs text-[var(--color-text-muted)]">
-                    Enter Telegram user IDs. To find your ID, DM the bot and it will tell you, or use @userinfobot on Telegram.
+                    Enter @username or user ID. Users must have messaged the bot before they can be added by username.
                   </p>
                   <div className="flex gap-2">
                     <input
-                      value={newDmUserId}
+                      value={newDmInput}
                       onChange={(e) => {
                         setSavedAt(null);
                         setSaveError(null);
-                        setNewDmUserId(e.target.value);
+                        setDmInputError(null);
+                        setNewDmInput(e.target.value);
                       }}
-                      placeholder="User ID (e.g. 123456789)"
+                      placeholder="@username or User ID"
                       className="flex-1 px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)]"
                       disabled={disabled}
                     />
                     <button
                       type="button"
                       onClick={() => {
-                        const id = newDmUserId.trim();
-                        if (!id) return;
-                        setSavedAt(null);
-                        setSaveError(null);
-                        setAllowedDmUserIds((prev) => stableSorted([...prev, id]));
-                        setNewDmUserId('');
+                        const input = newDmInput.trim();
+                        if (!input) return;
+
+                        // Check if already added
+                        const existingIds = allowedDmUsers.map(u => u.userId);
+
+                        // If starts with @, try to find in known users
+                        if (input.startsWith('@')) {
+                          const username = input.slice(1).toLowerCase();
+                          const knownUser = knownTelegramUsers.find(
+                            u => u.chatType === 'private' && u.username?.toLowerCase() === username
+                          );
+                          if (knownUser) {
+                            if (existingIds.includes(String(knownUser.userId))) {
+                              setDmInputError('User already added');
+                              return;
+                            }
+                            setSavedAt(null);
+                            setSaveError(null);
+                            setAllowedDmUsers(prev => [...prev, {
+                              userId: String(knownUser.userId),
+                              username: knownUser.username,
+                              displayName: knownUser.displayName,
+                            }]);
+                            setNewDmInput('');
+                            setDmInputError(null);
+                          } else {
+                            setDmInputError('User must DM the bot first before they can be added');
+                          }
+                        } else {
+                          // Treat as user ID
+                          if (existingIds.includes(input)) {
+                            setDmInputError('User already added');
+                            return;
+                          }
+                          // Look up display name from known users if available
+                          const knownUser = knownTelegramUsers.find(
+                            u => u.chatType === 'private' && String(u.userId) === input
+                          );
+                          setSavedAt(null);
+                          setSaveError(null);
+                          setAllowedDmUsers(prev => [...prev, {
+                            userId: input,
+                            username: knownUser?.username,
+                            displayName: knownUser?.displayName,
+                          }]);
+                          setNewDmInput('');
+                          setDmInputError(null);
+                        }
                       }}
-                      disabled={disabled || !newDmUserId.trim()}
+                      disabled={disabled || !newDmInput.trim()}
                       className="px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
                     >
                       Add
                     </button>
                   </div>
+                  {dmInputError && (
+                    <p className="text-xs text-red-400">{dmInputError}</p>
+                  )}
                   {/* Known users suggestions */}
-                  {knownTelegramUsers.filter(u => u.chatType === 'private' && !allowedDmUserIds.includes(String(u.userId))).length > 0 && (
+                  {knownTelegramUsers.filter(u => u.chatType === 'private' && !allowedDmUsers.some(r => r.userId === String(u.userId))).length > 0 && (
                     <div className="mt-2">
-                      <p className="text-xs text-[var(--color-text-muted)] mb-1">Recently active users:</p>
+                      <p className="text-xs text-[var(--color-text-muted)] mb-1">Recently active:</p>
                       <div className="flex flex-wrap gap-1">
                         {knownTelegramUsers
-                          .filter(u => u.chatType === 'private' && !allowedDmUserIds.includes(String(u.userId)))
+                          .filter(u => u.chatType === 'private' && !allowedDmUsers.some(r => r.userId === String(u.userId)))
                           .slice(0, 10)
                           .map((u) => (
                             <button
@@ -1676,7 +1736,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                               onClick={() => {
                                 setSavedAt(null);
                                 setSaveError(null);
-                                setAllowedDmUserIds((prev) => stableSorted([...prev, String(u.userId)]));
+                                setAllowedDmUsers(prev => [...prev, {
+                                  userId: String(u.userId),
+                                  username: u.username,
+                                  displayName: u.displayName,
+                                }]);
                               }}
                               disabled={disabled}
                               className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-brand-600/20 hover:bg-brand-600/40 border border-brand-500/30 rounded-full text-brand-300 transition-colors"
@@ -1689,21 +1753,21 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                       </div>
                     </div>
                   )}
-                  {allowedDmUserIds.length > 0 && (
+                  {allowedDmUsers.length > 0 && (
                     <div className="flex flex-wrap gap-2">
-                      {stableSorted(allowedDmUserIds).map((id) => (
-                        <span key={id} className="inline-flex items-center gap-2 px-2 py-1 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-full text-[var(--color-text-secondary)]">
-                          {id}
+                      {allowedDmUsers.map((user) => (
+                        <span key={user.userId} className="inline-flex items-center gap-2 px-2 py-1 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-full text-[var(--color-text-secondary)]">
+                          {user.username ? `@${user.username}` : user.displayName || user.userId}
                           <button
                             type="button"
                             onClick={() => {
                               setSavedAt(null);
                               setSaveError(null);
-                              setAllowedDmUserIds((prev) => prev.filter((x) => x !== id));
+                              setAllowedDmUsers(prev => prev.filter(u => u.userId !== user.userId));
                             }}
                             className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                             disabled={disabled}
-                            aria-label={`Remove ${id}`}
+                            aria-label={`Remove ${user.username || user.displayName || user.userId}`}
                           >
                             ×
                           </button>
@@ -1719,43 +1783,100 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                     Groups the bot can join
                   </label>
                   <p className="text-xs text-[var(--color-text-muted)]">
-                    Enter Telegram chat IDs. Add the bot to a group, and it will report the chat ID. Group IDs start with -100.
+                    Enter @groupname (for public groups) or chat ID. The bot must be a member of the group.
                   </p>
                   <div className="flex gap-2">
                     <input
-                      value={newGroupChatId}
+                      value={newGroupInput}
                       onChange={(e) => {
                         setSavedAt(null);
                         setSaveError(null);
-                        setNewGroupChatId(e.target.value);
+                        setGroupInputError(null);
+                        setNewGroupInput(e.target.value);
                       }}
-                      placeholder="Chat ID (e.g. -1001234567890)"
+                      placeholder="@groupname or Chat ID"
                       className="flex-1 px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-muted)]"
-                      disabled={disabled}
+                      disabled={disabled || isResolvingGroup}
                     />
                     <button
                       type="button"
-                      onClick={() => {
-                        const id = newGroupChatId.trim();
-                        if (!id) return;
-                        setSavedAt(null);
-                        setSaveError(null);
-                        setAllowedGroupChatIds((prev) => stableSorted([...prev, id]));
-                        setNewGroupChatId('');
+                      onClick={async () => {
+                        const input = newGroupInput.trim();
+                        if (!input || !activeAgent?.id) return;
+
+                        // Check if already added
+                        const existingIds = allowedChats.map(c => c.chatId);
+
+                        // If starts with @, resolve via API
+                        if (input.startsWith('@')) {
+                          const username = input.slice(1);
+                          setIsResolvingGroup(true);
+                          setGroupInputError(null);
+                          try {
+                            const resp = await fetch(`${API_BASE}/avatars/${activeAgent.id}/telegram/resolve-group`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              credentials: 'include',
+                              body: JSON.stringify({ username }),
+                            });
+                            const data = await resp.json() as { chatId?: string; title?: string; username?: string; error?: string };
+                            if (!resp.ok || !data.chatId) {
+                              setGroupInputError(data.error || 'Group not found or bot is not a member');
+                              return;
+                            }
+                            if (existingIds.includes(data.chatId)) {
+                              setGroupInputError('Group already added');
+                              return;
+                            }
+                            setSavedAt(null);
+                            setSaveError(null);
+                            setAllowedChats(prev => [...prev, {
+                              chatId: data.chatId!,
+                              username: data.username,
+                              title: data.title,
+                            }]);
+                            setNewGroupInput('');
+                          } catch {
+                            setGroupInputError('Failed to resolve group');
+                          } finally {
+                            setIsResolvingGroup(false);
+                          }
+                        } else {
+                          // Treat as chat ID
+                          if (existingIds.includes(input)) {
+                            setGroupInputError('Group already added');
+                            return;
+                          }
+                          // Look up title from known groups if available
+                          const knownGroup = knownTelegramUsers.find(
+                            u => (u.chatType === 'group' || u.chatType === 'supergroup') && String(u.chatId) === input
+                          );
+                          setSavedAt(null);
+                          setSaveError(null);
+                          setAllowedChats(prev => [...prev, {
+                            chatId: input,
+                            title: knownGroup?.chatTitle,
+                          }]);
+                          setNewGroupInput('');
+                          setGroupInputError(null);
+                        }
                       }}
-                      disabled={disabled || !newGroupChatId.trim()}
+                      disabled={disabled || !newGroupInput.trim() || isResolvingGroup}
                       className="px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
                     >
-                      Add
+                      {isResolvingGroup ? '...' : 'Add'}
                     </button>
                   </div>
+                  {groupInputError && (
+                    <p className="text-xs text-red-400">{groupInputError}</p>
+                  )}
                   {/* Known groups suggestions */}
-                  {knownTelegramUsers.filter(u => (u.chatType === 'group' || u.chatType === 'supergroup') && !allowedGroupChatIds.includes(String(u.chatId))).length > 0 && (
+                  {knownTelegramUsers.filter(u => (u.chatType === 'group' || u.chatType === 'supergroup') && !allowedChats.some(c => c.chatId === String(u.chatId))).length > 0 && (
                     <div className="mt-2">
-                      <p className="text-xs text-[var(--color-text-muted)] mb-1">Recently active groups:</p>
+                      <p className="text-xs text-[var(--color-text-muted)] mb-1">Recently active:</p>
                       <div className="flex flex-wrap gap-1">
                         {knownTelegramUsers
-                          .filter(u => (u.chatType === 'group' || u.chatType === 'supergroup') && !allowedGroupChatIds.includes(String(u.chatId)))
+                          .filter(u => (u.chatType === 'group' || u.chatType === 'supergroup') && !allowedChats.some(c => c.chatId === String(u.chatId)))
                           .reduce((acc, u) => {
                             // Deduplicate by chatId since multiple users may be from same group
                             if (!acc.find(x => x.chatId === u.chatId)) acc.push(u);
@@ -1769,7 +1890,10 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                               onClick={() => {
                                 setSavedAt(null);
                                 setSaveError(null);
-                                setAllowedGroupChatIds((prev) => stableSorted([...prev, String(u.chatId)]));
+                                setAllowedChats(prev => [...prev, {
+                                  chatId: String(u.chatId),
+                                  title: u.chatTitle,
+                                }]);
                               }}
                               disabled={disabled}
                               className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-brand-600/20 hover:bg-brand-600/40 border border-brand-500/30 rounded-full text-brand-300 transition-colors"
@@ -1782,21 +1906,21 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
                       </div>
                     </div>
                   )}
-                  {allowedGroupChatIds.length > 0 && (
+                  {allowedChats.length > 0 && (
                     <div className="flex flex-wrap gap-2">
-                      {stableSorted(allowedGroupChatIds).map((id) => (
-                        <span key={id} className="inline-flex items-center gap-2 px-2 py-1 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-full text-[var(--color-text-secondary)]">
-                          {id}
+                      {allowedChats.map((chat) => (
+                        <span key={chat.chatId} className="inline-flex items-center gap-2 px-2 py-1 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-full text-[var(--color-text-secondary)]">
+                          {chat.title || (chat.username ? `@${chat.username}` : chat.chatId)}
                           <button
                             type="button"
                             onClick={() => {
                               setSavedAt(null);
                               setSaveError(null);
-                              setAllowedGroupChatIds((prev) => prev.filter((x) => x !== id));
+                              setAllowedChats(prev => prev.filter(c => c.chatId !== chat.chatId));
                             }}
                             className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                             disabled={disabled}
-                            aria-label={`Remove ${id}`}
+                            aria-label={`Remove ${chat.title || chat.username || chat.chatId}`}
                           >
                             ×
                           </button>

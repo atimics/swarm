@@ -723,41 +723,76 @@ export async function setChatTitle(
 }
 
 /**
- * Get chat info
+ * Get chat info by chat ID (numeric) or @username
  */
 export async function getChat(
   botToken: string,
-  chatId: number
+  chatId: number | string
 ): Promise<{
   id: number;
   type: string;
   title?: string;
+  username?: string;
   description?: string;
   photo?: { small_file_id: string; big_file_id: string };
 }> {
   const url = `https://api.telegram.org/bot${botToken}/getChat`;
-  
+
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId }),
   });
-  
+
   const result = await response.json() as {
     ok: boolean;
     result?: {
       id: number;
       type: string;
       title?: string;
+      username?: string;
       description?: string;
       photo?: { small_file_id: string; big_file_id: string };
     };
     description?: string;
   };
-  
+
   if (!result.ok || !result.result) {
     throw new Error(result.description || 'Failed to get chat');
   }
-  
+
   return result.result;
+}
+
+/**
+ * Resolve a @groupname to chat ID and title.
+ * Works for public groups and channels that the bot has access to.
+ *
+ * @param botToken - Telegram bot token
+ * @param username - Group username without @ prefix (e.g., "mycommunity")
+ * @returns Chat info if found, null otherwise
+ */
+export async function resolveGroupUsername(
+  botToken: string,
+  username: string
+): Promise<{ chatId: string; title: string; username?: string } | null> {
+  try {
+    // Telegram accepts @username format for getChat
+    const normalizedUsername = username.startsWith('@') ? username : `@${username}`;
+    const chat = await getChat(botToken, normalizedUsername);
+
+    // Only allow groups, supergroups, and channels
+    if (chat.type !== 'group' && chat.type !== 'supergroup' && chat.type !== 'channel') {
+      return null;
+    }
+
+    return {
+      chatId: String(chat.id),
+      title: chat.title || username,
+      username: chat.username,
+    };
+  } catch {
+    // Group not found or bot doesn't have access
+    return null;
+  }
 }

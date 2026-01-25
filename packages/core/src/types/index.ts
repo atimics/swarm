@@ -55,6 +55,26 @@ export interface PlatformConfigs {
   web?: WebConfig;
 }
 
+/**
+ * Reference to a Telegram user (stores both ID and display info).
+ * Used for DM allowlists - ID is required for filtering, username/displayName for UI.
+ */
+export interface TelegramUserRef {
+  userId: string;        // Telegram user ID (required for filtering)
+  username?: string;     // @username without @ (for display)
+  displayName?: string;  // First name (for display)
+}
+
+/**
+ * Reference to a Telegram chat/group (stores both ID and display info).
+ * Used for group allowlists - ID is required for filtering, username/title for UI.
+ */
+export interface TelegramChatRef {
+  chatId: string;        // Chat ID (required for filtering), e.g. "-1001234567890"
+  username?: string;     // @groupname without @ (for public groups)
+  title?: string;        // Group title (for display)
+}
+
 export interface TelegramConfig {
   enabled: boolean;
   botUsername: string;
@@ -64,13 +84,25 @@ export interface TelegramConfig {
   /**
    * Optional allowlist of Telegram chat IDs the bot is allowed to respond in.
    * Use string form to safely represent large negative IDs (e.g. "-100123...").
+   * @deprecated Use allowedChats instead for richer display info
    */
   allowedChatIds?: string[];
   /**
    * Optional allowlist of Telegram user IDs the bot is allowed to respond to in DMs.
    * Use string form.
+   * @deprecated Use allowedDmUsers instead for richer display info
    */
   allowedDmUserIds?: string[];
+  /**
+   * Allowlist of users who can DM the bot (with display info).
+   * Takes precedence over allowedDmUserIds if both are present.
+   */
+  allowedDmUsers?: TelegramUserRef[];
+  /**
+   * Allowlist of groups/channels the bot can respond in (with display info).
+   * Takes precedence over allowedChatIds if both are present.
+   */
+  allowedChats?: TelegramChatRef[];
   /**
    * Primary home channel chat ID (e.g., "-1001234567890").
    * The avatar can only respond in this channel or other ratibots' home channels.
@@ -732,6 +764,18 @@ export interface NFTMetadata {
 // =============================================================================
 
 // Platform Configs
+export const TelegramUserRefSchema = z.object({
+  userId: z.string(),
+  username: z.string().optional(),
+  displayName: z.string().optional(),
+});
+
+export const TelegramChatRefSchema = z.object({
+  chatId: z.string(),
+  username: z.string().optional(),
+  title: z.string().optional(),
+});
+
 export const TelegramConfigSchema = z.object({
   enabled: z.boolean(),
   botUsername: z.string(),
@@ -740,6 +784,8 @@ export const TelegramConfigSchema = z.object({
   allowedChatTypes: z.array(z.enum(['private', 'group', 'supergroup', 'channel'])).optional(),
   allowedChatIds: z.array(z.string()).optional(),
   allowedDmUserIds: z.array(z.string()).optional(),
+  allowedDmUsers: z.array(TelegramUserRefSchema).optional(),
+  allowedChats: z.array(TelegramChatRefSchema).optional(),
   homeChannelId: z.string().optional(),
   homeChannelUsername: z.string().optional(),
   homeChannelUrl: z.string().optional(),

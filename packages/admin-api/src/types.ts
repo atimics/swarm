@@ -271,6 +271,26 @@ export interface AudioAsset {
   createdAt: number;
 }
 
+/**
+ * Reference to a Telegram user (stores both ID and display info).
+ * Used for DM allowlists - ID is required for filtering, username/displayName for UI.
+ */
+export interface TelegramUserRef {
+  userId: string;        // Telegram user ID (required for filtering)
+  username?: string;     // @username without @ (for display)
+  displayName?: string;  // First name (for display)
+}
+
+/**
+ * Reference to a Telegram chat/group (stores both ID and display info).
+ * Used for group allowlists - ID is required for filtering, username/title for UI.
+ */
+export interface TelegramChatRef {
+  chatId: string;        // Chat ID (required for filtering), e.g. "-1001234567890"
+  username?: string;     // @groupname without @ (for public groups)
+  title?: string;        // Group title (for display)
+}
+
 export interface TwitterCommunityConfig {
   id: string;
   name: string;
@@ -341,10 +361,14 @@ export interface AvatarRecord {
       enabled: boolean;
       botUsername?: string;
       botId?: number;
-      /** Allowlist of chat IDs (groups/supergroups/channels) the bot may respond in. */
+      /** @deprecated Use allowedChats instead for richer display info */
       allowedChatIds?: string[];
-      /** Allowlist of user IDs the bot may respond to in DMs. */
+      /** @deprecated Use allowedDmUsers instead for richer display info */
       allowedDmUserIds?: string[];
+      /** Allowlist of users who can DM the bot (with display info). */
+      allowedDmUsers?: TelegramUserRef[];
+      /** Allowlist of groups/channels the bot can respond in (with display info). */
+      allowedChats?: TelegramChatRef[];
       /** Primary home channel chat ID (e.g., "-1001234567890"). */
       homeChannelId?: string;
       /** Display-friendly channel username without @ (e.g., "ratibots"). */

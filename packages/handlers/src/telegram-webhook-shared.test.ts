@@ -28,6 +28,35 @@ describe('telegram-webhook-shared allowlists', () => {
     expect(allowed).toBe(true);
   });
 
+  it('allows DMs only for allowlisted users using allowedDmUsers', () => {
+    const allowed = isTelegramChatAllowed(
+      {
+        conversationId: 'dm',
+        sender: { id: 123 },
+        metadata: { chatType: 'private' },
+      },
+      { allowedDmUsers: [{ userId: '123', username: 'alice' }] as unknown as Array<{ userId: string }> }
+    );
+
+    expect(allowed).toBe(true);
+  });
+
+  it('treats allowedDmUsers as authoritative when present (even if empty)', () => {
+    const allowed = isTelegramChatAllowed(
+      {
+        conversationId: 'dm',
+        sender: { id: 123 },
+        metadata: { chatType: 'private' },
+      },
+      {
+        allowedDmUsers: [],
+        allowedDmUserIds: ['123'],
+      }
+    );
+
+    expect(allowed).toBe(false);
+  });
+
   it('allows group chats when allowedChatIds is not configured', () => {
     const allowed = isTelegramChatAllowed(
       {
@@ -75,6 +104,20 @@ describe('telegram-webhook-shared allowlists', () => {
         metadata: { chatType: 'supergroup' },
       },
       { allowedChatIds: ['-1001'], homeChannelId: '-9999' },
+      { isHomeChannel: async () => false }
+    );
+
+    await expect(Promise.resolve(allowed)).resolves.toBe(true);
+  });
+
+  it('treats allowedChats as home channels when homeChannelChecker is enabled', async () => {
+    const allowed = isTelegramChatAllowed(
+      {
+        conversationId: '-1001',
+        sender: { id: 'u1' },
+        metadata: { chatType: 'supergroup' },
+      },
+      { allowedChats: [{ chatId: '-1001', title: 'Test' }] as unknown as Array<{ chatId: string }>, homeChannelId: '-9999' },
       { isHomeChannel: async () => false }
     );
 

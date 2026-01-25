@@ -520,6 +520,46 @@ export async function handler(
       }
     }
 
+    // POST /avatars/{id}/telegram/resolve-group - Resolve @groupname to chat ID
+    const telegramResolveGroupMatch = path.match(/^\/avatars\/([^/]+)\/telegram\/resolve-group$/);
+    if (method === 'POST' && telegramResolveGroupMatch) {
+      const avatarId = telegramResolveGroupMatch[1];
+      const body = JSON.parse(event.body || '{}') as { username?: string };
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      if (!body.username || typeof body.username !== 'string') {
+        return jsonResponse(corsHeaders, 400, { error: 'username is required' });
+      }
+
+      // Get bot token to make the API call
+      const botToken = await secretsService._getSecretValueInternal(avatarId, 'telegram_bot_token', 'default');
+      if (!botToken) {
+        return jsonResponse(corsHeaders, 400, { error: 'Telegram bot token not configured' });
+      }
+
+      try {
+        const result = await telegramService.resolveGroupUsername(botToken, body.username);
+        if (!result) {
+          return jsonResponse(corsHeaders, 404, {
+            error: 'Group not found or bot does not have access. Make sure the bot is a member of the group.',
+          });
+        }
+        return jsonResponse(corsHeaders, 200, result);
+      } catch (err) {
+        logger.error('Failed to resolve Telegram group', { event: 'telegram_resolve_group_failed', error: err });
+        return jsonResponse(corsHeaders, 500, { error: 'Failed to resolve group' });
+      }
+    }
+
     // POST /avatars/{id}/secrets - Save a secret for an avatar
     const secretsMatch = path.match(/^\/avatars\/([^/]+)\/secrets$/);
     if (method === 'POST' && secretsMatch) {
