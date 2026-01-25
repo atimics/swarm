@@ -6,6 +6,7 @@ import { TwitterApi, TweetV2, UserV2 } from 'twitter-api-v2';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import { PlatformAdapter } from './base.js';
+import { ensureTwitterImageWithinLimit, TWITTER_MAX_IMAGE_BYTES } from './twitter-media.js';
 import type {
   AvatarConfig,
   SwarmEnvelope,
@@ -191,8 +192,20 @@ export class TwitterAdapter extends PlatformAdapter {
           }
         }
 
+        let uploadBuffer = buffer;
+        if (mimeType.startsWith('image/') && uploadBuffer.length > TWITTER_MAX_IMAGE_BYTES) {
+          const resized = await ensureTwitterImageWithinLimit(uploadBuffer, mimeType);
+          uploadBuffer = resized.buffer;
+          mimeType = resized.mimeType;
+          console.log('[TwitterAdapter.uploadMedia] Downsized image for Twitter upload', {
+            originalBytes: buffer.length,
+            uploadBytes: uploadBuffer.length,
+            mimeType,
+          });
+        }
+
         console.log('[TwitterAdapter.uploadMedia] Uploading to Twitter with mimeType:', mimeType);
-        const mediaId = await this.client.v1.uploadMedia(buffer, {
+        const mediaId = await this.client.v1.uploadMedia(uploadBuffer, {
           mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'video/mp4',
         });
 

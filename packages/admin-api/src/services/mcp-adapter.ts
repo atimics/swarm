@@ -7,7 +7,14 @@
 import type { AllServices, VoiceServices, NFTServices, PropertyServices } from '@swarm/mcp-server';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
-import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS } from '@swarm/core';
+import {
+  DEFAULT_LLM_MODEL,
+  DEFAULT_LLM_PROVIDER,
+  DEFAULT_LLM_TEMPERATURE,
+  DEFAULT_LLM_MAX_TOKENS,
+  ensureTwitterImageWithinLimit,
+  TWITTER_MAX_IMAGE_BYTES,
+} from '@swarm/core';
 import type { UserSession, SecretType } from '../types.js';
 import * as avatars from '../services/avatars.js';
 import * as secrets from '../services/secrets.js';
@@ -42,11 +49,6 @@ import { getModelsForCapability, AVAILABLE_MODELS } from '../services/models-reg
 const API_TIMEOUT_MS = 10_000;
 
 // Twitter media limits: images must be <= 5MB
-const TWITTER_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const TWITTER_TARGET_IMAGE_BYTES = TWITTER_MAX_IMAGE_BYTES - 32 * 1024;
-
-// Use jimp for image processing - pure JavaScript, works in Lambda without native binaries
-import { Jimp } from 'jimp';
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET;
 const CDN_URL = process.env.CDN_URL;
 const s3Client = new S3Client({});
@@ -82,60 +84,6 @@ function sanitizeUrlForLog(rawUrl: string): string {
   } catch {
     return rawUrl.split('?')[0] ?? rawUrl;
   }
-}
-
-async function downsizeImageForTwitter(
-  input: Buffer,
-  mimeType: string
-): Promise<{ buffer: Buffer; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' }> {
-  if (input.length <= TWITTER_MAX_IMAGE_BYTES) {
-    return { buffer: input, mimeType: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' };
-  }
-
-  // Use jimp (pure JavaScript) - works in Lambda without native binaries
-  const image = await Jimp.read(input);
-
-  // Twitter photo uploads have a strict 5MB cap. Re-encode to JPEG and, if needed, resize.
-  let quality = 80;
-  let maxWidth = 1600;
-
-  for (let attempt = 0; attempt < 6; attempt++) {
-    // Clone image for each attempt to avoid modifying the original
-    const resized = image.clone();
-
-    // Resize if wider than maxWidth
-    if (resized.width > maxWidth) {
-      resized.resize({ w: maxWidth });
-    }
-
-    // Get JPEG buffer with current quality
-    const out = await resized.getBuffer('image/jpeg', { quality });
-
-    console.log('Re-encoded image for Twitter upload (jimp)', {
-      attempt,
-      inBytes: input.length,
-      outBytes: out.length,
-      quality,
-      maxWidth,
-      dimensions: `${resized.width}x${resized.height}`,
-    });
-
-    if (out.length <= TWITTER_TARGET_IMAGE_BYTES) {
-      return { buffer: out, mimeType: 'image/jpeg' };
-    }
-
-    // Tune parameters: lower quality first, then reduce dimensions.
-    if (quality > 50) {
-      quality -= 10;
-    } else {
-      maxWidth = Math.max(640, Math.floor(maxWidth * 0.8));
-      quality = 75;
-    }
-  }
-
-  throw new Error(
-    `Image too large for Twitter upload after re-encode: ${input.length} bytes (max ${TWITTER_MAX_IMAGE_BYTES})`
-  );
 }
 
 /**
@@ -229,7 +177,7 @@ async function uploadMediaToTwitter(
       let uploadBuffer = originalBuffer;
       if (mimeType.startsWith('image/') && originalBuffer.length > TWITTER_MAX_IMAGE_BYTES) {
         try {
-          const resized = await downsizeImageForTwitter(originalBuffer, mimeType);
+          const resized = await ensureTwitterImageWithinLimit(originalBuffer, mimeType);
           uploadBuffer = resized.buffer;
           mimeType = resized.mimeType;
           console.log('Using downsized image for Twitter upload', {

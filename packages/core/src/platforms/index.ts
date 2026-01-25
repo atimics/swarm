@@ -20,3 +20,9 @@ export {
   type DiscordInteraction,
   type DiscordWebhookPayload,
 } from './discord.js';
+
+export {
+  ensureTwitterImageWithinLimit,
+  TWITTER_MAX_IMAGE_BYTES,
+  TWITTER_TARGET_IMAGE_BYTES,
+} from './twitter-media.js';
