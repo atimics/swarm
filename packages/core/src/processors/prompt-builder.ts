@@ -9,9 +9,9 @@
  * platform-specific contextual additions.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 import type { ToolCategory, ProcessorAvatarConfig } from './types.js';
 import type { Platform } from '../types/index.js';
 
