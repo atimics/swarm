@@ -51,3 +51,13 @@ export {
   SUMMARY_CONFIG,
   type ChannelSummaryService,
 } from './channel-summary.js';
+export {
+  DynamoDBContentStoreService,
+  createContentStoreService,
+  type ContentStoreService,
+} from './content-store.js';
+export {
+  enqueuePost,
+  isPostQueueConfigured,
+  getPostQueueUrl,
+} from './post-queue.js';

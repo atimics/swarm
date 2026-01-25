@@ -302,6 +302,8 @@ export class SwarmStack extends cdk.Stack {
         dependencyLayer: this.shared.dependencyLayer,
         // Prefer shared multi-tenant Telegram ingress when enabled
         telegramWebhookFunction: this.sharedHandlers?.telegramWebhook,
+        // POST_QUEUE for decoupled Twitter posting
+        postQueue: this.sharedHandlers?.postQueue,
         // Share the same internal test key across all constructs
         internalTestKey: sharedInternalTestKey,
       });

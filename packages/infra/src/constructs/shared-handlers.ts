@@ -67,6 +67,7 @@ export class SharedHandlers extends Construct {
   public readonly messageQueue: sqs.Queue;
   public readonly responseQueue: sqs.Queue;
   public readonly mediaQueue: sqs.Queue;
+  public readonly postQueue: sqs.Queue;
   public readonly telegramWebhook: lambda.Function;
 
   constructor(scope: Construct, id: string, props: SharedHandlersProps) {
@@ -126,6 +127,15 @@ export class SharedHandlers extends Construct {
       deadLetterQueue: { queue: dlq, maxReceiveCount: 3 },
     });
 
+    // POST_QUEUE for decoupled Twitter posting with rate limit handling
+    this.postQueue = new sqs.Queue(this, 'PostQueue', {
+      queueName: `swarm-${environment}${suffix}-posts.fifo`,
+      fifo: true,
+      // No content-based deduplication - we need explicit dedup IDs for retries
+      visibilityTimeout: cdk.Duration.seconds(120),
+      deadLetterQueue: { queue: dlq, maxReceiveCount: 5 },
+    });
+
     const lambdaRole = new iam.Role(this, 'LambdaRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
@@ -142,6 +152,8 @@ export class SharedHandlers extends Construct {
     this.responseQueue.grantConsumeMessages(lambdaRole);
     this.mediaQueue.grantSendMessages(lambdaRole);
     this.mediaQueue.grantConsumeMessages(lambdaRole);
+    this.postQueue.grantSendMessages(lambdaRole);
+    this.postQueue.grantConsumeMessages(lambdaRole);
 
     // Secrets: allow reading any secret under the configured prefix (e.g. swarm/<avatarId>/secrets)
     lambdaRole.addToPolicy(new iam.PolicyStatement({
@@ -183,6 +195,7 @@ export class SharedHandlers extends Construct {
       MESSAGE_QUEUE_URL: this.messageQueue.queueUrl,
       RESPONSE_QUEUE_URL: this.responseQueue.queueUrl,
       MEDIA_QUEUE_URL: this.mediaQueue.queueUrl,
+      POST_QUEUE_URL: this.postQueue.queueUrl,
       CDN_URL: cdnUrl || '',
       ENVIRONMENT: environment,
       SECRET_PREFIX: secretPrefix,
@@ -313,5 +326,31 @@ export class SharedHandlers extends Construct {
       schedule: events.Schedule.rate(cdk.Duration.hours(1)),
       targets: [new targets.LambdaFunction(autonomousTweetPoster)],
     });
+
+    // Tweet Sender - Consumes POST_QUEUE for decoupled Twitter posting
+    // Handles rate limiting, backoff, and content store integration
+    const tweetSender = new nodejs.NodejsFunction(this, 'TweetSender', {
+      functionName: `swarm-${environment}${suffix}-tweet-sender`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(handlersEntry, 'tweet-sender.ts'),
+      handler: 'handler',
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
+      role: lambdaRole,
+      timeout: cdk.Duration.seconds(120),
+      memorySize: 512,
+      environment: {
+        ...commonEnv,
+        // Enable decoupled posting feature
+        ENABLE_DECOUPLED_POSTING: 'true',
+        // Enable content store for post tracking
+        ENABLE_CONTENT_STORE: 'true',
+      },
+      bundling: bundlingOptions,
+    });
+
+    tweetSender.addEventSource(new lambdaEventSources.SqsEventSource(this.postQueue, {
+      batchSize: 5,
+      reportBatchItemFailures: true,
+    }));
   }
 }

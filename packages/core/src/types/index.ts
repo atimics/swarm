@@ -196,6 +196,15 @@ export interface TwitterConfig {
   communities?: TwitterCommunityConfig[];
   /** Autonomous posting configuration */
   autonomousPosts?: AutonomousPostsConfig;
+  /** Simulation mode configuration - for bots without real Twitter integration */
+  simulation?: {
+    /** Whether simulation mode is enabled */
+    enabled: boolean;
+    /** Feed visibility: 'self' = only see own posts, 'linked' = also see real Twitter */
+    feedVisibility: 'self' | 'linked';
+    /** Whether to auto-approve posts (skip pre-moderation in simulation) */
+    autoApprove: boolean;
+  };
 }
 
 export interface WebConfig {
@@ -840,6 +849,11 @@ export const TwitterConfigSchema = z.object({
   verifiedType: z.string().optional(),
   communities: z.array(TwitterCommunityConfigSchema).optional(),
   autonomousPosts: AutonomousPostsConfigSchema.optional(),
+  simulation: z.object({
+    enabled: z.boolean(),
+    feedVisibility: z.enum(['self', 'linked']),
+    autoApprove: z.boolean(),
+  }).optional(),
 });
 
 export const WebConfigSchema = z.object({
@@ -1279,3 +1293,9 @@ export function parseJson<T>(json: string, schema: z.ZodSchema<T>): T {
 // =============================================================================
 
 export * from './continuation.js';
+
+// =============================================================================
+// CONTENT STORE TYPES (re-exported from content-store.ts)
+// =============================================================================
+
+export * from './content-store.js';
