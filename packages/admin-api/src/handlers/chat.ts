@@ -16,6 +16,7 @@ import {
   logger,
   // Import shared tool/prompt building from core
   buildDynamicSystemPrompt,
+  extractThinking,
   detectEnabledCategories,
   resolveAllowedToolsets,
   type ToolCategory,
@@ -461,6 +462,15 @@ function sanitizeMessages(messages: AdminChatMessage[]): AdminChatMessage[] {
         continue;
       }
     }
+
+    if (msg.role === 'assistant' && typeof msg.content === 'string') {
+      const { cleanContent } = extractThinking(msg.content);
+      if (cleanContent !== msg.content) {
+        sanitized.push({ ...msg, content: cleanContent });
+        continue;
+      }
+    }
+
     sanitized.push(msg);
   }
 
@@ -1734,6 +1744,18 @@ export async function processChat(
     response = 'I apologize, but I couldn\'t generate a response. Please try again.';
   }
 
+  // Extract and strip <thinking> tags from the user-visible response.
+  // Keep extracted blocks separately for admin UI introspection.
+  let extractedThinking: string[] | undefined;
+  if (typeof response === 'string') {
+    const { cleanContent, thinkingBlocks } = extractThinking(response);
+    response = cleanContent;
+    const cleanedThinking = thinkingBlocks
+      .map((t) => redactMediaUrlsFromText(t).trim())
+      .filter((t) => t.length > 0);
+    extractedThinking = cleanedThinking.length > 0 ? cleanedThinking : undefined;
+  }
+
   // Filter out stale "Please connect your X/Twitter account:" text from LLM responses
   // This text can appear when the model repeats from chat history after a connection attempt
   if (typeof response === 'string') {
@@ -1746,7 +1768,11 @@ export async function processChat(
     response = redactMediaUrlsFromText(response);
   }
 
-  messages.push({ role: 'assistant', content: response });
+  messages.push({
+    role: 'assistant',
+    content: response,
+    ...(extractedThinking ? { thinking: extractedThinking } : {}),
+  });
 
   const toolCallNames = new Map(toolCalls.map(tc => [tc.id, tc.name]));
   for (const result of toolResults) {
@@ -1898,11 +1924,30 @@ export async function handler(
       const accessError = await ensureAvatarAccess(avatarId);
       if (accessError) return accessError;
       const history = await chatHistory.getChatHistory(session, avatarId);
+
+      const cleanedHistory = history.map((msg) => {
+        if (!msg || msg.role !== 'assistant' || typeof msg.content !== 'string') return msg;
+
+        const existingThinking = Array.isArray((msg as unknown as { thinking?: unknown }).thinking)
+          ? ((msg as unknown as { thinking?: string[] }).thinking ?? [])
+          : [];
+
+        const { cleanContent, thinkingBlocks } = extractThinking(msg.content);
+        const mergedThinking = [...existingThinking, ...thinkingBlocks]
+          .map((t) => redactMediaUrlsFromText(String(t)).trim())
+          .filter((t) => t.length > 0);
+
+        return {
+          ...msg,
+          content: cleanContent,
+          ...(mergedThinking.length > 0 ? { thinking: mergedThinking } : {}),
+        };
+      });
       
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history }),
+        body: JSON.stringify({ history: cleanedHistory }),
       };
     }
 

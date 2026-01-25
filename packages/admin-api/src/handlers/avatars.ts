@@ -17,6 +17,7 @@ import * as discordService from '../services/discord.js';
 import * as avatarventsService from '../services/avatar-events.js';
 import * as galleryService from '../services/gallery.js';
 import * as integrationsService from '../services/integrations.js';
+import * as twitterFeedService from '../services/twitter-feed.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
 import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
@@ -1008,6 +1009,157 @@ export async function handler(
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ success: true, eventId, status }),
       };
+    }
+
+    // =========================================================================
+    // TWITTER FEED ROUTES
+    // =========================================================================
+
+    // GET /avatars/{id}/twitter/feed - Get Twitter feed data
+    const twitterFeedMatch = path.match(/^\/avatars\/([^/]+)\/twitter\/feed$/);
+    if (method === 'GET' && twitterFeedMatch) {
+      const avatarId = twitterFeedMatch[1];
+
+      // Allow both admin and avatar owners to view feed
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      try {
+        const feed = await twitterFeedService.getTwitterFeed(avatarId);
+        return jsonResponse(corsHeaders, 200, feed);
+      } catch (err) {
+        logger.error('Failed to get Twitter feed', { event: 'twitter_feed_failed', avatarId, error: err });
+        return jsonResponse(corsHeaders, 500, { error: 'Failed to get Twitter feed' });
+      }
+    }
+
+    // POST /avatars/{id}/twitter/posts/{postId}/approve - Approve a pending post
+    const twitterApproveMatch = path.match(/^\/avatars\/([^/]+)\/twitter\/posts\/([^/]+)\/approve$/);
+    if (method === 'POST' && twitterApproveMatch) {
+      const avatarId = twitterApproveMatch[1];
+      const postId = twitterApproveMatch[2];
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const reviewerId = walletAddress || session?.email || 'unknown';
+
+      try {
+        const post = await twitterFeedService.approvePost(avatarId, postId, reviewerId);
+        if (!post) {
+          return jsonResponse(corsHeaders, 404, { error: 'Post not found' });
+        }
+        return jsonResponse(corsHeaders, 200, post);
+      } catch (err) {
+        logger.error('Failed to approve post', { event: 'twitter_approve_failed', avatarId, postId, error: err });
+        return jsonResponse(corsHeaders, 500, { error: 'Failed to approve post' });
+      }
+    }
+
+    // POST /avatars/{id}/twitter/posts/{postId}/reject - Reject a pending post
+    const twitterRejectMatch = path.match(/^\/avatars\/([^/]+)\/twitter\/posts\/([^/]+)\/reject$/);
+    if (method === 'POST' && twitterRejectMatch) {
+      const avatarId = twitterRejectMatch[1];
+      const postId = twitterRejectMatch[2];
+      const body = JSON.parse(event.body || '{}') as { reason?: string };
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const reviewerId = walletAddress || session?.email || 'unknown';
+      const reason = body.reason || 'Rejected by reviewer';
+
+      try {
+        const post = await twitterFeedService.rejectPost(avatarId, postId, reviewerId, reason);
+        if (!post) {
+          return jsonResponse(corsHeaders, 404, { error: 'Post not found' });
+        }
+        return jsonResponse(corsHeaders, 200, post);
+      } catch (err) {
+        logger.error('Failed to reject post', { event: 'twitter_reject_failed', avatarId, postId, error: err });
+        return jsonResponse(corsHeaders, 500, { error: 'Failed to reject post' });
+      }
+    }
+
+    // DELETE /avatars/{id}/twitter/posts/{postId} - Cancel/delete a pending post
+    const twitterDeleteMatch = path.match(/^\/avatars\/([^/]+)\/twitter\/posts\/([^/]+)$/);
+    if (method === 'DELETE' && twitterDeleteMatch) {
+      const avatarId = twitterDeleteMatch[1];
+      const postId = twitterDeleteMatch[2];
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const reviewerId = walletAddress || session?.email || 'unknown';
+
+      try {
+        const post = await twitterFeedService.cancelPost(avatarId, postId, reviewerId);
+        if (!post) {
+          return jsonResponse(corsHeaders, 404, { error: 'Post not found' });
+        }
+        return jsonResponse(corsHeaders, 204, null);
+      } catch (err) {
+        logger.error('Failed to cancel post', { event: 'twitter_cancel_failed', avatarId, postId, error: err });
+        return jsonResponse(corsHeaders, 500, { error: 'Failed to cancel post' });
+      }
+    }
+
+    // PUT /avatars/{id}/twitter/moderation - Update moderation mode
+    const twitterModerationMatch = path.match(/^\/avatars\/([^/]+)\/twitter\/moderation$/);
+    if (method === 'PUT' && twitterModerationMatch) {
+      const avatarId = twitterModerationMatch[1];
+      const body = JSON.parse(event.body || '{}') as { mode?: 'pre' | 'post' | 'none' };
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      if (!body.mode || !['pre', 'post', 'none'].includes(body.mode)) {
+        return jsonResponse(corsHeaders, 400, { error: 'Valid mode required: pre, post, or none' });
+      }
+
+      try {
+        const config = await twitterFeedService.setModerationMode(avatarId, body.mode);
+        return jsonResponse(corsHeaders, 200, config);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to update moderation mode';
+        logger.error('Failed to update moderation mode', { event: 'twitter_moderation_failed', avatarId, error: err });
+        return jsonResponse(corsHeaders, 400, { error: msg });
+      }
     }
 
     // Not found

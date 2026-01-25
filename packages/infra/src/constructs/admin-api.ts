@@ -168,6 +168,12 @@ export interface AdminApiConstructProps {
   internalTestKey?: string;
 
   /**
+   * POST_QUEUE for decoupled Twitter posting.
+   * When provided, approved posts will be enqueued for the tweet-sender to process.
+   */
+  postQueue?: sqs.IQueue;
+
+  /**
    * Adopt an existing Admin DynamoDB table instead of creating one.
    * Useful when migrating from the legacy monolithic stack to split stacks.
    */
@@ -814,6 +820,8 @@ export class AdminApiConstruct extends Construct {
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         SECRET_PREFIX: secretPrefix,
         REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
+        // POST_QUEUE for decoupled Twitter posting
+        POST_QUEUE_URL: props.postQueue?.queueUrl || '',
         // Internal testing (non-production only)
         INTERNAL_TEST_KEY: internalTestKey,
       },
@@ -828,6 +836,9 @@ export class AdminApiConstruct extends Construct {
     this.table.grantReadWriteData(avatarsHandler);
     if (stateTable) {
       stateTable.grantReadWriteData(avatarsHandler);
+    }
+    if (props.postQueue) {
+      props.postQueue.grantSendMessages(avatarsHandler);
     }
 
     // Grant secrets manager permissions to avatars handler

@@ -386,6 +386,12 @@ export interface AvatarRecord {
       features?: ('scheduled_tweets' | 'mention_replies' | 'dm_responses' | 'autonomous_posts' | 'community_posts')[];
       communities?: TwitterCommunityConfig[];
       autonomousPosts?: AutonomousPostsConfig;
+      /** Simulation mode configuration - for bots without real Twitter integration */
+      simulation?: {
+        enabled: boolean;
+        feedVisibility: 'self' | 'linked';
+        autoApprove: boolean;
+      };
     };
     discord?: {
       enabled: boolean;
