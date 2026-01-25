@@ -9,6 +9,7 @@
  * - Memory-integrated content generation
  * - Optional image generation (configurable probability)
  * - Community posting support (when available)
+ * - Content store integration for simulation mode and post review
  */
 import type { ScheduledHandler, Context } from 'aws-lambda';
 import {
@@ -19,8 +20,12 @@ import {
   createLLMService,
   createMediaServiceWithDeps,
   createMediaDependencies,
+  createContentStoreService,
+  enqueuePost,
   logger,
   type AvatarConfig,
+  type ContentStoreService,
+  type PostMedia,
 } from '@swarm/core';
 import {
   generateAutonomousContent,
@@ -34,16 +39,25 @@ const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE!;
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET!;
 const CDN_URL = process.env.CDN_URL;
 const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
+const POST_QUEUE_URL = process.env.POST_QUEUE_URL || '';
+
+// Feature flags
+const ENABLE_CONTENT_STORE = process.env.ENABLE_CONTENT_STORE === 'true';
+const ENABLE_DECOUPLED_POSTING = process.env.ENABLE_DECOUPLED_POSTING === 'true';
 
 let stateService: ReturnType<typeof createStateService>;
 let activityService: ReturnType<typeof createActivityService>;
 let secretsService: ReturnType<typeof createSecretsService>;
+let contentStoreService: ContentStoreService | null = null;
 
 async function initialize(): Promise<void> {
   if (stateService) return;
   stateService = createStateService(STATE_TABLE);
   activityService = createActivityService(ACTIVITY_TABLE);
   secretsService = createSecretsService();
+  if (ENABLE_CONTENT_STORE) {
+    contentStoreService = createContentStoreService(STATE_TABLE);
+  }
 }
 
 /**
@@ -74,7 +88,7 @@ async function processAvatar(
   avatarId: string,
   avatarConfig: AvatarConfig,
   secrets: Record<string, string>
-): Promise<{ posted: boolean; tweetId?: string; error?: string }> {
+): Promise<{ posted: boolean; tweetId?: string; postId?: string; error?: string }> {
   const twitterConfig = avatarConfig.platforms.twitter;
   if (!twitterConfig?.enabled) {
     return { posted: false };
@@ -105,16 +119,30 @@ async function processAvatar(
     return { posted: false };
   }
 
-  // Initialize Twitter adapter
-  const twitterAdapter = new TwitterAdapter(avatarConfig, {
-    appKey: secrets.TWITTER_API_KEY,
-    appSecret: secrets.TWITTER_API_SECRET,
-    accessToken: secrets.TWITTER_ACCESS_TOKEN,
-    accessSecret: secrets.TWITTER_ACCESS_SECRET,
-  });
+  // Check simulation mode
+  const simulationConfig = twitterConfig.simulation;
+  let isSimulationMode = simulationConfig?.enabled === true;
 
-  if (!twitterAdapter.isConfigured()) {
-    return { posted: false, error: 'Twitter adapter not configured' };
+  // Initialize Twitter adapter (skip if in simulation mode)
+  let twitterAdapter: TwitterAdapter | null = null;
+  if (!isSimulationMode) {
+    twitterAdapter = new TwitterAdapter(avatarConfig, {
+      appKey: secrets.TWITTER_API_KEY,
+      appSecret: secrets.TWITTER_API_SECRET,
+      accessToken: secrets.TWITTER_ACCESS_TOKEN,
+      accessSecret: secrets.TWITTER_ACCESS_SECRET,
+    });
+
+    if (!twitterAdapter.isConfigured()) {
+      // If Twitter not configured, fall back to simulation mode if content store enabled
+      if (ENABLE_CONTENT_STORE) {
+        logger.info('Twitter not configured, falling back to simulation mode', { avatarId });
+        twitterAdapter = null;
+        isSimulationMode = true; // Enable simulation mode for this run
+      } else {
+        return { posted: false, error: 'Twitter adapter not configured' };
+      }
+    }
   }
 
   // Initialize LLM service
@@ -148,6 +176,7 @@ async function processAvatar(
 
   // Optionally generate image
   let mediaUrl: string | undefined;
+  let media: PostMedia[] | undefined;
   const imageChance = autoConfig.imageChance ?? 0.3;
 
   if (Math.random() < imageChance) {
@@ -157,12 +186,13 @@ async function processAvatar(
 
       const imagePrompt = await generateImagePrompt(content.text, avatarConfig, llmService);
 
-      const media = await mediaService.generateImage(
+      const generatedMedia = await mediaService.generateImage(
         imagePrompt,
         avatarConfig.media.image,
         { avatarId, platform: 'twitter', saveToGallery: true, checkCredits: true }
       );
-      mediaUrl = media.url;
+      mediaUrl = generatedMedia.url;
+      media = [{ type: 'image', url: generatedMedia.url, s3Key: generatedMedia.s3Key }];
 
       logger.info('Generated image for autonomous post', {
         event: 'image_generated',
@@ -175,19 +205,140 @@ async function processAvatar(
     }
   }
 
-  // Post the tweet
+  // Store post in content store if enabled
+  let postId: string | undefined;
+  if (ENABLE_CONTENT_STORE && contentStoreService) {
+    // Check moderation config to determine initial status
+    const moderationConfig = await contentStoreService.getModerationConfig(avatarId);
+
+    // Pre-moderation only applies BEFORE graduation. Once graduated, user has earned trust.
+    // The mode setting ('pre'/'post'/'none') only controls post-hoc review after graduation.
+    const requiresPreReview = moderationConfig.mode === 'pre' && !moderationConfig.hasGraduated;
+    const autoApprove = isSimulationMode && simulationConfig?.autoApprove;
+
+    // Determine initial status:
+    // - autoApprove: approved immediately (simulation mode)
+    // - requiresPreReview: pending_review (pre-graduation mandatory review)
+    // - graduated: queued/approved (earned trust, auto-post)
+    let initialStatus: 'pending_review' | 'approved' | 'queued' = 'pending_review';
+    if (autoApprove) {
+      initialStatus = 'approved';
+    } else if (!requiresPreReview) {
+      // Graduated users - posts go directly to queue (or approved for simulation)
+      initialStatus = isSimulationMode ? 'approved' : 'queued';
+    }
+    // else: requiresPreReview=true → stays pending_review (default)
+
+    const post = await contentStoreService.createPost({
+      avatarId,
+      text: content.text,
+      media,
+      source: isSimulationMode ? 'simulation' : 'generated',
+      communityId: communityContext?.id,
+      communityName: communityContext?.name,
+      status: initialStatus,
+    });
+    postId = post.postId;
+
+    logger.info('Post stored in content store', {
+      event: 'post_stored',
+      avatarId,
+      postId,
+      status: initialStatus,
+      isSimulationMode,
+    });
+
+    // If in simulation mode or requires review, don't post to Twitter
+    if (isSimulationMode || initialStatus === 'pending_review') {
+      await stateService.setLastAutonomousPostTime(avatarId, Date.now());
+
+      await activityService.log({
+        avatarId,
+        timestamp: Date.now(),
+        eventType: 'response_sent',
+        platform: 'twitter',
+        summary: `${isSimulationMode ? 'Simulated' : 'Pending review'} ${targetType}: ${content.text.slice(0, 50)}...`,
+        details: {
+          postId,
+          hasImage: !!mediaUrl,
+          targetType,
+          communityId: communityContext?.id,
+          communityName: communityContext?.name,
+          isSimulationMode,
+          status: initialStatus,
+        },
+      });
+
+      return { posted: true, postId };
+    }
+
+    // If decoupled posting is enabled, enqueue for tweet-sender instead of posting directly
+    if (ENABLE_DECOUPLED_POSTING && POST_QUEUE_URL && initialStatus === 'queued') {
+      try {
+        await enqueuePost(POST_QUEUE_URL, avatarId, postId!);
+        logger.info('Post enqueued for decoupled Twitter posting', {
+          event: 'post_enqueued',
+          avatarId,
+          postId,
+        });
+
+        await stateService.setLastAutonomousPostTime(avatarId, Date.now());
+
+        await activityService.log({
+          avatarId,
+          timestamp: Date.now(),
+          eventType: 'response_sent',
+          platform: 'twitter',
+          summary: `Queued ${targetType}: ${content.text.slice(0, 50)}...`,
+          details: {
+            postId,
+            hasImage: !!mediaUrl,
+            targetType,
+            communityId: communityContext?.id,
+            communityName: communityContext?.name,
+            status: 'queued',
+          },
+        });
+
+        return { posted: true, postId };
+      } catch (error) {
+        logger.error('Failed to enqueue post', { event: 'post_enqueue_failed', avatarId, postId, error });
+        // Fall through to direct posting as fallback
+      }
+    }
+  }
+
+  // Post the tweet (only if not in simulation mode and has configured adapter)
+  if (!twitterAdapter) {
+    return { posted: false, error: 'Twitter adapter not available' };
+  }
+
   let tweetId: string;
-  if (targetType === 'community_post' && communityContext) {
-    tweetId = await twitterAdapter.postToCommunity(
-      communityContext.id,
-      content.text,
-      mediaUrl ? [{ type: 'image', url: mediaUrl }] : undefined
-    );
-  } else {
-    tweetId = await twitterAdapter.postTweet(
-      content.text,
-      mediaUrl ? [{ type: 'image', url: mediaUrl }] : undefined
-    );
+  try {
+    if (targetType === 'community_post' && communityContext) {
+      tweetId = await twitterAdapter.postToCommunity(
+        communityContext.id,
+        content.text,
+        mediaUrl ? [{ type: 'image', url: mediaUrl }] : undefined
+      );
+    } else {
+      tweetId = await twitterAdapter.postTweet(
+        content.text,
+        mediaUrl ? [{ type: 'image', url: mediaUrl }] : undefined
+      );
+    }
+
+    // Update content store with Twitter ID
+    if (ENABLE_CONTENT_STORE && contentStoreService && postId) {
+      await contentStoreService.markPosted(avatarId, postId, tweetId);
+    }
+  } catch (error) {
+    // Update content store with failure
+    if (ENABLE_CONTENT_STORE && contentStoreService && postId) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await contentStoreService.markFailed(avatarId, postId, errorMessage);
+    }
+    throw error;
   }
 
   // Record the post time
@@ -202,6 +353,7 @@ async function processAvatar(
     summary: `Autonomous ${targetType}: ${content.text.slice(0, 50)}...`,
     details: {
       tweetId,
+      postId,
       hasImage: !!mediaUrl,
       targetType,
       communityId: communityContext?.id,
@@ -209,7 +361,7 @@ async function processAvatar(
     },
   });
 
-  return { posted: true, tweetId };
+  return { posted: true, tweetId, postId };
 }
 
 export const handler: ScheduledHandler = async (_event, context: Context) => {
