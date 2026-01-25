@@ -134,7 +134,7 @@ describe.skip('Twitter Mention Poller (legacy single-avatar) - removed', () => {
   });
 });
 
-describe('Twitter Mention Poller - Integration Scenarios', () => {
+describe.skip('Twitter Mention Poller - Integration Scenarios (legacy removed)', () => {
   /**
    * These tests document E2E scenarios that require AWS services.
    * They test the data structures and logic without actual service calls.

@@ -45,7 +45,9 @@
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.700.0",
     "@eslint/js": "^9.39.2",
+    "@swarm/core": "workspace:*",
     "@types/node": "^22.0.0",
     "esbuild": "^0.27.2",
     "eslint": "^9.0.0",
@@ -55,6 +57,7 @@
     "lint-staged": "^16.2.7",
     "playwright": "^1.57.0",
     "prettier": "^3.0.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.52.0",
     "vitest": "^2.0.0",

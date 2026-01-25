@@ -27,25 +27,76 @@ async function getFirstSecret(
 function secretCandidates(
   secretPrefix: string,
   avatarId: string,
-  name: string
+  name: string,
+  environment?: string
 ): string[] {
   // We currently have multiple conventions in the system:
   // - JSON blob: `${prefix}/${avatarId}/secrets` (handled separately)
   // - Per-secret, with /default suffix: `${prefix}/${avatarId}/${name}/default`
   // - Per-secret, without /default suffix: `${prefix}/${avatarId}/${name}`
   // - Global/shared fallbacks for some handlers
-  const base = `${secretPrefix}/${avatarId}/${name}`;
-  const globalBase = `${secretPrefix}/global/${name}`;
-  const sharedBase = `${secretPrefix}/shared/${name}`;
+  const envName = environment?.trim();
+  const variants = Array.from(new Set([
+    name,
+    name.replaceAll('_', '-'),
+  ]));
 
-  return [
-    `${base}/default`,
-    base,
-    `${globalBase}/default`,
-    globalBase,
-    `${sharedBase}/default`,
-    sharedBase,
+  const ids: string[] = [];
+  for (const variant of variants) {
+    const base = `${secretPrefix}/${avatarId}/${variant}`;
+    const globalBase = `${secretPrefix}/global/${variant}`;
+    const sharedBase = `${secretPrefix}/shared/${variant}`;
+    const envBase = envName ? `${secretPrefix}/${envName}/${variant}` : undefined;
+
+    ids.push(
+      `${base}/default`,
+      base,
+      `${globalBase}/default`,
+      globalBase,
+      `${sharedBase}/default`,
+      sharedBase,
+    );
+
+    if (envBase) {
+      ids.push(`${envBase}/default`, envBase);
+    }
+  }
+
+  return ids;
+
+}
+
+type TwitterAppCredentials = {
+  TWITTER_APP_KEY?: string;
+  TWITTER_APP_SECRET?: string;
+  consumer_key?: string;
+  consumer_secret?: string;
+  consumerKey?: string;
+  consumerSecret?: string;
+};
+
+async function tryGetTwitterAppCredentials(
+  secretsService: SecretsService,
+  secretPrefix: string,
+): Promise<{ appKey: string; appSecret: string } | undefined> {
+  const candidates = [
+    `${secretPrefix}/global/twitter-app-credentials`,
+    `${secretPrefix}/global/twitter-app-credentials/default`,
   ];
+
+  for (const id of candidates) {
+    try {
+      const parsed = await secretsService.getSecretJson<TwitterAppCredentials>(id);
+      const appKey = parsed.TWITTER_APP_KEY || parsed.consumer_key || parsed.consumerKey;
+      const appSecret = parsed.TWITTER_APP_SECRET || parsed.consumer_secret || parsed.consumerSecret;
+      if (appKey && appSecret) {
+        return { appKey, appSecret };
+      }
+    } catch {
+      // Try next.
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -60,6 +111,8 @@ export async function loadAvatarSecrets(
   secretPrefix: string = 'swarm',
   preferredJsonSecretId?: string
 ): Promise<LoadedAvatarSecrets> {
+  const environment = process.env.ENVIRONMENT;
+
   // 1) Prefer a JSON blob (existing behavior for many handlers)
   const jsonCandidates = [preferredJsonSecretId, `${secretPrefix}/${avatarId}/secrets`]
     .filter(Boolean) as string[];
@@ -93,12 +146,21 @@ export async function loadAvatarSecrets(
   await Promise.all(keys.map(async ({ secretName, envKey }) => {
     const value = await getFirstSecret(
       secretsService,
-      secretCandidates(secretPrefix, avatarId, secretName)
+      secretCandidates(secretPrefix, avatarId, secretName, environment)
     );
     if (value) {
       result[envKey] = value;
     }
   }));
+
+  // If the avatar does not have per-secret Twitter app credentials, use the shared app credentials secret.
+  if (!result.TWITTER_API_KEY || !result.TWITTER_API_SECRET) {
+    const creds = await tryGetTwitterAppCredentials(secretsService, secretPrefix);
+    if (creds) {
+      result.TWITTER_API_KEY = result.TWITTER_API_KEY || creds.appKey;
+      result.TWITTER_API_SECRET = result.TWITTER_API_SECRET || creds.appSecret;
+    }
+  }
 
   return result;
 }

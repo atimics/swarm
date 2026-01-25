@@ -111,6 +111,26 @@ async function initialize(): Promise<void> {
 async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, string>> {
   const secrets: Record<string, string> = {};
 
+  // Shared Twitter app credentials are stored as a single JSON secret.
+  // This keeps app credentials centralized while per-avatar OAuth tokens remain per-secret.
+  // Do not fail hard if it is missing; some avatars may not use Twitter.
+  async function tryLoadTwitterAppCredentials(): Promise<void> {
+    if (secrets.TWITTER_API_KEY && secrets.TWITTER_API_SECRET) return;
+    const secretId = process.env.TWITTER_APP_CREDENTIALS_ARN || `${SECRET_PREFIX}/global/twitter-app-credentials`;
+    try {
+      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretId }));
+      const raw = response.SecretString;
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const appKey = (parsed.TWITTER_APP_KEY || parsed.consumer_key || parsed.consumerKey) as string | undefined;
+      const appSecret = (parsed.TWITTER_APP_SECRET || parsed.consumer_secret || parsed.consumerSecret) as string | undefined;
+      if (appKey && !secrets.TWITTER_API_KEY) secrets.TWITTER_API_KEY = appKey;
+      if (appSecret && !secrets.TWITTER_API_SECRET) secrets.TWITTER_API_SECRET = appSecret;
+    } catch {
+      // Ignore parse/lookup errors and rely on per-avatar secrets if present.
+    }
+  }
+
   // Define secret types to fetch and their normalized key names
   const secretTypes = [
     { type: 'telegram_bot_token', key: 'TELEGRAM_BOT_TOKEN' },
@@ -140,9 +160,14 @@ async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, stri
       const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
       if (response.SecretString) {
         secrets[key] = response.SecretString;
+        continue;
       }
     } catch {
       // Global secret not found either - continue without it
+    }
+
+    if (type === 'twitter_api_key' || type === 'twitter_api_secret') {
+      await tryLoadTwitterAppCredentials();
     }
   }
 
