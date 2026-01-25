@@ -549,8 +549,12 @@ export class AvatarConstruct extends Construct {
     }
 
     // Twitter mention poller - polls for mentions every 5 minutes
+    // NOTE: Prefer the shared multi-tenant poller (SharedHandlers stack) for centralized
+    // budget management and deduplication. Per-avatar pollers are disabled by default.
+    // Set USE_LEGACY_TWITTER_POLLER=true to enable per-avatar polling.
     const twitterMentions = config.platforms.twitter?.features?.includes('mention_replies');
-    if (config.platforms.twitter?.enabled && twitterMentions) {
+    const useLegacyPoller = process.env.USE_LEGACY_TWITTER_POLLER === 'true';
+    if (config.platforms.twitter?.enabled && twitterMentions && useLegacyPoller) {
       const mentionPoller = new lambda.Function(this, 'TwitterMentionPoller', {
         functionName: `${config.id}${suffix}-twitter-mention-poller`,
         runtime: lambda.Runtime.NODEJS_20_X,
