@@ -66,4 +66,32 @@ describe('telegram-webhook-shared allowlists', () => {
 
     expect(allowed).toBe(false);
   });
+
+  it('treats allowedChatIds as home channels when homeChannelChecker is enabled', async () => {
+    const allowed = isTelegramChatAllowed(
+      {
+        conversationId: '-1001',
+        sender: { id: 'u1' },
+        metadata: { chatType: 'supergroup' },
+      },
+      { allowedChatIds: ['-1001'], homeChannelId: '-9999' },
+      { isHomeChannel: async () => false }
+    );
+
+    await expect(Promise.resolve(allowed)).resolves.toBe(true);
+  });
+
+  it('blocks group chats when homeChannelChecker is enabled and chat is neither a home channel nor in allowedChatIds', async () => {
+    const allowed = isTelegramChatAllowed(
+      {
+        conversationId: '-1002',
+        sender: { id: 'u1' },
+        metadata: { chatType: 'supergroup' },
+      },
+      { allowedChatIds: ['-1001'], homeChannelId: '-9999' },
+      { isHomeChannel: async () => false }
+    );
+
+    await expect(Promise.resolve(allowed)).resolves.toBe(false);
+  });
 });

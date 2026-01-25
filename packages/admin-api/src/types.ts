@@ -349,6 +349,12 @@ export interface AvatarRecord {
       homeChannelId?: string;
       /** Display-friendly channel username without @ (e.g., "ratibots"). */
       homeChannelUsername?: string;
+      /** URL to the home channel (e.g., "https://t.me/ratichat"). */
+      homeChannelUrl?: string;
+      /** Coin/token symbol for this avatar (e.g., "$RATiOS"). */
+      coinSymbol?: string;
+      /** Coin/token contract address. */
+      coinAddress?: string;
     };
     twitter?: {
       enabled: boolean;
@@ -1420,6 +1426,11 @@ export interface HomeChannelRecord {
   chatId: string;          // Chat ID as string
   avatarId: string;        // Avatar that owns this home channel
   botUsername: string;     // Bot username for reference
+  /**
+   * Avatars that have registered this chat as a home/allowed channel.
+   * Includes the owner avatar.
+   */
+  registeredAvatars?: Array<{ avatarId: string; botUsername: string }>;
   channelUsername?: string; // Channel @username without @ (e.g., "ratibots")
   channelTitle?: string;   // Human-readable title
   registeredAt: number;    // When first registered

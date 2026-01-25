@@ -25,7 +25,7 @@ import {
 } from './nft-gate.js';
 import {
   registerHomeChannel,
-  unregisterHomeChannelForAvatar,
+  removeAvatarFromAllHomeChannels,
 } from './home-channel.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -326,6 +326,23 @@ export async function updateAvatar(
     }
   }
 
+  // Treat allowedChatIds as global home channels.
+  // NOTE: This is intentionally add-only; we do not auto-unregister on config changes
+  // to avoid removing channels still used by other avatars.
+  if (telegramConfig?.botUsername && telegramConfig?.allowedChatIds && telegramConfig.allowedChatIds.length > 0) {
+    const botUsername = telegramConfig.botUsername;
+    const results = await Promise.allSettled(
+      telegramConfig.allowedChatIds.map((chatId) =>
+        registerHomeChannel(avatarId, chatId, botUsername)
+      )
+    );
+
+    const failures = results.filter((r) => r.status === 'rejected');
+    if (failures.length > 0) {
+      console.warn(`[Avatars] Failed to register some allowedChatIds as home channels for ${avatarId} (${failures.length}/${results.length})`);
+    }
+  }
+
   return updated;
 }
 
@@ -405,7 +422,7 @@ export async function deleteAvatar(
 
   // Unregister home channel if configured
   try {
-    await unregisterHomeChannelForAvatar(avatarId);
+    await removeAvatarFromAllHomeChannels(avatarId);
   } catch (err) {
     console.warn(`[Avatars] Failed to unregister home channel for ${avatarId}:`, err);
     // Don't fail the delete if home channel unregistration fails

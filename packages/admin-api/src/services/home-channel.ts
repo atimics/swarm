@@ -47,14 +47,23 @@ export async function registerHomeChannel(
   // Check if record already exists
   const existing = await getHomeChannelByChatId(chatId);
 
+  const existingRegistered = existing?.registeredAvatars ?? [];
+  const registeredMap = new Map(existingRegistered.map((a) => [a.avatarId, a] as const));
+  registeredMap.set(avatarId, { avatarId, botUsername });
+  const registeredAvatars = Array.from(registeredMap.values());
+
   const record: HomeChannelRecord = {
     pk: 'HOME_CHANNELS',
     sk: chatId,
     chatId,
-    avatarId,
-    botUsername,
-    channelUsername,
-    channelTitle,
+    // Do not overwrite the owner if the chatId was already registered.
+    // This prevents metadata flapping when multiple avatars register the same allowedChatIds.
+    avatarId: existing?.avatarId ?? avatarId,
+    botUsername: existing?.botUsername ?? botUsername,
+    // Prefer existing optional metadata if already known.
+    channelUsername: existing?.channelUsername ?? channelUsername,
+    channelTitle: existing?.channelTitle ?? channelTitle,
+    registeredAvatars,
     registeredAt: existing?.registeredAt || now,
     updatedAt: now,
   };
@@ -104,6 +113,67 @@ export async function unregisterHomeChannelForAvatar(avatarId: string): Promise<
   if (homeChannel) {
     await unregisterHomeChannel(homeChannel.chatId);
   }
+}
+
+/**
+ * Remove an avatar from all home channel records.
+ *
+ * If the avatar is the owner of a chatId and other avatars are registered,
+ * ownership is transferred to the next registered avatar.
+ * If no other avatars remain, the record is deleted.
+ */
+export async function removeAvatarFromAllHomeChannels(avatarId: string): Promise<void> {
+  const channels = await getAllHomeChannels();
+
+  const updates = channels
+    .filter((c) => c.avatarId === avatarId || (c.registeredAvatars ?? []).some((a) => a.avatarId === avatarId))
+    .map(async (record) => {
+      const remaining = (record.registeredAvatars ?? [])
+        .filter((a) => a.avatarId !== avatarId);
+
+      // If record had no registeredAvatars, treat owner as the only registrant.
+      const normalizedRemaining = remaining.length > 0
+        ? remaining
+        : (record.avatarId === avatarId ? [] : [{ avatarId: record.avatarId, botUsername: record.botUsername }]);
+
+      if (record.avatarId === avatarId) {
+        if (normalizedRemaining.length === 0) {
+          await unregisterHomeChannel(record.chatId);
+          return;
+        }
+
+        const newOwner = normalizedRemaining[0];
+        const updated: HomeChannelRecord = {
+          ...record,
+          avatarId: newOwner.avatarId,
+          botUsername: newOwner.botUsername,
+          registeredAvatars: normalizedRemaining,
+          updatedAt: Date.now(),
+        };
+
+        await dynamoClient.send(new PutCommand({
+          TableName: ADMIN_TABLE,
+          Item: updated,
+        }));
+        homeChannelCache = null;
+        return;
+      }
+
+      // Not owner: just remove from registeredAvatars and update.
+      const updated: HomeChannelRecord = {
+        ...record,
+        registeredAvatars: normalizedRemaining,
+        updatedAt: Date.now(),
+      };
+
+      await dynamoClient.send(new PutCommand({
+        TableName: ADMIN_TABLE,
+        Item: updated,
+      }));
+      homeChannelCache = null;
+    });
+
+  await Promise.allSettled(updates);
 }
 
 /**

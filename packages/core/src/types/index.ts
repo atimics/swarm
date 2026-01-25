@@ -80,6 +80,21 @@ export interface TelegramConfig {
    * Display-friendly channel username without @ (e.g., "ratibots").
    */
   homeChannelUsername?: string;
+  /**
+   * URL to the home channel (e.g., "https://t.me/ratichat").
+   * Used in redirect messages when avatar is mentioned in non-home channels.
+   */
+  homeChannelUrl?: string;
+  /**
+   * Coin/token symbol for this avatar (e.g., "$RATiOS", "$MYTOKEN").
+   * Used in redirect messages.
+   */
+  coinSymbol?: string;
+  /**
+   * Coin/token contract address.
+   * Used in redirect messages.
+   */
+  coinAddress?: string;
 }
 
 export interface DiscordConfig {
@@ -727,6 +742,9 @@ export const TelegramConfigSchema = z.object({
   allowedDmUserIds: z.array(z.string()).optional(),
   homeChannelId: z.string().optional(),
   homeChannelUsername: z.string().optional(),
+  homeChannelUrl: z.string().optional(),
+  coinSymbol: z.string().optional(),
+  coinAddress: z.string().optional(),
 });
 
 export const DiscordConfigSchema = z.object({

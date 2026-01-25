@@ -15,7 +15,7 @@ import type {
 export const CHANNEL_CONFIG = {
   // Buffer settings
   MAX_BUFFER_SIZE: 50,          // Max messages to keep in buffer
-  BUFFER_TTL_SECONDS: 86400,     // 24 hour TTL for channel state
+  BUFFER_TTL_SECONDS: 7776000,  // 90 day TTL for channel state (cleanup for truly abandoned channels)
 
   // State machine timings
   COOLDOWN_DURATION_MS: 10000,   // 10 seconds cooldown after response

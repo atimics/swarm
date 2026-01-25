@@ -125,7 +125,7 @@ afterEach(() => {
 describe('CHANNEL_CONFIG', () => {
   it('should have reasonable default values', () => {
     expect(CHANNEL_CONFIG.MAX_BUFFER_SIZE).toBe(50);
-    expect(CHANNEL_CONFIG.BUFFER_TTL_SECONDS).toBe(3600);
+    expect(CHANNEL_CONFIG.BUFFER_TTL_SECONDS).toBe(7776000); // 90 days
     expect(CHANNEL_CONFIG.COOLDOWN_DURATION_MS).toBe(10000);
     expect(CHANNEL_CONFIG.ACTIVE_TIMEOUT_MS).toBe(60000);
     expect(CHANNEL_CONFIG.MESSAGE_THRESHOLD).toBe(5);

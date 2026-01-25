@@ -12,7 +12,7 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { randomUUID, timingSafeEqual } from 'crypto';
 import {
   TelegramAdapter,
@@ -47,81 +47,84 @@ const CONFIG_TTL_MS = 60_000;
 const TOKEN_TTL_MS = 5 * 60_000;
 const WEBHOOK_SECRET_TTL_MS = 5 * 60_000;
 const HOME_CHANNEL_CACHE_TTL_MS = 60_000;
-const ACTIVE_CHANNEL_CACHE_TTL_MS = 60_000;
 
 // Home channel cache (set of chat IDs that are home channels)
 let homeChannelCache: { ids: Set<string>; expiresAt: number } | null = null;
 
-// Per-avatar active channel cache (most recently active channel)
-const activeChannelCache = new Map<string, { chatId: string; expiresAt: number }>();
-
-// Redirect message for blocked channels/DMs
-const REDIRECT_MESSAGE = `I can only chat in my home channel! Join us:
-
-🌐 https://swarm.rati.chat/
-💬 https://t.me/ratichat
-🪙 $RATiOS: 281Qdc3ZcPQtn8odD9p4GyhzBSko1r5jmQrNU1dQBAGS`;
+// Default values for redirect message
+const DEFAULT_HOME_CHANNEL_URL = 'https://t.me/ratichat';
+const DEFAULT_COIN_SYMBOL = '$RATiOS';
+const DEFAULT_COIN_ADDRESS = '281Qdc3ZcPQtn8odD9p4GyhzBSko1r5jmQrNU1dQBAGS';
 
 /**
- * Get the most recently active channel for an avatar.
- * Used as a fallback when no home channel is explicitly configured.
- * Queries channel state records and returns the one with most recent activity.
+ * Build redirect message for blocked channels/DMs.
+ * Uses avatar-specific config if available, otherwise falls back to defaults.
  */
-async function getMostRecentActiveChannel(avatarId: string): Promise<string | null> {
-  const now = Date.now();
-  const cached = activeChannelCache.get(avatarId);
-  if (cached && cached.expiresAt > now) {
-    return cached.chatId;
+function buildRedirectMessage(telegramCfg?: {
+  homeChannelUrl?: string;
+  homeChannelUsername?: string;
+  coinSymbol?: string;
+  coinAddress?: string;
+}): string {
+  const homeChannelUrl = telegramCfg?.homeChannelUrl
+    || (telegramCfg?.homeChannelUsername ? `https://t.me/${telegramCfg.homeChannelUsername}` : DEFAULT_HOME_CHANNEL_URL);
+  const coinSymbol = telegramCfg?.coinSymbol || DEFAULT_COIN_SYMBOL;
+  const coinAddress = telegramCfg?.coinAddress || DEFAULT_COIN_ADDRESS;
+
+  return `I can only chat in my home channel! Join us:
+
+🌐 https://swarm.rati.chat/
+💬 ${homeChannelUrl}
+🪙 ${coinSymbol}: ${coinAddress}`;
+}
+
+/**
+ * Clean up channel state when bot is removed from a channel.
+ * Deletes the channel state record from both STATE_TABLE and ADMIN_TABLE.
+ */
+async function cleanupChannelState(avatarId: string, chatId: string): Promise<void> {
+  const deletePromises: Promise<unknown>[] = [];
+
+  // Delete from STATE_TABLE (core channel state)
+  if (STATE_TABLE) {
+    deletePromises.push(
+      dynamoClient.send(new DeleteCommand({
+        TableName: STATE_TABLE,
+        Key: {
+          pk: `AVATAR#${avatarId}`,
+          sk: `CHANNEL#${chatId}#STATE`,
+        },
+      })).catch(err => {
+        logger.warn('Failed to delete channel state from STATE_TABLE', {
+          avatarId,
+          chatId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      })
+    );
   }
 
-  if (!ADMIN_TABLE) {
-    return null;
+  // Delete from ADMIN_TABLE (admin-api channel state)
+  if (ADMIN_TABLE) {
+    deletePromises.push(
+      dynamoClient.send(new DeleteCommand({
+        TableName: ADMIN_TABLE,
+        Key: {
+          pk: `CHANNEL#${avatarId}#${chatId}`,
+          sk: 'STATE',
+        },
+      })).catch(err => {
+        logger.warn('Failed to delete channel state from ADMIN_TABLE', {
+          avatarId,
+          chatId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      })
+    );
   }
 
-  try {
-    // Scan channel state records for this avatar
-    // Channel records have pk like "CHANNEL#{avatarId}#{chatId}"
-    const result = await dynamoClient.send(new ScanCommand({
-      TableName: ADMIN_TABLE,
-      FilterExpression: 'begins_with(pk, :prefix) AND sk = :sk AND chatType <> :private',
-      ExpressionAttributeValues: {
-        ':prefix': `CHANNEL#${avatarId}#`,
-        ':sk': 'STATE',
-        ':private': 'private',
-      },
-      ProjectionExpression: 'chatId, lastActivityAt, messageCount',
-    }));
-
-    if (!result.Items || result.Items.length === 0) {
-      return null;
-    }
-
-    // Find the channel with most recent activity (or highest message count as tiebreaker)
-    let bestChannel: { chatId: number; lastActivityAt: number; messageCount: number } | null = null;
-    for (const item of result.Items) {
-      const chatId = item.chatId as number;
-      const lastActivityAt = (item.lastActivityAt as number) || 0;
-      const messageCount = (item.messageCount as number) || 0;
-
-      if (!bestChannel ||
-          lastActivityAt > bestChannel.lastActivityAt ||
-          (lastActivityAt === bestChannel.lastActivityAt && messageCount > bestChannel.messageCount)) {
-        bestChannel = { chatId, lastActivityAt, messageCount };
-      }
-    }
-
-    if (bestChannel) {
-      const chatIdStr = String(bestChannel.chatId);
-      activeChannelCache.set(avatarId, { chatId: chatIdStr, expiresAt: now + ACTIVE_CHANNEL_CACHE_TTL_MS });
-      logger.info('Found most recent active channel', { avatarId, chatId: chatIdStr, lastActivityAt: bestChannel.lastActivityAt });
-      return chatIdStr;
-    }
-
-    return null;
-  } catch (err) {
-    logger.warn('Failed to fetch active channels', { avatarId, error: err instanceof Error ? err.message : String(err) });
-    return null;
-  }
+  await Promise.all(deletePromises);
+  logger.info('Cleaned up channel state after bot removal', { avatarId, chatId });
 }
 
 /**
@@ -166,9 +169,9 @@ async function getHomeChannelIds(): Promise<Set<string>> {
 
 /**
  * Create a home channel checker for a specific avatar.
- * Checks if a chat ID is a registered home channel, with fallback to most recently active channel.
+ * Checks if a chat ID is a registered home channel.
  */
-function createHomeChannelChecker(avatarId: string): HomeChannelChecker {
+function createHomeChannelChecker(): HomeChannelChecker {
   return {
     async isHomeChannel(chatId: string, avatarHomeChannelId?: string): Promise<boolean> {
       // Fast path: check if it's the avatar's own home channel
@@ -180,23 +183,6 @@ function createHomeChannelChecker(avatarId: string): HomeChannelChecker {
       const homeChannelIds = await getHomeChannelIds();
       if (homeChannelIds.has(chatId)) {
         return true;
-      }
-
-      // Fallback: if avatar has no home channel configured, allow most recently active channel
-      // This prevents avatars from being completely blocked when first deploying
-      if (!avatarHomeChannelId && homeChannelIds.size === 0) {
-        // No home channels registered at all - allow all (legacy behavior during migration)
-        logger.info('No home channels registered, allowing all channels (migration mode)');
-        return true;
-      }
-
-      if (!avatarHomeChannelId) {
-        // Avatar has no home channel configured - check if this is their most active channel
-        const mostActiveChannel = await getMostRecentActiveChannel(avatarId);
-        if (mostActiveChannel && chatId === mostActiveChannel) {
-          logger.info('Allowing most recently active channel as fallback', { avatarId, chatId });
-          return true;
-        }
       }
 
       return false;
@@ -216,8 +202,9 @@ export interface HomeChannelChecker {
  * Check if a Telegram chat is allowed for this avatar.
  *
  * For DMs (private chats): Uses allowedDmUserIds allowlist.
- * For groups/channels: Uses home channel logic if homeChannelChecker is provided,
- *                      otherwise falls back to allowedChatIds allowlist.
+ * For groups/channels: Uses home channel logic if homeChannelChecker is provided.
+ *                      If allowedChatIds is configured, those chats are treated as home channels.
+ *                      If homeChannelChecker is not provided, falls back to allowedChatIds allowlist.
  *
  * @param envelope - The message envelope with chat info
  * @param telegramCfg - The avatar's Telegram configuration
@@ -243,6 +230,11 @@ export function isTelegramChatAllowed(
 
   // Groups/channels: use home channel logic if checker is provided
   if (homeChannelChecker) {
+    const allowedChatIds = telegramCfg?.allowedChatIds;
+    if (allowedChatIds && allowedChatIds.length > 0 && allowedChatIds.includes(envelope.conversationId)) {
+      return true;
+    }
+
     return homeChannelChecker.isHomeChannel(
       envelope.conversationId,
       telegramCfg?.homeChannelId
@@ -410,12 +402,33 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       }
     }
 
-    let update: unknown;
+    let update: Record<string, unknown>;
     try {
-      update = JSON.parse(body.toString());
+      update = JSON.parse(body.toString()) as Record<string, unknown>;
     } catch (err) {
       logger.warn('Invalid JSON', { event: 'parse_error', error: err instanceof Error ? err.message : String(err) });
       return { statusCode: 400, body: 'Invalid JSON' };
+    }
+
+    // Handle bot removal from channel (my_chat_member update)
+    if (update.my_chat_member) {
+      const myChatMember = update.my_chat_member as {
+        chat?: { id?: number };
+        new_chat_member?: { status?: string };
+      };
+      const newStatus = myChatMember.new_chat_member?.status;
+      const chatId = myChatMember.chat?.id;
+
+      // If bot was removed (left or kicked), clean up channel state
+      if (chatId && (newStatus === 'left' || newStatus === 'kicked')) {
+        logger.info('Bot removed from channel, cleaning up state', {
+          event: 'bot_removed',
+          chatId: String(chatId),
+          newStatus,
+        });
+        await cleanupChannelState(avatarId, String(chatId));
+        return ok();
+      }
     }
 
     const envelope = await telegramAdapter.parseMessage(update);
@@ -425,7 +438,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
     const telegramCfg = avatarConfig.platforms.telegram;
     // Use home channel checker for groups/channels if ADMIN_TABLE is configured
-    const homeChecker = ADMIN_TABLE ? createHomeChannelChecker(avatarId) : undefined;
+    const homeChecker = ADMIN_TABLE ? createHomeChannelChecker() : undefined;
     const chatAllowed = await Promise.resolve(isTelegramChatAllowed(envelope, telegramCfg, homeChecker));
     if (!chatAllowed) {
       const isMentioned = envelope.metadata.isMention || envelope.metadata.isReplyToBot;
@@ -442,9 +455,10 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         try {
           const bot = telegramAdapter.getBot();
           if (bot) {
+            const redirectMessage = buildRedirectMessage(telegramCfg);
             await bot.api.sendMessage(
               parseInt(envelope.conversationId),
-              REDIRECT_MESSAGE,
+              redirectMessage,
               { reply_to_message_id: parseInt(envelope.messageId) }
             );
             logger.info('Sent redirect message', { event: 'redirect_sent', chatId: envelope.conversationId });
