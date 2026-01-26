@@ -20,6 +20,7 @@ interface LinkedAccountLike {
   type?: string;
   address?: string;
   chainType?: string;
+  chain_type?: string; // Privy API uses snake_case
 }
 
 interface PrivyUserLike {
@@ -55,16 +56,20 @@ function getSolanaWalletAddressFromPrivyUser(user: unknown): string | null {
   }
 
   // Check linked accounts (with Solana chainType preference)
-  if (Array.isArray(privyUser?.linkedAccounts)) {
-    // First try to find a Solana wallet specifically
-    const solanaWallet = privyUser.linkedAccounts.find(
-      (acc) => acc?.type === 'wallet' && acc?.chainType === 'solana' && typeof acc?.address === 'string'
+  // Privy SDK may use either linkedAccounts or linked_accounts, and chain_type or chainType
+  const accounts = privyUser?.linkedAccounts || (privyUser as { linked_accounts?: LinkedAccountLike[] })?.linked_accounts;
+  if (Array.isArray(accounts)) {
+    // First try to find a Solana wallet specifically (check both chainType and chain_type)
+    const solanaWallet = accounts.find(
+      (acc) => acc?.type === 'wallet' &&
+        (acc?.chainType === 'solana' || acc?.chain_type === 'solana') &&
+        typeof acc?.address === 'string'
     );
     if (typeof solanaWallet?.address === 'string' && solanaWallet.address.length >= 32) {
       return solanaWallet.address;
     }
     // Fall back to any wallet
-    const anyWallet = privyUser.linkedAccounts.find(
+    const anyWallet = accounts.find(
       (acc) => acc?.type === 'wallet' && typeof acc?.address === 'string'
     );
     if (typeof anyWallet?.address === 'string' && anyWallet.address.length >= 32) {
