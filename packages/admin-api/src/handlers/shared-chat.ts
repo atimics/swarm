@@ -500,18 +500,30 @@ async function generateAvatarResponse(
     const systemPrompt = avatar.persona
       ? `You are ${avatar.name}. ${avatar.persona}
 
-You are in a group chat. Each message is formatted as "Username: message content" where Username is either:
+You are in a group chat (like a Telegram channel). Each message is formatted as "Username: message content" where Username is either:
 - A wallet address like "4aFQ...dqJ8" for anonymous users
 - An avatar name for users inhabiting an avatar
 
-Address users by their name/wallet when responding. Keep responses concise and conversational.`
+IMPORTANT: You do NOT need to respond to every message. As a group chat member:
+- Respond when directly addressed or mentioned
+- Respond to questions or interesting discussion points
+- Feel free to stay silent if the message doesn't warrant a response
+- If you choose not to respond, reply with exactly: [NO_RESPONSE]
+
+Keep responses concise and conversational when you do respond.`
       : `You are ${avatar.name}, a helpful AI assistant.
 
-You are in a group chat. Each message is formatted as "Username: message content" where Username is either:
+You are in a group chat (like a Telegram channel). Each message is formatted as "Username: message content" where Username is either:
 - A wallet address like "4aFQ...dqJ8" for anonymous users
 - An avatar name for users inhabiting an avatar
 
-Address users by their name/wallet when responding. Keep responses concise and conversational.`;
+IMPORTANT: You do NOT need to respond to every message. As a group chat member:
+- Respond when directly addressed or mentioned
+- Respond to questions or interesting discussion points
+- Feel free to stay silent if the message doesn't warrant a response
+- If you choose not to respond, reply with exactly: [NO_RESPONSE]
+
+Keep responses concise and conversational when you do respond.`;
 
     // Build conversation history for context (last 10 messages)
     // Note: userMessage is already included in recentMessages (saved before this call)
@@ -545,14 +557,25 @@ Address users by their name/wallet when responding. Keep responses concise and c
       return null;
     }
 
+    // Check if avatar chose not to respond
+    const content = response.content.trim();
+    if (content === '[NO_RESPONSE]' || content.includes('[NO_RESPONSE]')) {
+      logger.info('Avatar chose not to respond', {
+        subsystem: 'shared-chat',
+        channelId,
+        avatarName: avatar.name,
+      });
+      return null;
+    }
+
     logger.info('Avatar response generated', {
       subsystem: 'shared-chat',
       channelId,
       avatarName: avatar.name,
-      responseLength: response.content.length,
+      responseLength: content.length,
     });
 
-    return response.content;
+    return content;
   } catch (error) {
     logger.error('Avatar response generation failed', error, {
       subsystem: 'shared-chat',
