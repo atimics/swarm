@@ -6,7 +6,7 @@
  * 2. Sets up the avatar in the store for ChatPanel
  * 3. Renders ChatPanel with public access mode
  */
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useAuth } from '../store/auth';
 import { PrivyLoginButton } from './PrivyLoginButton';
 import { SharedChatPanel } from './SharedChatPanel';
@@ -23,7 +23,20 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
   const [avatarInfo, setAvatarInfo] = useState<ChannelAvatarInfo | null>(null);
   const [loadingAvatar, setLoadingAvatar] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<'chat' | 'twitter'>('chat');
+  const getViewFromPath = useCallback((): 'chat' | 'twitter' => {
+    const path = window.location.pathname;
+    if (path === '/twitter' || path === '/twitter/feed') return 'twitter';
+    return 'chat';
+  }, []);
+
+  const [view, setView] = useState<'chat' | 'twitter'>(() => getViewFromPath());
+
+  // Keep view in sync with browser navigation.
+  useEffect(() => {
+    const onPopState = () => setView(getViewFromPath());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [getViewFromPath]);
 
   // Fetch avatar info on mount (public endpoint, no auth required)
   useEffect(() => {
@@ -220,7 +233,15 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setView(view === 'chat' ? 'twitter' : 'chat')}
+              onClick={() => {
+                const nextView = view === 'chat' ? 'twitter' : 'chat';
+                setView(nextView);
+                try {
+                  window.history.pushState({}, '', nextView === 'twitter' ? '/twitter' : '/');
+                } catch {
+                  // ignore
+                }
+              }}
               className="px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs font-medium transition-colors"
             >
               {view === 'chat' ? 'Twitter' : 'Back to chat'}
