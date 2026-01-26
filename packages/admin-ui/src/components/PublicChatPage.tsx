@@ -24,8 +24,8 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
   const [loadingAvatar, setLoadingAvatar] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const getViewFromPath = useCallback((): 'chat' | 'twitter' => {
-    const path = window.location.pathname;
-    if (path === '/twitter' || path === '/twitter/feed') return 'twitter';
+    const path = (window.location.pathname || '/').replace(/\/+$/, '') || '/';
+    if (path === '/twitter' || path === '/twitter/feed' || path.startsWith('/twitter/')) return 'twitter';
     return 'chat';
   }, []);
 

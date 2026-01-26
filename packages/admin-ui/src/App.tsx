@@ -35,12 +35,14 @@ function getChatAvatarId(pathname: string): string | null {
 }
 
 function getBotIdFromHostname(hostname: string): string | null {
-  const normalized = hostname.split(':')[0]?.toLowerCase();
+  const normalizedRaw = hostname.split(':')[0]?.toLowerCase();
+  const normalized = normalizedRaw?.replace(/\.$/, '');
   if (!normalized || !normalized.endsWith('.rati.chat')) return null;
 
   const reserved = new Set([
     'swarm',
     'staging-swarm',
+    'www',
     'admin',
     'api',
     'cdn',
