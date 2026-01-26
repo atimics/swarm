@@ -799,6 +799,13 @@ export class AdminApiConstruct extends Construct {
     });
 
     this.table.grantReadWriteData(sharedChatHandler);
+    // Grant permission to query GSI1 (for inhabitant avatar lookups)
+    sharedChatHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:Query'],
+        resources: [`${this.table.tableArn}/index/GSI1`],
+      })
+    );
 
     const sharedChatIntegration = new integrations.HttpLambdaIntegration(
       'SharedChatIntegration',
