@@ -533,13 +533,23 @@ export class AvatarConstruct extends Construct {
       const cronParts = scheduledTweet.cron?.split(' ') || [];
       new events.Rule(this, 'TweetSchedule', {
         schedule: cronParts.length >= 5
-          ? events.Schedule.cron({
-              minute: cronParts[0] || '0',
-              hour: cronParts[1] || '12',
-              day: cronParts[2] || '*',
-              month: cronParts[3] || '*',
-              weekDay: cronParts[4] || '*',
-            })
+          ? (() => {
+              const minute = cronParts[0] || '0';
+              const hour = cronParts[1] || '12';
+              const day = cronParts[2] || '*';
+              const month = cronParts[3] || '*';
+              const weekDay = cronParts[4] || '?';
+
+              // CDK validation: cannot supply both `day` and `weekDay`.
+              // EventBridge cron requires one of them to be '?' when the other is used.
+              const base: events.CronOptions = { minute, hour, month };
+              const cronOptions: events.CronOptions =
+                day !== '?' ? { ...base, day } :
+                weekDay !== '?' ? { ...base, weekDay } :
+                { ...base, day: '*' };
+
+              return events.Schedule.cron(cronOptions);
+            })()
           : events.Schedule.cron({
               hour: '12,18',
               minute: '0',

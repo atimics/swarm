@@ -1491,7 +1491,6 @@ export class AdminApiConstruct extends Construct {
         hour: '3',
         day: '*',
         month: '*',
-        weekDay: '*',
       }),
       targets: [new targets.LambdaFunction(consolidationWorker)],
       description: 'Daily memory consolidation for all avatars',
