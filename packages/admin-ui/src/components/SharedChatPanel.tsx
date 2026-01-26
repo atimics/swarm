@@ -25,7 +25,6 @@ export function SharedChatPanel({ channelId, disabled }: SharedChatPanelProps) {
   const [messages, setMessages] = useState<SharedChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isSending, setIsSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [typingName, setTypingName] = useState<string | undefined>(undefined);
 
@@ -92,7 +91,6 @@ export function SharedChatPanel({ channelId, disabled }: SharedChatPanelProps) {
     if (!canSend) return;
     if (!channelId) return;
 
-    setIsSending(true);
     setError(null);
 
     const optimisticMessage: SharedChatMessage = {
@@ -123,8 +121,6 @@ export function SharedChatPanel({ channelId, disabled }: SharedChatPanelProps) {
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));
       setError(err instanceof Error ? err.message : 'Failed to send message');
-    } finally {
-      setIsSending(false);
     }
   }, [canSend, channelId, currentWalletAddress, user?.avatarUrl, user?.displayName, user?.inhabitedAvatarId]);
 
@@ -174,7 +170,7 @@ export function SharedChatPanel({ channelId, disabled }: SharedChatPanelProps) {
       <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-4 py-3">
         <ChatInput
           onSend={handleSend}
-          disabled={!canSend || isSending}
+          disabled={!canSend}
           voiceEnabled={false}
           placeholder={isAuthenticated ? 'Type a message…' : 'Sign in to chat…'}
         />
