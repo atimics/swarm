@@ -217,6 +217,7 @@ export class SharedHandlers extends Construct {
     // Externalize sharp (native layer) and node-fetch (to use native fetch in Node.js 20+)
     // The externalModules for node-fetch forces grammy to fail import and fall back to native fetch
     const bundlingOptions = {
+      format: nodejs.OutputFormat.CJS,
       externalModules: ['sharp', 'node-fetch', 'abort-controller'],
       minify: true,
       sourceMap: true,
