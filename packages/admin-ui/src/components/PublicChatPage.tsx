@@ -21,6 +21,9 @@ interface PublicChatPageProps {
 export function PublicChatPage({ botId }: PublicChatPageProps) {
   const { isAuthenticated, isLoading: authLoading, gateStatus } = useAuth();
 
+  // Debug: trace PublicChatPage render
+  console.log('[PublicChatPage] Rendering with botId:', botId, 'isAuthenticated:', isAuthenticated, 'authLoading:', authLoading);
+
   const [authChecked, setAuthChecked] = useState(false);
 
   const [avatarInfo, setAvatarInfo] = useState<ChannelAvatarInfo | null>(null);
@@ -232,7 +235,10 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
 
   const effectiveAvatarId = avatarInfo?.avatarId || botId;
 
-  // Authenticated - render ChatPanel with the public avatar
+  // Debug: trace authenticated render
+  console.log('[PublicChatPage] Rendering authenticated view for botId:', botId, 'view:', view, 'isOrbHolder:', isOrbHolder);
+
+  // Authenticated - render SharedChatPanel with the public avatar
   return (
     <div className="h-[100dvh] flex flex-col bg-[var(--color-bg)]">
       {/* Custom header for public chat */}

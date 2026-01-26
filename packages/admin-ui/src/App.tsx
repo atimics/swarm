@@ -74,6 +74,9 @@ function parseTwitterOAuthResultFromLocation(location: Location): TwitterOAuthRe
 }
 
 function App() {
+  // Debug: trace App render (should NOT appear on subdomains)
+  console.log('[App] Rendering - this should NOT appear on avatar subdomains');
+
   const { avatars, fetchAvatars, activeAvatarId, syncChatHistory, setActiveAvatar, addMessage, chats, updateMessage } = useAvatarStore();
   const { checkAuth } = useWalletAuth();
   // Use unified auth to check both wallet and Crossmint authentication

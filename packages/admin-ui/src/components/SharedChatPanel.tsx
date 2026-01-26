@@ -22,6 +22,9 @@ function displayNameForSender(sender: SharedChatMessage['sender']): string {
 export function SharedChatPanel({ channelId, disabled }: SharedChatPanelProps) {
   const { user, isAuthenticated } = useAuth();
 
+  // Debug: trace SharedChatPanel render
+  console.log('[SharedChatPanel] Rendering for channelId:', channelId, 'isAuthenticated:', isAuthenticated, 'disabled:', disabled);
+
   const [messages, setMessages] = useState<SharedChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
