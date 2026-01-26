@@ -276,7 +276,7 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
               </div>
               {description ? (
                 description.length > 60 ? (
-                  <div className="mt-0.5 min-w-0">
+                  <div className="mt-0.5 min-w-0 hidden sm:block">
                     <span
                       className="text-xs text-[var(--color-text-muted)] marquee"
                       aria-label={description}
@@ -288,7 +288,7 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
                     </span>
                   </div>
                 ) : (
-                  <p className="text-xs text-[var(--color-text-muted)] truncate">{description}</p>
+                  <p className="text-xs text-[var(--color-text-muted)] truncate hidden sm:block">{description}</p>
                 )
               ) : null}
             </div>
