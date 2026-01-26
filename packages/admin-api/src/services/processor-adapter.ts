@@ -514,3 +514,14 @@ export function createTwitterProcessor(): MessageProcessor {
     dreamsEnabled: process.env.DREAMS_ENABLED === 'true',
   });
 }
+
+/**
+ * Create a processor for Shared Chat (web group chat) requests.
+ * Uses the same unified MessageProcessor as other platforms for consistency.
+ */
+export function createSharedChatProcessor(): MessageProcessor {
+  return createProcessor({
+    platform: 'shared-chat',
+    dreamsEnabled: process.env.DREAMS_ENABLED === 'true',
+  });
+}

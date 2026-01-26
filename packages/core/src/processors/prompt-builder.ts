@@ -332,6 +332,24 @@ Guidelines:
 - Be helpful and thorough
 - Use markdown formatting when appropriate
 - You can include images and media in responses`,
+
+  'shared-chat': `## Platform: Shared Chat (Group Chat)
+
+You are in a multi-user web group chat. This is similar to a Telegram channel.
+
+**Message Format:**
+Each message shows "Username: message content" where Username is:
+- A wallet address like "4aFQ...dqJ8" for anonymous users
+- An avatar name for users who have "inhabited" an avatar
+
+**Response Guidelines:**
+You do NOT need to respond to every message. As a group chat participant:
+- Respond when directly addressed or mentioned by name
+- Respond to questions directed at you or interesting discussion points
+- Stay silent if the message doesn't warrant a response (greetings between others, off-topic chatter)
+- If you choose not to respond, reply with exactly: [NO_RESPONSE]
+
+Keep responses concise and conversational (1-3 sentences). This is a chat, not an essay.`,
 };
 
 // =============================================================================
@@ -558,8 +576,8 @@ You have access to recent conversation history. Previous messages (yours and oth
   }
 
   // Brevity reminder for chat platforms
-  if (platform === 'telegram' || platform === 'discord') {
-    prompt += `\n\n---\n**REMEMBER: Keep responses to 1-2 sentences MAX. This is ${platform}, not an essay.**`;
+  if (platform === 'telegram' || platform === 'discord' || platform === 'shared-chat') {
+    prompt += `\n\n---\n**REMEMBER: Keep responses to 1-2 sentences MAX. This is a chat, not an essay.**`;
   }
 
   return prompt;

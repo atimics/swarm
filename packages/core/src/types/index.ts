@@ -7,9 +7,9 @@ import { z } from 'zod';
 // PLATFORM TYPES
 // =============================================================================
 
-export type Platform = 'telegram' | 'discord' | 'twitter' | 'web';
+export type Platform = 'telegram' | 'discord' | 'twitter' | 'web' | 'shared-chat';
 
-export const PlatformSchema = z.enum(['telegram', 'discord', 'twitter', 'web']);
+export const PlatformSchema = z.enum(['telegram', 'discord', 'twitter', 'web', 'shared-chat']);
 
 // =============================================================================
 // AGENT CONFIGURATION

@@ -12,14 +12,7 @@
  */
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { z } from 'zod';
-import {
-  logger,
-  createLLMService,
-  DEFAULT_LLM_MODEL,
-  DEFAULT_LLM_PROVIDER,
-  DEFAULT_LLM_TEMPERATURE,
-  DEFAULT_LLM_MAX_TOKENS,
-} from '@swarm/core';
+import { logger } from '@swarm/core';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 import { getClearSessionCookies, getSessionFromCookie } from '../auth/session-cookie.js';
@@ -32,7 +25,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import type { MessageSender } from '../types.js';
 import * as avatarService from '../services/avatars.js';
-import { _getSecretValueInternal } from '../services/secrets.js';
+import { createSharedChatProcessor } from '../services/processor-adapter.js';
 
 const TABLE_NAME = process.env.ADMIN_TABLE || 'SwarmAdminTable';
 const MAX_MESSAGES_PER_CHANNEL = 100;
@@ -42,11 +35,6 @@ const MESSAGE_TTL_HOURS = 24;
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute window
 const RATE_LIMIT_MAX_MESSAGES = 10; // Max messages per user per window per channel
 const RATE_LIMIT_TTL_SECONDS = 120; // TTL for rate limit records (2 minutes)
-
-// Retry configuration
-const LLM_RETRY_MAX_ATTEMPTS = 3;
-const LLM_RETRY_BASE_DELAY_MS = 1000;
-const LLM_RETRY_MAX_DELAY_MS = 10000;
 
 // Typing indicator TTL
 const TYPING_INDICATOR_TTL_MS = 30_000; // 30 seconds
@@ -58,77 +46,6 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 // In-memory typing indicators (for Lambda warm instances)
 // In production, you'd want to use DynamoDB or Redis for cross-instance state
 const typingIndicators = new Map<string, { avatarName: string; startedAt: number }>();
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
-
-/**
- * Sleep for a given number of milliseconds
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Calculate exponential backoff delay with jitter
- */
-function getBackoffDelay(attempt: number): number {
-  const exponentialDelay = LLM_RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
-  const jitter = Math.random() * 0.3 * exponentialDelay; // 0-30% jitter
-  return Math.min(exponentialDelay + jitter, LLM_RETRY_MAX_DELAY_MS);
-}
-
-/**
- * Retry wrapper with exponential backoff
- */
-async function withRetry<T>(
-  operation: () => Promise<T>,
-  operationName: string,
-  channelId: string
-): Promise<T | null> {
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt < LLM_RETRY_MAX_ATTEMPTS; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-
-      // Don't retry on certain errors (e.g., auth failures)
-      const errorMessage = lastError.message.toLowerCase();
-      if (errorMessage.includes('unauthorized') ||
-          errorMessage.includes('forbidden') ||
-          errorMessage.includes('invalid api key')) {
-        logger.warn(`${operationName} failed with non-retryable error`, {
-          subsystem: 'shared-chat',
-          channelId,
-          error: lastError.message,
-          attempt: attempt + 1,
-        });
-        return null;
-      }
-
-      if (attempt < LLM_RETRY_MAX_ATTEMPTS - 1) {
-        const delay = getBackoffDelay(attempt);
-        logger.info(`${operationName} failed, retrying in ${delay}ms`, {
-          subsystem: 'shared-chat',
-          channelId,
-          attempt: attempt + 1,
-          maxAttempts: LLM_RETRY_MAX_ATTEMPTS,
-          error: lastError.message,
-        });
-        await sleep(delay);
-      }
-    }
-  }
-
-  logger.error(`${operationName} failed after ${LLM_RETRY_MAX_ATTEMPTS} attempts`, lastError, {
-    subsystem: 'shared-chat',
-    channelId,
-  });
-  return null;
-}
 
 /**
  * Check if user is rate limited
@@ -442,8 +359,9 @@ async function addChannelMessage(
 // =============================================================================
 
 /**
- * Generate an avatar response to a user message
- * Returns null if avatar is not configured for responses or if generation fails
+ * Generate an avatar response to a user message using the unified MessageProcessor.
+ * This ensures consistent behavior with Telegram and other platforms.
+ * Returns null if avatar is not configured for responses or if generation fails.
  */
 async function generateAvatarResponse(
   channelId: string,
@@ -471,94 +389,50 @@ async function generateAvatarResponse(
       return null;
     }
 
-    // Get LLM API key (avatar-specific or global)
-    let apiKey = await _getSecretValueInternal(channelId, 'openrouter_api_key', 'default');
-    if (!apiKey) {
-      apiKey = await _getSecretValueInternal(null, 'openrouter_api_key', 'default');
-    }
-    if (!apiKey) {
-      logger.warn('No OpenRouter API key found for avatar response', {
-        subsystem: 'shared-chat',
-        channelId,
-      });
-      return null;
-    }
+    // Build conversation history for context (last 10 messages, excluding the latest user message)
+    // The latest message will be passed separately to the processor
+    const historyMessages = recentMessages.slice(-11, -1);
+    const latestMessage = recentMessages[recentMessages.length - 1];
 
-    // Build LLM config from avatar settings
-    const provider = (avatar.llmConfig?.provider || DEFAULT_LLM_PROVIDER) as 'openrouter' | 'bedrock' | 'anthropic';
-    const llmConfig = {
-      provider,
-      model: avatar.llmConfig?.model || DEFAULT_LLM_MODEL,
-      temperature: avatar.llmConfig?.temperature ?? DEFAULT_LLM_TEMPERATURE,
-      maxTokens: avatar.llmConfig?.maxTokens ?? DEFAULT_LLM_MAX_TOKENS,
-    };
-
-    // Create LLM service
-    const llmService = createLLMService(llmConfig, { OPENROUTER_API_KEY: apiKey });
-
-    // Build system prompt from persona
-    const systemPrompt = avatar.persona
-      ? `You are ${avatar.name}. ${avatar.persona}
-
-You are in a group chat (like a Telegram channel). Each message is formatted as "Username: message content" where Username is either:
-- A wallet address like "4aFQ...dqJ8" for anonymous users
-- An avatar name for users inhabiting an avatar
-
-IMPORTANT: You do NOT need to respond to every message. As a group chat member:
-- Respond when directly addressed or mentioned
-- Respond to questions or interesting discussion points
-- Feel free to stay silent if the message doesn't warrant a response
-- If you choose not to respond, reply with exactly: [NO_RESPONSE]
-
-Keep responses concise and conversational when you do respond.`
-      : `You are ${avatar.name}, a helpful AI assistant.
-
-You are in a group chat (like a Telegram channel). Each message is formatted as "Username: message content" where Username is either:
-- A wallet address like "4aFQ...dqJ8" for anonymous users
-- An avatar name for users inhabiting an avatar
-
-IMPORTANT: You do NOT need to respond to every message. As a group chat member:
-- Respond when directly addressed or mentioned
-- Respond to questions or interesting discussion points
-- Feel free to stay silent if the message doesn't warrant a response
-- If you choose not to respond, reply with exactly: [NO_RESPONSE]
-
-Keep responses concise and conversational when you do respond.`;
-
-    // Build conversation history for context (last 10 messages)
-    // Note: userMessage is already included in recentMessages (saved before this call)
-    const contextMessages = recentMessages.slice(-10).map(msg => ({
-      role: (msg.sender.inhabitedAvatarId === channelId ? 'assistant' : 'user') as 'user' | 'assistant' | 'system',
-      content: `${msg.sender.displayName}: ${msg.content}`,
+    // Format history messages for the processor
+    // Messages from the avatar are 'assistant', others are 'user'
+    const conversationHistory = historyMessages.map(msg => ({
+      role: (msg.sender.inhabitedAvatarId === channelId ? 'assistant' : 'user') as 'user' | 'assistant',
+      content: `${msg.sender.displayName || msg.sender.walletAddress?.slice(0, 6)}: ${msg.content}`,
     }));
 
-    // Generate response with retry logic
-    const response = await withRetry(
-      async () => {
-        const result = await llmService.generateResponse({
-          avatarId: channelId,
-          systemPrompt,
-          messages: contextMessages,
-          tools: [],
-          config: llmConfig,
-        });
+    // Create the unified processor (same as Telegram uses)
+    const processor = createSharedChatProcessor();
 
-        if (!result.content) {
-          throw new Error('Empty LLM response');
-        }
+    // Format the latest message with sender info
+    const userMessageContent = latestMessage
+      ? `${latestMessage.sender.displayName || latestMessage.sender.walletAddress?.slice(0, 6)}: ${latestMessage.content}`
+      : null;
 
-        return result;
-      },
-      'LLM response generation',
-      channelId
+    logger.info('Using unified MessageProcessor for shared-chat response', {
+      subsystem: 'shared-chat',
+      channelId,
+      avatarName: avatar.name,
+      historyLength: conversationHistory.length,
+    });
+
+    // Process the message using the unified processor
+    const result = await processor.process(
+      userMessageContent,
+      conversationHistory,
+      {
+        avatarId: channelId,
+        platform: 'shared-chat',
+        conversationId: channelId,
+      }
     );
 
-    if (!response?.content) {
+    if (!result.response) {
       return null;
     }
 
-    // Check if avatar chose not to respond
-    const content = response.content.trim();
+    // Check if avatar chose not to respond (handled by the platform prompt)
+    const content = result.response.trim();
     if (content === '[NO_RESPONSE]' || content.includes('[NO_RESPONSE]')) {
       logger.info('Avatar chose not to respond', {
         subsystem: 'shared-chat',
@@ -568,7 +442,7 @@ Keep responses concise and conversational when you do respond.`;
       return null;
     }
 
-    logger.info('Avatar response generated', {
+    logger.info('Avatar response generated via unified processor', {
       subsystem: 'shared-chat',
       channelId,
       avatarName: avatar.name,
