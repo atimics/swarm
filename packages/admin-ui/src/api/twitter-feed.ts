@@ -3,8 +3,7 @@
  *
  * API client for content store posts and simulated feed.
  */
-
-const API_BASE = '/api';
+import { API_BASE } from './apiBase';
 
 /**
  * Post in the content store
