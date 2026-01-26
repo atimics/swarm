@@ -66,6 +66,38 @@ function secretCandidates(
 
 }
 
+function secretCandidatesWithNames(
+  secretPrefix: string,
+  avatarId: string,
+  secretType: string,
+  secretNames: string[],
+  environment?: string
+): string[] {
+  const envName = environment?.trim();
+  const typeVariants = Array.from(new Set([
+    secretType,
+    secretType.replaceAll('_', '-'),
+  ]));
+
+  const nameVariants = Array.from(new Set(
+    secretNames.flatMap(n => [n, n.replaceAll('_', '-'), n.replaceAll('-', '_')])
+  ));
+
+  const ids: string[] = [];
+  for (const typeVariant of typeVariants) {
+    for (const nameVariant of nameVariants) {
+      const base = `${secretPrefix}/${avatarId}/${typeVariant}/${nameVariant}`;
+      const globalBase = `${secretPrefix}/global/${typeVariant}/${nameVariant}`;
+      const sharedBase = `${secretPrefix}/shared/${typeVariant}/${nameVariant}`;
+      const envBase = envName ? `${secretPrefix}/${envName}/${typeVariant}/${nameVariant}` : undefined;
+
+      ids.push(base, globalBase, sharedBase);
+      if (envBase) ids.push(envBase);
+    }
+  }
+  return ids;
+}
+
 type TwitterAppCredentials = {
   TWITTER_APP_KEY?: string;
   TWITTER_APP_SECRET?: string;
@@ -144,10 +176,35 @@ export async function loadAvatarSecrets(
 
   const result: LoadedAvatarSecrets = {};
   await Promise.all(keys.map(async ({ secretName, envKey }) => {
-    const value = await getFirstSecret(
-      secretsService,
-      secretCandidates(secretPrefix, avatarId, secretName, environment)
-    );
+    const baseCandidates = secretCandidates(secretPrefix, avatarId, secretName, environment);
+
+    // Admin API Secrets Manager convention stores secrets as:
+    // `${prefix}/${avatarId}/${secretType}/${name}` (e.g. twitter_access_token/access-token)
+    // rather than `${prefix}/${avatarId}/${secretType}/default`.
+    // Include common names used by admin-api for these secret types.
+    const adminApiNameCandidates: string[] = [];
+    if (secretName === 'twitter_access_token') {
+      adminApiNameCandidates.push(...secretCandidatesWithNames(secretPrefix, avatarId, secretName, ['access-token'], environment));
+    } else if (secretName === 'twitter_access_secret') {
+      adminApiNameCandidates.push(...secretCandidatesWithNames(secretPrefix, avatarId, secretName, ['access-secret'], environment));
+    } else if (secretName === 'twitter_api_key') {
+      adminApiNameCandidates.push(...secretCandidatesWithNames(secretPrefix, avatarId, secretName, ['api-key'], environment));
+    } else if (secretName === 'twitter_api_secret') {
+      adminApiNameCandidates.push(...secretCandidatesWithNames(secretPrefix, avatarId, secretName, ['api-secret'], environment));
+    } else if (secretName === 'twitter_bearer_token') {
+      adminApiNameCandidates.push(...secretCandidatesWithNames(secretPrefix, avatarId, secretName, ['bearer-token'], environment));
+    } else if (secretName === 'openrouter_api_key') {
+      adminApiNameCandidates.push(...secretCandidatesWithNames(secretPrefix, avatarId, secretName, ['api-key'], environment));
+    } else if (secretName === 'replicate_api_key') {
+      adminApiNameCandidates.push(...secretCandidatesWithNames(secretPrefix, avatarId, secretName, ['api-key'], environment));
+    } else if (secretName === 'replicate_api_token') {
+      adminApiNameCandidates.push(...secretCandidatesWithNames(secretPrefix, avatarId, secretName, ['api-token'], environment));
+    }
+
+    const value = await getFirstSecret(secretsService, [
+      ...baseCandidates,
+      ...adminApiNameCandidates,
+    ]);
     if (value) {
       result[envKey] = value;
     }

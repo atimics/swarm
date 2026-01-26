@@ -1600,6 +1600,8 @@ export class AdminApiConstruct extends Construct {
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         ADMIN_UI_URL: allowedOrigins[0] || 'http://localhost:5173',
         SECRET_PREFIX: secretPrefix,
+        // Internal testing (non-production only)
+        INTERNAL_TEST_KEY: internalTestKey,
         // Twitter App credentials from Secrets Manager
         TWITTER_APP_CREDENTIALS_ARN: twitterAppCredentialsSecret.secretArn,
         TWITTER_OAUTH_CALLBACK_URL: twitterOAuthCallbackUrl,
