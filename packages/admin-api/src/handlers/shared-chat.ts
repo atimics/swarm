@@ -498,8 +498,20 @@ async function generateAvatarResponse(
 
     // Build system prompt from persona
     const systemPrompt = avatar.persona
-      ? `You are ${avatar.name}. ${avatar.persona}\n\nRespond naturally to messages from users in this group chat. Keep responses concise and conversational.`
-      : `You are ${avatar.name}, a helpful AI assistant. Respond naturally to messages from users in this group chat. Keep responses concise and conversational.`;
+      ? `You are ${avatar.name}. ${avatar.persona}
+
+You are in a group chat. Each message is formatted as "Username: message content" where Username is either:
+- A wallet address like "4aFQ...dqJ8" for anonymous users
+- An avatar name for users inhabiting an avatar
+
+Address users by their name/wallet when responding. Keep responses concise and conversational.`
+      : `You are ${avatar.name}, a helpful AI assistant.
+
+You are in a group chat. Each message is formatted as "Username: message content" where Username is either:
+- A wallet address like "4aFQ...dqJ8" for anonymous users
+- An avatar name for users inhabiting an avatar
+
+Address users by their name/wallet when responding. Keep responses concise and conversational.`;
 
     // Build conversation history for context (last 10 messages)
     const contextMessages = recentMessages.slice(-10).map(msg => ({
