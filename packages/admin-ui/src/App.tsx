@@ -522,6 +522,7 @@ export default App;
 
 export function AppRouter() {
   const botIdFromHost = getBotIdFromHostname(window.location.hostname);
+  console.log('[AppRouter] hostname:', window.location.hostname, 'botId:', botIdFromHost);
   if (botIdFromHost) {
     return <PublicChatPage botId={botIdFromHost} />;
   }
