@@ -23,6 +23,7 @@ import {
   createMediaServiceWithDeps,
   createMediaDependencies,
   createPresenceService,
+  createChannelSummaryService,
   logger,
   MessageQueueItemSchema,
   extractThinking,
@@ -560,7 +561,8 @@ async function callLLM(
 async function buildSystemPrompt(
   envelope: SwarmEnvelope,
   avatarConfig: AvatarConfig,
-  avatarId: string
+  avatarId: string,
+  avatarSecrets: Record<string, string>
 ): Promise<string> {
   // Detect channel type for Telegram
   let channelType: 'private' | 'group' | 'supergroup' | 'channel' | undefined;
@@ -585,6 +587,21 @@ async function buildSystemPrompt(
     }
   } catch (err) {
     logger.warn('Failed to build presence context', { error: err instanceof Error ? err.message : String(err) });
+  }
+
+  // Add cross-platform context (safe digest + home channel summary)
+  let customContext: string | undefined;
+  try {
+    customContext = await buildCrossPlatformCustomContext({
+      avatarId,
+      avatarConfig,
+      avatarSecrets,
+      envelope,
+    });
+  } catch (err) {
+    logger.warn('Failed to build custom cross-platform context', {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   // Build avatar config for prompt builder
@@ -614,9 +631,154 @@ async function buildSystemPrompt(
       displayName: envelope.sender.displayName,
     },
     presenceContext,
+    customContext,
   };
 
   return buildDynamicSystemPrompt(processorConfig, envelope.platform as Platform, runtimeContext);
+}
+
+function truncateForPrompt(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function formatRelativeTime(timestampMs: number, nowMs: number): string {
+  const diffMs = Math.max(0, nowMs - timestampMs);
+  const diffMinutes = Math.floor(diffMs / 60_000);
+  if (diffMinutes < 1) return 'just now';
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+async function buildRecentBotActivityDigest(params: {
+  avatarId: string;
+  currentChannelId?: string;
+  currentPlatform?: Platform;
+}): Promise<string | null> {
+  const now = Date.now();
+
+  const channels = await presenceService.getAllChannels(params.avatarId);
+  if (channels.length === 0) return null;
+
+  const sorted = channels
+    .slice()
+    .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0))
+    .slice(0, 8);
+
+  const lines: string[] = [];
+  for (const ch of sorted) {
+    if (
+      params.currentChannelId &&
+      params.currentPlatform &&
+      ch.channelId === params.currentChannelId &&
+      ch.platform === params.currentPlatform
+    ) {
+      continue;
+    }
+
+    const state = await stateService.getChannelState(params.avatarId, ch.channelId);
+    const recent = state?.recentMessages || [];
+    const lastBot = [...recent].reverse().find((m) => m.isBot && Boolean(m.content));
+    if (!lastBot) continue;
+
+    // Only include reasonably recent bot outputs to avoid stale noise.
+    if (now - lastBot.timestamp > 2 * 60 * 60_000) continue;
+
+    const channelLabel = ch.title || ch.channelId;
+    lines.push(
+      `- ${ch.platform}/${channelLabel} (${formatRelativeTime(lastBot.timestamp, now)}): ${truncateForPrompt(lastBot.content.replace(/\s+/g, ' ').trim(), 140)}`
+    );
+    if (lines.length >= 4) break;
+  }
+
+  if (lines.length === 0) return null;
+  return [
+    '## Recent Bot Activity (cross-platform)',
+    'This is the bot\'s own recent outbound content across channels/platforms (no user messages).',
+    ...lines,
+  ].join('\n');
+}
+
+async function buildHomeChannelSummaryContext(params: {
+  avatarId: string;
+  avatarConfig: AvatarConfig;
+  avatarSecrets: Record<string, string>;
+  envelope: SwarmEnvelope;
+}): Promise<string | null> {
+  const telegramCfg = params.avatarConfig.platforms?.telegram;
+  const homeChannelId = telegramCfg?.homeChannelId;
+  if (!homeChannelId) return null;
+
+  const summaryService = createChannelSummaryService(params.avatarSecrets);
+
+  let summary: string | null = null;
+  try {
+    summary = await summaryService.getOrGenerateSummary(
+      params.avatarId,
+      homeChannelId,
+      'telegram',
+      presenceService,
+      stateService.getChannelState.bind(stateService)
+    );
+  } catch (err) {
+    logger.warn('Failed to get/generate home channel summary', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (!summary) return null;
+
+  const channelDetail = await presenceService.getChannelWithSummary(params.avatarId, homeChannelId, 'telegram');
+  const homeLabel = channelDetail?.title
+    || (telegramCfg?.homeChannelUsername ? `@${telegramCfg.homeChannelUsername}` : undefined)
+    || homeChannelId;
+
+  const isInHomeChannel = params.envelope.platform === 'telegram' && params.envelope.conversationId === homeChannelId;
+  const locationNote = isInHomeChannel ? ' (current channel)' : '';
+
+  return [
+    '## Home Channel Summary',
+    `Home channel (Telegram ${homeLabel}${locationNote}): ${truncateForPrompt(summary, 220)}`,
+    '',
+    'Safety: When replying publicly (e.g., Twitter), do not quote or attribute private chat; use this only as high-level background context.',
+  ].join('\n');
+}
+
+async function buildCrossPlatformCustomContext(params: {
+  avatarId: string;
+  avatarConfig: AvatarConfig;
+  avatarSecrets: Record<string, string>;
+  envelope: SwarmEnvelope;
+}): Promise<string | undefined> {
+  const parts: string[] = [];
+
+  try {
+    const digest = await buildRecentBotActivityDigest({
+      avatarId: params.avatarId,
+      currentChannelId: params.envelope.conversationId,
+      currentPlatform: params.envelope.platform as Platform,
+    });
+    if (digest) parts.push(digest);
+  } catch (err) {
+    logger.warn('Failed to build recent bot activity digest', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  try {
+    const homeSummary = await buildHomeChannelSummaryContext(params);
+    if (homeSummary) parts.push(homeSummary);
+  } catch (err) {
+    logger.warn('Failed to build home channel context', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (parts.length === 0) return undefined;
+  return parts.join('\n\n');
 }
 
 /**
@@ -730,7 +892,12 @@ async function generateResponse(
   channelHistory?: ContextMessage[]
 ): Promise<SwarmResponse> {
   await maybeTranscribeAudio(envelope, toolClient, toolContext, avatarRuntime.avatarConfig);
-  const systemPrompt = await buildSystemPrompt(envelope, avatarRuntime.avatarConfig, avatarRuntime.avatarId);
+  const systemPrompt = await buildSystemPrompt(
+    envelope,
+    avatarRuntime.avatarConfig,
+    avatarRuntime.avatarId,
+    avatarRuntime.secrets
+  );
   const toolDefinitions = toolClient
     .getToolDefinitions()
     .filter((tool: { name: string }) => avatarRuntime.avatarConfig.tools.includes(tool.name));
