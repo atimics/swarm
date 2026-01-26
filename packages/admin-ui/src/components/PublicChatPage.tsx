@@ -100,6 +100,8 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
     return avatarInfo?.name || botId;
   }, [loadingAvatar, avatarInfo, botId]);
 
+  const description = avatarInfo?.description || '';
+
   // Loading state
   if (!authChecked || loadingAvatar || authLoading) {
     return (
@@ -168,11 +170,23 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
             <div className="min-w-0 flex-1">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--color-text-tertiary)]">Chat with</p>
               <h1 className="truncate text-lg font-semibold">{displayName}</h1>
-              {avatarInfo?.description && (
-                <p className="truncate text-xs text-[var(--color-text-muted)]">
-                  {avatarInfo.description}
-                </p>
-              )}
+              {description ? (
+                description.length > 60 ? (
+                  <div className="mt-0.5 min-w-0">
+                    <span
+                      className="text-xs text-[var(--color-text-muted)] marquee"
+                      aria-label={description}
+                      style={{
+                        ['--marquee-duration' as never]: `${Math.min(140, Math.max(36, Math.round(description.length * 0.45)))}s`,
+                      }}
+                    >
+                      <span className="marquee__inner">{description}</span>
+                    </span>
+                  </div>
+                ) : (
+                  <p className="truncate text-xs text-[var(--color-text-muted)]">{description}</p>
+                )
+              ) : null}
             </div>
             <div className="ml-auto">
               <PrivyLoginButton />
@@ -223,8 +237,8 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
     <div className="h-[100dvh] flex flex-col bg-[var(--color-bg)]">
       {/* Custom header for public chat */}
       <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 py-3">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-brand-500 to-brand-700">
               {avatarInfo?.profileImageUrl ? (
                 <img
@@ -238,7 +252,7 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
                 </div>
               )}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-semibold text-[var(--color-text)] truncate">
                   {displayName}
@@ -255,14 +269,26 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
                   {isOrbHolder ? 'Orb' : 'Limited'}
                 </span>
               </div>
-              {avatarInfo?.description && (
-                <p className="text-xs text-[var(--color-text-muted)] truncate">
-                  {avatarInfo.description}
-                </p>
-              )}
+              {description ? (
+                description.length > 60 ? (
+                  <div className="mt-0.5 min-w-0">
+                    <span
+                      className="text-xs text-[var(--color-text-muted)] marquee"
+                      aria-label={description}
+                      style={{
+                        ['--marquee-duration' as never]: `${Math.min(140, Math.max(36, Math.round(description.length * 0.45)))}s`,
+                      }}
+                    >
+                      <span className="marquee__inner">{description}</span>
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[var(--color-text-muted)] truncate">{description}</p>
+                )
+              ) : null}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => {
                 const nextView = view === 'chat' ? 'twitter' : 'chat';
@@ -290,6 +316,7 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
           <TwitterFeedPanel
             avatarId={effectiveAvatarId}
             readOnly
+            hideHeader
             onBack={() => setView('chat')}
           />
         )}
