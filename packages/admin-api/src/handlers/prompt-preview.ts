@@ -273,7 +273,11 @@ export async function handler(
     if (isAuthError(error)) {
       return {
         statusCode: error.statusCode,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': 'true',
+        },
         body: JSON.stringify({ error: error.message, details: error.details }),
       };
     }
