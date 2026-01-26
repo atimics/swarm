@@ -64,6 +64,9 @@ export interface SessionRecord {
   lastActiveAt: number;
   userAgent?: string;
   ipAddress?: string;
+  // Cached at login time to avoid repeated NFT lookups on every request.
+  // Used for bypassing the active-user cap.
+  isOrbHolder?: boolean;
   ttl: number;
 }
 
@@ -82,6 +85,7 @@ export interface WalletSession {
   sessionToken: string;
   accountId?: string;
   user: UserRecord;
+  isOrbHolder?: boolean;
 }
 
 // ============================================================================
@@ -325,6 +329,7 @@ export function verifySignature(
 async function createSession(
   walletAddress: string,
   accountId: string,
+  isOrbHolder: boolean,
   userAgent?: string,
   ipAddress?: string
 ): Promise<SessionRecord> {
@@ -343,6 +348,7 @@ async function createSession(
     lastActiveAt: now,
     userAgent,
     ipAddress,
+    isOrbHolder,
     ttl: Math.floor(expiresAt / 1000),
   };
 
@@ -552,6 +558,7 @@ export async function verifyAndCreateSession(
   // 3. Check NFT gate - but don't block authentication
   // Users without Orbs can still authenticate with limited access
   const nftGate = await checkNFTGate(publicKeyBase58);
+  const isOrbHolder = (nftGate.ownedCount ?? 0) > 0;
   
   // Log gate status but proceed regardless
   if (!nftGate.allowed) {
@@ -566,10 +573,10 @@ export async function verifyAndCreateSession(
 
   // Track unified account activity + refresh active-user slot (if enabled)
   await recordAccountSession(accountId);
-  await upsertActiveUserSlotOnLogin({ accountId, walletAddress: publicKeyBase58 });
+  await upsertActiveUserSlotOnLogin({ accountId, walletAddress: publicKeyBase58, isOrbHolder });
 
   // 5. Create session
-  const session = await createSession(publicKeyBase58, accountId, userAgent, ipAddress);
+  const session = await createSession(publicKeyBase58, accountId, isOrbHolder, userAgent, ipAddress);
 
   console.log(`[WalletAuth] Auth successful for wallet=${publicKeyBase58.slice(0, 8)}...`);
 
@@ -598,5 +605,6 @@ export async function getSessionWithUser(sessionToken: string): Promise<WalletSe
     sessionToken: session.sessionToken,
     accountId: session.accountId,
     user,
+    isOrbHolder: session.isOrbHolder,
   };
 }

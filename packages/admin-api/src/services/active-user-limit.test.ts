@@ -47,6 +47,34 @@ describe('active-user-limit', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('bypasses the limit for Orb holders', async () => {
+    process.env.SWARM_ACTIVE_USER_LIMIT = '2';
+
+    const send = mock(async () => {
+      throw new Error('Should not touch Dynamo for Orb holder');
+    });
+
+    const deps: ActiveUserLimitDeps = {
+      dynamoClient: { send: send as any },
+      tableName: 'T',
+      now: () => 123,
+      maxRetries: 2,
+    };
+
+    const access = await checkActiveUserAccess({ accountId: 'a-orb', isAdmin: false, isOrbHolder: true }, deps);
+    expect(access.allowed).toBe(true);
+    expect(access.limit).toBe(2);
+
+    const upsert = await upsertActiveUserSlotOnLogin(
+      { accountId: 'a-orb', walletAddress: 'w-orb', isOrbHolder: true },
+      deps
+    );
+    expect(upsert.allowed).toBe(true);
+    expect(upsert.limit).toBe(2);
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('enforces membership once slots are full', async () => {
     process.env.SWARM_ACTIVE_USER_LIMIT = '2';
 

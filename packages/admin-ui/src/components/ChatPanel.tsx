@@ -27,7 +27,7 @@ interface ChatPanelProps {
 export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelProps) {
   const activeAvatar = useActiveAvatar();
   const messages = useActiveChat();
-  const { addMessage, updateMessage, removeMessage, clearChat, updateAvatar, isLoading, setLoading, setError, createAvatar } = useAvatarStore();
+  const { addMessage, updateMessage, removeMessage, clearChat, updateAvatar, setLoading, setError, createAvatar } = useAvatarStore();
   const { user: user, isAuthenticated, gateStatus } = useAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -884,10 +884,10 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
         {/* Input area */}
         <div className="chat-input-container border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm px-3 lg:px-6 py-3 lg:py-4">
           <div className="max-w-3xl mx-auto">
-            <ChatInput 
-              onSend={handleSendMessage} 
-              onSendAudio={handleSendAudio} 
-              disabled={isLoading || isCreatingAvatar}
+            <ChatInput
+              onSend={handleSendMessage}
+              onSendAudio={handleSendAudio}
+              disabled={isCreatingAvatar}
               placeholder={isCreatingAvatar ? "Creating your avatar..." : "Say hello to create your avatar..."}
             />
           </div>
@@ -1010,7 +1010,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
       ) : accessMode === 'limited' ? (
         <div className="chat-input-container border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm px-3 lg:px-6 py-3 lg:py-4">
           <div className="max-w-3xl mx-auto space-y-2">
-            <ChatInput onSend={handleSendMessage} onSendAudio={handleSendAudio} disabled={isLoading} />
+            <ChatInput onSend={handleSendMessage} onSendAudio={handleSendAudio} />
             <div className="flex items-center justify-center gap-2 text-xs text-amber-400">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -1022,7 +1022,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
       ) : (
         <div className="chat-input-container border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm px-3 lg:px-6 py-3 lg:py-4">
           <div className="max-w-3xl mx-auto">
-            <ChatInput onSend={handleSendMessage} onSendAudio={handleSendAudio} disabled={isLoading} />
+            <ChatInput onSend={handleSendMessage} onSendAudio={handleSendAudio} />
           </div>
         </div>
       )}

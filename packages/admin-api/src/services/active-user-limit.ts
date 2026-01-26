@@ -80,12 +80,17 @@ function normalizeSlots(slots: ActiveUserSlot[], limit: number): ActiveUserSlot[
 }
 
 export async function upsertActiveUserSlotOnLogin(
-  params: { accountId: string; walletAddress: string },
+  params: { accountId: string; walletAddress: string; isOrbHolder?: boolean },
   deps: ActiveUserLimitDeps = getDefaultDeps()
 ): Promise<{ allowed: boolean; limit: number; record: ActiveUserSlotsRecord | null }> {
   const limit = getActiveUserLimitFromEnv();
   if (!limit) {
     return { allowed: true, limit: 0, record: null };
+  }
+
+  // Orb holders do not count toward the active-user limit.
+  if (params.isOrbHolder) {
+    return { allowed: true, limit, record: null };
   }
 
   const now = deps.now();
@@ -173,12 +178,13 @@ export async function upsertActiveUserSlotOnLogin(
 }
 
 export async function checkActiveUserAccess(
-  params: { accountId: string; isAdmin: boolean },
+  params: { accountId: string; isAdmin: boolean; isOrbHolder?: boolean },
   deps: ActiveUserLimitDeps = getDefaultDeps()
 ): Promise<{ allowed: boolean; limit: number; cutoffLastSeenAt?: number; slotsCount?: number }> {
   const limit = getActiveUserLimitFromEnv();
   if (!limit) return { allowed: true, limit: 0 };
   if (params.isAdmin) return { allowed: true, limit };
+  if (params.isOrbHolder) return { allowed: true, limit };
 
   const record = await getSlotsRecord(deps);
   if (!record) return { allowed: true, limit };

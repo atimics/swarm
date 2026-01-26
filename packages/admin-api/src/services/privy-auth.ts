@@ -182,6 +182,7 @@ async function createSession(
   walletAddress: string,
   privyUserId: string,
   accountId: string,
+  isOrbHolder: boolean,
   userAgent?: string,
   ipAddress?: string
 ): Promise<SessionRecord> {
@@ -200,6 +201,7 @@ async function createSession(
     lastActiveAt: now,
     userAgent,
     ipAddress,
+    isOrbHolder,
     ttl: Math.floor(expiresAt / 1000),
   };
 
@@ -366,10 +368,11 @@ export async function verifyPrivyAuth(
 
     // Track unified account activity + refresh active-user slot (if enabled)
     await recordAccountSession(accountResult.accountId);
-    await upsertActiveUserSlotOnLogin({ accountId: accountResult.accountId, walletAddress });
+    const isOrbHolder = (nftGate.ownedCount ?? 0) > 0;
+    await upsertActiveUserSlotOnLogin({ accountId: accountResult.accountId, walletAddress, isOrbHolder });
 
     // 6) Create session.
-    const session = await createSession(walletAddress, privyUserId, accountResult.accountId, userAgent, ipAddress);
+    const session = await createSession(walletAddress, privyUserId, accountResult.accountId, isOrbHolder, userAgent, ipAddress);
 
     return { success: true, session, user: appUser, nftGate };
   } catch (error) {

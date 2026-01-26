@@ -218,6 +218,10 @@ export class AdminApiConstruct extends Construct {
 
     const isProd = environment === 'prod' || environment === 'production';
 
+    // In production, cap non-Orb authenticated access to the top N most recent logins.
+    // Orb holders bypass this limit (enforced in the admin-api auth layer).
+    const activeUserLimitEnvVars: Record<string, string> = isProd ? { SWARM_ACTIVE_USER_LIMIT: '12' } : {};
+
     // Use provided CDN URL or fall back to distribution domain
     const cdnUrl = propsCdnUrl || (mediaCdn ? `https://${mediaCdn.distributionDomainName}` : undefined);
 
@@ -429,6 +433,7 @@ export class AdminApiConstruct extends Construct {
         TWITTER_OAUTH_CALLBACK_URL: twitterOAuthCallbackUrl,
         // Internal testing (non-production only)
         INTERNAL_TEST_KEY: internalTestKey,
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         // Sharp is provided via dependency layer (no Docker bundling needed)
@@ -585,6 +590,7 @@ export class AdminApiConstruct extends Construct {
         // Twitter OAuth (for twitter_request_integration tool)
         TWITTER_APP_CREDENTIALS_ARN: twitterAppCredentialsSecret.secretArn,
         TWITTER_OAUTH_CALLBACK_URL: twitterOAuthCallbackUrl,
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*', 'sharp'],
@@ -716,6 +722,7 @@ export class AdminApiConstruct extends Construct {
           MEDIA_BUCKET: mediaBucket?.bucketName || '',
           CDN_URL: cdnUrl || '',
           NODE_ENV: environment,
+          ...activeUserLimitEnvVars,
         },
         bundling: {
           externalModules: ['@aws-sdk/*'],
@@ -746,6 +753,7 @@ export class AdminApiConstruct extends Construct {
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
         INTERNAL_TEST_KEY: internalTestKey,
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -781,6 +789,7 @@ export class AdminApiConstruct extends Construct {
         ADMIN_TABLE: this.table.tableName,
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -826,6 +835,7 @@ export class AdminApiConstruct extends Construct {
         POST_QUEUE_URL: props.postQueue?.queueUrl || '',
         // Internal testing (non-production only)
         INTERNAL_TEST_KEY: internalTestKey,
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1020,6 +1030,7 @@ export class AdminApiConstruct extends Construct {
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         INTERNAL_TEST_KEY: internalTestKey,
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1085,6 +1096,7 @@ export class AdminApiConstruct extends Construct {
         ADMIN_EMAILS: adminEmails,
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1170,6 +1182,7 @@ export class AdminApiConstruct extends Construct {
         PRIVY_APP_ID: props.privyAppId || '',
         PRIVY_APP_SECRET_ARN: privyAppSecret?.secretArn || '',
         PRIVY_JWT_VERIFICATION_KEY_ARN: privyJwtVerificationKey?.secretArn || '',
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1326,6 +1339,7 @@ export class AdminApiConstruct extends Construct {
         CDN_URL: cdnUrl || '',
         REPLICATE_WEBHOOK_URL: replicateWebhookUrl,
         REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1421,6 +1435,7 @@ export class AdminApiConstruct extends Construct {
         LLM_MODEL: 'anthropic/claude-haiku-4.5',
         NODE_ENV: environment,
         NODE_OPTIONS: '--enable-source-maps',
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1463,6 +1478,7 @@ export class AdminApiConstruct extends Construct {
         OPENROUTER_API_KEY: '', // Populated from secret at runtime
         CONSOLIDATION_MODEL: 'anthropic/claude-3-5-haiku-latest',
         NODE_ENV: environment,
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1521,6 +1537,7 @@ export class AdminApiConstruct extends Construct {
         CDN_URL: cdnUrl || '',
         RESPONSE_QUEUE_URL: responseQueue.queueUrl,
         NODE_ENV: environment,
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1559,6 +1576,7 @@ export class AdminApiConstruct extends Construct {
       environment: {
         ADMIN_TABLE: this.table.tableName,
         NODE_ENV: environment,
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1605,6 +1623,7 @@ export class AdminApiConstruct extends Construct {
         // Twitter App credentials from Secrets Manager
         TWITTER_APP_CREDENTIALS_ARN: twitterAppCredentialsSecret.secretArn,
         TWITTER_OAUTH_CALLBACK_URL: twitterOAuthCallbackUrl,
+        ...activeUserLimitEnvVars,
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],

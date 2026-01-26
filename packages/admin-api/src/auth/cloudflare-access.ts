@@ -192,7 +192,7 @@ export async function authenticateRequest(
     const isAdmin = account?.role === 'admin';
 
     // Enforce active-user slots (when configured)
-    const access = await checkActiveUserAccess({ accountId, isAdmin });
+    const access = await checkActiveUserAccess({ accountId, isAdmin, isOrbHolder: session.isOrbHolder });
     if (!access.allowed) {
       throw new AuthError('Active user slots full', 403, {
         limit: access.limit,
