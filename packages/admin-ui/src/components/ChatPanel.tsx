@@ -969,7 +969,7 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
               View logs
             </button>
           )}
-          {onOpenTwitter && (accessMode === 'admin' || accessMode === 'chat') && activeAvatar.platforms?.twitter?.enabled && (
+          {onOpenTwitter && (accessMode === 'admin' || accessMode === 'chat') && (activeAvatar.platforms?.twitter?.enabled || activeAvatar.platforms?.twitter?.simulation?.enabled) && (
             <button
               onClick={() => onOpenTwitter(activeAvatar.id)}
               className="px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs font-medium transition-colors flex items-center gap-1.5"
