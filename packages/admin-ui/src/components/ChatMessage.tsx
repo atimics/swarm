@@ -558,7 +558,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
     }
 
     return { contentForDisplay: extracted.cleanContent, thoughts: deduped };
-  }, [message.content, (message as unknown as { thinking?: unknown }).thinking]);
+  }, [message]);
   
   // Process message content to extract embedded JSON, images, and audio
   const { cleanedContent, embeddedImages, embeddedAudios, toolResults } = useMemo(

@@ -27,7 +27,6 @@ const WEBHOOK_DOMAIN = process.env.TELEGRAM_WEBHOOK_DOMAIN?.trim()
 // If WEBHOOK_DOMAIN ends up being a raw API Gateway host, the webhook will bypass CloudFront.
 // That can make domain cutovers confusing (bots won't follow the CloudFront CNAME).
 if (/execute-api\.[^.]+\.amazonaws\.com$/i.test(WEBHOOK_DOMAIN)) {
-  // eslint-disable-next-line no-console
   console.warn('[telegram] WEBHOOK_DOMAIN is an API Gateway host; consider setting TELEGRAM_WEBHOOK_DOMAIN to your CloudFront domain', {
     WEBHOOK_DOMAIN,
     API_DOMAIN,
