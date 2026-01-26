@@ -1826,6 +1826,41 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
     // MCP Admin Services (Toolset & External Server Management)
     // =========================================================================
     mcpAdmin: createMcpAdminServices(),
+
+    // =========================================================================
+    // Avatar Status Services
+    // =========================================================================
+    avatar: {
+      setStatus: async (avatarId: string, status: 'draft' | 'active' | 'paused') => {
+        try {
+          const avatar = await avatars.getAvatar(avatarId);
+          if (!avatar) {
+            return { success: false, error: 'Avatar not found.' };
+          }
+
+          // Validate avatar has minimum requirements for activation
+          if (status === 'active') {
+            if (!avatar.persona) {
+              return { success: false, error: 'Avatar must have a persona configured before activation.' };
+            }
+          }
+
+          await avatars.updateAvatar(avatarId, { status }, session);
+          return { success: true, name: avatar.name };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          return { success: false, error: message };
+        }
+      },
+
+      getStatus: async (avatarId: string) => {
+        const avatar = await avatars.getAvatar(avatarId);
+        if (!avatar) {
+          return null;
+        }
+        return { status: avatar.status as 'draft' | 'active' | 'paused', name: avatar.name };
+      },
+    },
   };
 }
 

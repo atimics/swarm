@@ -17,8 +17,10 @@ export {
   type IntegrationStatus,
   type ModelInfo as AdminModelInfo,
   type TestConnectionResult,
+  type AvatarStatus,
   CONFIGURABLE_INTEGRATIONS,
   AI_CAPABILITIES,
+  AVATAR_STATUSES,
 } from './admin.js';
 export { createJobTools, type JobServices, type JobInfo, type CreditServices as JobCreditServices, type CreditStatus, type EnergyStatus } from './jobs.js';
 export { createReferenceImageTools, type ReferenceImageServices, type ReferenceImage, type ReferenceImageCategory } from './reference.js';
@@ -143,6 +145,8 @@ export interface AllServices {
   mcpAdmin?: import('./mcp-admin.js').McpAdminServices;
   // Unified integrations configuration service
   integrations?: import('./admin.js').AdminToolServices['integrations'];
+  // Avatar status management
+  avatar?: import('./admin.js').AdminToolServices['avatar'];
   // Cross-platform presence
   presence?: import('./presence.js').PresenceServices;
   observability?: import('./observability.js').ObservabilityServices;
@@ -161,7 +165,7 @@ export function registerAllTools(
   registry.registerAll(createModelTools(services.models));
   registry.registerAll(createProfileTools(services.profile));
   registry.registerAll(createSecretTools(services.secrets));
-  registry.registerAll(createAdminTools({ twitter: services.twitter, integrations: services.integrations }));
+  registry.registerAll(createAdminTools({ twitter: services.twitter, integrations: services.integrations, avatar: services.avatar }));
   registry.registerAll(createJobTools(services.jobs, services.jobCredits));
   registry.registerAll(createReferenceImageTools(services.reference));
   registry.registerAll(createDiagnosticsTools(services.diagnostics));

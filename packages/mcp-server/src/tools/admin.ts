@@ -47,6 +47,12 @@ export const AI_CAPABILITIES = [
 export type AICapability = typeof AI_CAPABILITIES[number];
 
 /**
+ * Valid avatar statuses for activation/deactivation
+ */
+export const AVATAR_STATUSES = ['draft', 'active', 'paused'] as const;
+export type AvatarStatus = typeof AVATAR_STATUSES[number];
+
+/**
  * Integration status returned by get_integration_status
  */
 export interface IntegrationStatus {
@@ -100,6 +106,12 @@ export interface AdminToolServices {
     testConnection: (integration: ConfigurableIntegration) => Promise<TestConnectionResult>;
     getAvailableModels: (integration?: string, capability?: string) => ModelInfo[];
     setModelPreference: (integration: string, capability: string, modelId: string) => Promise<void>;
+  };
+
+  // Avatar status management (optional - only available in admin-api context)
+  avatar?: {
+    setStatus: (avatarId: string, status: AvatarStatus) => Promise<{ success: boolean; name?: string; error?: string }>;
+    getStatus: (avatarId: string) => Promise<{ status: AvatarStatus; name: string } | null>;
   };
 }
 
@@ -329,6 +341,99 @@ Example: "I want to use a different model for image generation"`,
         currentModel: z.string().optional().describe('Currently selected model (if any)'),
         reason: z.string().optional().describe('Why the user wants to change models'),
       }),
+    }),
+
+    // =========================================================================
+    // Avatar Status Tools
+    // =========================================================================
+
+    defineTool({
+      name: 'set_avatar_status',
+      description: `Set the status of an avatar to control whether it responds to messages.
+
+**Statuses:**
+- \`active\` - Avatar will respond to messages in shared chat and on connected platforms
+- \`paused\` - Avatar is temporarily disabled and won't respond to messages
+- \`draft\` - Avatar is in setup mode and won't respond until activated
+
+Use this when:
+- Activating a newly configured avatar ("activate this avatar", "turn on the bot")
+- Pausing an avatar temporarily ("pause the avatar", "stop responding")
+- Putting an avatar back in draft mode for reconfiguration
+
+Note: This affects the current avatar context. The avatar must have required configuration (persona, at least one platform) to be activated.`,
+      category: 'config',
+      toolset: 'admin',
+      platforms: ['admin-ui', 'api'],
+      inputSchema: z.object({
+        status: z.enum(AVATAR_STATUSES).describe('The new status for the avatar'),
+        reason: z.string().optional().describe('Optional reason for the status change'),
+      }),
+      execute: async (params, context): Promise<ToolResult> => {
+        if (!services.avatar) {
+          return { success: false, error: 'Avatar service is not available.' };
+        }
+
+        if (!context.avatarId) {
+          return { success: false, error: 'No avatar context available.' };
+        }
+
+        const result = await services.avatar.setStatus(context.avatarId, params.status);
+        if (!result.success) {
+          return { success: false, error: result.error || 'Failed to update avatar status.' };
+        }
+
+        const statusMessages: Record<AvatarStatus, string> = {
+          active: `Avatar "${result.name}" is now active and will respond to messages.`,
+          paused: `Avatar "${result.name}" is now paused and won't respond to messages.`,
+          draft: `Avatar "${result.name}" is now in draft mode for configuration.`,
+        };
+
+        return {
+          success: true,
+          data: {
+            avatarId: context.avatarId,
+            name: result.name,
+            status: params.status,
+            message: statusMessages[params.status],
+          },
+        };
+      },
+    }),
+
+    defineTool({
+      name: 'get_avatar_status',
+      description: `Get the current status of an avatar.
+
+Returns whether the avatar is active, paused, or in draft mode.`,
+      category: 'readonly',
+      toolset: 'admin',
+      platforms: ['admin-ui', 'api'],
+      inputSchema: z.object({}),
+      execute: async (_params, context): Promise<ToolResult> => {
+        if (!services.avatar) {
+          return { success: false, error: 'Avatar service is not available.' };
+        }
+
+        if (!context.avatarId) {
+          return { success: false, error: 'No avatar context available.' };
+        }
+
+        const result = await services.avatar.getStatus(context.avatarId);
+        if (!result) {
+          return { success: false, error: 'Avatar not found.' };
+        }
+
+        return {
+          success: true,
+          data: {
+            avatarId: context.avatarId,
+            name: result.name,
+            status: result.status,
+            isActive: result.status === 'active',
+          },
+        };
+      },
     }),
   ];
 }
