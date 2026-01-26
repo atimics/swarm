@@ -9,5 +9,11 @@ if [ "${SKIP_PRECOMMIT:-}" = "1" ] || [ "${SKIP_PRECOMMIT:-}" = "true" ]; then
 	exit 0
 fi
 
+# Check for unreviewed issues (critical issues block commit)
+# Skip with: SKIP_ISSUE_CHECK=1 git commit
+if [ -f "scripts/check-issues.sh" ]; then
+	./scripts/check-issues.sh
+fi
+
 echo "pre-commit: pnpm lint"
 pnpm lint
