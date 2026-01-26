@@ -240,6 +240,11 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
           ? (envelope.content.text?.toLowerCase().includes(`@${botUsername.toLowerCase()}`) ?? false)
           : false;
 
+        // Ensure the message-processor's channel state sees this as direct engagement.
+        // (The response trigger logic is driven by `envelope.metadata.isMention/isReplyToBot`.)
+        envelope.metadata.isReplyToBot = isReplyToBot;
+        envelope.metadata.isMention = hasMentionInText;
+
         logger.debug('Processing mention', {
           event: 'mention_processing',
           subsystem: 'twitter',
