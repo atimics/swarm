@@ -30,6 +30,7 @@ interface TwitterFeedPanelProps {
   onMenuClick?: () => void;
   onBack?: () => void;
   readOnly?: boolean;
+  hideHeader?: boolean;
 }
 
 /**
@@ -327,7 +328,7 @@ function ModerationSettings({
   );
 }
 
-export function TwitterFeedPanel({ avatarId, onMenuClick, onBack, readOnly = false }: TwitterFeedPanelProps) {
+export function TwitterFeedPanel({ avatarId, onMenuClick, onBack, readOnly = false, hideHeader }: TwitterFeedPanelProps) {
   const activeAvatar = useActiveAvatar();
   const { setActiveAvatar } = useAvatarStore();
   const { user, isAuthenticated } = useAuth();
@@ -437,53 +438,54 @@ export function TwitterFeedPanel({ avatarId, onMenuClick, onBack, readOnly = fal
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg)]">
-      {/* Header */}
-      <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 lg:px-6 py-3 lg:py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 lg:gap-4 min-w-0">
-            {onMenuClick && (
+      {!hideHeader ? (
+        <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 lg:px-6 py-3 lg:py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 lg:gap-4 min-w-0">
+              {onMenuClick && (
+                <button
+                  onClick={onMenuClick}
+                  className="w-10 h-10 flex items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
+                  aria-label="Open menu"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                    <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
+              {activeAvatar && <AvatarDisplay avatar={activeAvatar} size="md" />}
+              <div className="min-w-0">
+                <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)] truncate flex items-center gap-2">
+                  <span>{activeAvatar?.name || avatarId}</span>
+                  <span className="text-[var(--color-text-tertiary)]">Twitter</span>
+                </h1>
+                <p className="text-xs text-[var(--color-text-tertiary)] truncate">
+                  {feed?.isSimulationMode && <span className="text-cyan-400">Simulation mode</span>}
+                  {feed?.isConnected && !feed?.isSimulationMode && <span className="text-green-400">Connected to Twitter</span>}
+                  {!feed?.isConnected && !feed?.isSimulationMode && <span className="text-[var(--color-text-muted)]">Not connected</span>}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {onBack && (
+                <button
+                  onClick={onBack}
+                  className="px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs font-medium transition-colors"
+                >
+                  Back to chat
+                </button>
+              )}
               <button
-                onClick={onMenuClick}
-                className="w-10 h-10 flex items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
-                aria-label="Open menu"
+                onClick={loadFeed}
+                disabled={loading}
+                className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-medium transition-colors disabled:opacity-50"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                  <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
-                </svg>
+                Refresh
               </button>
-            )}
-            {activeAvatar && <AvatarDisplay avatar={activeAvatar} size="md" />}
-            <div className="min-w-0">
-              <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)] truncate flex items-center gap-2">
-                <span>{activeAvatar?.name || avatarId}</span>
-                <span className="text-[var(--color-text-tertiary)]">Twitter</span>
-              </h1>
-              <p className="text-xs text-[var(--color-text-tertiary)] truncate">
-                {feed?.isSimulationMode && <span className="text-cyan-400">Simulation mode</span>}
-                {feed?.isConnected && !feed?.isSimulationMode && <span className="text-green-400">Connected to Twitter</span>}
-                {!feed?.isConnected && !feed?.isSimulationMode && <span className="text-[var(--color-text-muted)]">Not connected</span>}
-              </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {onBack && (
-              <button
-                onClick={onBack}
-                className="px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs font-medium transition-colors"
-              >
-                Back to chat
-              </button>
-            )}
-            <button
-              onClick={loadFeed}
-              disabled={loading}
-              className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-medium transition-colors disabled:opacity-50"
-            >
-              Refresh
-            </button>
-          </div>
-        </div>
-      </header>
+        </header>
+      ) : null}
 
       {/* Tab navigation */}
       <div className="border-b border-[var(--color-border)] px-4 lg:px-6 bg-[var(--color-bg-secondary)]">
