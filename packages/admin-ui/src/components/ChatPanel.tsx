@@ -766,7 +766,13 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
           );
 
           // Fallback UX: if Twitter was enabled but model didn't prompt for connect
-          if (resultObj.feature === 'twitter' && resultObj.enabled && !resumed.pendingToolCall) {
+          if (resultObj.feature === 'twitter' && resultObj.enabled) {
+            const existing = useAvatarStore.getState().chats[activeAvatar.id] || [];
+            const hasPendingConnect = existing.some((m) =>
+              m.toolCalls?.some((tc) => tc.name === 'request_twitter_connection' && tc.status === 'pending')
+            );
+            if (hasPendingConnect) return;
+
             addMessage(activeAvatar.id, {
               role: 'assistant',
               content: '', // TwitterConnectPrompt renders its own UI
