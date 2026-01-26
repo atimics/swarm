@@ -15,7 +15,8 @@ import { PrivyClient, type User as PrivyUser } from '@privy-io/node';
 
 import { checkNFTGate, type NFTGateResult } from './nft-gate.js';
 import type { UserRecord, SessionRecord } from './wallet-auth.js';
-import { getOrCreateAccountForPrivy } from './accounts.js';
+import { getOrCreateAccountForPrivy, recordAccountSession } from './accounts.js';
+import { upsertActiveUserSlotOnLogin } from './active-user-limit.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -362,6 +363,10 @@ export async function verifyPrivyAuth(
         conflict: accountResult.conflict,
       };
     }
+
+    // Track unified account activity + refresh active-user slot (if enabled)
+    await recordAccountSession(accountResult.accountId);
+    await upsertActiveUserSlotOnLogin({ accountId: accountResult.accountId, walletAddress });
 
     // 6) Create session.
     const session = await createSession(walletAddress, privyUserId, accountResult.accountId, userAgent, ipAddress);

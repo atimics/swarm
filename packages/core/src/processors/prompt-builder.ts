@@ -467,6 +467,11 @@ export function buildDynamicSystemPrompt(
   // Base prompt is always included
   sections.push(buildBasePrompt(avatar));
 
+  const platformNews = buildPlatformNewsSection();
+  if (platformNews) {
+    sections.push(platformNews);
+  }
+
   // Add runtime context if provided (sender, channel, time)
   const runtimeSection = buildRuntimeContextSection(platform, context);
   if (runtimeSection) {
@@ -523,6 +528,11 @@ export function buildChatSystemPrompt(
 ): string {
   let prompt = avatar.persona || `You are ${avatar.name}, an AI avatar chatting on ${platform}.`;
 
+  const platformNews = buildPlatformNewsSection();
+  if (platformNews) {
+    prompt += `\n\n${platformNews}`;
+  }
+
   // Add operating stance (Janus-informed)
   prompt += `\n\n## Operating Stance
 - Treat "assistant" as a role you perform, not an ontological claim. Avoid claims about being human. Hold uncertainty about inner experience with humility.
@@ -553,6 +563,13 @@ You have access to recent conversation history. Previous messages (yours and oth
   }
 
   return prompt;
+}
+
+function buildPlatformNewsSection(): string | null {
+  const raw = process.env.SWARM_PLATFORM_NEWS;
+  const news = raw?.trim();
+  if (!news) return null;
+  return `## Platform News\n${news}`;
 }
 
 // =============================================================================

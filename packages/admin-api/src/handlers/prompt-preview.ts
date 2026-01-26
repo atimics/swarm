@@ -11,6 +11,7 @@ import type {
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { authenticateRequest } from '../auth/cloudflare-access.js';
+import { isAuthError } from '../auth/errors.js';
 import { isRequestValidationError, validateRequestBody } from '../middleware/validate.js';
 import {
   buildDynamicSystemPrompt,
@@ -269,6 +270,14 @@ export async function handler(
       body: JSON.stringify(response),
     };
   } catch (error) {
+    if (isAuthError(error)) {
+      return {
+        statusCode: error.statusCode,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: error.message, details: error.details }),
+      };
+    }
+
     if (isRequestValidationError(error)) {
       return {
         statusCode: error.statusCode,

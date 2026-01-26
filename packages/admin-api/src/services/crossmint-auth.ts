@@ -12,7 +12,8 @@ import {
 import { randomBytes } from 'crypto';
 import { checkNFTGate, type NFTGateResult } from './nft-gate.js';
 import type { UserRecord, SessionRecord } from './wallet-auth.js';
-import { getOrCreateAccountForCrossmint } from './accounts.js';
+import { getOrCreateAccountForCrossmint, recordAccountSession } from './accounts.js';
+import { upsertActiveUserSlotOnLogin } from './active-user-limit.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -306,6 +307,10 @@ export async function verifyCrossmintAuth(
     crossmintUserId: userId,
     walletAddress,
   });
+
+  // Track unified account activity + refresh active-user slot (if enabled)
+  await recordAccountSession(accountId);
+  await upsertActiveUserSlotOnLogin({ accountId, walletAddress });
 
   // 5. Create session
   const session = await createSession(walletAddress, userId, accountId, userAgent, ipAddress);

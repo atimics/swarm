@@ -1,3 +1,5 @@
+import { isAuthError } from '../auth/errors.js';
+
 export function parseOpenRouterStatusFromError(message: string): number | null {
 
   const match = message.match(/OpenRouter API error:\s*(\d{3})\b/);
@@ -27,6 +29,14 @@ export function mapAdminChatHandlerError(error: unknown): {
   publicError: string;
   errorMessage: string;
 } {
+  if (isAuthError(error)) {
+    return {
+      statusCode: error.statusCode,
+      publicError: error.message,
+      errorMessage: error.message,
+    };
+  }
+
   const errorMessage = error instanceof Error ? error.message : String(error);
   const upstreamStatus = parseOpenRouterStatusFromError(errorMessage);
   const isCircuitOpen = /circuit breaker open/i.test(errorMessage);

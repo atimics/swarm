@@ -10,6 +10,7 @@ import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-sec
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 import { logger } from '@swarm/core';
 import { getCorsHeaders } from '../http/cors.js';
+import { isAuthError } from '../auth/errors.js';
 
 const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
 const WHISPER_MODEL = process.env.WHISPER_MODEL || 'whisper-1';
@@ -49,7 +50,6 @@ async function getOpenAiApiKey(): Promise<string> {
 
   return cachedApiKey!;
 }
-
 export async function handler(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyResultV2> {
@@ -161,6 +161,14 @@ export async function handler(
       }),
     };
   } catch (error) {
+    if (isAuthError(error)) {
+      return {
+        statusCode: error.statusCode,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: error.message, details: error.details }),
+      };
+    }
+
     logger.error('Transcription handler error', error);
     return {
       statusCode: 500,

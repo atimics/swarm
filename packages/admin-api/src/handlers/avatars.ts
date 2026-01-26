@@ -30,6 +30,7 @@ import { resumeChatAfterToolResult } from './chat.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getSessionFromCookie } from '../auth/session-cookie.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { isAuthError } from '../auth/errors.js';
 
 // Admin wallets that can see all avatars (comma-separated list)
 const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || '').split(',').filter(Boolean);
@@ -1220,6 +1221,14 @@ export async function handler(
     };
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return {
+        statusCode: error.statusCode,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: error.message, details: error.details }),
+      };
+    }
+
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
 

@@ -14,7 +14,8 @@ import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { randomBytes } from 'crypto';
 import { checkNFTGate, type NFTGateResult } from './nft-gate.js';
-import { getOrCreateAccountForWallet } from './accounts.js';
+import { getOrCreateAccountForWallet, recordAccountSession } from './accounts.js';
+import { upsertActiveUserSlotOnLogin } from './active-user-limit.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -562,6 +563,10 @@ export async function verifyAndCreateSession(
 
   // 4b. Get or create account for this wallet
   const accountId = await getOrCreateAccountForWallet(publicKeyBase58);
+
+  // Track unified account activity + refresh active-user slot (if enabled)
+  await recordAccountSession(accountId);
+  await upsertActiveUserSlotOnLogin({ accountId, walletAddress: publicKeyBase58 });
 
   // 5. Create session
   const session = await createSession(publicKeyBase58, accountId, userAgent, ipAddress);

@@ -8,6 +8,7 @@ import type {
   APIGatewayProxyStructuredResultV2,
 } from 'aws-lambda';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
+import { isAuthError } from '../auth/errors.js';
 import * as mediaJobs from '../services/media-jobs.js';
 import * as chatJobs from '../services/chat-jobs.js';
 import * as avatars from '../services/avatars.js';
@@ -200,6 +201,14 @@ export async function handler(
       }),
     };
   } catch (error) {
+    if (isAuthError(error)) {
+      return {
+        statusCode: error.statusCode,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: error.message, details: error.details }),
+      };
+    }
+
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
     // Treat missing/expired sessions as auth failures (not 500s)

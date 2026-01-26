@@ -8,6 +8,8 @@ import * as nodeCrypto from 'crypto';
 import { getSessionFromCookie } from './session-cookie.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getAccountSummary, getOrCreateAccountForWallet } from '../services/accounts.js';
+import { AuthError } from './errors.js';
+import { checkActiveUserAccess } from '../services/active-user-limit.js';
 
 // Cloudflare Access public keys endpoint
 const CF_ACCESS_CERTS_URL = process.env.CF_ACCESS_CERTS_URL;
@@ -188,6 +190,16 @@ export async function authenticateRequest(
     const accountId = session.accountId || await getOrCreateAccountForWallet(session.walletAddress);
     const account = await getAccountSummary(accountId);
     const isAdmin = account?.role === 'admin';
+
+    // Enforce active-user slots (when configured)
+    const access = await checkActiveUserAccess({ accountId, isAdmin });
+    if (!access.allowed) {
+      throw new AuthError('Active user slots full', 403, {
+        limit: access.limit,
+        cutoffLastSeenAt: access.cutoffLastSeenAt,
+        accountId,
+      });
+    }
 
     const email = (session.user as { email?: string }).email || '';
 

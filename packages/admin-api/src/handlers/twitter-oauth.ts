@@ -28,6 +28,7 @@ import {
 } from '../services/avatars.js';
 import type { UserSession, AvatarRecord } from '../types.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { isAuthError } from '../auth/errors.js';
 
 /**
  * Dependencies interface for dependency injection (testing)
@@ -333,6 +334,14 @@ export async function handler(
     };
 
   } catch (error) {
+    if (isAuthError(error)) {
+      return {
+        statusCode: error.statusCode,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: error.message, details: error.details }),
+      };
+    }
+
     console.error(JSON.stringify({
       level: 'ERROR',
       subsystem: 'twitter-oauth',

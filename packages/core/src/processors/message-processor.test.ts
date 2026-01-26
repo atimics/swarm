@@ -70,6 +70,32 @@ describe('MessageProcessor', () => {
       expect(mockDeps.callLLM).toHaveBeenCalled();
     });
 
+    it('should include platform news in the system prompt when SWARM_PLATFORM_NEWS is set', async () => {
+      const prev = process.env.SWARM_PLATFORM_NEWS;
+      process.env.SWARM_PLATFORM_NEWS = '- Added X\n- Fixed Y';
+      try {
+        const config: ProcessorConfig = {
+          avatarId: 'test-avatar',
+          platform: 'telegram',
+          conversationId: 'chat-123',
+        };
+
+        await processor.process('Hello!', [], config);
+
+        const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+        expect(callArgs.messages[0].role).toBe('system');
+        expect(callArgs.messages[0].content).toContain('## Platform News');
+        expect(callArgs.messages[0].content).toContain('Added X');
+        expect(callArgs.messages[0].content).toContain('Fixed Y');
+      } finally {
+        if (prev === undefined) {
+          delete process.env.SWARM_PLATFORM_NEWS;
+        } else {
+          process.env.SWARM_PLATFORM_NEWS = prev;
+        }
+      }
+    });
+
     it('should return error when avatar not found', async () => {
       (mockDeps.avatarService.getAvatar as ReturnType<typeof mock>).mockImplementation(() => Promise.resolve(null));
 
