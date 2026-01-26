@@ -1,10 +1,10 @@
 /**
  * Model Configuration Tools
- * 
- * Tools for listing and changing LLM models.
+ *
+ * Simplified tools for managing LLM models with automatic fallback support.
  */
 import { z } from 'zod';
-import { defineTool, defineManualTool, type ToolResult } from '../registry.js';
+import { defineTool, type ToolResult } from '../registry.js';
 
 // ============================================================================
 // Service Interface
@@ -22,19 +22,25 @@ export interface ModelInfo {
 
 export interface ModelServices {
   listModels: (family?: string) => Promise<ModelInfo[]>;
-  
+
   getConfig: (avatarId: string) => Promise<{
     model: string;
     temperature: number;
     maxTokens: number;
     provider?: string;
   }>;
-  
-  updateConfig: (avatarId: string, config: {
-    model?: string;
-    temperature?: number;
-    maxTokens?: number;
-  }) => Promise<void>;
+
+  updateConfig: (
+    avatarId: string,
+    config: {
+      model?: string;
+      temperature?: number;
+      maxTokens?: number;
+    }
+  ) => Promise<void>;
+
+  /** Get fallback chain for a model */
+  getFallbacks?: (model: string) => string[];
 }
 
 // ============================================================================
@@ -42,66 +48,93 @@ export interface ModelServices {
 // ============================================================================
 
 export const createModelTools = (services: ModelServices) => [
+  /**
+   * Combined tool: Get current model config OR list available models
+   * Simplifies the interface - one tool for reading model info
+   */
   defineTool({
-    name: 'list_available_models',
-    description: 'List available AI models I can use. Returns model IDs and context lengths.',
+    name: 'get_model_info',
+    description:
+      'Get my current model configuration, or list available models. ' +
+      'If no action specified, returns current config with fallback chain.',
     category: 'config',
     toolset: 'models',
     platforms: ['admin-ui', 'api'],
     inputSchema: z.object({
-      family: z.string()
+      action: z
+        .enum(['current', 'list'])
         .optional()
-        .describe('Filter by model family (e.g., "claude", "gpt", "gemini")'),
+        .default('current')
+        .describe('"current" = my config, "list" = available models'),
+      family: z
+        .string()
+        .optional()
+        .describe('For "list": filter by family (claude, gpt, deepseek, gemini)'),
     }),
-    execute: async (input): Promise<ToolResult> => {
-      const models = await services.listModels(input.family);
+    execute: async (input, context): Promise<ToolResult> => {
+      if (input.action === 'list') {
+        const models = await services.listModels(input.family);
+        return {
+          success: true,
+          data: {
+            models: models.slice(0, 15).map((m) => ({
+              id: m.id,
+              name: m.name,
+              context: m.contextLength,
+            })),
+            hint: 'Use set_model to change your model',
+          },
+        };
+      }
 
-      return {
-        success: true,
-        data: models.slice(0, 20).map(m => ({
-          id: m.id,
-          name: m.name,
-          contextLength: m.contextLength,
-        })),
-      };
-    },
-  }),
-
-  defineTool({
-    name: 'get_my_model_config',
-    description: 'Get my current LLM model configuration.',
-    category: 'config',
-    toolset: 'models',
-    platforms: ['admin-ui', 'api'],
-    inputSchema: z.object({}),
-    execute: async (_input, context): Promise<ToolResult> => {
+      // Default: get current config
       const config = await services.getConfig(context.avatarId);
+      const fallbacks = services.getFallbacks?.(config.model) ?? [];
 
       return {
         success: true,
-        data: config,
+        data: {
+          model: config.model,
+          temperature: config.temperature,
+          maxTokens: config.maxTokens,
+          fallbacks: fallbacks.length > 0 ? fallbacks : undefined,
+          note: fallbacks.length > 0
+            ? `If ${config.model} fails, will auto-fallback to: ${fallbacks.join(' → ')}`
+            : 'No fallback chain configured',
+        },
       };
     },
   }),
 
+  /**
+   * Set model - combines change_my_model functionality with better feedback
+   */
   defineTool({
-    name: 'change_my_model',
-    description: 'Change which AI model I use. Model ID must be from list_available_models.',
+    name: 'set_model',
+    description:
+      'Change my AI model. Includes automatic fallback - if the model fails, ' +
+      'the system will try backup models automatically.',
     category: 'config',
     toolset: 'models',
     platforms: ['admin-ui', 'api'],
     inputSchema: z.object({
-      model: z.string().describe('The model ID to use (e.g., "anthropic/claude-sonnet-4")'),
-      temperature: z.number()
+      model: z
+        .string()
+        .describe(
+          'Model ID (e.g., "anthropic/claude-sonnet-4", "openai/gpt-4o", "deepseek/deepseek-r1")'
+        ),
+      temperature: z
+        .number()
         .min(0)
         .max(2)
         .optional()
-        .describe('Creativity level 0.0-2.0 (default 0.8)'),
-      maxTokens: z.number()
+        .describe('Creativity: 0=precise, 1=balanced, 2=creative (default 0.8)'),
+      maxTokens: z
+        .number()
         .min(100)
-        .max(16000)
+        .max(32000)
         .optional()
-        .describe('Maximum response length'),
+        .describe('Max response length (default 1024)'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
       await services.updateConfig(context.avatarId, {
@@ -110,31 +143,22 @@ export const createModelTools = (services: ModelServices) => [
         maxTokens: input.maxTokens,
       });
 
+      const fallbacks = services.getFallbacks?.(input.model) ?? [];
+
       return {
         success: true,
         data: {
-          message: `Model changed to ${input.model}`,
-          newConfig: {
-            model: input.model,
-            temperature: input.temperature,
-            maxTokens: input.maxTokens,
-          },
+          message: `Model set to ${input.model}`,
+          model: input.model,
+          temperature: input.temperature ?? 0.8,
+          maxTokens: input.maxTokens ?? 1024,
+          fallbacks: fallbacks.length > 0 ? fallbacks : undefined,
+          note: fallbacks.length > 0
+            ? `Fallback chain: ${input.model} → ${fallbacks.join(' → ')}`
+            : undefined,
         },
       };
     },
-  }),
-
-  // Manual tool for UI-based model selection
-  defineManualTool({
-    name: 'request_model_selection',
-    description: 'Open a model selector UI showing ALL available models from all providers. The user will pick their preferred model.',
-    toolset: 'models',
-    platforms: ['admin-ui'], // Only available in admin UI
-    inputSchema: z.object({
-      preferredFamily: z.string()
-        .optional()
-        .describe('Optional filter to show only models from a specific provider (e.g., "anthropic", "openai"). Leave empty to show all models.'),
-    }),
   }),
 ];
 

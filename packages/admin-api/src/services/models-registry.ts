@@ -259,3 +259,107 @@ export const DEFAULT_MODELS: Record<AICapability, string> = {
   transcription: 'whisper-1',
   llm: 'anthropic/claude-3-5-sonnet-latest',
 };
+
+// ============================================================================
+// MODEL FALLBACK SYSTEM
+// ============================================================================
+
+/**
+ * Fallback chains for LLM models.
+ * When a model fails, try the next model in the chain.
+ * Models are tried in order until one succeeds.
+ *
+ * Strategy:
+ * - Premium models fall back to fast/cheap models
+ * - Same-provider fallbacks preferred (API key reuse)
+ * - DeepSeek as universal cheap fallback
+ *
+ * @see https://openrouter.ai/models for current model availability
+ */
+export const LLM_FALLBACK_CHAINS: Record<string, string[]> = {
+  // -------------------------------------------------------------------------
+  // Claude 4.x models (2026)
+  // -------------------------------------------------------------------------
+  'anthropic/claude-sonnet-4.5': ['anthropic/claude-sonnet-4', 'deepseek/deepseek-r1'],
+  'anthropic/claude-sonnet-4': ['anthropic/claude-3-5-sonnet-latest', 'deepseek/deepseek-r1'],
+  'anthropic/claude-opus-4.5': ['anthropic/claude-sonnet-4.5', 'anthropic/claude-sonnet-4'],
+
+  // -------------------------------------------------------------------------
+  // Claude 3.x models (legacy but still used)
+  // -------------------------------------------------------------------------
+  'anthropic/claude-3-5-sonnet-latest': ['anthropic/claude-3-5-haiku-latest', 'deepseek/deepseek-r1'],
+  'anthropic/claude-3-opus-latest': ['anthropic/claude-3-5-sonnet-latest', 'anthropic/claude-sonnet-4'],
+  'anthropic/claude-3-5-haiku-latest': ['deepseek/deepseek-r1', 'openai/gpt-4o-mini'],
+  'anthropic/claude-haiku-4': ['anthropic/claude-3-5-haiku-latest', 'deepseek/deepseek-r1'],
+
+  // -------------------------------------------------------------------------
+  // OpenAI models
+  // -------------------------------------------------------------------------
+  'openai/gpt-5.1': ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
+  'openai/gpt-4o': ['openai/gpt-4o-mini', 'deepseek/deepseek-r1'],
+  'openai/gpt-4o-mini': ['deepseek/deepseek-r1', 'anthropic/claude-3-5-haiku-latest'],
+  'openai/gpt-4-turbo': ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
+
+  // -------------------------------------------------------------------------
+  // DeepSeek models (cheap, fast, good fallback)
+  // -------------------------------------------------------------------------
+  'deepseek/deepseek-r1': ['deepseek/deepseek-v3.2', 'anthropic/claude-3-5-haiku-latest'],
+  'deepseek/deepseek-v3.2': ['deepseek/deepseek-r1', 'openai/gpt-4o-mini'],
+
+  // -------------------------------------------------------------------------
+  // Other models that may have availability issues
+  // -------------------------------------------------------------------------
+  'minimax/minimax-01': ['anthropic/claude-3-5-haiku-latest', 'deepseek/deepseek-r1'],
+  'minimax/minimax-m2-her': ['anthropic/claude-3-5-haiku-latest', 'deepseek/deepseek-r1'],
+  'x-ai/grok-4': ['anthropic/claude-sonnet-4', 'deepseek/deepseek-r1'],
+  'google/gemini-3-pro-preview': ['anthropic/claude-sonnet-4', 'openai/gpt-4o'],
+};
+
+/** Default fallback chain when model not in registry */
+export const DEFAULT_FALLBACK_CHAIN: string[] = [
+  'deepseek/deepseek-r1',        // Fast, cheap, reliable
+  'anthropic/claude-3-5-haiku-latest',  // Claude fallback
+];
+
+/**
+ * Get fallback models for a given primary model
+ */
+export function getFallbackModels(primaryModel: string): string[] {
+  return LLM_FALLBACK_CHAINS[primaryModel] ?? DEFAULT_FALLBACK_CHAIN;
+}
+
+/**
+ * Errors that should trigger a model fallback
+ */
+export function isFallbackTriggerError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  const msg = error.message.toLowerCase();
+
+  // Rate limiting
+  if (msg.includes('429') || msg.includes('rate limit')) return true;
+
+  // Model unavailable
+  if (msg.includes('model not found') || msg.includes('model_not_found')) return true;
+  if (msg.includes('no endpoints found')) return true;
+  if (msg.includes('does not support')) return true;
+
+  // Service unavailable
+  if (msg.includes('503') || msg.includes('service unavailable')) return true;
+  if (msg.includes('502') || msg.includes('bad gateway')) return true;
+
+  // Timeout (might be overloaded)
+  if (msg.includes('timeout') || msg.includes('timed out')) return true;
+
+  // Capacity issues
+  if (msg.includes('overloaded') || msg.includes('capacity')) return true;
+
+  return false;
+}
+
+/**
+ * Get the complete model chain (primary + fallbacks) for resolution
+ */
+export function getModelChain(primaryModel: string): string[] {
+  return [primaryModel, ...getFallbackModels(primaryModel)];
+}

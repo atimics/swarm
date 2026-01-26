@@ -111,6 +111,35 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
   // Derive hasOrb from gateStatus
   const hasOrb = (gateStatus?.nftsHeld ?? 0) > 0;
 
+  // Public bot subdomains render their own header; avoid double-stacking headers.
+  const shouldRenderHeader = useMemo(() => {
+    if (typeof window === 'undefined') return true;
+    const normalizedRaw = window.location.hostname?.toLowerCase() || '';
+    const normalized = normalizedRaw.replace(/\.$/, '');
+    if (!normalized.endsWith('.rati.chat')) return true;
+
+    const reserved = new Set([
+      'swarm',
+      'staging-swarm',
+      'www',
+      'admin',
+      'api',
+      'cdn',
+      'gallery',
+      'docs',
+    ]);
+
+    const [subdomain] = normalized.split('.');
+    const isBotSubdomain = Boolean(
+      subdomain &&
+        !reserved.has(subdomain) &&
+        !subdomain.startsWith('admin-') &&
+        !subdomain.startsWith('api-')
+    );
+
+    return !isBotSubdomain;
+  }, []);
+
   // Determine access mode for this avatar
   // - 'browse': Not authenticated - read-only
   // - 'limited': Authenticated but no Orb - can chat with limits
@@ -735,32 +764,6 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
             resultObj.feature as 'media' | 'voice' | 'twitter' | 'telegram' | 'discord',
             resultObj.enabled
           );
-          updateToolCallStatus();
-
-          const resumed = await submitToolResult(activeAvatar.id, toolCallId, {
-            feature: resultObj.feature,
-            enabled: resultObj.enabled,
-            applied: true,
-          });
-
-          if (resumed.avatarUpdates?.profileImageUrl) {
-            updateAvatar(activeAvatar.id, { avatar: resumed.avatarUpdates.profileImageUrl });
-          }
-          if (resumed.avatarUpdates?.name) {
-            updateAvatar(activeAvatar.id, { name: resumed.avatarUpdates.name });
-          }
-
-          addMessage(activeAvatar.id, {
-            role: 'assistant',
-            content: resumed.response,
-            toolCalls: resumed.pendingToolCall ? [{
-              id: resumed.pendingToolCall.id,
-              name: resumed.pendingToolCall.name,
-              arguments: resumed.pendingToolCall.arguments,
-              status: 'pending',
-            }] : undefined,
-            media: resumed.media,
-          });
 
           // Fallback UX: if Twitter was enabled but model didn't prompt for connect
           if (resultObj.feature === 'twitter' && resultObj.enabled && !resumed.pendingToolCall) {
@@ -890,8 +893,9 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--color-bg)]">
       {/* Avatar Header */}
-      <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 lg:px-6 py-3 lg:py-4">
-        <div className="flex items-center justify-between">
+      {shouldRenderHeader ? (
+        <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 lg:px-6 py-3 lg:py-4">
+          <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 lg:gap-4">
             {/* Hamburger menu - mobile only */}
             {onMenuClick && (
@@ -970,8 +974,9 @@ export function ChatPanel({ onMenuClick, onOpenLogs, onOpenTwitter }: ChatPanelP
               Twitter
             </button>
           )}
-        </div>
-      </header>
+          </div>
+        </header>
+      ) : null}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-3 lg:px-6 py-4">
