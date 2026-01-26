@@ -20,7 +20,15 @@ function getLogsAvatarId(pathname: string): string | null {
 
 function getTwitterFeedAvatarId(pathname: string): string | null {
   const match = pathname.match(/^\/avatars\/([^/]+)\/twitter(?:\/feed)?\/?$/);
-  return match?.[1] || null;
+  if (match?.[1]) return match[1];
+
+  // Alias route: /twitter/:avatarId
+  const aliasMatch = pathname.match(/^\/twitter\/([^/]+)\/?$/);
+  return aliasMatch?.[1] || null;
+}
+
+function isTwitterAliasPath(pathname: string): boolean {
+  return Boolean(pathname.match(/^\/twitter(?:\/feed)?\/?$/));
 }
 
 function getInhabitAvatarId(pathname: string): string | null {
@@ -89,6 +97,9 @@ function App() {
   );
   const [twitterFeedAvatarId, setTwitterFeedAvatarId] = useState<string | null>(
     () => getTwitterFeedAvatarId(window.location.pathname)
+  );
+  const [pendingTwitterAlias, setPendingTwitterAlias] = useState<boolean>(
+    () => isTwitterAliasPath(window.location.pathname)
   );
   const [inhabitAvatarId, setInhabitAvatarId] = useState<string | null>(
     () => getInhabitAvatarId(window.location.pathname)
@@ -215,6 +226,8 @@ function App() {
   useEffect(() => {
     const handlePopState = () => {
       setLogsAvatarId(getLogsAvatarId(window.location.pathname));
+      setTwitterFeedAvatarId(getTwitterFeedAvatarId(window.location.pathname));
+      setPendingTwitterAlias(isTwitterAliasPath(window.location.pathname));
       const nextInhabitAvatarId = getInhabitAvatarId(window.location.pathname);
       setInhabitAvatarId(nextInhabitAvatarId);
       setPendingInhabitPrompt(Boolean(nextInhabitAvatarId));
@@ -224,6 +237,28 @@ function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Support /twitter and /twitter/feed as a friendly alias for the active avatar's twitter feed.
+  // Once we know which avatar is active, we replaceState into the canonical /avatars/:id/twitter route.
+  useEffect(() => {
+    if (!pendingTwitterAlias) return;
+    if (!isAuthenticated) return;
+
+    // Prefer current active avatar, otherwise fall back to first loaded avatar.
+    const target = activeAvatarId || avatars[0]?.id;
+    if (!target) return;
+
+    try {
+      const nextPath = `/avatars/${target}/twitter`;
+      window.history.replaceState({}, '', nextPath);
+    } catch {
+      // ignore
+    }
+
+    setTwitterFeedAvatarId(target);
+    setLogsAvatarId(null);
+    setPendingTwitterAlias(false);
+  }, [pendingTwitterAlias, isAuthenticated, activeAvatarId, avatars]);
 
   // Support deep-linking to /avatars/:id by selecting that avatar once avatars are loaded.
   useEffect(() => {
@@ -429,6 +464,7 @@ function App() {
     window.history.pushState({}, '', nextPath);
     setTwitterFeedAvatarId(avatarId);
     setLogsAvatarId(null);
+    setPendingTwitterAlias(false);
   }, []);
 
   const openChat = useCallback(() => {

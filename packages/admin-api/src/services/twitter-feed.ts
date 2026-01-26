@@ -65,7 +65,9 @@ export async function getTwitterFeed(avatarId: string): Promise<TwitterFeedRespo
 
   // Determine if avatar has Twitter connected and if it's in simulation mode
   const isConnected = Boolean(avatar?.platforms?.twitter?.enabled);
-  const isSimulationMode = Boolean(avatar?.platforms?.twitter?.simulation?.enabled);
+  // We treat simulation mode as always-on in the admin UI so every avatar can
+  // use the simulated feed view even without Twitter linked.
+  const isSimulationMode = true;
 
   // Fetch posts in parallel
   const [pendingPosts, recentPosts, simulatedFeed, moderationConfig] = await Promise.all([
