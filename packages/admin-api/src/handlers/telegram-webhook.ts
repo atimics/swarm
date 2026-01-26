@@ -1,8 +1,16 @@
 /**
- * Shared Telegram Webhook Handler
- * Full-featured avatar with conversation history and tool support
+ * @deprecated This handler is deprecated. Use @swarm/handlers telegram-webhook-shared.ts instead.
  *
- * Features:
+ * The unified handlers/ package provides:
+ * - Multi-tenant support via SQS queues
+ * - Shared message-processor.ts for all platforms (Telegram, Twitter, Discord)
+ * - Consistent behavior across platforms
+ * - Better observability and scaling
+ *
+ * To migrate: Set enableSharedHandlers=true in CDK context (default for new deployments).
+ * This file will be removed in a future version.
+ *
+ * Legacy Features (now in handlers/):
  * - Conversation history per chat (stored in DynamoDB)
  * - Tool support: image/video generation, wallet info, gallery
  * - Attention tracking for selective responses

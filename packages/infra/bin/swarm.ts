@@ -142,7 +142,8 @@ const secretPrefixForSplitStacks = (useSplitStacks && useExistingSharedResources
   : secretPrefix;
 
 // Enable shared handlers (Twitter mention polling, autonomous tweets, shared queues)
-// Default to true. Collisions are avoided via nonSharedResourceSuffix in migration mode.
+// Default to true. The legacy admin-api telegram-webhook handler is DEPRECATED.
+// All new deployments should use shared handlers from @swarm/handlers.
 const enableSharedHandlersExplicit = getContextValue<boolean>('enableSharedHandlers', envConfig);
 const enableSharedHandlers = (enableSharedHandlersExplicit ?? true) as boolean;
 
@@ -151,10 +152,20 @@ const enableSharedHandlers = (enableSharedHandlersExplicit ?? true) as boolean;
 const isMigrationSplitWithoutSuffix = useSplitStacks && useExistingSharedResources && !nameSuffix;
 
 // In migration mode, default to NOT creating shared handlers to avoid colliding with legacy function names.
+// DEPRECATED: Migration mode without shared handlers uses legacy code that will be removed.
+// Plan to migrate by setting enableSharedHandlers=true explicitly.
 const enableSharedHandlersForDeploy =
   isMigrationSplitWithoutSuffix && enableSharedHandlersExplicit === undefined
     ? false
     : enableSharedHandlers;
+
+if (!enableSharedHandlersForDeploy) {
+  console.warn(
+    '\n⚠️  DEPRECATION WARNING: Deploying without shared handlers.\n' +
+    '   The legacy admin-api Telegram webhook is deprecated.\n' +
+    '   Set enableSharedHandlers=true to use @swarm/handlers.\n'
+  );
+}
 
 // In migration mode, reuse the existing SwarmAdmin table to preserve admin data.
 const useExistingAdminTable = isMigrationSplitWithoutSuffix;

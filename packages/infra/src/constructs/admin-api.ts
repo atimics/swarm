@@ -158,8 +158,11 @@ export interface AdminApiConstructProps {
   dependencyLayer?: lambda.ILayerVersion;
 
   /**
-   * Optional Telegram webhook Lambda to use for /webhook/telegram/{avatarId}.
-   * When provided, Admin API will route the webhook to this function (preferred for shared runtime).
+   * Telegram webhook Lambda from @swarm/handlers SharedHandlers construct.
+   *
+   * @deprecated The inline fallback handler is deprecated. This prop should always be provided.
+   * Set enableSharedHandlers=true in CDK context to get this from SharedHandlers.telegramWebhook.
+   * The fallback will be removed in a future release.
    */
   telegramWebhookFunction?: lambda.IFunction;
 
@@ -1320,8 +1323,16 @@ export class AdminApiConstruct extends Construct {
       integration: walletAuthIntegration,
     });
 
-    // Telegram webhook handler - by default use admin-api implementation,
-    // but prefer the shared @swarm/handlers multi-tenant webhook when provided.
+    // Telegram webhook handler - MUST use shared @swarm/handlers multi-tenant webhook.
+    // The legacy admin-api implementation is DEPRECATED and will be removed.
+    // Set enableSharedHandlers=true in CDK context to use the unified handlers.
+    if (!props.telegramWebhookFunction) {
+      console.warn(
+        '\n⚠️  DEPRECATION WARNING: Admin-API inline Telegram webhook handler is deprecated.\n' +
+        '   Set enableSharedHandlers=true in CDK context to use @swarm/handlers.\n' +
+        '   The legacy handler will be removed in a future release.\n'
+      );
+    }
     const telegramWebhookHandler: lambda.IFunction = props.telegramWebhookFunction ?? new nodejs.NodejsFunction(this, 'TelegramWebhookHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/telegram-webhook.ts'),
