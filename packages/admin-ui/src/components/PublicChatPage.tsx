@@ -3,8 +3,7 @@
  *
  * This component:
  * 1. Fetches avatar info publicly (no ownership required)
- * 2. Sets up the avatar in the store for ChatPanel
- * 3. Renders ChatPanel with public access mode
+ * 2. Renders SharedChatPanel for group chat functionality
  */
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useAuth } from '../store/auth';
