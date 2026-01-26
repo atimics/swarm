@@ -304,7 +304,7 @@ export class SharedHandlers extends Construct {
     });
 
     new events.Rule(this, 'TwitterMentionPollSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+      schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
       targets: [new targets.LambdaFunction(twitterMentionPoller)],
     });
 
