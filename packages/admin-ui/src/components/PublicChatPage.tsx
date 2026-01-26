@@ -8,6 +8,7 @@
  */
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useAuth } from '../store/auth';
+import { bootstrapAuthFromBackendSession } from '../auth/bootstrap';
 import { PrivyLoginButton } from './PrivyLoginButton';
 import { SharedChatPanel } from './SharedChatPanel';
 import { TwitterFeedPanel } from './TwitterFeedPanel';
@@ -20,6 +21,8 @@ interface PublicChatPageProps {
 export function PublicChatPage({ botId }: PublicChatPageProps) {
   const { isAuthenticated, isLoading: authLoading, gateStatus } = useAuth();
 
+  const [authChecked, setAuthChecked] = useState(false);
+
   const [avatarInfo, setAvatarInfo] = useState<ChannelAvatarInfo | null>(null);
   const [loadingAvatar, setLoadingAvatar] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +33,34 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
   }, []);
 
   const [view, setView] = useState<'chat' | 'twitter'>(() => getViewFromPath());
+
+  // Bootstrap auth from backend cookie/session on public subdomains.
+  // Without this, Privy sessions can exist (cookie) while the UI still thinks
+  // it's unauthenticated because provider localStorage is origin-scoped.
+  useEffect(() => {
+    if (authChecked) return;
+
+    let mounted = true;
+
+    const doAuthCheck = async () => {
+      await bootstrapAuthFromBackendSession();
+      if (mounted) setAuthChecked(true);
+    };
+
+    const timeoutId = setTimeout(() => {
+      if (mounted) {
+        console.warn('[PublicChatPage] Auth check timeout');
+        setAuthChecked(true);
+      }
+    }, 10000);
+
+    void doAuthCheck();
+
+    return () => {
+      mounted = false;
+      clearTimeout(timeoutId);
+    };
+  }, [authChecked]);
 
   // Keep view in sync with browser navigation.
   useEffect(() => {
@@ -70,7 +101,7 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
   }, [loadingAvatar, avatarInfo, botId]);
 
   // Loading state
-  if (loadingAvatar || authLoading) {
+  if (!authChecked || loadingAvatar || authLoading) {
     return (
       <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] flex flex-col">
         <header className="sticky top-0 z-20 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/80 backdrop-blur">
