@@ -25,7 +25,16 @@ export class AWSSecretsService implements SecretsService {
     }
 
     const command = new GetSecretValueCommand({ SecretId: name });
-    const response = await this.client.send(command);
+    let response;
+    try {
+      response = await this.client.send(command);
+    } catch (error) {
+      // Preserve the original error shape/name, but annotate it with the secret id for easier debugging.
+      if (error && typeof error === 'object') {
+        (error as { secretId?: string }).secretId = name;
+      }
+      throw error;
+    }
 
     const value = response.SecretString;
     if (!value) {

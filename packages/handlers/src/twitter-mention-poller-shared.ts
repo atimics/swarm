@@ -165,7 +165,19 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       const avatarConfig = await stateService.getAvatarConfig(avatarId);
       logger.setContext({ avatarId });
 
-      const secrets = await loadAvatarSecrets(secretsService, avatarId, SECRET_PREFIX);
+      let secrets;
+      try {
+        secrets = await loadAvatarSecrets(secretsService, avatarId, SECRET_PREFIX);
+      } catch (error) {
+        logger.error('Failed to load avatar secrets; skipping avatar', error, {
+          event: 'handler_skipped',
+          subsystem: 'twitter',
+          avatarId,
+          reason: 'secrets_load_failed',
+          secretPrefix: SECRET_PREFIX,
+        });
+        continue;
+      }
 
       const twitterAdapter = new TwitterAdapter(avatarConfig!, {
         appKey: secrets.TWITTER_API_KEY,
