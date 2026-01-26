@@ -447,7 +447,7 @@ async function addChannelMessage(
  */
 async function generateAvatarResponse(
   channelId: string,
-  userMessage: SharedChatMessage,
+  _userMessage: SharedChatMessage,  // Already included in recentMessages
   recentMessages: SharedChatMessage[]
 ): Promise<string | null> {
   try {
@@ -514,16 +514,11 @@ You are in a group chat. Each message is formatted as "Username: message content
 Address users by their name/wallet when responding. Keep responses concise and conversational.`;
 
     // Build conversation history for context (last 10 messages)
+    // Note: userMessage is already included in recentMessages (saved before this call)
     const contextMessages = recentMessages.slice(-10).map(msg => ({
       role: (msg.sender.inhabitedAvatarId === channelId ? 'assistant' : 'user') as 'user' | 'assistant' | 'system',
       content: `${msg.sender.displayName}: ${msg.content}`,
     }));
-
-    // Add the current user message
-    contextMessages.push({
-      role: 'user' as const,
-      content: `${userMessage.sender.displayName}: ${userMessage.content}`,
-    });
 
     // Generate response with retry logic
     const response = await withRetry(
