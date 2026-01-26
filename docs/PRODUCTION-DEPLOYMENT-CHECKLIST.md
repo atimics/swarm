@@ -66,17 +66,24 @@ If you’re protecting the Admin UI with Cloudflare Access:
    - `https://staging-swarm.rati.chat` loads
    - `/api/*` routes work (Admin UI → Admin API)
    - Auth/session cookies work
-2. Run a CDK diff for prod locally before tagging:
+2. (Optional) Set a temporary platform update announcement:
+   - Set `SWARM_PLATFORM_NEWS` (Lambda env var) to a short Markdown-ish list.
+   - Example value:
+     - `- New Admin UI twitter feed view`
+     - `- Fix: Twitter secrets loading fallback`
+3. (Optional) Enforce a limited “control spots” model:
+   - Set `SWARM_ACTIVE_USER_LIMIT=12` (Lambda env var) to restrict authenticated access to the top N most recent logins.
+4. Run a CDK diff for prod locally before tagging:
    ```bash
    cd packages/infra
    npx cdk diff -c environment=prod
    ```
-3. Create and push the first version tag:
+5. Create and push the version tag:
    ```bash
    git tag v0.1.0
    git push origin v0.1.0
    ```
-4. Watch the `Deploy` workflow for the `production` environment.
+6. Watch the `Deploy` workflow for the `production` environment.
 
 ## 6) Post-deploy Verification
 - Open `https://swarm.rati.chat`
