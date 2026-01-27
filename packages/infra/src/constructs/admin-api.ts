@@ -159,12 +159,8 @@ export interface AdminApiConstructProps {
 
   /**
    * Telegram webhook Lambda from @swarm/handlers SharedHandlers construct.
-   *
-   * @deprecated The inline fallback handler is deprecated. This prop should always be provided.
-   * Set enableSharedHandlers=true in CDK context to get this from SharedHandlers.telegramWebhook.
-   * The fallback will be removed in a future release.
    */
-  telegramWebhookFunction?: lambda.IFunction;
+  telegramWebhookFunction: lambda.IFunction;
 
   /**
    * Internal test key for bypassing auth in E2E tests.
@@ -1324,117 +1320,14 @@ export class AdminApiConstruct extends Construct {
     });
 
     // Telegram webhook handler - MUST use shared @swarm/handlers multi-tenant webhook.
-    // The legacy admin-api implementation is DEPRECATED and will be removed.
-    // Set enableSharedHandlers=true in CDK context to use the unified handlers.
+    // The legacy admin-api implementation has been removed.
     if (!props.telegramWebhookFunction) {
-      console.warn(
-        '\n⚠️  DEPRECATION WARNING: Admin-API inline Telegram webhook handler is deprecated.\n' +
-        '   Set enableSharedHandlers=true in CDK context to use @swarm/handlers.\n' +
-        '   The legacy handler will be removed in a future release.\n'
+      throw new Error(
+        'AdminApiConstruct requires telegramWebhookFunction (SharedHandlers.telegramWebhook). '
+        + 'Create SharedHandlers and pass its telegramWebhook into AdminApiConstruct.'
       );
     }
-    const telegramWebhookHandler: lambda.IFunction = props.telegramWebhookFunction ?? new nodejs.NodejsFunction(this, 'TelegramWebhookHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(__dirname, '../../../admin-api/src/handlers/telegram-webhook.ts'),
-      handler: 'handler',
-      timeout: cdk.Duration.seconds(120), // Increased for image generation
-      memorySize: 512, // Increased for image processing
-      environment: {
-        ADMIN_TABLE: this.table.tableName,
-        STATE_TABLE: stateTable?.tableName || '',
-        DREAM_QUEUE_URL: dreamQueue.queueUrl,
-        DREAMS_ENABLED: isProd ? 'false' : 'true',
-        LLM_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions',
-        LLM_MODEL: 'anthropic/claude-haiku-4.5',
-        LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
-        API_DOMAIN: props.apiDomain || '',
-        TELEGRAM_WEBHOOK_DOMAIN: telegramWebhookDomain,
-        NODE_ENV: environment,
-        // Internal test key for E2E tests (bypasses IP check in non-prod)
-        INTERNAL_TEST_KEY: environment !== 'prod' ? internalTestKey : '',
-        // Media generation config - REQUIRED for image/video generation
-        MEDIA_BUCKET: mediaBucket?.bucketName || '',
-        CDN_URL: cdnUrl || '',
-        REPLICATE_WEBHOOK_URL: replicateWebhookUrl,
-        REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
-        ...activeUserLimitEnvVars,
-      },
-      bundling: {
-        externalModules: ['@aws-sdk/*'],
-        minify: true,
-        sourceMap: true,
-        commandHooks: {
-          beforeBundling: () => [],
-          beforeInstall: () => [],
-          afterBundling: (inputDir: string, outputDir: string) => [
-            // Copy platform prompts to Lambda bundle
-            `mkdir -p ${outputDir}/prompts/platforms`,
-            `cp -r ${inputDir}/../../../../prompts/platforms/* ${outputDir}/prompts/platforms/ 2>/dev/null || true`,
-          ],
-        },
-      },
-    });
-
-    if (!props.telegramWebhookFunction) {
-      const fn = telegramWebhookHandler as nodejs.NodejsFunction;
-
-      // Grant permissions to telegram handler
-      this.table.grantReadWriteData(fn); // Need write for conversation history
-      if (stateTable) {
-        stateTable.grantReadData(fn);
-      }
-      llmApiKey.grantRead(fn);
-      dreamQueue.grantSendMessages(fn);
-      if (replicateApiKey) {
-        replicateApiKey.grantRead(fn);
-      }
-
-      // Grant S3 permissions for media operations
-      if (mediaBucket) {
-        mediaBucket.grantReadWrite(fn);
-      }
-
-      // Grant read access to avatar secrets (bot tokens and webhook secrets)
-      fn.addToRolePolicy(new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['secretsmanager:GetSecretValue'],
-        resources: [
-          ...secretArnPatterns,
-        ],
-      }));
-
-      // KMS permissions for Secrets Manager (AWS-managed key) - required for decrypting secrets
-      fn.addToRolePolicy(new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: [
-          'kms:Decrypt',
-          'kms:GenerateDataKey',
-        ],
-        resources: ['*'],
-        conditions: {
-          StringEquals: {
-            'kms:ViaService': `secretsmanager.${cdk.Stack.of(this).region}.amazonaws.com`,
-          },
-        },
-      }));
-
-      (fn.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
-        'Environment.Variables.MEDIA_CONVERT_FUNCTION',
-        mediaConvertHandler.functionName
-      );
-
-      fn.addToRolePolicy(new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['lambda:InvokeFunction'],
-        resources: [mediaConvertHandler.functionArn],
-      }));
-
-      // Update TelegramWebhookHandler to use raw API Gateway URL for Replicate webhooks
-      (fn.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
-        'Environment.Variables.REPLICATE_WEBHOOK_URL',
-        replicateWebhookUrl
-      );
-    }
+    const telegramWebhookHandler: lambda.IFunction = props.telegramWebhookFunction;
 
     // Dream worker: consumes from dreamQueue and writes dream state
     const dreamWorker = new nodejs.NodejsFunction(this, 'DreamWorkerHandler', {

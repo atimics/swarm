@@ -256,7 +256,13 @@ export class SwarmStack extends cdk.Stack {
       ? '' 
       : process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`;
 
-    if (enableSharedHandlers) {
+    const adminApiEnabled = Boolean(cloudflareTeamDomain && adminEmails);
+    const enableSharedHandlersEffective = enableSharedHandlers || adminApiEnabled;
+    if (adminApiEnabled && !enableSharedHandlers) {
+      console.warn('Admin API enabled; forcing enableSharedHandlers=true (Telegram ingress requires SharedHandlers).');
+    }
+
+    if (enableSharedHandlersEffective) {
       this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
         environment,
         nameSuffix,
@@ -272,10 +278,10 @@ export class SwarmStack extends cdk.Stack {
     }
 
     // Create Admin API if Cloudflare Access is configured
-    if (cloudflareTeamDomain && adminEmails) {
+    if (adminApiEnabled) {
       this.adminApi = new AdminApiConstruct(this, 'AdminApi', {
-        cloudflareTeamDomain,
-        adminEmails,
+        cloudflareTeamDomain: cloudflareTeamDomain!,
+        adminEmails: adminEmails!,
         adminWallets: props.adminWallets,
         openRouterApiKeyArn,
         replicateApiKeyArn,
@@ -301,7 +307,7 @@ export class SwarmStack extends cdk.Stack {
         // Dependency layer with sharp for image processing
         dependencyLayer: this.shared.dependencyLayer,
         // Prefer shared multi-tenant Telegram ingress when enabled
-        telegramWebhookFunction: this.sharedHandlers?.telegramWebhook,
+        telegramWebhookFunction: this.sharedHandlers!.telegramWebhook,
         // POST_QUEUE for decoupled Twitter posting
         postQueue: this.sharedHandlers?.postQueue,
         // Share the same internal test key across all constructs

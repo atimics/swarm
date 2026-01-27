@@ -180,7 +180,7 @@ export class AdminApiStack extends cdk.Stack {
       claudeCodeMinCapacity = 0,
       claudeCodeMaxCapacity = 5,
       claudeCodeUseOpenRouter = false,
-      enableSharedHandlers = false,
+       enableSharedHandlers = this.node.tryGetContext('enableSharedHandlers') ?? false,
       secretPrefix,
       useExistingAdminTable = false,
       existingAdminTableName,
@@ -231,21 +231,22 @@ export class AdminApiStack extends cdk.Stack {
       ? ''
       : process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`;
 
-    // Create shared handlers if enabled
-    if (enableSharedHandlers) {
-      this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
-        environment,
-        nameSuffix,
-        dependencyLayer,
-        stateTable,
-        activityTable,
-        mediaBucket,
-        cdnUrl: sharedInfraStack.cdnUrl,
-        replicateApiKeyArn,
-        secretPrefix,
-        internalTestKey,
-      });
+    // Always create SharedHandlers here; this stack exists primarily for shared ingress.
+    if (!enableSharedHandlers) {
+      console.warn('AdminApiStack: forcing enableSharedHandlers=true (Telegram ingress requires SharedHandlers).');
     }
+    this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
+      environment,
+      nameSuffix,
+      dependencyLayer,
+      stateTable,
+      activityTable,
+      mediaBucket,
+      cdnUrl: sharedInfraStack.cdnUrl,
+      replicateApiKeyArn,
+      secretPrefix,
+      internalTestKey,
+    });
 
     // Create Admin API if configured
     if (cloudflareTeamDomain && adminEmails) {
@@ -274,7 +275,7 @@ export class AdminApiStack extends cdk.Stack {
         mediaCdn,
         cdnUrl: sharedInfraStack.cdnUrl,
         dependencyLayer,
-        telegramWebhookFunction: this.sharedHandlers?.telegramWebhook,
+        telegramWebhookFunction: this.sharedHandlers.telegramWebhook,
         postQueue: this.sharedHandlers?.postQueue,
         internalTestKey,
       });

@@ -33,9 +33,7 @@ export interface TelegramEnvelopeConfig {
 /**
  * Build a SwarmEnvelope from a raw Telegram Update
  *
- * This is a shared utility function that can be used by both:
- * - packages/handlers/src/telegram-webhook.ts (core pipeline)
- * - packages/admin-api/src/handlers/telegram-webhook.ts (admin avatar)
+ * This is a shared utility function that can be used by webhook ingress code (e.g. shared multi-tenant handlers).
  *
  * It handles:
  * - Extracting sender, content, mentions from the update
