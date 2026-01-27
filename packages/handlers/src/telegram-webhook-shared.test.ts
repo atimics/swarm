@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'bun:test';
-import { isTelegramChatAllowed } from './telegram-webhook-shared.js';
+
+process.env.ADMIN_TABLE ||= 'ADMIN_TABLE';
+process.env.STATE_TABLE ||= 'STATE_TABLE';
+process.env.MESSAGE_QUEUE_URL ||= 'https://example.com/queue';
+
+const modPromise = import('./telegram-webhook-shared.js');
 
 describe('telegram-webhook-shared allowlists', () => {
-  it('blocks DMs when allowedDmUserIds is missing/empty', () => {
+  it('blocks DMs when allowedDmUserIds is missing/empty', async () => {
+    const { isTelegramChatAllowed } = (await modPromise);
     const allowed = isTelegramChatAllowed(
       {
         conversationId: 'dm',
@@ -15,7 +21,8 @@ describe('telegram-webhook-shared allowlists', () => {
     expect(allowed).toBe(false);
   });
 
-  it('allows DMs only for allowlisted user IDs (string-coerced)', () => {
+  it('allows DMs only for allowlisted user IDs (string-coerced)', async () => {
+    const { isTelegramChatAllowed } = (await modPromise);
     const allowed = isTelegramChatAllowed(
       {
         conversationId: 'dm',
@@ -28,7 +35,8 @@ describe('telegram-webhook-shared allowlists', () => {
     expect(allowed).toBe(true);
   });
 
-  it('allows DMs only for allowlisted users using allowedDmUsers', () => {
+  it('allows DMs only for allowlisted users using allowedDmUsers', async () => {
+    const { isTelegramChatAllowed } = (await modPromise);
     const allowed = isTelegramChatAllowed(
       {
         conversationId: 'dm',
@@ -41,7 +49,8 @@ describe('telegram-webhook-shared allowlists', () => {
     expect(allowed).toBe(true);
   });
 
-  it('treats allowedDmUsers as authoritative when present (even if empty)', () => {
+  it('treats allowedDmUsers as authoritative when present (even if empty)', async () => {
+    const { isTelegramChatAllowed } = (await modPromise);
     const allowed = isTelegramChatAllowed(
       {
         conversationId: 'dm',
@@ -57,7 +66,8 @@ describe('telegram-webhook-shared allowlists', () => {
     expect(allowed).toBe(false);
   });
 
-  it('allows group chats when allowedChatIds is not configured', () => {
+  it('allows group chats when allowedChatIds is not configured', async () => {
+    const { isTelegramChatAllowed } = (await modPromise);
     const allowed = isTelegramChatAllowed(
       {
         conversationId: '-1001',
@@ -70,7 +80,8 @@ describe('telegram-webhook-shared allowlists', () => {
     expect(allowed).toBe(true);
   });
 
-  it('allows group chats when allowedChatIds is an empty array (no enforcement)', () => {
+  it('allows group chats when allowedChatIds is an empty array (no enforcement)', async () => {
+    const { isTelegramChatAllowed } = (await modPromise);
     const allowed = isTelegramChatAllowed(
       {
         conversationId: '-1001',
@@ -83,7 +94,8 @@ describe('telegram-webhook-shared allowlists', () => {
     expect(allowed).toBe(true);
   });
 
-  it('blocks non-private chats not present in allowedChatIds (when configured)', () => {
+  it('blocks non-private chats not present in allowedChatIds (when configured)', async () => {
+    const { isTelegramChatAllowed } = (await modPromise);
     const allowed = isTelegramChatAllowed(
       {
         conversationId: '-1002',
@@ -97,6 +109,7 @@ describe('telegram-webhook-shared allowlists', () => {
   });
 
   it('treats allowedChatIds as home channels when homeChannelChecker is enabled', async () => {
+    const { isTelegramChatAllowed } = (await modPromise);
     const allowed = isTelegramChatAllowed(
       {
         conversationId: '-1001',
@@ -111,6 +124,7 @@ describe('telegram-webhook-shared allowlists', () => {
   });
 
   it('treats allowedChats as home channels when homeChannelChecker is enabled', async () => {
+    const { isTelegramChatAllowed } = (await modPromise);
     const allowed = isTelegramChatAllowed(
       {
         conversationId: '-1001',
@@ -125,6 +139,7 @@ describe('telegram-webhook-shared allowlists', () => {
   });
 
   it('blocks group chats when homeChannelChecker is enabled and chat is neither a home channel nor in allowedChatIds', async () => {
+    const { isTelegramChatAllowed } = (await modPromise);
     const allowed = isTelegramChatAllowed(
       {
         conversationId: '-1002',
@@ -136,5 +151,133 @@ describe('telegram-webhook-shared allowlists', () => {
     );
 
     await expect(Promise.resolve(allowed)).resolves.toBe(false);
+  });
+});
+
+describe('telegram-webhook-shared home channel bootstrap', () => {
+  it('bootstraps home channel from first group mention when none exists', async () => {
+    const { maybeBootstrapHomeChannelFromGroupEngagement } = (await modPromise);
+
+    const calls: Array<{ name: string; args: unknown[] }> = [];
+    const deps = {
+      registerHomeChannelFromWebhook: async (...args: unknown[]) => {
+        calls.push({ name: 'register', args });
+      },
+      updateAvatarHomeChannel: async (...args: unknown[]) => {
+        calls.push({ name: 'update', args });
+      },
+      logger: {
+        info: () => {},
+        warn: () => {},
+      },
+    };
+
+    const bootstrapped = await maybeBootstrapHomeChannelFromGroupEngagement(
+      {
+        avatarId: 'a1',
+        avatarConfig: {
+          platforms: {
+            telegram: {
+              enabled: true,
+              botUsername: 'DevilRATiBot',
+            },
+          },
+        } as unknown as import('@swarm/core').AvatarConfig,
+        envelope: {
+          conversationId: '-1001',
+          metadata: {
+            chatType: 'supergroup',
+            chatTitle: 'My Group',
+            isMention: true,
+          },
+        },
+      },
+      deps
+    );
+
+    expect(bootstrapped).toBe(true);
+    expect(calls.map((c) => c.name)).toEqual(['register', 'update']);
+
+    expect(calls[0]?.args).toEqual(['a1', '-1001', 'DevilRATiBot', undefined, 'My Group']);
+    expect(calls[1]?.args).toEqual(['a1', '-1001', undefined, 'My Group']);
+  });
+
+  it('does not bootstrap for private chats', async () => {
+    const { maybeBootstrapHomeChannelFromGroupEngagement } = (await modPromise);
+
+    const bootstrapped = await maybeBootstrapHomeChannelFromGroupEngagement(
+      {
+        avatarId: 'a1',
+        avatarConfig: {
+          platforms: {
+            telegram: {
+              enabled: true,
+              botUsername: 'DevilRATiBot',
+            },
+          },
+        } as unknown as import('@swarm/core').AvatarConfig,
+        envelope: {
+          conversationId: '123',
+          metadata: {
+            chatType: 'private',
+            isMention: true,
+          },
+        },
+      },
+      {
+        registerHomeChannelFromWebhook: async () => {
+          throw new Error('should not be called');
+        },
+        updateAvatarHomeChannel: async () => {
+          throw new Error('should not be called');
+        },
+        logger: {
+          info: () => {},
+          warn: () => {},
+        },
+      }
+    );
+
+    expect(bootstrapped).toBe(false);
+  });
+
+  it('does not bootstrap when already has homeChannelId', async () => {
+    const { maybeBootstrapHomeChannelFromGroupEngagement } = (await modPromise);
+
+    const bootstrapped = await maybeBootstrapHomeChannelFromGroupEngagement(
+      {
+        avatarId: 'a1',
+        avatarConfig: {
+          platforms: {
+            telegram: {
+              enabled: true,
+              botUsername: 'DevilRATiBot',
+              homeChannelId: '-9999',
+            },
+          },
+        } as unknown as import('@swarm/core').AvatarConfig,
+        envelope: {
+          conversationId: '-1001',
+          metadata: {
+            chatType: 'group',
+            isMention: true,
+          },
+        },
+      },
+      {
+        registerHomeChannelFromWebhook: async () => {
+          throw new Error('should not be called');
+        },
+        updateAvatarHomeChannel: async () => {
+          throw new Error('should not be called');
+        },
+        logger: {
+          info: () => {},
+          warn: () => {},
+        },
+      }
+    );
+
+    expect(bootstrapped).toBe(false);
   });
 });

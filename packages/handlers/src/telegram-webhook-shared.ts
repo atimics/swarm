@@ -461,7 +461,8 @@ async function getTelegramAdapter(avatarId: string, avatarConfig: AvatarConfig):
   return adapter;
 }
 
-async function maybeBootstrapHomeChannelFromGroupEngagement(params: {
+export async function maybeBootstrapHomeChannelFromGroupEngagement(
+  params: {
   avatarId: string;
   avatarConfig: AvatarConfig;
   envelope: {
@@ -473,8 +474,22 @@ async function maybeBootstrapHomeChannelFromGroupEngagement(params: {
       isReplyToBot?: boolean;
     };
   };
-}): Promise<boolean> {
+  },
+  deps: {
+    registerHomeChannelFromWebhook: typeof registerHomeChannelFromWebhook;
+    updateAvatarHomeChannel: typeof updateAvatarHomeChannel;
+    logger?: {
+      info: (message: string, meta?: Record<string, unknown>) => void;
+      warn: (message: string, meta?: Record<string, unknown>) => void;
+    };
+  } = {
+    registerHomeChannelFromWebhook,
+    updateAvatarHomeChannel,
+    logger,
+  }
+): Promise<boolean> {
   const { avatarId, avatarConfig, envelope } = params;
+  const log = deps.logger || logger;
 
   if (!ADMIN_TABLE || !STATE_TABLE) return false;
   const chatType = envelope.metadata.chatType;
@@ -490,7 +505,7 @@ async function maybeBootstrapHomeChannelFromGroupEngagement(params: {
   if (!botUsername) return false;
 
   try {
-    await registerHomeChannelFromWebhook(
+    await deps.registerHomeChannelFromWebhook(
       avatarId,
       envelope.conversationId,
       botUsername,
@@ -498,14 +513,14 @@ async function maybeBootstrapHomeChannelFromGroupEngagement(params: {
       envelope.metadata.chatTitle
     );
 
-    await updateAvatarHomeChannel(
+    await deps.updateAvatarHomeChannel(
       avatarId,
       envelope.conversationId,
       undefined,
       envelope.metadata.chatTitle
     );
 
-    logger.info('Bootstrapped home channel from group engagement', {
+    log.info('Bootstrapped home channel from group engagement', {
       event: 'home_channel_bootstrapped',
       avatarId,
       chatId: envelope.conversationId,
@@ -513,7 +528,7 @@ async function maybeBootstrapHomeChannelFromGroupEngagement(params: {
     });
     return true;
   } catch (err) {
-    logger.warn('Failed to bootstrap home channel from group engagement', {
+    log.warn('Failed to bootstrap home channel from group engagement', {
       event: 'home_channel_bootstrap_failed',
       avatarId,
       chatId: envelope.conversationId,
