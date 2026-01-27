@@ -284,7 +284,7 @@ export interface HomeChannelChecker {
 /**
  * Check if a Telegram chat is allowed for this avatar.
  *
- * For DMs (private chats): Uses allowedDmUserIds allowlist.
+ * For DMs (private chats): Uses allowedDmUserIds allowlist, or allowAllDms for admin bots.
  * For groups/channels: Uses home channel logic if homeChannelChecker is provided.
  *                      If allowedChatIds is configured, those chats are treated as home channels.
  *                      If homeChannelChecker is not provided, falls back to allowedChatIds allowlist.
@@ -306,6 +306,8 @@ export function isTelegramChatAllowed(
     allowedChats?: Array<{ chatId: string }>;
     allowedDmUsers?: Array<{ userId: string }>;
     homeChannelId?: string;
+    isAdminBot?: boolean;
+    allowAllDms?: boolean;
   } | undefined,
   homeChannelChecker?: HomeChannelChecker
 ): boolean | Promise<boolean> {
@@ -325,8 +327,13 @@ export function isTelegramChatAllowed(
     return telegramCfg?.allowedChatIds;
   };
 
-  // DMs: allow only if user is allowlisted
+  // DMs: allow if admin bot with allowAllDms, or if user is allowlisted
   if (envelope.metadata.chatType === 'private') {
+    // Admin bots with allowAllDms accept DMs from everyone
+    if (telegramCfg?.isAdminBot && telegramCfg?.allowAllDms) {
+      return true;
+    }
+
     const allowedDmUserIds = getAllowedDmUserIds();
     const userId = envelope.sender.platformUserId ?? envelope.sender.id;
 
@@ -594,12 +601,28 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       }
     }
 
+    // Check for callback_query updates (inline button presses) for admin bot
+    const telegramCfg = avatarConfig.platforms.telegram;
+    const isAdminBot = telegramCfg?.isAdminBot && telegramCfg?.allowAllDms;
+
+    if (isAdminBot && update.callback_query) {
+      // Admin bot callback query - route to admin handler
+      logger.info('Admin bot callback query received', { event: 'admin_callback' });
+      try {
+        const { processAdminCallbackQuery } = await import('./services/telegram-admin-handler.js');
+        await processAdminCallbackQuery(avatarId, avatarConfig, update as unknown);
+        return ok();
+      } catch (err) {
+        logger.error('Admin callback handler error', err, { event: 'admin_callback_error' });
+        return ok();
+      }
+    }
+
     const envelope = await telegramAdapter.parseMessage(update);
     if (!envelope) return ok();
 
     envelope.traceId = traceId;
 
-    const telegramCfg = avatarConfig.platforms.telegram;
     // Use home channel checker for groups/channels if ADMIN_TABLE is configured
     const homeChecker = ADMIN_TABLE ? createHomeChannelChecker() : undefined;
     const chatAllowed = await Promise.resolve(isTelegramChatAllowed(envelope, telegramCfg, homeChecker));
@@ -635,6 +658,32 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       }
 
       return ok();
+    }
+
+    // Admin bot DM handling - route to admin service instead of message queue
+    if (isAdminBot && envelope.metadata.chatType === 'private') {
+      logger.info('Admin bot DM received', { event: 'admin_dm', senderId: envelope.sender.id });
+
+      // Idempotency check for admin messages
+      const isNewMessage = await stateService.checkAndSetIdempotency(envelope.metadata.idempotencyKey);
+      if (!isNewMessage) {
+        logger.info('Duplicate admin message, skipping', { messageId: envelope.messageId });
+        return ok();
+      }
+
+      try {
+        const { processAdminMessage } = await import('./services/telegram-admin-handler.js');
+        await processAdminMessage(avatarId, avatarConfig, envelope);
+        logger.info('Admin message processed', {
+          event: 'admin_message_processed',
+          messageId: envelope.messageId,
+          durationMs: Date.now() - startTime,
+        });
+        return ok();
+      } catch (err) {
+        logger.error('Admin message handler error', err, { event: 'admin_message_error' });
+        return ok();
+      }
     }
 
     // Idempotency
