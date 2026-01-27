@@ -107,7 +107,8 @@ export class SharedHandlers extends Construct {
       queueName: `swarm-${environment}${suffix}-messages.fifo`,
       fifo: true,
       contentBasedDeduplication: true,
-      visibilityTimeout: cdk.Duration.seconds(60),
+      // Must be >= the message-processor Lambda timeout to avoid duplicate deliveries.
+      visibilityTimeout: cdk.Duration.seconds(180),
       deadLetterQueue: { queue: dlq, maxReceiveCount: 3 },
     });
 
@@ -115,7 +116,8 @@ export class SharedHandlers extends Construct {
       queueName: `swarm-${environment}${suffix}-responses.fifo`,
       fifo: true,
       contentBasedDeduplication: true,
-      visibilityTimeout: cdk.Duration.seconds(60),
+      // Keep some headroom for retries within a single invocation.
+      visibilityTimeout: cdk.Duration.seconds(180),
       deadLetterQueue: { queue: dlq, maxReceiveCount: 3 },
     });
 
@@ -230,7 +232,8 @@ export class SharedHandlers extends Construct {
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
       role: lambdaRole,
-      timeout: cdk.Duration.seconds(60),
+      // LLM calls and tool loops can exceed 60s in multi-agent channels.
+      timeout: cdk.Duration.seconds(120),
       memorySize: 1024,
       environment: commonEnv,
       bundling: bundlingOptions,

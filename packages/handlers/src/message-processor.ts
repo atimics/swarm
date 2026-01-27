@@ -55,7 +55,9 @@ const secretsClient = new SecretsManagerClient({});
 
 // LLM Configuration
 const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'https://openrouter.ai/api/v1/chat/completions';
-const LLM_TIMEOUT_MS = 60_000;
+// NOTE: The message processor Lambda timeout is set in infra; keep this below that value.
+// Default increased to better handle slow OpenRouter responses in multi-agent channels.
+const LLM_TIMEOUT_MS = Number.parseInt(process.env.LLM_TIMEOUT_MS || '', 10) || 90_000;
 const MAX_TOOL_ITERATIONS = 5;
 
 /**

@@ -39,7 +39,9 @@ const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
 const DEFAULT_LLM_MODEL = process.env.LLM_MODEL || 'anthropic/claude-sonnet-4';
 const DEFAULT_LLM_MAX_TOKENS = 2048;
 const DEFAULT_LLM_TEMPERATURE = 0.7;
-const LLM_TIMEOUT_MS = 60_000;
+// Allow slow providers/models without tripping AbortController too aggressively.
+// Keep this below the Lambda timeout (configured in infra).
+const LLM_TIMEOUT_MS = Number.parseInt(process.env.LLM_TIMEOUT_MS || '', 10) || 90_000;
 
 // =============================================================================
 // LLM API KEY CACHE
