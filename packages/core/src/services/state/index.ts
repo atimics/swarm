@@ -242,19 +242,31 @@ export class DynamoDBStateService implements StateService {
   async listAvatars(): Promise<string[]> {
     // Note: Using Scan because begins_with() cannot be used on partition keys in Query.
     // For better performance at scale, consider adding a GSI with entityType as PK.
-    const result = await this.docClient.send(new ScanCommand({
-      TableName: this.tableName,
-      FilterExpression: 'begins_with(pk, :prefix) AND sk = :sk',
-      ExpressionAttributeValues: {
-        ':prefix': 'AVATAR#',
-        ':sk': 'CONFIG',
-      },
-      ProjectionExpression: 'pk',
-    }));
+    const avatarIds: string[] = [];
+    let lastEvaluatedKey: Record<string, unknown> | undefined;
 
-    return (result.Items || []).map(item =>
-      (item.pk as string).replace('AVATAR#', '')
-    );
+    do {
+      const result = await this.docClient.send(new ScanCommand({
+        TableName: this.tableName,
+        FilterExpression: 'begins_with(pk, :prefix) AND sk = :sk',
+        ExpressionAttributeValues: {
+          ':prefix': 'AVATAR#',
+          ':sk': 'CONFIG',
+        },
+        ProjectionExpression: 'pk',
+        ExclusiveStartKey: lastEvaluatedKey as never,
+      }));
+
+      for (const item of result.Items || []) {
+        const pk = item.pk as string | undefined;
+        if (!pk?.startsWith('AVATAR#')) continue;
+        avatarIds.push(pk.replace('AVATAR#', ''));
+      }
+
+      lastEvaluatedKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (lastEvaluatedKey);
+
+    return avatarIds;
   }
 
   // =====================================================================

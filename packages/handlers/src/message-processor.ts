@@ -229,11 +229,35 @@ async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, stri
   const prefix = getSecretPrefix();
   const secrets: Record<string, string> = {};
 
+  // Shared Twitter app credentials can optionally be stored as a single JSON secret.
+  // This mirrors the shared `response-sender` behavior so tools that call Twitter APIs
+  // can work even when app key/secret are not stored per-avatar.
+  async function tryLoadTwitterAppCredentials(): Promise<void> {
+    if (secrets.TWITTER_API_KEY && secrets.TWITTER_API_SECRET) return;
+    const secretId = process.env.TWITTER_APP_CREDENTIALS_ARN || `${prefix}/global/twitter-app-credentials`;
+    try {
+      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretId }));
+      const raw = response.SecretString;
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const appKey = (parsed.TWITTER_APP_KEY || parsed.consumer_key || parsed.consumerKey) as string | undefined;
+      const appSecret = (parsed.TWITTER_APP_SECRET || parsed.consumer_secret || parsed.consumerSecret) as string | undefined;
+      if (appKey && !secrets.TWITTER_API_KEY) secrets.TWITTER_API_KEY = appKey;
+      if (appSecret && !secrets.TWITTER_API_SECRET) secrets.TWITTER_API_SECRET = appSecret;
+    } catch {
+      // Ignore parse/lookup errors and rely on per-avatar secrets if present.
+    }
+  }
+
   // Define secret types to fetch and their normalized key names
   const secretTypes = [
     { type: 'openrouter_api_key', key: 'OPENROUTER_API_KEY' },
     { type: 'replicate_api_key', key: 'REPLICATE_API_KEY' },
     { type: 'telegram_bot_token', key: 'TELEGRAM_BOT_TOKEN' },
+    { type: 'twitter_api_key', key: 'TWITTER_API_KEY' },
+    { type: 'twitter_api_secret', key: 'TWITTER_API_SECRET' },
+    { type: 'twitter_access_token', key: 'TWITTER_ACCESS_TOKEN' },
+    { type: 'twitter_access_secret', key: 'TWITTER_ACCESS_SECRET' },
   ];
 
   for (const { type, key } of secretTypes) {
@@ -258,6 +282,10 @@ async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, stri
       }
     } catch {
       // Global secret not found either - continue without it
+    }
+
+    if (type === 'twitter_api_key' || type === 'twitter_api_secret') {
+      await tryLoadTwitterAppCredentials();
     }
   }
 
@@ -305,6 +333,32 @@ async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
     ],
     secrets: ['OPENROUTER_API_KEY', 'REPLICATE_API_KEY'],
   };
+
+  // Back-compat + parity: if Twitter is enabled, ensure the runtime tool allowlist includes
+  // the core Twitter interaction tools so automated replies can fetch context and act.
+  // (We still keep explicit allowlisting; this just avoids "agentic" regressions from
+  // older configs that only included a minimal tool set.)
+  const effectiveTools = new Set<string>(avatarConfig.tools || []);
+  if (avatarConfig.platforms?.twitter?.enabled) {
+    [
+      'twitter_status',
+      'twitter_get_tweet',
+      'twitter_get_mentions',
+      'twitter_get_timeline',
+      'twitter_reply',
+      'twitter_post',
+      'twitter_like',
+      'twitter_unlike',
+      'twitter_retweet',
+      'twitter_unretweet',
+      'twitter_quote',
+      'twitter_get_activity_summary',
+    ].forEach(t => effectiveTools.add(t));
+  }
+
+  if (effectiveTools.size !== (avatarConfig.tools || []).length) {
+    avatarConfig.tools = Array.from(effectiveTools);
+  }
 
   // Fetch individual secrets from Secrets Manager using direct paths
   const secrets = await fetchAvatarSecrets(avatarId);

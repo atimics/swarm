@@ -206,10 +206,33 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
     },
     tools: (() => {
       const tools = ['send_message', 'react', 'ignore', 'wait', 'generate_image', 'remember', 'recall'];
+
+      // Platform-specific tool affordances (kept explicit for safety).
+      // These tools are used by the shared handlers pipeline (pollers -> message-processor -> response-sender)
+      // and are required for "agentic" Twitter replies (fetch tweet context, reply, etc).
+      if (record.platforms.twitter?.enabled) {
+        tools.push(
+          'twitter_status',
+          'twitter_get_tweet',
+          'twitter_get_mentions',
+          'twitter_get_timeline',
+          'twitter_reply',
+          'twitter_post',
+          'twitter_like',
+          'twitter_unlike',
+          'twitter_retweet',
+          'twitter_unretweet',
+          'twitter_quote',
+          'twitter_get_activity_summary'
+        );
+      }
+
       if (defaultVoiceConfig.enabled) {
         tools.push('generate_voice_message', 'transcribe_audio');
       }
-      return tools;
+
+      // De-dupe in case config-sync is called repeatedly.
+      return Array.from(new Set(tools));
     })(),
     secrets: ['REPLICATE_API_KEY', 'OPENROUTER_API_KEY'],
   };
