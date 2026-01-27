@@ -258,15 +258,34 @@ Guidelines:
 
 let cachedTwitterPlatformPrompt: string | null = null;
 
+function getBestEffortModuleDir(): string | null {
+  try {
+    if (typeof __dirname === 'string') return __dirname;
+  } catch {
+    // ignore
+  }
+
+  const metaUrl = (import.meta as unknown as { url?: unknown } | undefined)?.url;
+  if (typeof metaUrl === 'string') {
+    try {
+      return path.dirname(fileURLToPath(metaUrl));
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 function loadTwitterPlatformPrompt(): string {
   if (cachedTwitterPlatformPrompt) return cachedTwitterPlatformPrompt;
 
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const repoRoot = path.resolve(here, '../../../..');
+  const moduleDir = getBestEffortModuleDir();
+  const repoRoot = moduleDir ? path.resolve(moduleDir, '../../../..') : null;
   const candidates = [
     path.join(process.cwd(), 'prompts', 'platforms', 'twitter.md'),
     path.join(process.cwd(), 'packages', 'core', 'prompts', 'platforms', 'twitter.md'),
-    path.join(repoRoot, 'prompts', 'platforms', 'twitter.md'),
+    ...(repoRoot ? [path.join(repoRoot, 'prompts', 'platforms', 'twitter.md')] : []),
   ];
 
   for (const candidate of candidates) {
