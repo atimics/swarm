@@ -97,6 +97,8 @@ export function buildTelegramEnvelope(
   }
 
   // Check if chat type is allowed
+  // Note: DMs ('private') are ALWAYS allowed through - they're handled by the admin service
+  // for bot creation flow. The allowedChatTypes config only applies to groups/channels.
   if (config.allowedChatTypes) {
     const validChatTypes = ['private', 'group', 'supergroup', 'channel'] as const;
     const rawChatType = message.chat.type;
@@ -110,7 +112,8 @@ export function buildTelegramEnvelope(
       ? (rawChatType as 'private' | 'group' | 'supergroup' | 'channel')
       : 'group'; // Default to group for unknown types
 
-    if (!config.allowedChatTypes.includes(chatType)) {
+    // Always allow DMs through - they go to admin service for bot creation
+    if (chatType !== 'private' && !config.allowedChatTypes.includes(chatType)) {
       return null;
     }
   }
