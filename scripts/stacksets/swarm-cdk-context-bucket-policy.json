@@ -1,0 +1,51 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowSwarmDeployRolesGetBucketLocation",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::449916778282:role/SwarmGitHubDeployRole",
+          "arn:aws:iam::332730082708:role/SwarmGitHubDeployRole"
+        ]
+      },
+      "Action": "s3:GetBucketLocation",
+      "Resource": "arn:aws:s3:::swarm-cdk-context-022118847419-us-east-1"
+    },
+    {
+      "Sid": "AllowSwarmDeployRolesListCdkContextPrefix",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::449916778282:role/SwarmGitHubDeployRole",
+          "arn:aws:iam::332730082708:role/SwarmGitHubDeployRole"
+        ]
+      },
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::swarm-cdk-context-022118847419-us-east-1",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "swarm/cdk-context/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "AllowSwarmDeployRolesGetCdkContextObjects",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::449916778282:role/SwarmGitHubDeployRole",
+          "arn:aws:iam::332730082708:role/SwarmGitHubDeployRole"
+        ]
+      },
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::swarm-cdk-context-022118847419-us-east-1/swarm/cdk-context/*"
+    }
+  ]
+}

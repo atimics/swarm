@@ -53,5 +53,7 @@ coverage/
 secrets.json
 *.pem
 *.key
+.clawdbot/
+auth-profiles.json
 proxim8_nfts.db
 issues/*

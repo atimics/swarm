@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Swarm bootstrap - create GitHub OIDC provider and IAM roles for deploy + operator access.
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Default: atimics
+  GitHubRepo:
+    Type: String
+    Default: aws-swarm
+  GitHubEnvironment:
+    Type: String
+    Default: staging
+    AllowedValues:
+      - staging
+      - production
+  ManagementAccountId:
+    Type: String
+    Default: '022118847419'
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        # GitHub Actions OIDC root CA thumbprint
+        - '6938fd4d98bab03faadb97b34396831e3780aea1'
+
+  SwarmGitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SwarmGitHubDeployRole
+      Description: Deployer role assumed by GitHub Actions via OIDC.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action:
+              - sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubOrg}/${GitHubRepo}:environment:${GitHubEnvironment}'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+  SwarmOperatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SwarmOperatorRole
+      Description: Human operator role assumed from the Organizations management account.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${ManagementAccountId}:root'
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+Outputs:
+  GitHubOidcProviderArn:
+    Value: !Ref GitHubOidcProvider
+  SwarmGitHubDeployRoleArn:
+    Value: !GetAtt SwarmGitHubDeployRole.Arn
+  SwarmOperatorRoleArn:
+    Value: !GetAtt SwarmOperatorRole.Arn
