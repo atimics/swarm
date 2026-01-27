@@ -75,6 +75,8 @@ function buildRedirectMessage(telegramCfg?: {
 
 🌐 https://swarm.rati.chat/
 💬 ${homeChannelUrl}
+🪙 ${coinSymbol}: ${coinAddress}`;
+}
 
 function buildDmBlockedMessage(telegramCfg?: {
   homeChannelUrl?: string;
@@ -96,8 +98,6 @@ export function shouldRoutePrivateChatToAdmin(telegramCfg?: {
   allowAllDms?: boolean;
 }): boolean {
   return Boolean(telegramCfg?.isAdminBot || telegramCfg?.allowAllDms);
-}
-🪙 ${coinSymbol}: ${coinAddress}`;
 }
 
 

@@ -281,3 +281,14 @@ describe('telegram-webhook-shared home channel bootstrap', () => {
     expect(bootstrapped).toBe(false);
   });
 });
+
+describe('telegram-webhook-shared DM routing', () => {
+  it('routes private chats to admin flow only for admin bots', async () => {
+    const { shouldRoutePrivateChatToAdmin } = (await modPromise);
+
+    expect(shouldRoutePrivateChatToAdmin(undefined)).toBe(false);
+    expect(shouldRoutePrivateChatToAdmin({})).toBe(false);
+    expect(shouldRoutePrivateChatToAdmin({ isAdminBot: true })).toBe(true);
+    expect(shouldRoutePrivateChatToAdmin({ allowAllDms: true })).toBe(true);
+  });
+});
