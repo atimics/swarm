@@ -22,12 +22,12 @@ import {
   createSecretsService,
   createActivityService,
   logger,
-  type SwarmEnvelope,
 } from '@swarm/core';
 import { createTwitterUsageService, type TwitterUsageService } from './services/twitter-usage.js';
 import { maxTwitterId } from './utils/twitter-id.js';
 import { loadAvatarSecrets, type LoadedAvatarSecrets } from './utils/load-avatar-secrets.js';
 import { isTwitterFeatureEnabled } from './utils/twitter-feature-flags.js';
+import { loadTwitterSecretsFallback, shouldProcessMention } from './utils/twitter-mention-poller-logic.js';
 
 const sqsClient = new SQSClient({});
 
@@ -40,67 +40,6 @@ let stateService: ReturnType<typeof createStateService>;
 let activityService: ReturnType<typeof createActivityService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let twitterUsageService: TwitterUsageService;
-
-type TwitterAppCredentialsFallback = {
-  TWITTER_APP_KEY?: string;
-  TWITTER_APP_SECRET?: string;
-  consumer_key?: string;
-  consumer_secret?: string;
-  consumerKey?: string;
-  consumerSecret?: string;
-};
-
-async function loadTwitterSecretsFallback(
-  secretsService: ReturnType<typeof createSecretsService>,
-  avatarId: string,
-  secretPrefix: string
-): Promise<LoadedAvatarSecrets> {
-  const result: LoadedAvatarSecrets = {};
-  const candidates = (name: string) => [
-    `${secretPrefix}/${avatarId}/${name}/default`,
-    `${secretPrefix}/${avatarId}/${name}`,
-  ];
-
-  for (const id of candidates('twitter_access_token')) {
-    try {
-      result.TWITTER_ACCESS_TOKEN = await secretsService.getSecret(id);
-      break;
-    } catch {
-      // Try next.
-    }
-  }
-
-  for (const id of candidates('twitter_access_secret')) {
-    try {
-      result.TWITTER_ACCESS_SECRET = await secretsService.getSecret(id);
-      break;
-    } catch {
-      // Try next.
-    }
-  }
-
-  if (!result.TWITTER_API_KEY || !result.TWITTER_API_SECRET) {
-    const appCandidates = [
-      `${secretPrefix}/global/twitter-app-credentials`,
-      `${secretPrefix}/global/twitter-app-credentials/default`,
-    ];
-
-    for (const id of appCandidates) {
-      try {
-        const parsed = await secretsService.getSecretJson<TwitterAppCredentialsFallback>(id);
-        const appKey = parsed.TWITTER_APP_KEY || parsed.consumer_key || parsed.consumerKey;
-        const appSecret = parsed.TWITTER_APP_SECRET || parsed.consumer_secret || parsed.consumerSecret;
-        if (appKey) result.TWITTER_API_KEY = result.TWITTER_API_KEY || appKey;
-        if (appSecret) result.TWITTER_API_SECRET = result.TWITTER_API_SECRET || appSecret;
-        if (result.TWITTER_API_KEY && result.TWITTER_API_SECRET) break;
-      } catch {
-        // Try next.
-      }
-    }
-  }
-
-  return result;
-}
 
 async function initialize(): Promise<void> {
   if (stateService) return;
@@ -117,37 +56,7 @@ async function initialize(): Promise<void> {
  * 1. Direct replies to bot's tweets (highest priority)
  * 2. Explicit @mentions in tweet text (not just part of a thread)
  */
-function shouldProcessMention(
-  mention: SwarmEnvelope,
-  botUserId: string,
-  botUsername?: string
-): boolean {
-  // Skip self-mentions (bot replying to itself)
-  if (mention.sender.id === botUserId) {
-    return false;
-  }
-
-  // Case 1: Reply to bot's own tweet (highest priority)
-  // The raw tweet object contains in_reply_to_user_id
-  const raw = mention.raw as { in_reply_to_user_id?: string };
-  if (raw.in_reply_to_user_id === botUserId) {
-    return true;
-  }
-
-  // Case 2: Direct @mention in tweet text
-  // Check if bot is explicitly mentioned in the tweet text
-  if (botUsername) {
-    const text = mention.content.text?.toLowerCase() || '';
-    const hasMentionInText = text.includes(`@${botUsername.toLowerCase()}`);
-    if (hasMentionInText) {
-      return true;
-    }
-  }
-
-  // If we got here via the mentions timeline but don't match the above,
-  // it's likely a retweet or quote that doesn't warrant a reply
-  return false;
-}
+// shouldProcessMention moved to utils/twitter-mention-poller-logic.ts (unit tested)
 
 export const handler: ScheduledHandler = async (_event, context: Context) => {
   const startTime = Date.now();
