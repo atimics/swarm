@@ -27,6 +27,7 @@ import {
 import { createTwitterUsageService, type TwitterUsageService } from './services/twitter-usage.js';
 import { maxTwitterId } from './utils/twitter-id.js';
 import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
+import { isTwitterFeatureEnabled } from './utils/twitter-feature-flags.js';
 
 const sqsClient = new SQSClient({});
 
@@ -113,11 +114,19 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
 
   // Get Twitter-enabled avatars for budget calculation
   const twitterAvatarIds: string[] = [];
+  let twitterEnabledCount = 0;
+  let twitterMissingFeaturesCount = 0;
   for (const avatarId of avatarIds) {
     const avatarConfig = await stateService.getAvatarConfig(avatarId);
-    const twitterEnabled = Boolean(avatarConfig?.platforms?.twitter?.enabled);
-    const twitterFeatures = avatarConfig?.platforms?.twitter?.features || [];
-    const mentionRepliesEnabled = twitterFeatures.includes('mention_replies');
+    const twitterConfig = avatarConfig?.platforms?.twitter as { enabled?: boolean; features?: unknown } | undefined;
+    const twitterEnabled = Boolean(twitterConfig?.enabled);
+    if (twitterEnabled) twitterEnabledCount++;
+
+    const mentionRepliesEnabled = isTwitterFeatureEnabled(twitterConfig?.features, 'mention_replies');
+    if (twitterEnabled && !Array.isArray(twitterConfig?.features)) {
+      twitterMissingFeaturesCount++;
+    }
+
     if (twitterEnabled && mentionRepliesEnabled) {
       twitterAvatarIds.push(avatarId);
     }
@@ -128,6 +137,9 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       event: 'handler_skipped',
       subsystem: 'twitter',
       reason: 'no_enabled_avatars',
+      avatarCount: avatarIds.length,
+      twitterEnabledCount,
+      twitterMissingFeaturesCount,
     });
     return;
   }
