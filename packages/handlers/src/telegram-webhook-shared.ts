@@ -78,17 +78,6 @@ function buildRedirectMessage(telegramCfg?: {
 🪙 ${coinSymbol}: ${coinAddress}`;
 }
 
-/**
- * Build redirect message for blocked DMs.
- * Includes instructions for creating your own bot.
- */
-function buildDmRedirectMessage(): string {
-  return `I don't respond to DMs, but you can create your own AI bot!
-
-🤖 DM @ratibots to create your own bot
-💬 Or join my home channel: ${DEFAULT_HOME_CHANNEL_URL}
-🌐 https://swarm.rati.chat/`;
-}
 
 /**
  * Clean up channel state when bot is removed from a channel.
@@ -314,23 +303,11 @@ export function isTelegramChatAllowed(
   },
   telegramCfg: {
     allowedChatIds?: string[];
-    allowedDmUserIds?: string[];
     allowedChats?: Array<{ chatId: string }>;
-    allowedDmUsers?: Array<{ userId: string }>;
     homeChannelId?: string;
-    isAdminBot?: boolean;
-    allowAllDms?: boolean;
   } | undefined,
   homeChannelChecker?: HomeChannelChecker
 ): boolean | Promise<boolean> {
-  const getAllowedDmUserIds = (): string[] | undefined => {
-    // New format takes precedence if present (even if empty).
-    if (telegramCfg && 'allowedDmUsers' in telegramCfg) {
-      return telegramCfg.allowedDmUsers?.map((u) => String(u.userId)) || [];
-    }
-    return telegramCfg?.allowedDmUserIds;
-  };
-
   const getAllowedChatIds = (): string[] | undefined => {
     // New format takes precedence if present (even if empty).
     if (telegramCfg && 'allowedChats' in telegramCfg) {
@@ -339,17 +316,10 @@ export function isTelegramChatAllowed(
     return telegramCfg?.allowedChatIds;
   };
 
-  // DMs: allow if admin bot with allowAllDms, or if user is allowlisted
+  // DMs are handled separately before this check - they go to admin service
+  // This function is now only for groups/channels
   if (envelope.metadata.chatType === 'private') {
-    // Admin bots with allowAllDms accept DMs from everyone
-    if (telegramCfg?.isAdminBot && telegramCfg?.allowAllDms) {
-      return true;
-    }
-
-    const allowedDmUserIds = getAllowedDmUserIds();
-    const userId = envelope.sender.platformUserId ?? envelope.sender.id;
-
-    return !!allowedDmUserIds && allowedDmUserIds.length > 0 && allowedDmUserIds.includes(String(userId));
+    return true; // DMs allowed - handled by admin service
   }
 
   // Groups/channels: use home channel logic if checker is provided
@@ -613,19 +583,17 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       }
     }
 
-    // Check for callback_query updates (inline button presses) for admin bot
     const telegramCfg = avatarConfig.platforms.telegram;
-    const isAdminBot = telegramCfg?.isAdminBot && telegramCfg?.allowAllDms;
 
-    if (isAdminBot && update.callback_query) {
-      // Admin bot callback query - route to admin handler
-      logger.info('Admin bot callback query received', { event: 'admin_callback' });
+    // Handle callback_query updates (inline button presses) for DM bot creation flow
+    if (update.callback_query) {
+      logger.info('Callback query received', { event: 'callback_query' });
       try {
         const { processAdminCallbackQuery } = await import('./services/telegram-admin-handler.js');
         await processAdminCallbackQuery(avatarId, avatarConfig, update as unknown);
         return ok();
       } catch (err) {
-        logger.error('Admin callback handler error', err, { event: 'admin_callback_error' });
+        logger.error('Callback handler error', err, { event: 'callback_error' });
         return ok();
       }
     }
@@ -637,29 +605,45 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
     // Use home channel checker for groups/channels if ADMIN_TABLE is configured
     const homeChecker = ADMIN_TABLE ? createHomeChannelChecker() : undefined;
+    // DMs: Route to admin service for bot creation/management flow
+    // All bots can help users create their own bot
+    if (envelope.metadata.chatType === 'private') {
+      logger.info('DM received, routing to admin service', { event: 'dm_received', senderId: envelope.sender.id });
+
+      // Idempotency check
+      const isNewMessage = await stateService.checkAndSetIdempotency(envelope.metadata.idempotencyKey);
+      if (!isNewMessage) {
+        logger.info('Duplicate DM, skipping', { messageId: envelope.messageId });
+        return ok();
+      }
+
+      try {
+        const { processAdminMessage } = await import('./services/telegram-admin-handler.js');
+        await processAdminMessage(avatarId, avatarConfig, envelope);
+        logger.info('DM processed via admin service', {
+          event: 'dm_processed',
+          messageId: envelope.messageId,
+          durationMs: Date.now() - startTime,
+        });
+        return ok();
+      } catch (err) {
+        logger.error('DM handler error', err, { event: 'dm_handler_error' });
+        return ok();
+      }
+    }
+
+    // Groups/channels: Check if chat is allowed (home channel registry)
     const chatAllowed = await Promise.resolve(isTelegramChatAllowed(envelope, telegramCfg, homeChecker));
     if (!chatAllowed) {
       const isMentioned = envelope.metadata.isMention || envelope.metadata.isReplyToBot;
+      logger.info('Chat not in home channel registry', { event: 'chat_blocked', chatId: envelope.conversationId });
 
-      if (envelope.metadata.chatType === 'private') {
-        const userId = envelope.sender.platformUserId ?? envelope.sender.id;
-        logger.info('DM blocked (not allowlisted)', { event: 'chat_blocked', chatType: 'private', userId });
-      } else {
-        logger.info('Chat not in home channel registry', { event: 'chat_blocked', chatId: envelope.conversationId });
-      }
-
-      // Send redirect message:
-      // - For DMs: always send (user is directly engaging)
-      // - For groups/channels: only if mentioned or replied to
-      const shouldSendRedirect = envelope.metadata.chatType === 'private' || isMentioned;
-      if (shouldSendRedirect) {
+      // Send redirect message if mentioned or replied to in non-home channel
+      if (isMentioned) {
         try {
           const bot = telegramAdapter.getBot();
           if (bot) {
-            // Use DM-specific message for private chats
-            const redirectMessage = envelope.metadata.chatType === 'private'
-              ? buildDmRedirectMessage()
-              : buildRedirectMessage(telegramCfg);
+            const redirectMessage = buildRedirectMessage(telegramCfg);
             await bot.api.sendMessage(
               parseInt(envelope.conversationId),
               redirectMessage,
@@ -668,7 +652,6 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
             logger.info('Sent redirect message', {
               event: 'redirect_sent',
               chatId: envelope.conversationId,
-              chatType: envelope.metadata.chatType,
             });
           }
         } catch (err) {
@@ -680,32 +663,6 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       }
 
       return ok();
-    }
-
-    // Admin bot DM handling - route to admin service instead of message queue
-    if (isAdminBot && envelope.metadata.chatType === 'private') {
-      logger.info('Admin bot DM received', { event: 'admin_dm', senderId: envelope.sender.id });
-
-      // Idempotency check for admin messages
-      const isNewMessage = await stateService.checkAndSetIdempotency(envelope.metadata.idempotencyKey);
-      if (!isNewMessage) {
-        logger.info('Duplicate admin message, skipping', { messageId: envelope.messageId });
-        return ok();
-      }
-
-      try {
-        const { processAdminMessage } = await import('./services/telegram-admin-handler.js');
-        await processAdminMessage(avatarId, avatarConfig, envelope);
-        logger.info('Admin message processed', {
-          event: 'admin_message_processed',
-          messageId: envelope.messageId,
-          durationMs: Date.now() - startTime,
-        });
-        return ok();
-      } catch (err) {
-        logger.error('Admin message handler error', err, { event: 'admin_message_error' });
-        return ok();
-      }
     }
 
     // Idempotency
@@ -730,8 +687,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     envelope.metadata.responseReason = evaluation.reason;
     envelope.metadata.priority = evaluation.priority;
 
+    // Note: DMs (private chats) are handled earlier and routed to admin service
+    // This code path is only for groups/channels
     const normalizedChatType =
-      envelope.metadata.chatType === 'private' ||
       envelope.metadata.chatType === 'group' ||
       envelope.metadata.chatType === 'supergroup' ||
       envelope.metadata.chatType === 'channel'
