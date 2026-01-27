@@ -26,7 +26,7 @@ import {
 } from '@swarm/core';
 import { createTwitterUsageService, type TwitterUsageService } from './services/twitter-usage.js';
 import { maxTwitterId } from './utils/twitter-id.js';
-import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
+import { loadAvatarSecrets, type LoadedAvatarSecrets } from './utils/load-avatar-secrets.js';
 import { isTwitterFeatureEnabled } from './utils/twitter-feature-flags.js';
 
 const sqsClient = new SQSClient({});
@@ -40,6 +40,67 @@ let stateService: ReturnType<typeof createStateService>;
 let activityService: ReturnType<typeof createActivityService>;
 let secretsService: ReturnType<typeof createSecretsService>;
 let twitterUsageService: TwitterUsageService;
+
+type TwitterAppCredentialsFallback = {
+  TWITTER_APP_KEY?: string;
+  TWITTER_APP_SECRET?: string;
+  consumer_key?: string;
+  consumer_secret?: string;
+  consumerKey?: string;
+  consumerSecret?: string;
+};
+
+async function loadTwitterSecretsFallback(
+  secretsService: ReturnType<typeof createSecretsService>,
+  avatarId: string,
+  secretPrefix: string
+): Promise<LoadedAvatarSecrets> {
+  const result: LoadedAvatarSecrets = {};
+  const candidates = (name: string) => [
+    `${secretPrefix}/${avatarId}/${name}/default`,
+    `${secretPrefix}/${avatarId}/${name}`,
+  ];
+
+  for (const id of candidates('twitter_access_token')) {
+    try {
+      result.TWITTER_ACCESS_TOKEN = await secretsService.getSecret(id);
+      break;
+    } catch {
+      // Try next.
+    }
+  }
+
+  for (const id of candidates('twitter_access_secret')) {
+    try {
+      result.TWITTER_ACCESS_SECRET = await secretsService.getSecret(id);
+      break;
+    } catch {
+      // Try next.
+    }
+  }
+
+  if (!result.TWITTER_API_KEY || !result.TWITTER_API_SECRET) {
+    const appCandidates = [
+      `${secretPrefix}/global/twitter-app-credentials`,
+      `${secretPrefix}/global/twitter-app-credentials/default`,
+    ];
+
+    for (const id of appCandidates) {
+      try {
+        const parsed = await secretsService.getSecretJson<TwitterAppCredentialsFallback>(id);
+        const appKey = parsed.TWITTER_APP_KEY || parsed.consumer_key || parsed.consumerKey;
+        const appSecret = parsed.TWITTER_APP_SECRET || parsed.consumer_secret || parsed.consumerSecret;
+        if (appKey) result.TWITTER_API_KEY = result.TWITTER_API_KEY || appKey;
+        if (appSecret) result.TWITTER_API_SECRET = result.TWITTER_API_SECRET || appSecret;
+        if (result.TWITTER_API_KEY && result.TWITTER_API_SECRET) break;
+      } catch {
+        // Try next.
+      }
+    }
+  }
+
+  return result;
+}
 
 async function initialize(): Promise<void> {
   if (stateService) return;
@@ -177,7 +238,7 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       const avatarConfig = await stateService.getAvatarConfig(avatarId);
       logger.setContext({ avatarId });
 
-      let secrets;
+      let secrets: LoadedAvatarSecrets | undefined;
       try {
         secrets = await loadAvatarSecrets(secretsService, avatarId, SECRET_PREFIX);
       } catch (error) {
@@ -186,6 +247,25 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
           subsystem: 'twitter',
           avatarId,
           reason: 'secrets_load_failed',
+          secretPrefix: SECRET_PREFIX,
+        });
+        secrets = undefined;
+      }
+
+      if (!secrets || !secrets.TWITTER_ACCESS_TOKEN || !secrets.TWITTER_ACCESS_SECRET) {
+        const fallback = await loadTwitterSecretsFallback(secretsService, avatarId, SECRET_PREFIX);
+        secrets = {
+          ...fallback,
+          ...secrets,
+        };
+      }
+
+      if (!secrets?.TWITTER_ACCESS_TOKEN || !secrets?.TWITTER_ACCESS_SECRET) {
+        logger.warn('Twitter access token/secret missing for avatar; skipping', {
+          event: 'handler_skipped',
+          subsystem: 'twitter',
+          avatarId,
+          reason: 'missing_twitter_access_secrets',
           secretPrefix: SECRET_PREFIX,
         });
         continue;
