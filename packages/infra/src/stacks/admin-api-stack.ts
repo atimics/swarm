@@ -281,6 +281,16 @@ export class AdminApiStack extends cdk.Stack {
       });
 
       this.apiEndpoint = this.adminApi.apiEndpoint;
+
+      // Grant SharedHandlers access to the Admin table for DM bot creation flow
+      // This must be done after AdminApi is created since it owns the table
+      this.adminApi.table.grantReadWriteData(this.sharedHandlers.telegramWebhook);
+      // Add ADMIN_TABLE env var to the Telegram webhook Lambda
+      const cfnTelegramWebhook = this.sharedHandlers.telegramWebhook.node.defaultChild as lambda.CfnFunction;
+      cfnTelegramWebhook.addPropertyOverride(
+        'Environment.Variables.ADMIN_TABLE',
+        this.adminApi.table.tableName
+      );
     }
 
     // Create Claude Code worker if enabled

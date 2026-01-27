@@ -108,7 +108,9 @@ export async function registerTelegramWebhook(
       body: JSON.stringify({
         url: webhookUrl,
         secret_token: webhookSecret,  // Telegram will send this in X-Telegram-Bot-Api-Secret-Token header
-        allowed_updates: ['message', 'edited_message', 'callback_query'],
+        // Include my_chat_member so we can detect when the bot is added/removed
+        // and auto-register home channels from webhook events.
+        allowed_updates: ['message', 'edited_message', 'callback_query', 'my_chat_member'],
         drop_pending_updates: true,
         max_connections: 40,  // Default, can be tuned
       }),

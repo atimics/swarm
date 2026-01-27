@@ -3,6 +3,7 @@
  * Main CDK stack that deploys shared infrastructure and avatars
  */
 import * as cdk from 'aws-cdk-lib';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import * as fs from 'fs';
@@ -313,6 +314,18 @@ export class SwarmStack extends cdk.Stack {
         // Share the same internal test key across all constructs
         internalTestKey: sharedInternalTestKey,
       });
+
+      // Grant SharedHandlers access to the Admin table for DM bot creation flow
+      // This must be done after AdminApi is created since it owns the table
+      if (this.sharedHandlers) {
+        this.adminApi.table.grantReadWriteData(this.sharedHandlers.telegramWebhook);
+        // Add ADMIN_TABLE env var to the Telegram webhook Lambda
+        const cfnTelegramWebhook = this.sharedHandlers.telegramWebhook.node.defaultChild as lambda.CfnFunction;
+        cfnTelegramWebhook.addPropertyOverride(
+          'Environment.Variables.ADMIN_TABLE',
+          this.adminApi.table.tableName
+        );
+      }
     }
 
     // Create Admin UI with CloudFront

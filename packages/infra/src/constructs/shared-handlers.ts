@@ -38,6 +38,11 @@ export interface SharedHandlersProps {
   stateTable: dynamodb.ITable;
   activityTable: dynamodb.ITable;
   mediaBucket: s3.IBucket;
+  /**
+   * Admin table for DM bot creation flow sessions.
+   * Required for the Telegram admin service to store user sessions and bot mappings.
+   */
+  adminTable?: dynamodb.ITable;
   cdnUrl?: string;
   replicateApiKeyArn?: string;
   secretPrefix?: string;
@@ -79,6 +84,7 @@ export class SharedHandlers extends Construct {
       stateTable,
       activityTable,
       mediaBucket,
+      adminTable,
       cdnUrl,
       replicateApiKeyArn,
       secretPrefix = 'swarm',
@@ -148,6 +154,9 @@ export class SharedHandlers extends Construct {
     stateTable.grantReadWriteData(lambdaRole);
     activityTable.grantReadWriteData(lambdaRole);
     mediaBucket.grantReadWrite(lambdaRole);
+    if (adminTable) {
+      adminTable.grantReadWriteData(lambdaRole);
+    }
     this.messageQueue.grantSendMessages(lambdaRole);
     this.messageQueue.grantConsumeMessages(lambdaRole);
     this.responseQueue.grantSendMessages(lambdaRole);
@@ -201,6 +210,8 @@ export class SharedHandlers extends Construct {
       CDN_URL: cdnUrl || '',
       ENVIRONMENT: environment,
       SECRET_PREFIX: secretPrefix,
+      // Admin table for DM bot creation flow (Telegram admin service)
+      ...(adminTable ? { ADMIN_TABLE: adminTable.tableName } : {}),
       // Twitter API budget configuration
       TWITTER_API_TIER: twitterApiTier,
       TWITTER_DAILY_RESERVE_PCT: String(twitterDailyReservePct),
