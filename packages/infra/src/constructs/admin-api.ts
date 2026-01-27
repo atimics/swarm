@@ -1615,6 +1615,22 @@ export class AdminApiConstruct extends Construct {
       ],
     }));
 
+    // KMS permissions for Secrets Manager (customer-managed keys in some envs)
+    // Required when secrets are encrypted with a CMK (e.g. admin secrets key in staging).
+    responseSenderHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'kms:Decrypt',
+        'kms:GenerateDataKey',
+      ],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'kms:ViaService': `secretsmanager.${cdk.Stack.of(this).region}.amazonaws.com`,
+        },
+      },
+    }));
+
     // Add SQS trigger
     responseSenderHandler.addEventSource(new lambdaEventSources.SqsEventSource(responseQueue, {
       batchSize: 5,
