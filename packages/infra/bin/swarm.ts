@@ -142,8 +142,7 @@ const secretPrefixForSplitStacks = (useSplitStacks && useExistingSharedResources
   : secretPrefix;
 
 // Enable shared handlers (Twitter mention polling, autonomous tweets, shared queues)
-// Default to true. The legacy admin-api telegram-webhook handler is DEPRECATED.
-// All new deployments should use shared handlers from @swarm/handlers.
+// Default to true. Telegram ingress uses the shared multi-tenant webhook.
 const enableSharedHandlersExplicit = getContextValue<boolean>('enableSharedHandlers', envConfig);
 const enableSharedHandlers = (enableSharedHandlersExplicit ?? true) as boolean;
 
@@ -162,8 +161,8 @@ const enableSharedHandlersForDeploy =
 if (!enableSharedHandlersForDeploy) {
   console.warn(
     '\n⚠️  DEPRECATION WARNING: Deploying without shared handlers.\n' +
-    '   The legacy admin-api Telegram webhook is deprecated.\n' +
-    '   Set enableSharedHandlers=true to use @swarm/handlers.\n'
+    '   Telegram/Twitter shared ingress features require @swarm/handlers SharedHandlers.\n' +
+    '   Set enableSharedHandlers=true to use the supported webhook/poller runtime.\n'
   );
 }
 

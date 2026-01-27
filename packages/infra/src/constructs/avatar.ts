@@ -256,26 +256,8 @@ export class AvatarConstruct extends Construct {
       } : undefined,
     });
 
-    // Telegram webhook handler
-    if (config.platforms.telegram?.enabled) {
-      const telegramHandler = new lambda.Function(this, 'TelegramWebhook', {
-        functionName: `${config.id}${suffix}-telegram-webhook`,
-        runtime: lambda.Runtime.NODEJS_20_X,
-        handler: 'telegram-webhook.handler',
-        code: lambda.Code.fromAsset(handlersCodePath),
-        layers: [dependencyLayer],
-        role: lambdaRole,
-        timeout: cdk.Duration.seconds(30),
-        memorySize: 512,
-        environment: {
-          ...commonEnv,
-          TELEGRAM_BOT_USERNAME: config.platforms.telegram.botUsername || '',
-        },
-      });
-
-      const telegramResource = this.api.root.addResource('webhook').addResource('telegram').addResource(config.id);
-      telegramResource.addMethod('POST', new apigateway.LambdaIntegration(telegramHandler));
-    }
+    // Telegram ingress is handled by the shared multi-tenant webhook (Admin API route).
+    // Per-avatar Telegram webhooks are deprecated and no longer provisioned here.
 
     // Discord interactions webhook handler
     if (config.platforms.discord?.enabled) {
@@ -565,12 +547,5 @@ export class AvatarConstruct extends Construct {
       value: this.api.url,
       description: `API URL for avatar ${config.name}`,
     });
-
-    if (config.platforms.telegram?.enabled) {
-      new cdk.CfnOutput(this, 'TelegramWebhookUrl', {
-        value: `${this.api.url}webhook/telegram/${config.id}`,
-        description: 'Telegram webhook URL',
-      });
-    }
   }
 }
