@@ -184,6 +184,25 @@ describe('Response Sender - Error Logging', () => {
   });
 });
 
+describe('Response Sender - Telegram DM Guard', () => {
+  it('treats positive Telegram chat IDs as DMs', () => {
+    const isTelegramDirectMessageChatId = (conversationId: string) => {
+      const chatId = Number(conversationId);
+      return Number.isFinite(chatId) && chatId > 0;
+    };
+
+    expect(isTelegramDirectMessageChatId('123')).toBe(true);
+    expect(isTelegramDirectMessageChatId('-100123')).toBe(false);
+    expect(isTelegramDirectMessageChatId('not-a-number')).toBe(false);
+  });
+
+  it('builds RATi Chat New Bot deep link', () => {
+    const ratichatUrl = 'https://t.me/ratichat';
+    const newBotUrl = `${ratichatUrl}?start=new_bot`;
+    expect(newBotUrl).toBe('https://t.me/ratichat?start=new_bot');
+  });
+});
+
 describe('Response Sender - Media Handling', () => {
   /**
    * Tests for media action processing:

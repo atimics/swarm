@@ -41,6 +41,35 @@ const LEGACY_AVATAR_ID = process.env.AVATAR_ID;
 const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
 const IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
 
+const DEFAULT_RATICHAT_URL = 'https://t.me/ratichat';
+
+function isTelegramDirectMessageChatId(conversationId: string): boolean {
+  const chatId = Number(conversationId);
+  // Telegram private chats use positive IDs. Groups/supergroups/channels are negative.
+  return Number.isFinite(chatId) && chatId > 0;
+}
+
+function buildTelegramDmRedirect(params?: { ratichatUrl?: string }): {
+  text: string;
+  replyMarkup: {
+    inline_keyboard: Array<Array<{ text: string; url: string }>>;
+  };
+} {
+  const ratichatUrl = params?.ratichatUrl || DEFAULT_RATICHAT_URL;
+  return {
+    text: `I can’t chat in DMs.
+
+Use RATi Chat to create a new bot or manage your account:
+${ratichatUrl}`,
+    replyMarkup: {
+      inline_keyboard: [
+        [{ text: 'Open RATi Chat', url: ratichatUrl }],
+        [{ text: 'New Bot', url: `${ratichatUrl}?start=new_bot` }],
+      ],
+    },
+  };
+}
+
 // Services
 let stateService: ReturnType<typeof createStateService>;
 let activityService: ReturnType<typeof createActivityService>;
@@ -311,6 +340,70 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
         subsystem: 'outbound',
         actions: response.actions.length,
       });
+
+      // Defense-in-depth: avatar bots should not send persona replies in Telegram DMs.
+      // If a DM response ever makes it to the outbound sender, replace it with RATi Chat onboarding.
+      if (response.platform === 'telegram' && isTelegramDirectMessageChatId(response.conversationId)) {
+        const adapter = outboundRuntime.platformRegistry.get('telegram');
+        if (!adapter || !(adapter instanceof TelegramAdapter)) {
+          logger.error('Telegram adapter missing for DM redirect', {
+            event: 'dm_redirect_failed',
+            subsystem: 'outbound',
+            reason: 'missing_adapter',
+          });
+          batchItemFailures.push({ itemIdentifier: record.messageId });
+          continue;
+        }
+
+        const bot = adapter.getBot();
+        if (!bot) {
+          logger.error('Telegram bot not initialized for DM redirect', {
+            event: 'dm_redirect_failed',
+            subsystem: 'outbound',
+            reason: 'missing_bot',
+          });
+          batchItemFailures.push({ itemIdentifier: record.messageId });
+          continue;
+        }
+
+        const dm = buildTelegramDmRedirect({
+          ratichatUrl: outboundRuntime.avatarConfig.platforms.telegram?.homeChannelUrl
+            || DEFAULT_RATICHAT_URL,
+        });
+
+        try {
+          await bot.api.sendMessage(parseInt(response.conversationId), dm.text, {
+            reply_markup: dm.replyMarkup,
+          });
+
+          logger.info('Sent Telegram DM redirect instead of persona reply', {
+            event: 'dm_redirect_sent',
+            subsystem: 'outbound',
+            chatId: response.conversationId,
+          });
+
+          // Mark handled so it doesn't retry.
+          await markResponseHandled(avatarId, responseKey);
+          try {
+            await stateService.markResponseSent(
+              avatarId,
+              response.conversationId,
+              `resp_dm_redirect_${Date.now()}`
+            );
+          } catch {
+            // Best-effort.
+          }
+
+          continue;
+        } catch (error) {
+          logger.error('Failed to send Telegram DM redirect', error, {
+            event: 'dm_redirect_failed',
+            subsystem: 'outbound',
+          });
+          batchItemFailures.push({ itemIdentifier: record.messageId });
+          continue;
+        }
+      }
 
       // Log Twitter-specific reply targeting for observability
       if (response.platform === 'twitter') {
