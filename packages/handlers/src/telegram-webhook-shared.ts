@@ -461,6 +461,69 @@ async function getTelegramAdapter(avatarId: string, avatarConfig: AvatarConfig):
   return adapter;
 }
 
+async function maybeBootstrapHomeChannelFromGroupEngagement(params: {
+  avatarId: string;
+  avatarConfig: AvatarConfig;
+  envelope: {
+    conversationId: string;
+    metadata: {
+      chatType?: string;
+      chatTitle?: string;
+      isMention?: boolean;
+      isReplyToBot?: boolean;
+    };
+  };
+}): Promise<boolean> {
+  const { avatarId, avatarConfig, envelope } = params;
+
+  if (!ADMIN_TABLE || !STATE_TABLE) return false;
+  const chatType = envelope.metadata.chatType;
+  if (chatType !== 'group' && chatType !== 'supergroup' && chatType !== 'channel') return false;
+
+  const isEngaged = Boolean(envelope.metadata.isMention || envelope.metadata.isReplyToBot);
+  if (!isEngaged) return false;
+
+  const hasHomeChannel = Boolean(avatarConfig.platforms.telegram?.homeChannelId);
+  if (hasHomeChannel) return false;
+
+  const botUsername = avatarConfig.platforms.telegram?.botUsername || '';
+  if (!botUsername) return false;
+
+  try {
+    await registerHomeChannelFromWebhook(
+      avatarId,
+      envelope.conversationId,
+      botUsername,
+      undefined,
+      envelope.metadata.chatTitle
+    );
+
+    await updateAvatarHomeChannel(
+      avatarId,
+      envelope.conversationId,
+      undefined,
+      envelope.metadata.chatTitle
+    );
+
+    logger.info('Bootstrapped home channel from group engagement', {
+      event: 'home_channel_bootstrapped',
+      avatarId,
+      chatId: envelope.conversationId,
+      chatType,
+    });
+    return true;
+  } catch (err) {
+    logger.warn('Failed to bootstrap home channel from group engagement', {
+      event: 'home_channel_bootstrap_failed',
+      avatarId,
+      chatId: envelope.conversationId,
+      chatType,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
 export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
   const startTime = Date.now();
   const avatarId = event.pathParameters?.avatarId;
@@ -653,36 +716,52 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     }
 
     // Groups/channels: Check if chat is allowed (home channel registry)
-    const chatAllowed = await Promise.resolve(isTelegramChatAllowed(envelope, telegramCfg, homeChecker));
+    let chatAllowed = await Promise.resolve(isTelegramChatAllowed(envelope, telegramCfg, homeChecker));
     if (!chatAllowed) {
       const isMentioned = envelope.metadata.isMention || envelope.metadata.isReplyToBot;
-      logger.info('Chat not in home channel registry', { event: 'chat_blocked', chatId: envelope.conversationId });
 
-      // Send redirect message if mentioned or replied to in non-home channel
+      // Bots may already be in a group before we start receiving my_chat_member updates.
+      // When directly engaged (mention/reply) and no home channel exists yet, bootstrap it.
       if (isMentioned) {
-        try {
-          const bot = telegramAdapter.getBot();
-          if (bot) {
-            const redirectMessage = buildRedirectMessage(telegramCfg);
-            await bot.api.sendMessage(
-              parseInt(envelope.conversationId),
-              redirectMessage,
-              { reply_to_message_id: parseInt(envelope.messageId) }
-            );
-            logger.info('Sent redirect message', {
-              event: 'redirect_sent',
-              chatId: envelope.conversationId,
-            });
-          }
-        } catch (err) {
-          logger.warn('Failed to send redirect message', {
-            error: err instanceof Error ? err.message : String(err),
-            chatId: envelope.conversationId
-          });
+        const bootstrapped = await maybeBootstrapHomeChannelFromGroupEngagement({
+          avatarId,
+          avatarConfig,
+          envelope,
+        });
+        if (bootstrapped) {
+          chatAllowed = true;
         }
       }
 
-      return ok();
+      if (!chatAllowed) {
+        logger.info('Chat not in home channel registry', { event: 'chat_blocked', chatId: envelope.conversationId });
+
+        // Send redirect message if mentioned or replied to in non-home channel
+        if (isMentioned) {
+          try {
+            const bot = telegramAdapter.getBot();
+            if (bot) {
+              const redirectMessage = buildRedirectMessage(telegramCfg);
+              await bot.api.sendMessage(
+                parseInt(envelope.conversationId),
+                redirectMessage,
+                { reply_to_message_id: parseInt(envelope.messageId) }
+              );
+              logger.info('Sent redirect message', {
+                event: 'redirect_sent',
+                chatId: envelope.conversationId,
+              });
+            }
+          } catch (err) {
+            logger.warn('Failed to send redirect message', {
+              error: err instanceof Error ? err.message : String(err),
+              chatId: envelope.conversationId
+            });
+          }
+        }
+
+        return ok();
+      }
     }
 
     // Idempotency
