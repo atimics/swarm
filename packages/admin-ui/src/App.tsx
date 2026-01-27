@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAvatarStore } from './store';
 import { useWalletAuth } from './store/walletAuth';
 import { useAuth } from './store/auth';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
 import { getTwitterConnectionStatus } from './api/twitter';
 import { appendSystemMessage } from './api/chat';
-import { AvatarSidebar, AvatarLogsPanel, ChatPanel, LandingPage, PublicChatPage, TwitterFeedPanel } from './components';
+import { AvatarSidebar, ChatPanel, LandingPage, PublicChatPage } from './components';
 
 const TWITTER_OAUTH_STORAGE_KEY = 'swarm:oauth:twitter:lastResult';
 
@@ -13,31 +13,13 @@ type TwitterOAuthResult =
   | { status: 'connected'; avatarId?: string; username: string; ts: number }
   | { status: 'error'; avatarId?: string; error: string; ts: number };
 
-function getLogsAvatarId(pathname: string): string | null {
-  const match = pathname.match(/^\/avatars\/([^/]+)\/logs\/?$/);
-  return match?.[1] || null;
-}
-
-function getTwitterFeedAvatarId(pathname: string): string | null {
-  const match = pathname.match(/^\/avatars\/([^/]+)\/twitter(?:\/feed)?\/?$/);
-  if (match?.[1]) return match[1];
-
-  // Alias route: /twitter/:avatarId
-  const aliasMatch = pathname.match(/^\/twitter\/([^/]+)\/?$/);
-  return aliasMatch?.[1] || null;
-}
-
-function isTwitterAliasPath(pathname: string): boolean {
-  return Boolean(pathname.match(/^\/twitter(?:\/feed)?\/?$/));
-}
-
 function getInhabitAvatarId(pathname: string): string | null {
   const match = pathname.match(/^\/inhabit\/([^/]+)\/?$/);
   return match?.[1] || null;
 }
 
 function getChatAvatarId(pathname: string): string | null {
-  // Chat deep link: /avatars/:id (excluding /avatars/:id/logs)
+  // Chat deep link: /avatars/:id
   const match = pathname.match(/^\/avatars\/([^/]+)\/?$/);
   return match?.[1] || null;
 }
@@ -92,15 +74,6 @@ function App() {
   const [initialized, setInitialized] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [logsAvatarId, setLogsAvatarId] = useState<string | null>(
-    () => getLogsAvatarId(window.location.pathname)
-  );
-  const [twitterFeedAvatarId, setTwitterFeedAvatarId] = useState<string | null>(
-    () => getTwitterFeedAvatarId(window.location.pathname)
-  );
-  const [pendingTwitterAlias, setPendingTwitterAlias] = useState<boolean>(
-    () => isTwitterAliasPath(window.location.pathname)
-  );
   const [inhabitAvatarId, setInhabitAvatarId] = useState<string | null>(
     () => getInhabitAvatarId(window.location.pathname)
   );
@@ -112,9 +85,6 @@ function App() {
     () => parseTwitterOAuthResultFromLocation(window.location)
   );
   const [chatSynced, setChatSynced] = useState(false);
-
-  const isLogsRoute = useMemo(() => Boolean(logsAvatarId), [logsAvatarId]);
-  const isTwitterRoute = useMemo(() => Boolean(twitterFeedAvatarId), [twitterFeedAvatarId]);
 
   // Clean up OAuth query params immediately on mount (before anything else)
   useEffect(() => {
@@ -181,7 +151,7 @@ function App() {
   // Sync chat history from backend when avatar is selected
   // ALWAYS sync on avatar change to ensure cross-device consistency
   useEffect(() => {
-    if (activeAvatarId && initialized && !isLogsRoute) {
+    if (activeAvatarId && initialized) {
       const sync = async () => {
         // Always sync from backend - it's the source of truth for cross-device
         await syncChatHistory(activeAvatarId).catch(console.error);
@@ -209,7 +179,6 @@ function App() {
   }, [
     activeAvatarId,
     initialized,
-    isLogsRoute,
     syncChatHistory,
     pendingInhabitPrompt,
     inhabitAvatarId,
@@ -225,9 +194,6 @@ function App() {
 
   useEffect(() => {
     const handlePopState = () => {
-      setLogsAvatarId(getLogsAvatarId(window.location.pathname));
-      setTwitterFeedAvatarId(getTwitterFeedAvatarId(window.location.pathname));
-      setPendingTwitterAlias(isTwitterAliasPath(window.location.pathname));
       const nextInhabitAvatarId = getInhabitAvatarId(window.location.pathname);
       setInhabitAvatarId(nextInhabitAvatarId);
       setPendingInhabitPrompt(Boolean(nextInhabitAvatarId));
@@ -237,28 +203,6 @@ function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
-
-  // Support /twitter and /twitter/feed as a friendly alias for the active avatar's twitter feed.
-  // Once we know which avatar is active, we replaceState into the canonical /avatars/:id/twitter route.
-  useEffect(() => {
-    if (!pendingTwitterAlias) return;
-    if (!isAuthenticated) return;
-
-    // Prefer current active avatar, otherwise fall back to first loaded avatar.
-    const target = activeAvatarId || avatars[0]?.id;
-    if (!target) return;
-
-    try {
-      const nextPath = `/avatars/${target}/twitter`;
-      window.history.replaceState({}, '', nextPath);
-    } catch {
-      // ignore
-    }
-
-    setTwitterFeedAvatarId(target);
-    setLogsAvatarId(null);
-    setPendingTwitterAlias(false);
-  }, [pendingTwitterAlias, isAuthenticated, activeAvatarId, avatars]);
 
   // Support deep-linking to /avatars/:id by selecting that avatar once avatars are loaded.
   useEffect(() => {
@@ -452,12 +396,6 @@ function App() {
     return () => window.removeEventListener('storage', onStorage);
   }, [handleTwitterOAuthResult]);
 
-  const openChat = useCallback(() => {
-    window.history.pushState({}, '', '/');
-    setLogsAvatarId(null);
-    setTwitterFeedAvatarId(null);
-  }, []);
-
   // Handle avatar selection from sidebar - updates store, URL, and chatAvatarId state
   const handleSelectAvatar = useCallback((avatarId: string) => {
     setActiveAvatar(avatarId);
@@ -512,23 +450,9 @@ function App() {
         </div>
 
         {/* Main Chat Area */}
-        {isLogsRoute && logsAvatarId ? (
-          <AvatarLogsPanel
-            avatarId={logsAvatarId}
-            onMenuClick={() => setSidebarOpen(true)}
-            onBack={openChat}
-          />
-        ) : isTwitterRoute && twitterFeedAvatarId ? (
-          <TwitterFeedPanel
-            avatarId={twitterFeedAvatarId}
-            onMenuClick={() => setSidebarOpen(true)}
-            onBack={openChat}
-          />
-        ) : (
-          <ChatPanel
-            onMenuClick={() => setSidebarOpen(true)}
-          />
-        )}
+        <ChatPanel
+          onMenuClick={() => setSidebarOpen(true)}
+        />
       </div>
       
       {/* Safe area spacer for iOS home indicator */}

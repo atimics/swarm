@@ -238,8 +238,11 @@ Your role is to help users create and manage their own AI-powered Telegram bots.
         enabled: true,
         botUsername: botInfo.username,
         botId: botInfo.id,
+        webhookPath: `/webhook/telegram/${ADMIN_AVATAR_ID}`,
         isAdminBot: true,
         allowAllDms: true,
+        // Admin bot needs to accept DMs for bot creation flow
+        allowedChatTypes: ['private', 'group', 'supergroup', 'channel'],
       },
     },
     voiceConfig: {

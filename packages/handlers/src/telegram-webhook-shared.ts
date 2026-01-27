@@ -57,7 +57,7 @@ const DEFAULT_COIN_SYMBOL = '$RATiOS';
 const DEFAULT_COIN_ADDRESS = '281Qdc3ZcPQtn8odD9p4GyhzBSko1r5jmQrNU1dQBAGS';
 
 /**
- * Build redirect message for blocked channels/DMs.
+ * Build redirect message for blocked channels.
  * Uses avatar-specific config if available, otherwise falls back to defaults.
  */
 function buildRedirectMessage(telegramCfg?: {
@@ -76,6 +76,18 @@ function buildRedirectMessage(telegramCfg?: {
 🌐 https://swarm.rati.chat/
 💬 ${homeChannelUrl}
 🪙 ${coinSymbol}: ${coinAddress}`;
+}
+
+/**
+ * Build redirect message for blocked DMs.
+ * Includes instructions for creating your own bot.
+ */
+function buildDmRedirectMessage(): string {
+  return `I don't respond to DMs, but you can create your own AI bot!
+
+🤖 DM @ratibots to create your own bot
+💬 Or join my home channel: ${DEFAULT_HOME_CHANNEL_URL}
+🌐 https://swarm.rati.chat/`;
 }
 
 /**
@@ -636,18 +648,28 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         logger.info('Chat not in home channel registry', { event: 'chat_blocked', chatId: envelope.conversationId });
       }
 
-      // Send redirect message if the avatar was mentioned or replied to
-      if (isMentioned) {
+      // Send redirect message:
+      // - For DMs: always send (user is directly engaging)
+      // - For groups/channels: only if mentioned or replied to
+      const shouldSendRedirect = envelope.metadata.chatType === 'private' || isMentioned;
+      if (shouldSendRedirect) {
         try {
           const bot = telegramAdapter.getBot();
           if (bot) {
-            const redirectMessage = buildRedirectMessage(telegramCfg);
+            // Use DM-specific message for private chats
+            const redirectMessage = envelope.metadata.chatType === 'private'
+              ? buildDmRedirectMessage()
+              : buildRedirectMessage(telegramCfg);
             await bot.api.sendMessage(
               parseInt(envelope.conversationId),
               redirectMessage,
               { reply_to_message_id: parseInt(envelope.messageId) }
             );
-            logger.info('Sent redirect message', { event: 'redirect_sent', chatId: envelope.conversationId });
+            logger.info('Sent redirect message', {
+              event: 'redirect_sent',
+              chatId: envelope.conversationId,
+              chatType: envelope.metadata.chatType,
+            });
           }
         } catch (err) {
           logger.warn('Failed to send redirect message', {

@@ -5,12 +5,11 @@
  * 1. Fetches avatar info publicly (no ownership required)
  * 2. Renders SharedChatPanel for group chat functionality
  */
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../store/auth';
 import { bootstrapAuthFromBackendSession } from '../auth/bootstrap';
 import { PrivyLoginButton } from './PrivyLoginButton';
 import { SharedChatPanel } from './SharedChatPanel';
-import { TwitterFeedPanel } from './TwitterFeedPanel';
 import { getChannelAvatar, type ChannelAvatarInfo } from '../api/sharedChat';
 
 interface PublicChatPageProps {
@@ -28,13 +27,6 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
   const [avatarInfo, setAvatarInfo] = useState<ChannelAvatarInfo | null>(null);
   const [loadingAvatar, setLoadingAvatar] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const getViewFromPath = useCallback((): 'chat' | 'twitter' => {
-    const path = (window.location.pathname || '/').replace(/\/+$/, '') || '/';
-    if (path === '/twitter' || path === '/twitter/feed' || path.startsWith('/twitter/')) return 'twitter';
-    return 'chat';
-  }, []);
-
-  const [view, setView] = useState<'chat' | 'twitter'>(() => getViewFromPath());
 
   // Bootstrap auth from backend cookie/session on public subdomains.
   // Without this, Privy sessions can exist (cookie) while the UI still thinks
@@ -64,13 +56,6 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
     };
   }, [authChecked]);
 
-  // Keep view in sync with browser navigation.
-  useEffect(() => {
-    const onPopState = () => setView(getViewFromPath());
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [getViewFromPath]);
-
   // Fetch avatar info on mount (public endpoint, no auth required)
   useEffect(() => {
     async function fetchAvatar() {
@@ -90,11 +75,6 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
     }
     void fetchAvatar();
   }, [botId]);
-
-  // If auth status changes, default back to chat
-  useEffect(() => {
-    if (!isAuthenticated) setView('chat');
-  }, [isAuthenticated]);
 
   // Display name for header
   const displayName = useMemo(() => {
@@ -232,10 +212,8 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
   const isOrbHolder = (gateStatus?.nftsHeld ?? 0) > 0;
   const dailyLimit = isOrbHolder ? 100 : 10;
 
-  const effectiveAvatarId = avatarInfo?.avatarId || botId;
-
   // Debug: trace authenticated render
-  console.log('[PublicChatPage] Rendering authenticated view for botId:', botId, 'view:', view, 'isOrbHolder:', isOrbHolder);
+  console.log('[PublicChatPage] Rendering authenticated view for botId:', botId, 'isOrbHolder:', isOrbHolder);
 
   // Authenticated - render SharedChatPanel with the public avatar
   return (
@@ -294,20 +272,6 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => {
-                const nextView = view === 'chat' ? 'twitter' : 'chat';
-                setView(nextView);
-                try {
-                  window.history.pushState({}, '', nextView === 'twitter' ? '/twitter' : '/');
-                } catch {
-                  // ignore
-                }
-              }}
-              className="px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs font-medium transition-colors"
-            >
-              {view === 'chat' ? 'Twitter' : 'Back to chat'}
-            </button>
             <PrivyLoginButton />
           </div>
         </div>
@@ -315,16 +279,7 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
 
       {/* Content */}
       <div className="flex-1 min-h-0">
-        {view === 'chat' ? (
-          <SharedChatPanel channelId={botId} />
-        ) : (
-          <TwitterFeedPanel
-            avatarId={effectiveAvatarId}
-            readOnly
-            hideHeader
-            onBack={() => setView('chat')}
-          />
-        )}
+        <SharedChatPanel channelId={botId} />
       </div>
     </div>
   );
