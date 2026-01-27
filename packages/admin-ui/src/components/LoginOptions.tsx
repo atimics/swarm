@@ -2,7 +2,7 @@
  * Login Options Component
  * Provides both Privy (email/social) and native wallet login options
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useUnifiedWalletContext } from '@jup-ag/wallet-adapter';
 import { useWalletAuth } from '../store/walletAuth';
@@ -43,6 +43,25 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   // Track Solana wallet login attempts
   const solanaLoginAttemptedRef = useRef<string | null>(null);
 
+  const phantomProvider = (window as typeof window & { phantom?: { solana?: PhantomProvider } })?.phantom?.solana;
+  const hasWalletAdapterSignMessage = !!signMessage && typeof signMessage === 'function';
+  const hasPhantomSignMessage = !!phantomProvider?.signMessage && typeof phantomProvider.signMessage === 'function';
+  const canWalletSign = hasWalletAdapterSignMessage || hasPhantomSignMessage;
+
+  const effectiveSignMessage = useMemo(() => {
+    return async (message: Uint8Array) => {
+      const { signatureBytes, source } = await signMessageWithFallback({
+        message,
+        privySignMessage: hasWalletAdapterSignMessage ? signMessage : undefined,
+        phantomProvider,
+      });
+      if (source === 'phantom' && !hasWalletAdapterSignMessage) {
+        console.log('[LoginOptions] Using Phantom provider signMessage fallback');
+      }
+      return signatureBytes;
+    };
+  }, [hasWalletAdapterSignMessage, signMessage, phantomProvider]);
+
   const {
     isLoading: walletAuthIsLoading,
     isAuthenticated: walletAuthIsAuthenticated,
@@ -52,10 +71,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   // Handle Solana wallet connection (Phantom, etc.)
   // This triggers when user connects wallet from the modal
   useEffect(() => {
-    const phantomProvider = (window as typeof window & { phantom?: { solana?: PhantomProvider } })?.phantom?.solana;
-    const hasWalletAdapterSignMessage = !!signMessage && typeof signMessage === 'function';
-    const hasPhantomSignMessage = !!phantomProvider?.signMessage && typeof phantomProvider.signMessage === 'function';
-    if (!hasWalletAdapterSignMessage && !hasPhantomSignMessage) return;
+    if (!canWalletSign) return;
 
     if (connected && publicKey && !walletAuthIsLoading && !walletAuthIsAuthenticated) {
       const publicKeyStr = publicKey.toBase58();
@@ -64,18 +80,6 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
       if (solanaLoginAttemptedRef.current !== publicKeyStr) {
         console.log('[LoginOptions] 🔐 Solana wallet connected, triggering login:', publicKeyStr);
         solanaLoginAttemptedRef.current = publicKeyStr;
-        const effectiveSignMessage = async (message: Uint8Array) => {
-          const { signatureBytes, source } = await signMessageWithFallback({
-            message,
-            privySignMessage: hasWalletAdapterSignMessage ? signMessage : undefined,
-            phantomProvider,
-          });
-          if (source === 'phantom' && !hasWalletAdapterSignMessage) {
-            console.log('[LoginOptions] Using Phantom provider signMessage fallback');
-          }
-          return signatureBytes;
-        };
-
         walletAuthLogin(effectiveSignMessage, publicKeyStr).catch((err) => {
           console.error('[LoginOptions] ❌ Solana wallet login failed:', err);
           // Keep ref set to prevent retry loop
@@ -87,7 +91,21 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     if (!connected) {
       solanaLoginAttemptedRef.current = null;
     }
-  }, [connected, publicKey, signMessage, walletAuthIsLoading, walletAuthIsAuthenticated, walletAuthLogin]);
+  }, [canWalletSign, connected, publicKey, walletAuthIsLoading, walletAuthIsAuthenticated, walletAuthLogin, effectiveSignMessage]);
+
+  const handleWalletSignIn = useCallback(() => {
+    if (!connected || !publicKey) return;
+    if (walletAuthIsLoading || walletAuthIsAuthenticated) return;
+    if (!canWalletSign) return;
+
+    const publicKeyStr = publicKey.toBase58();
+    solanaLoginAttemptedRef.current = publicKeyStr;
+    walletAuth.clearError();
+    clearWalletError();
+    walletAuthLogin(effectiveSignMessage, publicKeyStr).catch((err) => {
+      console.error('[LoginOptions] ❌ Solana wallet login failed:', err);
+    });
+  }, [connected, publicKey, walletAuthIsLoading, walletAuthIsAuthenticated, canWalletSign, walletAuth, clearWalletError, walletAuthLogin, effectiveSignMessage]);
 
   // When Privy auth completes, sync with our backend.
   // Don't block on embedded wallet creation: Privy may be authenticated before wallet is ready.
@@ -191,6 +209,16 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
           <WalletIcon className="w-4 h-4" />
           <span>Connect Wallet</span>
         </button>
+
+        {connected && publicKey && !walletAuthIsAuthenticated && canWalletSign && (
+          <button
+            onClick={handleWalletSignIn}
+            disabled={isLoading}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text)] font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? <LoadingSpinner /> : <span>Sign In with Wallet</span>}
+          </button>
+        )}
       </div>
     );
   }
@@ -238,6 +266,23 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
         <WalletIcon className="w-5 h-5" />
         <span>Connect Wallet</span>
       </button>
+
+      {connected && publicKey && !walletAuthIsAuthenticated && canWalletSign && (
+        <button
+          onClick={handleWalletSignIn}
+          disabled={isLoading}
+          className="flex items-center justify-center gap-3 px-6 py-3 rounded-xl bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text)] font-medium transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoading ? (
+            <>
+              <LoadingSpinner />
+              <span>Waiting for signature…</span>
+            </>
+          ) : (
+            <span>Sign In with Wallet</span>
+          )}
+        </button>
+      )}
 
       {/* Social login hint */}
       <p className="text-xs text-[var(--color-text-muted)] text-center">

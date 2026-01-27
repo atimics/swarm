@@ -306,13 +306,15 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     setConnectingForLink(false);
   }, []);
 
-  // Auto-link when user initiated "Connect wallet to link" flow
+  // Phantom often requires a direct user gesture to open the signature prompt.
+  // So when the user initiated "Connect wallet to link", we do NOT auto-trigger the
+  // signing flow from an effect — we just surface the Link button.
   useEffect(() => {
-    if (connectingForLink && pendingWalletSwitch && !linkingWallet) {
+    if (connectingForLink && pendingWalletSwitch) {
       setConnectingForLink(false);
-      handleLinkConnectedWallet();
+      setLinkWalletError('Wallet connected. Click “Link” to approve the signature in Phantom.');
     }
-  }, [connectingForLink, pendingWalletSwitch, linkingWallet, handleLinkConnectedWallet]);
+  }, [connectingForLink, pendingWalletSwitch]);
 
   // Link Privy identity to an existing wallet account (without switching sessions)
   useEffect(() => {
@@ -763,6 +765,11 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
   }
 
   // Not authenticated - show connect button
+  const phantomProvider = (window as typeof window & { phantom?: { solana?: PhantomProvider } })?.phantom?.solana;
+  const hasWalletAdapterSignMessage = !!signMessage && typeof signMessage === 'function';
+  const hasPhantomSignMessage = !!phantomProvider?.signMessage && typeof phantomProvider.signMessage === 'function';
+  const canWalletSign = hasWalletAdapterSignMessage || hasPhantomSignMessage;
+
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
       <button
@@ -776,6 +783,33 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
         </svg>
         <span>Connect Wallet</span>
       </button>
+
+      {connected && publicKey && !walletAuth.isLoading && canWalletSign && (
+        <button
+          onClick={() => {
+            const publicKeyStr = publicKey.toBase58();
+            const effectiveSign = async (message: Uint8Array) => {
+              const { signatureBytes, source } = await signMessageWithFallback({
+                message,
+                privySignMessage: hasWalletAdapterSignMessage ? signMessage : undefined,
+                phantomProvider,
+              });
+              if (source === 'phantom' && !hasWalletAdapterSignMessage) {
+                console.log('[WalletLogin] Using Phantom provider signMessage fallback');
+              }
+              return signatureBytes;
+            };
+
+            loginAttemptedRef.current = publicKeyStr;
+            login(effectiveSign, publicKeyStr).catch((err) => {
+              console.error('[WalletLogin] Manual sign-in failed:', err);
+            });
+          }}
+          className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text)] font-medium text-sm transition-all"
+        >
+          <span>Sign In</span>
+        </button>
+      )}
       
       {/* Error message */}
       {(error || walletUiError) && (
