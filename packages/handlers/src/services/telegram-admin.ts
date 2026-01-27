@@ -3,19 +3,16 @@
  * Main orchestrator for the in-Telegram bot creation and admin feature
  */
 import { Bot } from 'grammy';
-import type { Message, Update, CallbackQuery } from 'grammy/types';
-import { logger, type SwarmEnvelope, BOTFATHER_USER_ID } from '@swarm/core';
+import type { Message, Update } from 'grammy/types';
+import { logger, type SwarmEnvelope } from '@swarm/core';
+import type { InlineKeyboardMarkup } from 'grammy/types';
 import type {
   TelegramAdminSession,
   AdminSessionState,
   OnboardingStateData,
   AdminCommand,
-  InlineKeyboardMarkup,
 } from '../types/telegram-admin.js';
-import {
-  createTelegramAdminSessionService,
-  type TelegramAdminSessionService,
-} from './telegram-admin-session.js';
+import { createTelegramAdminSessionService } from './telegram-admin-session.js';
 import {
   parseAndValidateBotToken,
   mightContainBotToken,

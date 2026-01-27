@@ -844,6 +844,9 @@ export async function createAvatarFromTelegram(
   // Create a pseudo-session for the Telegram user
   const session: UserSession = {
     email: `telegram:${telegramUserId}`,
+    userId: `telegram:${telegramUserId}`,
+    isAdmin: false,
+    accessToken: 'telegram-flow', // Not used for Telegram auth
   };
 
   // 1. Check if bot token is already registered (by checking if avatar with this botId exists)
@@ -1024,6 +1027,9 @@ export async function updateAvatarFromTelegram(
 ): Promise<AvatarRecord> {
   const session: UserSession = {
     email: `telegram:${telegramUserId}`,
+    userId: `telegram:${telegramUserId}`,
+    isAdmin: false,
+    accessToken: 'telegram-flow', // Not used for Telegram auth
   };
 
   return updateAvatar(avatarId, updates, session);

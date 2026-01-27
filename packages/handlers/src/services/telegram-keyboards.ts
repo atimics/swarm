@@ -2,9 +2,8 @@
  * Telegram Inline Keyboard Builder Utilities
  * Builds inline keyboards for the Telegram admin bot
  */
+import type { InlineKeyboardButton, InlineKeyboardMarkup } from 'grammy/types';
 import type {
-  InlineKeyboardButton,
-  InlineKeyboardMarkup,
   CallbackAction,
   ParsedCallbackData,
 } from '../types/telegram-admin.js';
@@ -232,7 +231,7 @@ Or send "skip" to continue without a description.`;
 /**
  * Description received - asking for persona
  */
-export function descriptionReceivedMessage(name: string): string {
+export function descriptionReceivedMessage(_name: string): string {
   return `Perfect! Now describe your bot's personality. How should it talk? What's its style?
 
 Example: "A friendly barista who loves coffee, speaks casually, uses coffee puns, and always recommends the perfect drink."

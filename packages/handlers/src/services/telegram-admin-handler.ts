@@ -49,7 +49,7 @@ async function getBotToken(avatarId: string): Promise<string | null> {
 /**
  * Get or create an admin service instance
  */
-async function getAdminService(avatarId: string, avatarConfig: AvatarConfig): Promise<TelegramAdminService | null> {
+async function getAdminService(avatarId: string, _avatarConfig: AvatarConfig): Promise<TelegramAdminService | null> {
   const cached = adminServiceCache.get(avatarId);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.service;

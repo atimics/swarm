@@ -452,21 +452,6 @@ function App() {
     return () => window.removeEventListener('storage', onStorage);
   }, [handleTwitterOAuthResult]);
 
-  const openLogs = useCallback((avatarId: string) => {
-    const nextPath = `/avatars/${avatarId}/logs`;
-    window.history.pushState({}, '', nextPath);
-    setLogsAvatarId(avatarId);
-    setTwitterFeedAvatarId(null);
-  }, []);
-
-  const openTwitterFeed = useCallback((avatarId: string) => {
-    const nextPath = `/avatars/${avatarId}/twitter`;
-    window.history.pushState({}, '', nextPath);
-    setTwitterFeedAvatarId(avatarId);
-    setLogsAvatarId(null);
-    setPendingTwitterAlias(false);
-  }, []);
-
   const openChat = useCallback(() => {
     window.history.pushState({}, '', '/');
     setLogsAvatarId(null);
@@ -542,8 +527,6 @@ function App() {
         ) : (
           <ChatPanel
             onMenuClick={() => setSidebarOpen(true)}
-            onOpenLogs={openLogs}
-            onOpenTwitter={openTwitterFeed}
           />
         )}
       </div>

@@ -464,6 +464,10 @@ export interface AvatarRecord {
   lastBurnTx?: string;
   lastBurnMint?: string;
 
+  // DynamoDB GSI fields for Telegram bot ID lookup
+  gsi3pk?: string; // TELEGRAM_BOT#{botId} - for finding avatar by Telegram bot ID
+  gsi3sk?: string; // AVATAR
+
   status: 'draft' | 'active' | 'paused' | 'deleted';
   createdAt: number;
   createdBy: string;
