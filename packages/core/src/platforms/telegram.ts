@@ -455,20 +455,41 @@ export class TelegramAdapter extends PlatformAdapter {
         case 'send_media':
           // Send a media file (image, video, animation)
           if (action.mediaType === 'image') {
-            await this.bot.api.sendPhoto(chatId, action.url, {
-              caption: action.caption,
-              ...replyParams,
-            });
+            // Telegram can be flaky fetching signed/redirecting URLs.
+            // Prefer uploading bytes so images reliably post when the model intends them.
+            try {
+              const inputFile = await fetchToInputFile(action.url, 'image.png');
+              await this.bot.api.sendPhoto(chatId, inputFile, {
+                caption: action.caption,
+                ...replyParams,
+              });
+            } catch (err) {
+              console.warn('[Telegram] Failed to upload photo bytes, falling back to URL send:', err);
+              await this.bot.api.sendPhoto(chatId, action.url, {
+                caption: action.caption,
+                ...replyParams,
+              });
+            }
           } else if (action.mediaType === 'video') {
             await this.bot.api.sendVideo(chatId, action.url, {
               caption: action.caption,
               ...replyParams,
             });
           } else if (action.mediaType === 'animation') {
-            await this.bot.api.sendAnimation(chatId, action.url, {
-              caption: action.caption,
-              ...replyParams,
-            });
+            // Same flakiness as photos; try bytes first then URL.
+            try {
+              const inputFile = await fetchToInputFile(action.url, 'animation.gif');
+              await this.bot.api.sendAnimation(chatId, inputFile, {
+                caption: action.caption,
+                ...replyParams,
+              });
+            } catch (err) {
+              console.warn('[Telegram] Failed to upload animation bytes, falling back to URL send:', err);
+              await this.bot.api.sendAnimation(chatId, action.url, {
+                caption: action.caption,
+                ...replyParams,
+              });
+            }
           }
           break;
 
