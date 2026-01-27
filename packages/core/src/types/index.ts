@@ -127,6 +127,16 @@ export interface TelegramConfig {
    * Used in redirect messages.
    */
   coinAddress?: string;
+  /**
+   * If true, this is the admin bot for creating/managing other bots.
+   * Admin bots have special handling for DMs.
+   */
+  isAdminBot?: boolean;
+  /**
+   * If true, allow DMs from all users (for admin bot).
+   * Bypasses the allowedDmUsers check.
+   */
+  allowAllDms?: boolean;
 }
 
 export interface DiscordConfig {
@@ -379,6 +389,30 @@ export interface Mention {
   length: number;
 }
 
+/**
+ * Metadata about a forwarded message (Telegram-specific)
+ */
+export interface ForwardMetadata {
+  /** Type of forward origin */
+  originType: 'user' | 'hidden_user' | 'chat' | 'channel' | 'unknown';
+  /** User ID of the original sender (if available) */
+  originalSenderId?: string;
+  /** Username of the original sender (if available) */
+  originalSenderUsername?: string;
+  /** Display name of the original sender (if available) */
+  originalSenderName?: string;
+  /** Whether the original sender is a bot */
+  originalSenderIsBot?: boolean;
+  /** Whether the forward is from BotFather specifically */
+  isFromBotFather: boolean;
+  /** Original message date (Unix timestamp) */
+  originalDate?: number;
+  /** Chat ID if forwarded from a channel/group */
+  originalChatId?: string;
+  /** Chat title if forwarded from a channel/group */
+  originalChatTitle?: string;
+}
+
 export interface EnvelopeMetadata {
   receivedAt: number;
   processedAt?: number;
@@ -401,6 +435,9 @@ export interface EnvelopeMetadata {
   // Telegram-specific context (preserved for channel state)
   chatType?: 'private' | 'group' | 'supergroup' | 'channel';
   chatTitle?: string;
+
+  // Telegram-specific forward metadata (for detecting BotFather messages, etc.)
+  forwardMetadata?: ForwardMetadata;
 
   // Discord-specific context
   guildId?: string;
@@ -1007,6 +1044,18 @@ export const SenderInfoSchema = z.object({
   nftHoldings: z.array(z.string()).optional(),
 });
 
+export const ForwardMetadataSchema = z.object({
+  originType: z.enum(['user', 'hidden_user', 'chat', 'channel', 'unknown']),
+  originalSenderId: z.string().optional(),
+  originalSenderUsername: z.string().optional(),
+  originalSenderName: z.string().optional(),
+  originalSenderIsBot: z.boolean().optional(),
+  isFromBotFather: z.boolean(),
+  originalDate: z.number().optional(),
+  originalChatId: z.string().optional(),
+  originalChatTitle: z.string().optional(),
+});
+
 export const EnvelopeMetadataSchema = z.object({
   receivedAt: z.number(),
   processedAt: z.number().optional(),
@@ -1019,6 +1068,7 @@ export const EnvelopeMetadataSchema = z.object({
   isReplyToBot: z.boolean().optional(),
   chatType: z.enum(['private', 'group', 'supergroup', 'channel']).optional(),
   chatTitle: z.string().optional(),
+  forwardMetadata: ForwardMetadataSchema.optional(),
   guildId: z.string().optional(),
   platformUpdateId: z.union([z.string(), z.number()]).optional(),
 });

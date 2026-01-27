@@ -45,6 +45,10 @@ export interface AvatarResponse {
   creatorWallet?: string;
   inhabitantWallet?: string;
   inhabitedAt?: number;
+  slotType?: 'free' | 'orb';
+  orbMint?: string;
+  orbWallet?: string;
+  orbSlottedAt?: number;
   currentEra?: number;
   mediaConfig?: MediaConfig;
   voiceConfig?: VoiceConfig;
@@ -75,6 +79,36 @@ export interface AvatarResponse {
     enabled: boolean;
   };
   llmConfig?: LlmConfig;
+}
+
+export async function slotOrb(avatarId: string, mintAddress: string): Promise<{ success: boolean }>{
+  const response = await fetch(`${API_BASE}/avatars/${encodeURIComponent(avatarId)}/orb`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ mintAddress }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function unslotOrb(avatarId: string): Promise<{ success: boolean }>{
+  const response = await fetch(`${API_BASE}/avatars/${encodeURIComponent(avatarId)}/orb`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
 }
 
 /**

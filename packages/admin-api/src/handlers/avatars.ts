@@ -25,6 +25,7 @@ import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
 import { computeTelegramRepairPlan } from '../services/telegram-repair.js';
 import { getKnownTelegramUsers } from '../services/channel-state.js';
 import { validateReplicateApiKey } from '../services/replicate.js';
+import * as orbSlotsService from '../services/orb-slots.js';
 import { SecretType } from '../types.js';
 import { resumeChatAfterToolResult } from './chat.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
@@ -251,6 +252,63 @@ export async function handler(
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify(hydrated),
       };
+    }
+
+    // PUT /avatars/{id}/orb - Slot an Orb NFT into an avatar
+    // DELETE /avatars/{id}/orb - Unslot the Orb from an avatar
+    const avatarOrbMatch = path.match(/^\/avatars\/([^/]+)\/orb$/);
+    if (avatarOrbMatch && (method === 'PUT' || method === 'DELETE')) {
+      const avatarId = avatarOrbMatch[1];
+
+      if (!walletAddress) {
+        return jsonResponse(corsHeaders, 403, { error: 'Wallet sign-in required' });
+      }
+
+      const avatar = await avatarService.getAvatar(avatarId);
+      if (!avatar) {
+        return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+      }
+
+      const canManage =
+        effectiveIsAdmin ||
+        avatar.creatorWallet === walletAddress ||
+        avatar.inhabitantWallet === walletAddress;
+
+      if (!canManage) {
+        return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
+      }
+
+      if (method === 'PUT') {
+        const body = JSON.parse(event.body || '{}');
+        const mintAddress = body?.mintAddress;
+        if (!mintAddress || typeof mintAddress !== 'string') {
+          return jsonResponse(corsHeaders, 400, { error: 'mintAddress is required' });
+        }
+
+        const result = await orbSlotsService.slotOrbToAvatar(walletAddress, avatar, mintAddress);
+        if (!result.success) {
+          const message =
+            result.error === 'not_owned'
+              ? 'You do not own this Orb.'
+              : result.error === 'already_slotted'
+              ? 'This Orb is already slotted into another avatar.'
+              : 'This avatar already has an Orb slotted.';
+          return jsonResponse(corsHeaders, 403, { error: message });
+        }
+
+        return jsonResponse(corsHeaders, 200, { success: true, avatarId, mintAddress });
+      }
+
+      // DELETE
+      const result = await orbSlotsService.unslotOrbFromAvatar(walletAddress, avatar);
+      if (!result.success) {
+        if (result.error === 'not_owner') {
+          return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
+        }
+        return jsonResponse(corsHeaders, 400, { error: 'No Orb is currently slotted into this avatar.' });
+      }
+
+      return jsonResponse(corsHeaders, 200, { success: true, avatarId });
     }
 
     // GET /avatars/{id} - Get single avatar

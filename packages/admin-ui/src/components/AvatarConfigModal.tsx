@@ -3,8 +3,10 @@
  */
 import { useState, useEffect } from 'react';
 import { useAvatarStore } from '../store/avatars';
+import { useAuth } from '../store/auth';
 import type { Avatar, AvatarSecret } from '../types';
 import { AvatarDisplay } from './AvatarSidebar';
+import * as avatarApi from '../api/avatars';
 
 interface AvatarConfigModalProps {
   avatar: Avatar;
@@ -26,6 +28,7 @@ const SECRET_TEMPLATES: { key: string; name: string; description: string }[] = [
 
 export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModalProps) {
   const { updateAvatar, deleteAvatar } = useAvatarStore();
+  const { gateStatus } = useAuth();
 
   const [name, setName] = useState(avatar.name);
   const [description, setDescription] = useState(avatar.description || '');
@@ -34,12 +37,17 @@ export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModal
   const [newSecretKey, setNewSecretKey] = useState('');
   const [activeTab, setActiveTab] = useState<'general' | 'persona' | 'secrets'>('general');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [selectedOrbMint, setSelectedOrbMint] = useState('');
+  const [orbBusy, setOrbBusy] = useState(false);
+  const [orbError, setOrbError] = useState<string | null>(null);
 
   useEffect(() => {
     setName(avatar.name);
     setDescription(avatar.description || '');
     setPersona(avatar.persona || '');
     setSecrets(avatar.secrets || []);
+    setSelectedOrbMint('');
+    setOrbError(null);
   }, [avatar]);
 
   if (!isOpen) return null;
@@ -87,6 +95,43 @@ export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModal
   const availableTemplates = SECRET_TEMPLATES.filter(
     t => !secrets.some(s => s.key === t.key)
   );
+
+  const ownedOrbs = gateStatus?.ownedNFTs || [];
+
+  const handleSlotOrb = async () => {
+    if (!selectedOrbMint) return;
+    setOrbBusy(true);
+    setOrbError(null);
+    try {
+      await avatarApi.slotOrb(avatar.id, selectedOrbMint);
+      updateAvatar(avatar.id, {
+        orbMint: selectedOrbMint,
+        orbSlottedAt: Date.now(),
+      });
+      setSelectedOrbMint('');
+    } catch (e) {
+      setOrbError(e instanceof Error ? e.message : 'Failed to slot Orb');
+    } finally {
+      setOrbBusy(false);
+    }
+  };
+
+  const handleUnslotOrb = async () => {
+    setOrbBusy(true);
+    setOrbError(null);
+    try {
+      await avatarApi.unslotOrb(avatar.id);
+      updateAvatar(avatar.id, {
+        orbMint: undefined,
+        orbWallet: undefined,
+        orbSlottedAt: undefined,
+      });
+    } catch (e) {
+      setOrbError(e instanceof Error ? e.message : 'Failed to unslot Orb');
+    } finally {
+      setOrbBusy(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -169,6 +214,65 @@ export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModal
                   data-testid="avatar-description-input"
                   aria-label="Avatar Description"
                 />
+              </div>
+
+              <div className="p-4 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-[var(--color-text-secondary)]">Orb Slot</div>
+                    <div className="text-xs text-[var(--color-text-muted)]">
+                      Slot an Orb NFT into this avatar to explicitly back it.
+                    </div>
+                  </div>
+                  {avatar.orbMint ? (
+                    <button
+                      onClick={handleUnslotOrb}
+                      disabled={orbBusy}
+                      className="px-3 py-2 rounded-lg bg-red-900/30 text-red-300 hover:bg-red-900/40 disabled:opacity-50"
+                    >
+                      Unslot
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 text-xs text-[var(--color-text-tertiary)]">
+                  Current: {avatar.orbMint ? <span className="font-mono">{avatar.orbMint}</span> : 'None'}
+                </div>
+
+                {!avatar.orbMint && ownedOrbs.length > 0 && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <select
+                      value={selectedOrbMint}
+                      onChange={(e) => setSelectedOrbMint(e.target.value)}
+                      className="flex-1 px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)]"
+                      disabled={orbBusy}
+                    >
+                      <option value="">Select an Orb…</option>
+                      {ownedOrbs.map((orb) => (
+                        <option key={orb.id} value={orb.id}>
+                          {orb.name || orb.id.slice(0, 8)}…
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleSlotOrb}
+                      disabled={orbBusy || !selectedOrbMint}
+                      className="px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-500 disabled:opacity-50"
+                    >
+                      Slot
+                    </button>
+                  </div>
+                )}
+
+                {!avatar.orbMint && ownedOrbs.length === 0 && (
+                  <div className="mt-3 text-xs text-[var(--color-text-muted)]">
+                    No Orbs detected in your current gate wallet.
+                  </div>
+                )}
+
+                {orbError && (
+                  <div className="mt-3 text-xs text-red-300">{orbError}</div>
+                )}
               </div>
             </div>
           )}

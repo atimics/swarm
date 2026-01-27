@@ -41,6 +41,10 @@ export interface AvatarConfig {
   inhabitedAt?: number;
   // Slot type - how this avatar was created
   slotType?: 'free' | 'orb';
+  // Orb slotting - optional explicit Orb NFT backing
+  orbMint?: string;
+  orbWallet?: string;
+  orbSlottedAt?: number;
   // Health status indicators
   healthStatus?: 'healthy' | 'rate_limited' | 'error' | 'inactive';
   healthMessage?: string;

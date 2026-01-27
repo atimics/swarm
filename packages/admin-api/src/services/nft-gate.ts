@@ -75,6 +75,74 @@ function creatorStatsKey(walletAddress: string): { pk: string; sk: string } {
   };
 }
 
+export interface ReserveCreatorSlotDeps {
+  dynamoClient?: Pick<typeof dynamoClient, 'send'>;
+  tableName?: string;
+  now?: () => number;
+}
+
+export interface ReserveCreatorSlotResult {
+  reserved: boolean;
+  previousCreated: number;
+}
+
+/**
+ * Atomically reserve a creator slot.
+ *
+ * This prevents race conditions where concurrent avatar creations can exceed
+ * the wallet's available slots.
+ */
+export async function reserveCreatorSlot(
+  walletAddress: string,
+  totalSlots: number,
+  deps?: ReserveCreatorSlotDeps
+): Promise<ReserveCreatorSlotResult> {
+  const resolvedClient = deps?.dynamoClient ?? dynamoClient;
+  const resolvedTable = deps?.tableName ?? ADMIN_TABLE;
+  const now = deps?.now?.() ?? Date.now();
+
+  async function attempt(): Promise<ReserveCreatorSlotResult> {
+    try {
+      const result = await resolvedClient.send(
+        new UpdateCommand({
+          TableName: resolvedTable,
+          Key: creatorStatsKey(walletAddress),
+          UpdateExpression:
+            'SET avatarsCreated = if_not_exists(avatarsCreated, :zero) + :one, updatedAt = :now',
+          ConditionExpression:
+            'attribute_not_exists(avatarsCreated) OR avatarsCreated < :totalSlots',
+          ExpressionAttributeValues: {
+            ':zero': 0,
+            ':one': 1,
+            ':now': now,
+            ':totalSlots': totalSlots,
+          },
+          ReturnValues: 'UPDATED_OLD',
+        })
+      );
+
+      const previousCreated =
+        typeof (result.Attributes as { avatarsCreated?: unknown } | undefined)?.avatarsCreated === 'number'
+          ? ((result.Attributes as { avatarsCreated: number }).avatarsCreated)
+          : 0;
+
+      return { reserved: true, previousCreated };
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'ConditionalCheckFailedException') {
+        return { reserved: false, previousCreated: 0 };
+      }
+      throw err;
+    }
+  }
+
+  // First attempt; if stats are stale, recalculate once and retry.
+  const first = await attempt();
+  if (first.reserved) return first;
+
+  await recalculateCreatorCount(walletAddress);
+  return attempt();
+}
+
 async function recalculateCreatorCount(walletAddress: string): Promise<number> {
   const result = await dynamoClient.send(new ScanCommand({
     TableName: ADMIN_TABLE,

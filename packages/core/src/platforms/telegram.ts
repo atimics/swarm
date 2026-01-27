@@ -3,7 +3,7 @@
  * Handles Telegram Bot API webhooks and message sending
  */
 import { Bot, InputFile, webhookCallback } from 'grammy';
-import type { Message, Update } from 'grammy/types';
+import type { Message, Update, MessageOrigin } from 'grammy/types';
 import { PlatformAdapter } from './base.js';
 import type {
   AvatarConfig,
@@ -15,6 +15,44 @@ import type {
   TelegramConfig,
   Mention,
 } from '../types/index.js';
+
+// =============================================================================
+// FORWARD METADATA TYPES
+// =============================================================================
+
+/**
+ * BotFather's official Telegram user ID
+ */
+export const BOTFATHER_USER_ID = 93372553;
+
+/**
+ * BotFather's official username (without @)
+ */
+export const BOTFATHER_USERNAME = 'BotFather';
+
+/**
+ * Metadata about a forwarded message
+ */
+export interface ForwardMetadata {
+  /** Type of forward origin */
+  originType: 'user' | 'hidden_user' | 'chat' | 'channel' | 'unknown';
+  /** User ID of the original sender (if available) */
+  originalSenderId?: string;
+  /** Username of the original sender (if available) */
+  originalSenderUsername?: string;
+  /** Display name of the original sender (if available) */
+  originalSenderName?: string;
+  /** Whether the original sender is a bot */
+  originalSenderIsBot?: boolean;
+  /** Whether the forward is from BotFather specifically */
+  isFromBotFather: boolean;
+  /** Original message date (Unix timestamp) */
+  originalDate?: number;
+  /** Chat ID if forwarded from a channel/group */
+  originalChatId?: string;
+  /** Chat title if forwarded from a channel/group */
+  originalChatTitle?: string;
+}
 
 // =============================================================================
 // SHARED TELEGRAM ENVELOPE BUILDER
@@ -73,6 +111,7 @@ export function buildTelegramEnvelope(
   const sender = extractSenderInfo(message);
   const content = extractMessageContent(message);
   const mentions = extractMentions(message);
+  const forwardMetadata = extractForwardMetadata(message);
 
   // Detect direct engagement
   const text = message.text || message.caption || '';
@@ -112,6 +151,9 @@ export function buildTelegramEnvelope(
 
       // Platform update ID for deduplication
       platformUpdateId: update.update_id,
+
+      // Forward metadata (for detecting BotFather messages, etc.)
+      forwardMetadata: forwardMetadata || undefined,
     },
   };
 
@@ -292,6 +334,126 @@ function extractMentions(message: Message): Mention[] {
   }
 
   return mentions;
+}
+
+/**
+ * Extract forward metadata from a Telegram message
+ * Supports both modern forward_origin (API 7.0+) and legacy forward_from fields
+ */
+export function extractForwardMetadata(message: Message): ForwardMetadata | null {
+  // Check for modern forward_origin (Telegram API 7.0+)
+  const forwardOrigin = (message as Message & { forward_origin?: MessageOrigin }).forward_origin;
+
+  if (forwardOrigin) {
+    return parseForwardOrigin(forwardOrigin);
+  }
+
+  // Fall back to legacy forward_from fields
+  const legacyForwardFrom = message.forward_from;
+  const legacyForwardFromChat = message.forward_from_chat;
+  const legacyForwardDate = message.forward_date;
+  const legacySenderName = (message as Message & { forward_sender_name?: string }).forward_sender_name;
+
+  if (legacyForwardFrom) {
+    const isFromBotFather =
+      legacyForwardFrom.id === BOTFATHER_USER_ID ||
+      legacyForwardFrom.username?.toLowerCase() === BOTFATHER_USERNAME.toLowerCase();
+
+    return {
+      originType: 'user',
+      originalSenderId: legacyForwardFrom.id.toString(),
+      originalSenderUsername: legacyForwardFrom.username,
+      originalSenderName: legacyForwardFrom.first_name + (legacyForwardFrom.last_name ? ` ${legacyForwardFrom.last_name}` : ''),
+      originalSenderIsBot: legacyForwardFrom.is_bot,
+      isFromBotFather,
+      originalDate: legacyForwardDate,
+    };
+  }
+
+  if (legacyForwardFromChat) {
+    return {
+      originType: legacyForwardFromChat.type === 'channel' ? 'channel' : 'chat',
+      originalChatId: legacyForwardFromChat.id.toString(),
+      originalChatTitle: legacyForwardFromChat.title,
+      isFromBotFather: false,
+      originalDate: legacyForwardDate,
+    };
+  }
+
+  if (legacySenderName) {
+    // Hidden user - only sender name is available
+    return {
+      originType: 'hidden_user',
+      originalSenderName: legacySenderName,
+      isFromBotFather: false,
+      originalDate: legacyForwardDate,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Parse modern MessageOrigin structure (Telegram API 7.0+)
+ */
+function parseForwardOrigin(origin: MessageOrigin): ForwardMetadata {
+  switch (origin.type) {
+    case 'user': {
+      const user = origin.sender_user;
+      const isFromBotFather =
+        user.id === BOTFATHER_USER_ID ||
+        user.username?.toLowerCase() === BOTFATHER_USERNAME.toLowerCase();
+
+      return {
+        originType: 'user',
+        originalSenderId: user.id.toString(),
+        originalSenderUsername: user.username,
+        originalSenderName: user.first_name + (user.last_name ? ` ${user.last_name}` : ''),
+        originalSenderIsBot: user.is_bot,
+        isFromBotFather,
+        originalDate: origin.date,
+      };
+    }
+
+    case 'hidden_user': {
+      return {
+        originType: 'hidden_user',
+        originalSenderName: origin.sender_user_name,
+        isFromBotFather: false,
+        originalDate: origin.date,
+      };
+    }
+
+    case 'chat': {
+      const chat = origin.sender_chat;
+      return {
+        originType: 'chat',
+        originalChatId: chat.id.toString(),
+        originalChatTitle: chat.title,
+        originalSenderName: origin.author_signature,
+        isFromBotFather: false,
+        originalDate: origin.date,
+      };
+    }
+
+    case 'channel': {
+      const channel = origin.chat;
+      return {
+        originType: 'channel',
+        originalChatId: channel.id.toString(),
+        originalChatTitle: channel.title,
+        originalSenderName: origin.author_signature,
+        isFromBotFather: false,
+        originalDate: origin.date,
+      };
+    }
+
+    default:
+      return {
+        originType: 'unknown',
+        isFromBotFather: false,
+      };
+  }
 }
 
 /**

@@ -437,6 +437,11 @@ export interface AvatarRecord {
   // 'free' = first avatar (free slot), 'orb' = NFT-backed slot
   slotType?: 'free' | 'orb';
 
+  // Orb slotting - optional explicit Orb NFT backing for this avatar
+  orbMint?: string;
+  orbWallet?: string;
+  orbSlottedAt?: number;
+
   // Health status indicators
   healthStatus?: 'healthy' | 'rate_limited' | 'error' | 'inactive';
   healthMessage?: string;      // e.g., "Twitter rate limit exceeded"
