@@ -12,7 +12,7 @@ import { usePrivyAuth } from '../store/privyAuth';
 import { useAuth } from '../store/auth';
 import { decideWalletConnectionDecision } from '../auth/wallet-connection';
 import { formatAddress as formatWalletAddress, getLinkedWalletDisplay } from '../auth/linked-wallets';
-import { signWalletLinkMessage, type PhantomProvider } from '../auth/wallet-linking';
+import { signMessageWithFallback, signWalletLinkMessage, type PhantomProvider } from '../auth/wallet-linking';
 import { API_BASE } from '../api/apiBase';
 import { useWalletUi } from '../store/walletUi';
 import { CopyableAddress } from './CopyableAddress';
@@ -149,8 +149,11 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
 
   // When wallet connects or changes, trigger login flow
   useEffect(() => {
-    const publicKeyStr = publicKey ? publicKey.toBase58() : null;
-    const hasSignMessage = !!signMessage && typeof signMessage === 'function';
+    const phantomProvider = (window as typeof window & { phantom?: { solana?: PhantomProvider } })?.phantom?.solana;
+    const publicKeyStr = publicKey ? publicKey.toBase58() : phantomProvider?.publicKey?.toString?.() ?? null;
+    const hasWalletAdapterSignMessage = !!signMessage && typeof signMessage === 'function';
+    const hasPhantomSignMessage = !!phantomProvider?.signMessage && typeof phantomProvider.signMessage === 'function';
+    const hasSignMessage = hasWalletAdapterSignMessage || hasPhantomSignMessage;
 
     const decision = decideWalletConnectionDecision({
       connected,
@@ -184,10 +187,22 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     }
 
     if (decision.type === 'attemptLogin') {
-      if (!hasSignMessage || !signMessage || typeof signMessage !== 'function') return;
+      if (!hasSignMessage) return;
+
+      const effectiveSignMessage = async (message: Uint8Array) => {
+        const { signatureBytes, source } = await signMessageWithFallback({
+          message,
+          privySignMessage: hasWalletAdapterSignMessage ? signMessage : undefined,
+          phantomProvider,
+        });
+        if (source === 'phantom' && !hasWalletAdapterSignMessage) {
+          console.log('[WalletLogin] Using Phantom provider signMessage fallback');
+        }
+        return signatureBytes;
+      };
 
       loginAttemptedRef.current = decision.walletAddress;
-      login(signMessage, decision.walletAddress).catch((err) => {
+      login(effectiveSignMessage, decision.walletAddress).catch((err) => {
         console.error('Login failed:', err);
         // Keep loginAttemptedRef set to prevent retry loop
       });

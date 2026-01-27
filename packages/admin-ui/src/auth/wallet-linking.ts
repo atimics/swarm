@@ -7,18 +7,18 @@ export interface PhantomProvider {
   signMessage?: (message: Uint8Array, display?: string) => Promise<{ signature: Uint8Array }>;
 }
 
-export async function signWalletLinkMessage(params: {
+export async function signMessageWithFallback(params: {
   message: Uint8Array;
   privySignMessage?: (message: Uint8Array) => Promise<Uint8Array>;
   phantomProvider?: PhantomProvider | null;
-}): Promise<{ signatureBase58: string; source: 'privy' | 'phantom' }> {
+}): Promise<{ signatureBytes: Uint8Array; source: 'privy' | 'phantom' }> {
   const { message, privySignMessage, phantomProvider } = params;
 
   if (privySignMessage) {
     try {
       const signatureBytes = await privySignMessage(message);
       if (signatureBytes && signatureBytes.length > 0) {
-        return { signatureBase58: bs58.encode(signatureBytes), source: 'privy' };
+        return { signatureBytes, source: 'privy' };
       }
     } catch {
       // Fall back to Phantom
@@ -34,10 +34,33 @@ export async function signWalletLinkMessage(params: {
     await phantom.connect();
   }
 
-  const phantomResult = await phantom.signMessage(message, 'utf8');
+  // Some providers accept a second arg (encoding/display), some don't.
+  let phantomResult: { signature: Uint8Array } | undefined;
+  try {
+    phantomResult = await phantom.signMessage(message, 'utf8');
+  } catch {
+    phantomResult = await phantom.signMessage(message);
+  }
+
   if (!phantomResult?.signature || phantomResult.signature.length === 0) {
     throw new Error('Phantom did not return a signature');
   }
 
-  return { signatureBase58: bs58.encode(phantomResult.signature), source: 'phantom' };
+  return { signatureBytes: phantomResult.signature, source: 'phantom' };
+}
+
+export async function signWalletLinkMessage(params: {
+  message: Uint8Array;
+  privySignMessage?: (message: Uint8Array) => Promise<Uint8Array>;
+  phantomProvider?: PhantomProvider | null;
+}): Promise<{ signatureBase58: string; source: 'privy' | 'phantom' }> {
+  const { message, privySignMessage, phantomProvider } = params;
+
+  const { signatureBytes, source } = await signMessageWithFallback({
+    message,
+    privySignMessage,
+    phantomProvider,
+  });
+
+  return { signatureBase58: bs58.encode(signatureBytes), source };
 }

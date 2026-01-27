@@ -9,6 +9,7 @@ import { useWalletAuth } from '../store/walletAuth';
 import { usePrivy } from '@privy-io/react-auth';
 import { usePrivyAuth } from '../store/privyAuth';
 import { useWalletUi } from '../store/walletUi';
+import { type PhantomProvider, signMessageWithFallback } from '../auth/wallet-linking';
 
 interface LoginOptionsProps {
   className?: string;
@@ -51,10 +52,10 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
   // Handle Solana wallet connection (Phantom, etc.)
   // This triggers when user connects wallet from the modal
   useEffect(() => {
-    // Check if signMessage is available
-    if (!signMessage || typeof signMessage !== 'function') {
-      return;
-    }
+    const phantomProvider = (window as typeof window & { phantom?: { solana?: PhantomProvider } })?.phantom?.solana;
+    const hasWalletAdapterSignMessage = !!signMessage && typeof signMessage === 'function';
+    const hasPhantomSignMessage = !!phantomProvider?.signMessage && typeof phantomProvider.signMessage === 'function';
+    if (!hasWalletAdapterSignMessage && !hasPhantomSignMessage) return;
 
     if (connected && publicKey && !walletAuthIsLoading && !walletAuthIsAuthenticated) {
       const publicKeyStr = publicKey.toBase58();
@@ -63,7 +64,19 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
       if (solanaLoginAttemptedRef.current !== publicKeyStr) {
         console.log('[LoginOptions] 🔐 Solana wallet connected, triggering login:', publicKeyStr);
         solanaLoginAttemptedRef.current = publicKeyStr;
-        walletAuthLogin(signMessage, publicKeyStr).catch((err) => {
+        const effectiveSignMessage = async (message: Uint8Array) => {
+          const { signatureBytes, source } = await signMessageWithFallback({
+            message,
+            privySignMessage: hasWalletAdapterSignMessage ? signMessage : undefined,
+            phantomProvider,
+          });
+          if (source === 'phantom' && !hasWalletAdapterSignMessage) {
+            console.log('[LoginOptions] Using Phantom provider signMessage fallback');
+          }
+          return signatureBytes;
+        };
+
+        walletAuthLogin(effectiveSignMessage, publicKeyStr).catch((err) => {
           console.error('[LoginOptions] ❌ Solana wallet login failed:', err);
           // Keep ref set to prevent retry loop
         });
