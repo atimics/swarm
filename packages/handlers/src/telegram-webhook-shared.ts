@@ -75,6 +75,28 @@ function buildRedirectMessage(telegramCfg?: {
 
 🌐 https://swarm.rati.chat/
 💬 ${homeChannelUrl}
+
+function buildDmBlockedMessage(telegramCfg?: {
+  homeChannelUrl?: string;
+  homeChannelUsername?: string;
+}): string {
+  const homeChannelUrl = telegramCfg?.homeChannelUrl
+    || (telegramCfg?.homeChannelUsername ? `https://t.me/${telegramCfg.homeChannelUsername}` : DEFAULT_HOME_CHANNEL_URL);
+
+  return `I can't chat in DMs.
+
+To create/manage your own bot, DM @ratibots and send /start.
+
+To chat with me, join my home channel:
+${homeChannelUrl}`;
+}
+
+export function shouldRoutePrivateChatToAdmin(telegramCfg?: {
+  isAdminBot?: boolean;
+  allowAllDms?: boolean;
+}): boolean {
+  return Boolean(telegramCfg?.isAdminBot || telegramCfg?.allowAllDms);
+}
 🪙 ${coinSymbol}: ${coinAddress}`;
 }
 
@@ -703,31 +725,55 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
     // Use home channel checker for groups/channels if ADMIN_TABLE is configured
     const homeChecker = ADMIN_TABLE ? createHomeChannelChecker() : undefined;
-    // DMs: Route to admin service for bot creation/management flow
-    // All bots can help users create their own bot
+    // DMs: only the admin bot supports the in-Telegram bot creation workflow.
+    // Other bots should not respond in DMs (unless explicitly allowlisted).
     if (envelope.metadata.chatType === 'private') {
-      logger.info('DM received, routing to admin service', { event: 'dm_received', senderId: envelope.sender.id });
+      const dmAllowed = await Promise.resolve(isTelegramChatAllowed(envelope, telegramCfg, homeChecker));
 
-      // Idempotency check
+      // Idempotency check (before any responses)
       const isNewMessage = await stateService.checkAndSetIdempotency(envelope.metadata.idempotencyKey);
       if (!isNewMessage) {
         logger.info('Duplicate DM, skipping', { messageId: envelope.messageId });
         return ok();
       }
 
-      try {
-        const { processAdminMessage } = await import('./services/telegram-admin-handler.js');
-        await processAdminMessage(avatarId, avatarConfig, envelope);
-        logger.info('DM processed via admin service', {
-          event: 'dm_processed',
-          messageId: envelope.messageId,
-          durationMs: Date.now() - startTime,
-        });
-        return ok();
-      } catch (err) {
-        logger.error('DM handler error', err, { event: 'dm_handler_error' });
+      if (shouldRoutePrivateChatToAdmin(telegramCfg)) {
+        logger.info('DM received, routing to admin service', { event: 'dm_received', senderId: envelope.sender.id });
+        try {
+          const { processAdminMessage } = await import('./services/telegram-admin-handler.js');
+          await processAdminMessage(avatarId, avatarConfig, envelope);
+          logger.info('DM processed via admin service', {
+            event: 'dm_processed',
+            messageId: envelope.messageId,
+            durationMs: Date.now() - startTime,
+          });
+          return ok();
+        } catch (err) {
+          logger.error('DM handler error', err, { event: 'dm_handler_error' });
+          return ok();
+        }
+      }
+
+      if (!dmAllowed) {
+        logger.info('DM blocked (not allowlisted)', { event: 'dm_blocked', senderId: envelope.sender.id });
+        try {
+          const bot = telegramAdapter.getBot();
+          if (bot) {
+            await bot.api.sendMessage(
+              parseInt(envelope.conversationId),
+              buildDmBlockedMessage(telegramCfg),
+              { reply_to_message_id: parseInt(envelope.messageId) }
+            );
+          }
+        } catch (err) {
+          logger.warn('Failed to send DM blocked message', {
+            event: 'dm_blocked_message_failed',
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
         return ok();
       }
+      // If explicitly allowlisted, continue through normal processing (persona chat in DM).
     }
 
     // Groups/channels: Check if chat is allowed (home channel registry)
