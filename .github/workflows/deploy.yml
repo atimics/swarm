@@ -176,6 +176,19 @@ jobs:
           echo "Downloading s3://${CDK_CONTEXT_BUCKET}/${KEY} -> cdk.context.json"
           aws s3 cp "s3://${CDK_CONTEXT_BUCKET}/${KEY}" "cdk.context.json" --only-show-errors
 
+      - name: Ensure CDK bootstrap
+        working-directory: packages/infra
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+          if aws ssm get-parameter --name "/cdk-bootstrap/hnb659fds/version" --region "${AWS_REGION}" >/dev/null 2>&1; then
+            echo "✅ CDK bootstrap already present in ${ACCOUNT_ID}/${AWS_REGION}"
+            exit 0
+          fi
+
+          echo "⚠️  CDK bootstrap missing in ${ACCOUNT_ID}/${AWS_REGION}; bootstrapping now"
+          npx cdk bootstrap "aws://${ACCOUNT_ID}/${AWS_REGION}" --require-approval never
+
       - name: CDK Diff
         id: diff
         working-directory: packages/infra
