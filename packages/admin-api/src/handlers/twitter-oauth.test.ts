@@ -50,8 +50,19 @@ function createTestSession(overrides: Partial<UserSession> = {}): UserSession {
   };
 }
 
+// Helper to create a non-admin session with wallet
+// Note: For wallet auth, userId contains the wallet address
+function createNonAdminSession(walletAddress: string): UserSession {
+  return {
+    email: 'user@example.com',
+    userId: walletAddress, // userId is the wallet address for wallet-authenticated sessions
+    isAdmin: false,
+    accessToken: 'test-access-token',
+  };
+}
+
 // Helper to create a mock avatar record
-function createMockAvatar(avatarId: string): AvatarRecord {
+function createMockAvatar(avatarId: string, overrides: Partial<AvatarRecord> = {}): AvatarRecord {
   return {
     pk: `AVATAR#${avatarId}`,
     sk: 'CONFIG',
@@ -61,6 +72,8 @@ function createMockAvatar(avatarId: string): AvatarRecord {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     createdBy: 'test@example.com',
+    creatorWallet: 'creator-wallet-123',
+    ...overrides,
   };
 }
 
@@ -233,6 +246,60 @@ describe('Twitter OAuth Handler', () => {
       const body = JSON.parse(result.body as string);
       expect(body.error).toBe('Twitter OAuth start failed');
       expect(String(body.message)).toContain('403');
+    });
+
+    it('allows avatar creator (non-admin) to start OAuth', async () => {
+      const creatorWallet = 'creator-wallet-abc';
+      mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession(creatorWallet)));
+      mockRequireAdmin.mockImplementation(() => false);
+      mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', { creatorWallet })));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/start',
+        queryStringParameters: { avatarId: 'test-avatar' },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(302);
+      expect(result.headers?.Location).toContain('twitter.com');
+    });
+
+    it('allows avatar inhabitant (non-admin) to start OAuth', async () => {
+      const inhabitantWallet = 'inhabitant-wallet-xyz';
+      mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession(inhabitantWallet)));
+      mockRequireAdmin.mockImplementation(() => false);
+      mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', { inhabitantWallet })));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/start',
+        queryStringParameters: { avatarId: 'test-avatar' },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(302);
+      expect(result.headers?.Location).toContain('twitter.com');
+    });
+
+    it('returns 403 when non-owner tries to start OAuth', async () => {
+      mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession('other-wallet')));
+      mockRequireAdmin.mockImplementation(() => false);
+      mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', {
+        creatorWallet: 'creator-wallet',
+        inhabitantWallet: 'inhabitant-wallet',
+      })));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/start',
+        queryStringParameters: { avatarId: 'test-avatar' },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(403);
+      const body = JSON.parse(result.body as string);
+      expect(body.error).toContain('avatar owner');
     });
   });
 
@@ -474,6 +541,56 @@ describe('Twitter OAuth Handler', () => {
       const body = JSON.parse(result.body as string);
       expect(body.connected).toBe(false);
     });
+
+    it('allows avatar creator (non-admin) to view status', async () => {
+      const creatorWallet = 'creator-wallet-abc';
+      mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession(creatorWallet)));
+      mockRequireAdmin.mockImplementation(() => false);
+      mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', { creatorWallet })));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/status/test-avatar',
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.connected).toBe(true);
+    });
+
+    it('returns 403 when non-owner tries to view status', async () => {
+      mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession('other-wallet')));
+      mockRequireAdmin.mockImplementation(() => false);
+      mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', {
+        creatorWallet: 'creator-wallet',
+        inhabitantWallet: 'inhabitant-wallet',
+      })));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/status/test-avatar',
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(403);
+      const body = JSON.parse(result.body as string);
+      expect(body.error).toContain('avatar owner');
+    });
+
+    it('returns 404 when avatar not found for status', async () => {
+      mockGetAvatar.mockImplementation(() => Promise.resolve(null));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/status/nonexistent',
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(404);
+      const body = JSON.parse(result.body as string);
+      expect(body.error).toBe('Avatar not found');
+    });
   });
 
   describe('DELETE /oauth/twitter/{avatarId}', () => {
@@ -520,6 +637,68 @@ describe('Twitter OAuth Handler', () => {
         }),
         expect.any(Object)
       );
+    });
+
+    it('allows avatar creator (non-admin) to disconnect', async () => {
+      const creatorWallet = 'creator-wallet-abc';
+      mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession(creatorWallet)));
+      mockRequireAdmin.mockImplementation(() => false);
+      mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', { creatorWallet })));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/test-avatar',
+        requestContext: {
+          ...createEvent().requestContext,
+          http: { ...createEvent().requestContext.http, method: 'DELETE' },
+        },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body.success).toBe(true);
+    });
+
+    it('returns 403 when non-owner tries to disconnect', async () => {
+      mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession('other-wallet')));
+      mockRequireAdmin.mockImplementation(() => false);
+      mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', {
+        creatorWallet: 'creator-wallet',
+        inhabitantWallet: 'inhabitant-wallet',
+      })));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/test-avatar',
+        requestContext: {
+          ...createEvent().requestContext,
+          http: { ...createEvent().requestContext.http, method: 'DELETE' },
+        },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(403);
+      const body = JSON.parse(result.body as string);
+      expect(body.error).toContain('avatar owner');
+    });
+
+    it('returns 404 when avatar not found for disconnect', async () => {
+      mockGetAvatar.mockImplementation(() => Promise.resolve(null));
+
+      const event = createEvent({
+        rawPath: '/oauth/twitter/nonexistent',
+        requestContext: {
+          ...createEvent().requestContext,
+          http: { ...createEvent().requestContext.http, method: 'DELETE' },
+        },
+      });
+
+      const result = await handler(event, mockDeps);
+
+      expect(result.statusCode).toBe(404);
+      const body = JSON.parse(result.body as string);
+      expect(body.error).toBe('Avatar not found');
     });
   });
 

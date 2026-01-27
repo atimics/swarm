@@ -63,6 +63,22 @@ export interface TwitterOAuthHandlerDeps {
   };
 }
 
+/**
+ * Check if a user can manage an avatar (admin OR creator OR inhabitant)
+ * Note: For wallet auth, session.userId contains the wallet address.
+ */
+function canManageAvatar(session: UserSession, avatar: AvatarRecord, requireAdminFn: (s: UserSession) => boolean): boolean {
+  if (requireAdminFn(session)) {
+    return true;
+  }
+  // For wallet-authenticated sessions, userId contains the wallet address
+  const walletAddress = session.userId;
+  if (!walletAddress) {
+    return false;
+  }
+  return avatar.creatorWallet === walletAddress || avatar.inhabitantWallet === walletAddress;
+}
+
 // Create default dependencies lazily to avoid issues with namespace imports at module load time
 function getDefaultDeps(): TwitterOAuthHandlerDeps {
   return {
@@ -147,13 +163,6 @@ export async function handler(
     if (method === 'GET' && path === '/oauth/twitter/start') {
       // Require authentication for start to prevent unauthorized account linking.
       const session = await auth.authenticateRequest(event);
-      if (!auth.requireAdmin(session)) {
-        return {
-          statusCode: 403,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Admin access required' }),
-        };
-      }
 
       const avatarId = event.queryStringParameters?.avatarId;
       const reconnect = event.queryStringParameters?.reconnect === '1' || event.queryStringParameters?.reconnect === 'true';
@@ -172,6 +181,15 @@ export async function handler(
           statusCode: 404,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ error: 'Avatar not found' }),
+        };
+      }
+
+      // Allow admin OR avatar owner (creator/inhabitant) to connect Twitter
+      if (!canManageAvatar(session, avatar, auth.requireAdmin)) {
+        return {
+          statusCode: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'You must be the avatar owner to connect Twitter' }),
         };
       }
 
@@ -240,18 +258,17 @@ export async function handler(
       };
     }
 
-    // Routes below require authentication
-    const session = await auth.authenticateRequest(event);
-    if (!auth.requireAdmin(session)) {
-      return {
-        statusCode: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Admin access required' }),
-      };
-    }
-
-    // GET /oauth/twitter/health - Health/smoke test for Twitter OAuth configuration
+    // GET /oauth/twitter/health - Health/smoke test for Twitter OAuth configuration (admin only)
     if (method === 'GET' && path === '/oauth/twitter/health') {
+      const session = await auth.authenticateRequest(event);
+      if (!auth.requireAdmin(session)) {
+        return {
+          statusCode: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Admin access required' }),
+        };
+      }
+
       const configured = await twitterOAuth.isConfigured();
       const live = event.queryStringParameters?.live === '1' || event.queryStringParameters?.live === 'true';
 
@@ -289,10 +306,29 @@ export async function handler(
       };
     }
 
-    // GET /oauth/twitter/status/{avatarId} - Get connection status
+    // GET /oauth/twitter/status/{avatarId} - Get connection status (avatar owner or admin)
     const statusMatch = path.match(/^\/oauth\/twitter\/status\/([^/]+)$/);
     if (method === 'GET' && statusMatch) {
+      const session = await auth.authenticateRequest(event);
       const avatarId = statusMatch[1];
+
+      const avatar = await avatarService.getAvatar(avatarId);
+      if (!avatar) {
+        return {
+          statusCode: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Avatar not found' }),
+        };
+      }
+
+      if (!canManageAvatar(session, avatar, auth.requireAdmin)) {
+        return {
+          statusCode: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'You must be the avatar owner to view Twitter status' }),
+        };
+      }
+
       const status = await twitterOAuth.getConnectionStatus(avatarId);
 
       return {
@@ -302,10 +338,28 @@ export async function handler(
       };
     }
 
-    // DELETE /oauth/twitter/{avatarId} - Disconnect Twitter
+    // DELETE /oauth/twitter/{avatarId} - Disconnect Twitter (avatar owner or admin)
     const disconnectMatch = path.match(/^\/oauth\/twitter\/([^/]+)$/);
     if (method === 'DELETE' && disconnectMatch) {
+      const session = await auth.authenticateRequest(event);
       const avatarId = disconnectMatch[1];
+
+      const avatar = await avatarService.getAvatar(avatarId);
+      if (!avatar) {
+        return {
+          statusCode: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Avatar not found' }),
+        };
+      }
+
+      if (!canManageAvatar(session, avatar, auth.requireAdmin)) {
+        return {
+          statusCode: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'You must be the avatar owner to disconnect Twitter' }),
+        };
+      }
 
       await twitterOAuth.disconnectTwitter(avatarId, session);
 

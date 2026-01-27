@@ -4,7 +4,7 @@
  * This is the preferred ingress path when using the shared @swarm/handlers runtime:
  * - Loads avatar config from STATE_TABLE
  * - Verifies Telegram webhook secret token (if configured)
- * - Blocks DMs (private chats)
+ * - Redirects DMs (private chats) to RATi Chat onboarding
  * - Evaluates whether to respond
  * - Enqueues the message to the shared FIFO message queue
  */
@@ -76,6 +76,34 @@ function buildRedirectMessage(telegramCfg?: {
 🌐 https://swarm.rati.chat/
 💬 ${homeChannelUrl}
 🪙 ${coinSymbol}: ${coinAddress}`;
+}
+
+export function buildDmRedirectMessage(telegramCfg?: {
+  homeChannelUrl?: string;
+  homeChannelUsername?: string;
+}): {
+  text: string;
+  replyMarkup: {
+    inline_keyboard: Array<Array<{ text: string; url: string }>>;
+  };
+} {
+  const homeChannelUrl = telegramCfg?.homeChannelUrl
+    || (telegramCfg?.homeChannelUsername
+      ? `https://t.me/${telegramCfg.homeChannelUsername}`
+      : DEFAULT_HOME_CHANNEL_URL);
+
+  return {
+    text: `I can’t chat in DMs.
+
+Use RATi Chat to create a new bot or manage your account:
+${homeChannelUrl}`,
+    replyMarkup: {
+      inline_keyboard: [
+        [{ text: 'Open RATi Chat', url: homeChannelUrl }],
+        [{ text: 'New Bot', url: `${homeChannelUrl}?start=new_bot` }],
+      ],
+    },
+  };
 }
 
 
@@ -712,20 +740,32 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         return ok();
       }
 
-      logger.info('DM received, routing to admin service', { event: 'dm_received', senderId: envelope.sender.id });
+      // Avatar bots should not run persona chat in DMs.
+      // Always redirect the user to RATi Chat onboarding.
       try {
-        const { processAdminMessage } = await import('./services/telegram-admin-handler.js');
-        await processAdminMessage(avatarId, avatarConfig, envelope);
-        logger.info('DM processed via admin service', {
-          event: 'dm_processed',
-          messageId: envelope.messageId,
-          durationMs: Date.now() - startTime,
-        });
-        return ok();
+        const bot = telegramAdapter.getBot();
+        if (bot) {
+          const dm = buildDmRedirectMessage(avatarConfig.platforms.telegram);
+          await bot.api.sendMessage(
+            parseInt(envelope.conversationId),
+            dm.text,
+            { reply_markup: dm.replyMarkup }
+          );
+
+          logger.info('Sent DM redirect message', {
+            event: 'dm_redirect_sent',
+            chatId: envelope.conversationId,
+            messageId: envelope.messageId,
+          });
+        }
       } catch (err) {
-        logger.error('DM handler error', err, { event: 'dm_handler_error' });
-        return ok();
+        logger.warn('Failed to send DM redirect message', {
+          event: 'dm_redirect_failed',
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
+
+      return ok();
     }
 
     // Groups/channels: Check if chat is allowed (home channel registry)

@@ -282,3 +282,16 @@ describe('telegram-webhook-shared home channel bootstrap', () => {
   });
 });
 
+describe('telegram-webhook-shared DM redirect', () => {
+  it('includes ratichat link and New Bot button', async () => {
+    const { buildDmRedirectMessage } = (await modPromise);
+    const dm = buildDmRedirectMessage({ homeChannelUrl: 'https://t.me/ratichat' });
+
+    expect(dm.text).toContain('https://t.me/ratichat');
+    expect(dm.replyMarkup.inline_keyboard).toEqual([
+      [{ text: 'Open RATi Chat', url: 'https://t.me/ratichat' }],
+      [{ text: 'New Bot', url: 'https://t.me/ratichat?start=new_bot' }],
+    ]);
+  });
+});
+
