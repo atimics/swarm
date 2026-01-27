@@ -6,6 +6,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import bs58 from 'bs58';
 import { API_BASE } from '../api/apiBase';
+import { humanizeApiUnreachable, humanizeWalletSignatureError } from '../auth/wallet-errors';
 
 export interface WalletUser {
   walletAddress: string;
@@ -249,12 +250,17 @@ export const useWalletAuth = create<WalletAuthState>()(
           }
         } catch (error) {
           console.error('[WalletAuth] Login error:', error);
+
+          // Prefer actionable guidance for common failure modes.
+          const apiUnreachable = humanizeApiUnreachable(error);
+          const humanizedError = apiUnreachable ?? humanizeWalletSignatureError(error);
+
           set({
             isAuthenticated: false,
             user: null,
             account: null,
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Login failed',
+            error: humanizedError || 'Login failed',
             gateWallet: null,
             gateStatusByWallet: null,
           });

@@ -14,10 +14,14 @@ import type {
   MediaAttachment,
   TelegramConfig,
   Mention,
+  ForwardMetadata,
 } from '../types/index.js';
 
+// Re-export ForwardMetadata type for consumers importing from this module
+export type { ForwardMetadata } from '../types/index.js';
+
 // =============================================================================
-// FORWARD METADATA TYPES
+// BOTFATHER CONSTANTS
 // =============================================================================
 
 /**
@@ -30,28 +34,31 @@ export const BOTFATHER_USER_ID = 93372553;
  */
 export const BOTFATHER_USERNAME = 'BotFather';
 
+// =============================================================================
+// LEGACY FORWARD FIELD TYPES (for compatibility with older Telegram API)
+// =============================================================================
+
 /**
- * Metadata about a forwarded message
+ * Extended Message type that includes legacy forward fields
+ * These fields are deprecated in favor of forward_origin (API 7.0+)
+ * but may still be present in API responses for backwards compatibility
  */
-export interface ForwardMetadata {
-  /** Type of forward origin */
-  originType: 'user' | 'hidden_user' | 'chat' | 'channel' | 'unknown';
-  /** User ID of the original sender (if available) */
-  originalSenderId?: string;
-  /** Username of the original sender (if available) */
-  originalSenderUsername?: string;
-  /** Display name of the original sender (if available) */
-  originalSenderName?: string;
-  /** Whether the original sender is a bot */
-  originalSenderIsBot?: boolean;
-  /** Whether the forward is from BotFather specifically */
-  isFromBotFather: boolean;
-  /** Original message date (Unix timestamp) */
-  originalDate?: number;
-  /** Chat ID if forwarded from a channel/group */
-  originalChatId?: string;
-  /** Chat title if forwarded from a channel/group */
-  originalChatTitle?: string;
+interface MessageWithLegacyForward extends Message {
+  forward_from?: {
+    id: number;
+    is_bot: boolean;
+    first_name: string;
+    last_name?: string;
+    username?: string;
+  };
+  forward_from_chat?: {
+    id: number;
+    type: string;
+    title?: string;
+    username?: string;
+  };
+  forward_date?: number;
+  forward_sender_name?: string;
 }
 
 // =============================================================================
@@ -348,11 +355,12 @@ export function extractForwardMetadata(message: Message): ForwardMetadata | null
     return parseForwardOrigin(forwardOrigin);
   }
 
-  // Fall back to legacy forward_from fields
-  const legacyForwardFrom = message.forward_from;
-  const legacyForwardFromChat = message.forward_from_chat;
-  const legacyForwardDate = message.forward_date;
-  const legacySenderName = (message as Message & { forward_sender_name?: string }).forward_sender_name;
+  // Fall back to legacy forward_from fields (cast to extended type)
+  const legacyMessage = message as MessageWithLegacyForward;
+  const legacyForwardFrom = legacyMessage.forward_from;
+  const legacyForwardFromChat = legacyMessage.forward_from_chat;
+  const legacyForwardDate = legacyMessage.forward_date;
+  const legacySenderName = legacyMessage.forward_sender_name;
 
   if (legacyForwardFrom) {
     const isFromBotFather =

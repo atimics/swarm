@@ -10,7 +10,7 @@ import {
   getAvatar,
   updateAvatarFromTelegram,
   type CreateAvatarFromTelegramParams,
-} from '@aws-swarm/admin-api/services/avatars';
+} from '@swarm/admin-api';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 
 const secretsClient = new SecretsManagerClient({});

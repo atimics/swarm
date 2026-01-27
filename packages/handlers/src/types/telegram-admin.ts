@@ -3,7 +3,7 @@
  * Types for the in-Telegram bot creation and admin feature
  */
 
-import type { AvatarRecord } from '@aws-swarm/admin-api/types';
+import type { AvatarRecord } from '@swarm/admin-api';
 
 // =============================================================================
 // SESSION STATES
@@ -65,7 +65,7 @@ export interface TelegramAdminSession {
 /**
  * Onboarding state data - stored in session.stateData during onboarding
  */
-export interface OnboardingStateData {
+export interface OnboardingStateData extends Record<string, unknown> {
   /** Bot token from BotFather */
   botToken?: string;
   /** Bot username (parsed from token validation) */

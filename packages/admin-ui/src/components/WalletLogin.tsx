@@ -13,6 +13,7 @@ import { useAuth } from '../store/auth';
 import { decideWalletConnectionDecision } from '../auth/wallet-connection';
 import { formatAddress as formatWalletAddress, getLinkedWalletDisplay } from '../auth/linked-wallets';
 import { signMessageWithFallback, signWalletLinkMessage, type PhantomProvider } from '../auth/wallet-linking';
+import { humanizeApiUnreachable, humanizeWalletSignatureError } from '../auth/wallet-errors';
 import { API_BASE } from '../api/apiBase';
 import { useWalletUi } from '../store/walletUi';
 import { CopyableAddress } from './CopyableAddress';
@@ -34,19 +35,10 @@ function humanizePrivyLinkError(error: unknown): string {
 }
 
 function humanizeWalletLinkError(error: unknown): string {
-  const anyErr = error as { name?: string; message?: string };
-  const name = typeof anyErr?.name === 'string' ? anyErr.name : '';
-  const message = typeof anyErr?.message === 'string' ? anyErr.message : String(error);
+  const apiUnreachable = humanizeApiUnreachable(error);
+  if (apiUnreachable) return apiUnreachable;
 
-  if (name.includes('Wallet') && /unexpected error/i.test(message)) {
-    return 'Phantom returned an unexpected error while signing. Try: unlock Phantom, approve the signature prompt, then disconnect/reconnect the wallet. If it persists, restart Chrome.';
-  }
-
-  if (name.includes('Wallet') && /user rejected|rejected/i.test(message)) {
-    return 'Signature was cancelled in Phantom.';
-  }
-
-  return message || 'Failed to link wallet';
+  return humanizeWalletSignatureError(error) || 'Failed to link wallet';
 }
 
 function getSolanaWalletAddressFromPrivyUser(privyUser: unknown): string | null {

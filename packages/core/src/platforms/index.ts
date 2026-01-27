@@ -7,9 +7,14 @@ export {
   // Shared Telegram envelope builder utilities
   buildTelegramEnvelope,
   envelopeToBufferedMessage,
+  extractForwardMetadata,
+  // BotFather constants
+  BOTFATHER_USER_ID,
+  BOTFATHER_USERNAME,
   type TelegramEnvelopeConfig,
   type BufferedMessageCompat,
 } from './telegram.js';
+// ForwardMetadata is exported from types/index.ts to avoid duplicate exports
 export { TwitterAdapter, type TwitterCredentials } from './twitter.js';
 export { WebAdapter, type WebChatMessage, type WebChatResponse } from './web.js';
 export {

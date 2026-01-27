@@ -64,6 +64,7 @@ describe('walletAuth store', () => {
     expect(state.isLoading).toBe(false);
     expect(state.isAuthenticated).toBe(false);
     expect(state.user).toBe(null);
+    expect(state.error).toContain('Signature was cancelled');
     expect(state.error).toContain('User rejected');
 
     const calledVerify = (fetchMock.mock.calls as any[]).some((call) => String(call[0]).includes('/auth/verify'));
