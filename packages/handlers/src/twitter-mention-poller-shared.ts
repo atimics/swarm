@@ -68,6 +68,19 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
 
   await initialize();
 
+  // Global backoff used to recover from Twitter API rate limits (429).
+  const globalUsage = await twitterUsageService.getGlobalUsage();
+  if (globalUsage.backoffUntil && globalUsage.backoffUntil > Date.now()) {
+    logger.warn('Skipping Twitter mention poll due to global backoff', {
+      event: 'handler_skipped',
+      subsystem: 'twitter',
+      reason: 'rate_limited_backoff',
+      backoffUntil: new Date(globalUsage.backoffUntil).toISOString(),
+      consecutive429s: globalUsage.consecutive429s || 0,
+    });
+    return;
+  }
+
   // Check global budget before proceeding
   const budget = await twitterUsageService.getRemainingBudget();
   if (budget.daily <= 0) {
@@ -117,6 +130,22 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
   // Calculate budget-aware polling parameters
   const pollConfig = twitterUsageService.getPollConfig(twitterAvatarIds.length);
   const perAvatarLimit = Math.max(5, Math.min(pollConfig.maxMentionsPerPoll, 20));
+
+  // Enforce a minimum poll interval regardless of EventBridge schedule.
+  const pollIntervalMs = pollConfig.pollIntervalMinutes * 60 * 1000;
+  if (globalUsage.lastPollAt && Date.now() - globalUsage.lastPollAt < pollIntervalMs) {
+    logger.info('Skipping Twitter mention poll due to poll interval throttle', {
+      event: 'handler_skipped',
+      subsystem: 'twitter',
+      reason: 'poll_interval_throttle',
+      pollIntervalMinutes: pollConfig.pollIntervalMinutes,
+      lastPollAt: new Date(globalUsage.lastPollAt).toISOString(),
+    });
+    return;
+  }
+
+  // Mark poll attempt early so concurrent invocations don't fan out.
+  await twitterUsageService.recordPollAttempt();
 
   logger.info('Shared Twitter mention poller started', {
     event: 'handler_started',
@@ -353,10 +382,29 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
         mentionsFiltered: avatarFiltered,
       });
     } catch (error) {
+      const errorMessage = (error as any)?.message || String(error);
+      const is429 = /\b429\b/.test(errorMessage)
+        || (error as any)?.code === 429
+        || (error as any)?.status === 429
+        || (error as any)?.statusCode === 429;
+
+      if (is429) {
+        const { backoffUntil, consecutive429s } = await twitterUsageService.recordRateLimited();
+        logger.warn('Twitter API rate-limited (429). Backing off globally.', {
+          event: 'rate_limited',
+          subsystem: 'twitter',
+          avatarId,
+          backoffUntil: new Date(backoffUntil).toISOString(),
+          consecutive429s,
+        });
+        break;
+      }
+
       logger.error('Failed to poll Twitter mentions for avatar', error, {
         event: 'handler_error',
         subsystem: 'twitter',
         avatarId,
+        errorMessage,
       });
     }
   }

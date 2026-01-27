@@ -33,6 +33,19 @@ export interface GlobalTwitterUsage {
   monthKey: string;      // '2024-01' for monthly reset
   dayKey: string;        // '2024-01-15' for daily tracking
   lastPollAt: number;
+  /**
+   * Global backoff timestamp used when Twitter API returns 429.
+   * If set and in the future, pollers should skip polling.
+   */
+  backoffUntil?: number;
+  /**
+   * Count of consecutive 429 responses. Used to increase backoff.
+   */
+  consecutive429s?: number;
+  /**
+   * Timestamp of the last observed 429.
+   */
+  last429At?: number;
 }
 
 export interface TwitterBudget {
@@ -119,6 +132,9 @@ export class TwitterUsageService {
         monthKey,
         dayKey,
         lastPollAt: 0,
+        backoffUntil: undefined,
+        consecutive429s: 0,
+        last429At: undefined,
       };
     }
 
@@ -143,7 +159,107 @@ export class TwitterUsageService {
       monthKey,
       dayKey,
       lastPollAt: item.lastPollAt || 0,
+      backoffUntil: item.backoffUntil,
+      consecutive429s: item.consecutive429s || 0,
+      last429At: item.last429At,
     };
+  }
+
+  /**
+   * Record that a poll attempt occurred (even if 0 tweets were returned).
+   * This is used to throttle polling frequency when the EventBridge schedule
+   * is more frequent than our desired poll interval.
+   */
+  async recordPollAttempt(): Promise<void> {
+    const { monthKey, dayKey } = this.getDateKeys();
+    const now = Date.now();
+
+    await this.docClient.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: {
+        pk: 'TWITTER_USAGE',
+        sk: 'GLOBAL',
+      },
+      UpdateExpression: `
+        SET monthKey = :monthKey,
+            dayKey = :dayKey,
+            lastPollAt = :now,
+            tier = if_not_exists(tier, :tier),
+            monthlyBudget = if_not_exists(monthlyBudget, :budget),
+            consecutive429s = if_not_exists(consecutive429s, :zero),
+            updatedAt = :now
+      `,
+      ExpressionAttributeValues: {
+        ':monthKey': monthKey,
+        ':dayKey': dayKey,
+        ':now': now,
+        ':tier': this.config.tier,
+        ':budget': this.config.monthlyBudget || TIER_BUDGETS[this.config.tier],
+        ':zero': 0,
+      },
+    }));
+  }
+
+  /**
+   * Record a 429 rate-limit event and set a global backoff window.
+   * Twitter rate limits commonly reset on 15-minute boundaries.
+   */
+  async recordRateLimited(): Promise<{ backoffUntil: number; consecutive429s: number }> {
+    const { monthKey, dayKey } = this.getDateKeys();
+    const now = Date.now();
+
+    // Use a base 15-minute backoff; increase for repeated 429s (up to 60 minutes).
+    const result = await this.docClient.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: {
+        pk: 'TWITTER_USAGE',
+        sk: 'GLOBAL',
+      },
+      UpdateExpression: `
+        SET monthKey = :monthKey,
+            dayKey = :dayKey,
+            last429At = :now,
+            consecutive429s = if_not_exists(consecutive429s, :zero) + :one,
+            tier = if_not_exists(tier, :tier),
+            monthlyBudget = if_not_exists(monthlyBudget, :budget),
+            updatedAt = :now
+      `,
+      ExpressionAttributeValues: {
+        ':monthKey': monthKey,
+        ':dayKey': dayKey,
+        ':now': now,
+        ':zero': 0,
+        ':one': 1,
+        ':tier': this.config.tier,
+        ':budget': this.config.monthlyBudget || TIER_BUDGETS[this.config.tier],
+      },
+      ReturnValues: 'ALL_NEW',
+    }));
+
+    const next = (result.Attributes || {}) as Partial<GlobalTwitterUsage>;
+    const consecutive429s = next.consecutive429s || 1;
+    const multiplier = Math.min(4, Math.max(1, consecutive429s));
+    const baseMs = 15 * 60 * 1000;
+    const backoffUntil = now + baseMs * multiplier;
+
+    await this.docClient.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: {
+        pk: 'TWITTER_USAGE',
+        sk: 'GLOBAL',
+      },
+      UpdateExpression: `
+        SET backoffUntil = :backoffUntil,
+            lastPollAt = :now,
+            updatedAt = :now
+      `,
+      ExpressionAttributeValues: {
+        ':backoffUntil': backoffUntil,
+        ':now': now,
+      },
+    }));
+
+    return { backoffUntil, consecutive429s };
   }
 
   /**

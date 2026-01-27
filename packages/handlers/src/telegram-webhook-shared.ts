@@ -305,6 +305,11 @@ export function isTelegramChatAllowed(
     allowedChatIds?: string[];
     allowedChats?: Array<{ chatId: string }>;
     homeChannelId?: string;
+    /** Allow all DMs (intended for admin/system bots only). */
+    allowAllDms?: boolean;
+    /** @deprecated Prefer allowedDmUsers for richer display info */
+    allowedDmUserIds?: string[];
+    allowedDmUsers?: Array<{ userId: string | number }>;
   } | undefined,
   homeChannelChecker?: HomeChannelChecker
 ): boolean | Promise<boolean> {
@@ -316,10 +321,25 @@ export function isTelegramChatAllowed(
     return telegramCfg?.allowedChatIds;
   };
 
-  // DMs are handled separately before this check - they go to admin service
-  // This function is now only for groups/channels
+  const getAllowedDmUserIds = (): string[] | undefined => {
+    // New format takes precedence if present (even if empty).
+    if (telegramCfg && 'allowedDmUsers' in telegramCfg) {
+      return telegramCfg.allowedDmUsers?.map((u) => String(u.userId)) || [];
+    }
+    return telegramCfg?.allowedDmUserIds;
+  };
+
   if (envelope.metadata.chatType === 'private') {
-    return true; // DMs allowed - handled by admin service
+    if (telegramCfg?.allowAllDms) return true;
+
+    const allowedDmUserIds = getAllowedDmUserIds();
+    const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
+
+    if (!allowedDmUserIds || allowedDmUserIds.length === 0) {
+      return false;
+    }
+
+    return allowedDmUserIds.includes(senderId);
   }
 
   // Groups/channels: use home channel logic if checker is provided
