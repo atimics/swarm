@@ -160,6 +160,26 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: deploy-cdk-${{ needs.setup.outputs.environment }}
 
+      - name: Verify AWS account for environment
+        run: |
+          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
+
+          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for production"
+              exit 1
+            fi
+            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
+            exit 0
+          fi
+
+          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::error::Wrong AWS account for ${{ needs.setup.outputs.environment }} (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
+            exit 1
+          fi
+
       - name: Download CDK context from S3
         working-directory: packages/infra
         env:
@@ -311,6 +331,26 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: stack-outputs-${{ needs.setup.outputs.environment }}
 
+      - name: Verify AWS account for environment
+        run: |
+          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
+
+          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for production"
+              exit 1
+            fi
+            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
+            exit 0
+          fi
+
+          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::error::Wrong AWS account for ${{ needs.setup.outputs.environment }} (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
+            exit 1
+          fi
+
       - name: Get stack outputs
         id: outputs
         env:
@@ -353,6 +393,26 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: deploy-ui-${{ needs.setup.outputs.environment }}
 
+      - name: Verify AWS account for environment
+        run: |
+          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
+
+          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for production"
+              exit 1
+            fi
+            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
+            exit 0
+          fi
+
+          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::error::Wrong AWS account for ${{ needs.setup.outputs.environment }} (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
+            exit 1
+          fi
+
       - name: Deploy to S3
         run: |
           BUCKET="${{ needs.cdk-deploy.outputs.bucket || needs.stack-outputs.outputs.bucket }}"
@@ -394,6 +454,22 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: e2e-staging
+
+      - name: Verify AWS account for environment
+        run: |
+          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
+
+          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
+            exit 0
+          fi
+
+          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::error::Wrong AWS account for staging (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
+            exit 1
+          fi
 
       - name: Validate E2E inputs
         run: |
@@ -446,6 +522,22 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: browser-staging
+
+      - name: Verify AWS account for environment
+        run: |
+          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
+
+          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
+            exit 0
+          fi
+
+          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::error::Wrong AWS account for staging (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
+            exit 1
+          fi
 
       - name: Run Browser Tests
         run: node scripts/test-browser.mjs staging

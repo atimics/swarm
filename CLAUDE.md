@@ -197,6 +197,7 @@ pnpm -r test
 
 ```yaml
 AWS_ROLE_ARN: arn:aws:iam::ACCOUNT:role/aws-swarm-github-actions
+AWS_ACCOUNT_ID: "123456789012"  # set per GitHub environment (staging vs production)
 ADMIN_API_URL: https://xxx.execute-api.region.amazonaws.com
 ADMIN_UI_BUCKET: swarm-admin-ui-bucket
 CLOUDFRONT_DISTRIBUTION_ID: EXXXXXXXXXX

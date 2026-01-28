@@ -57,7 +57,8 @@ Go to **Settings > Secrets and variables > Actions** in your GitHub repository a
 
 | Secret Name | Description |
 |-------------|-------------|
-| `AWS_ROLE_ARN` | ARN of the IAM role from step 1 |
+| `AWS_ROLE_ARN` | ARN of the IAM role from step 1 (recommended: set per-environment, see below) |
+| `AWS_ACCOUNT_ID` | Expected AWS account ID for the environment (used as a safety guard in workflows) |
 | `ADMIN_API_URL` | URL of the deployed Admin API (after first deploy) |
 | `ADMIN_UI_BUCKET` | S3 bucket name for Admin UI static files |
 | `CLOUDFRONT_DISTRIBUTION_ID` | (Optional) CloudFront distribution ID for cache invalidation |
@@ -67,6 +68,13 @@ Go to **Settings > Secrets and variables > Actions** in your GitHub repository a
 Create two environments in **Settings > Environments**:
 - `staging` - For testing deployments
 - `production` - For production deployments (add required reviewers)
+
+For multi-account setups (recommended):
+- Set `AWS_ROLE_ARN` and `AWS_ACCOUNT_ID` as **environment secrets** on each environment.
+  - `staging` → role/account in the staging AWS account
+  - `production` → role/account in the production AWS account
+
+This prevents accidental production deploys into the staging account.
 
 ### 4. Bootstrap CDK
 
@@ -80,8 +88,9 @@ npx cdk bootstrap aws://ACCOUNT_ID/us-east-1
 ## Required Secrets Summary
 
 ```yaml
-# Required for all deployments
+# Recommended: set these as GitHub *environment secrets* (staging vs production)
 AWS_ROLE_ARN: arn:aws:iam::ACCOUNT_ID:role/aws-swarm-github-actions
+AWS_ACCOUNT_ID: "123456789012"
 
 # Required for Admin UI deployment
 ADMIN_API_URL: https://xxx.execute-api.us-east-1.amazonaws.com

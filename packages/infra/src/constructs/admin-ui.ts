@@ -34,6 +34,14 @@ export interface AdminUiProps {
    * When set, CloudFront will forward /api/* requests to this origin (same-origin API).
    */
   apiDomain?: string;
+
+  /**
+   * Whether to include wildcard aliases (e.g. '*.rati.chat') on the CloudFront distribution.
+   *
+   * Default: enabled only for `prod`. For staging, keep this off so production can own the
+   * wildcard in a separate account/distribution.
+   */
+  includeWildcardAliases?: boolean;
 }
 
 export class AdminUi extends Construct {
@@ -44,7 +52,7 @@ export class AdminUi extends Construct {
   constructor(scope: Construct, id: string, props: AdminUiProps) {
     super(scope, id);
 
-    const { environment, domainName, certificateArn, apiDomain, nameSuffix } = props;
+    const { environment, domainName, certificateArn, apiDomain, nameSuffix, includeWildcardAliases } = props;
     const suffix = nameSuffix ?? '';
 
     // S3 bucket for static hosting
@@ -77,13 +85,17 @@ export class AdminUi extends Construct {
       return `*.${baseDomain}`;
     };
 
+    const shouldIncludeWildcardAliases = includeWildcardAliases ?? environment === 'prod';
+
     const domainNames = domainName
       ? Array.from(
           new Set([
             domainName,
-            // Include wildcard so per-bot subdomains can resolve to the same distribution.
-            // Requires the ACM certificate to cover the wildcard.
-            ...(wildcardForDomain(domainName) ? [wildcardForDomain(domainName)!] : []),
+            // Wildcard is optional; only include it when we intend this distribution to serve
+            // arbitrary subdomains for the base domain.
+            ...(shouldIncludeWildcardAliases && wildcardForDomain(domainName)
+              ? [wildcardForDomain(domainName)!]
+              : []),
           ])
         )
       : undefined;
