@@ -191,6 +191,22 @@ export class AdminUi extends Construct {
       defaultRootObject: 'index.html',
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       comment: `Admin UI - ${environment}`,
+      // Custom error responses for SPA routing fallback
+      // If S3 returns 403/404 for a path, serve index.html instead (for client-side routing)
+      errorResponses: [
+        {
+          httpStatus: 403,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+          ttl: cdk.Duration.seconds(0),
+        },
+        {
+          httpStatus: 404,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+          ttl: cdk.Duration.seconds(0),
+        },
+      ],
     });
 
     // Set domain URL
