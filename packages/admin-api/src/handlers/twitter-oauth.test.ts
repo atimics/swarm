@@ -89,6 +89,7 @@ describe('Twitter OAuth Handler', () => {
   let mockUpdateAvatar: ReturnType<typeof mock>;
   let mockAuthenticateRequest: ReturnType<typeof mock>;
   let mockRequireAdmin: ReturnType<typeof mock>;
+  let mockGetWalletAddress: ReturnType<typeof mock>;
 
   beforeEach(() => {
     // Create fresh mocks for each test
@@ -121,6 +122,7 @@ describe('Twitter OAuth Handler', () => {
     mockUpdateAvatar = mock(() => Promise.resolve(createMockAvatar('test-avatar')));
     mockAuthenticateRequest = mock(() => Promise.resolve(createTestSession()));
     mockRequireAdmin = mock(() => true);
+    mockGetWalletAddress = mock(() => Promise.resolve('admin-wallet-123'));
 
     mockDeps = {
       twitterOAuth: {
@@ -138,6 +140,7 @@ describe('Twitter OAuth Handler', () => {
       auth: {
         authenticateRequest: mockAuthenticateRequest as unknown as TwitterOAuthHandlerDeps['auth']['authenticateRequest'],
         requireAdmin: mockRequireAdmin as unknown as TwitterOAuthHandlerDeps['auth']['requireAdmin'],
+        getWalletAddress: mockGetWalletAddress as unknown as TwitterOAuthHandlerDeps['auth']['getWalletAddress'],
       },
     };
   });
@@ -252,6 +255,7 @@ describe('Twitter OAuth Handler', () => {
       const creatorWallet = 'creator-wallet-abc';
       mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession(creatorWallet)));
       mockRequireAdmin.mockImplementation(() => false);
+      mockGetWalletAddress.mockImplementation(() => Promise.resolve(creatorWallet));
       mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', { creatorWallet })));
 
       const event = createEvent({
@@ -269,6 +273,7 @@ describe('Twitter OAuth Handler', () => {
       const inhabitantWallet = 'inhabitant-wallet-xyz';
       mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession(inhabitantWallet)));
       mockRequireAdmin.mockImplementation(() => false);
+      mockGetWalletAddress.mockImplementation(() => Promise.resolve(inhabitantWallet));
       mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', { inhabitantWallet })));
 
       const event = createEvent({
@@ -285,6 +290,7 @@ describe('Twitter OAuth Handler', () => {
     it('returns 403 when non-owner tries to start OAuth', async () => {
       mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession('other-wallet')));
       mockRequireAdmin.mockImplementation(() => false);
+      mockGetWalletAddress.mockImplementation(() => Promise.resolve('other-wallet'));
       mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', {
         creatorWallet: 'creator-wallet',
         inhabitantWallet: 'inhabitant-wallet',
@@ -546,6 +552,7 @@ describe('Twitter OAuth Handler', () => {
       const creatorWallet = 'creator-wallet-abc';
       mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession(creatorWallet)));
       mockRequireAdmin.mockImplementation(() => false);
+      mockGetWalletAddress.mockImplementation(() => Promise.resolve(creatorWallet));
       mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', { creatorWallet })));
 
       const event = createEvent({
@@ -562,6 +569,7 @@ describe('Twitter OAuth Handler', () => {
     it('returns 403 when non-owner tries to view status', async () => {
       mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession('other-wallet')));
       mockRequireAdmin.mockImplementation(() => false);
+      mockGetWalletAddress.mockImplementation(() => Promise.resolve('other-wallet'));
       mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', {
         creatorWallet: 'creator-wallet',
         inhabitantWallet: 'inhabitant-wallet',
@@ -643,6 +651,7 @@ describe('Twitter OAuth Handler', () => {
       const creatorWallet = 'creator-wallet-abc';
       mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession(creatorWallet)));
       mockRequireAdmin.mockImplementation(() => false);
+      mockGetWalletAddress.mockImplementation(() => Promise.resolve(creatorWallet));
       mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', { creatorWallet })));
 
       const event = createEvent({
@@ -663,6 +672,7 @@ describe('Twitter OAuth Handler', () => {
     it('returns 403 when non-owner tries to disconnect', async () => {
       mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession('other-wallet')));
       mockRequireAdmin.mockImplementation(() => false);
+      mockGetWalletAddress.mockImplementation(() => Promise.resolve('other-wallet'));
       mockGetAvatar.mockImplementation(() => Promise.resolve(createMockAvatar('test-avatar', {
         creatorWallet: 'creator-wallet',
         inhabitantWallet: 'inhabitant-wallet',

@@ -14,6 +14,8 @@ import type {
   APIGatewayProxyStructuredResultV2,
 } from 'aws-lambda';
 import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
+import { getSessionFromCookie } from '../auth/session-cookie.js';
+import { getSessionWithUser } from '../services/wallet-auth.js';
 import {
   isConfigured as twitterIsConfigured,
   probeOAuthStart as twitterProbeOAuthStart,
@@ -60,23 +62,36 @@ export interface TwitterOAuthHandlerDeps {
   auth: {
     authenticateRequest: (event: APIGatewayProxyEventV2) => Promise<UserSession>;
     requireAdmin: (session: UserSession) => boolean;
+    getWalletAddress: (event: APIGatewayProxyEventV2) => Promise<string | null>;
   };
 }
 
 /**
  * Check if a user can manage an avatar (admin OR creator OR inhabitant)
- * Note: For wallet auth, session.userId contains the wallet address.
  */
-function canManageAvatar(session: UserSession, avatar: AvatarRecord, requireAdminFn: (s: UserSession) => boolean): boolean {
+function canManageAvatar(
+  session: UserSession,
+  avatar: AvatarRecord,
+  walletAddress: string | null,
+  requireAdminFn: (s: UserSession) => boolean
+): boolean {
   if (requireAdminFn(session)) {
     return true;
   }
-  // For wallet-authenticated sessions, userId contains the wallet address
-  const walletAddress = session.userId;
   if (!walletAddress) {
     return false;
   }
   return avatar.creatorWallet === walletAddress || avatar.inhabitantWallet === walletAddress;
+}
+
+/**
+ * Get wallet address from session cookie
+ */
+async function getWalletAddressFromEvent(event: APIGatewayProxyEventV2): Promise<string | null> {
+  const sessionToken = getSessionFromCookie(event);
+  if (!sessionToken) return null;
+  const session = await getSessionWithUser(sessionToken);
+  return session?.walletAddress ?? null;
 }
 
 // Create default dependencies lazily to avoid issues with namespace imports at module load time
@@ -97,6 +112,7 @@ function getDefaultDeps(): TwitterOAuthHandlerDeps {
     auth: {
       authenticateRequest,
       requireAdmin,
+      getWalletAddress: getWalletAddressFromEvent,
     },
   };
 }
@@ -163,6 +179,7 @@ export async function handler(
     if (method === 'GET' && path === '/oauth/twitter/start') {
       // Require authentication for start to prevent unauthorized account linking.
       const session = await auth.authenticateRequest(event);
+      const walletAddress = await auth.getWalletAddress(event);
 
       const avatarId = event.queryStringParameters?.avatarId;
       const reconnect = event.queryStringParameters?.reconnect === '1' || event.queryStringParameters?.reconnect === 'true';
@@ -185,7 +202,7 @@ export async function handler(
       }
 
       // Allow admin OR avatar owner (creator/inhabitant) to connect Twitter
-      if (!canManageAvatar(session, avatar, auth.requireAdmin)) {
+      if (!canManageAvatar(session, avatar, walletAddress, auth.requireAdmin)) {
         return {
           statusCode: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -310,6 +327,7 @@ export async function handler(
     const statusMatch = path.match(/^\/oauth\/twitter\/status\/([^/]+)$/);
     if (method === 'GET' && statusMatch) {
       const session = await auth.authenticateRequest(event);
+      const walletAddress = await auth.getWalletAddress(event);
       const avatarId = statusMatch[1];
 
       const avatar = await avatarService.getAvatar(avatarId);
@@ -321,7 +339,7 @@ export async function handler(
         };
       }
 
-      if (!canManageAvatar(session, avatar, auth.requireAdmin)) {
+      if (!canManageAvatar(session, avatar, walletAddress, auth.requireAdmin)) {
         return {
           statusCode: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -342,6 +360,7 @@ export async function handler(
     const disconnectMatch = path.match(/^\/oauth\/twitter\/([^/]+)$/);
     if (method === 'DELETE' && disconnectMatch) {
       const session = await auth.authenticateRequest(event);
+      const walletAddress = await auth.getWalletAddress(event);
       const avatarId = disconnectMatch[1];
 
       const avatar = await avatarService.getAvatar(avatarId);
@@ -353,7 +372,7 @@ export async function handler(
         };
       }
 
-      if (!canManageAvatar(session, avatar, auth.requireAdmin)) {
+      if (!canManageAvatar(session, avatar, walletAddress, auth.requireAdmin)) {
         return {
           statusCode: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
