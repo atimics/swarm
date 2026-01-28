@@ -57,3 +57,4 @@ secrets.json
 auth-profiles.json
 proxim8_nfts.db
 issues/*
+audit/

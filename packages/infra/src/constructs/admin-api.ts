@@ -216,6 +216,7 @@ export class AdminApiConstruct extends Construct {
     const secretPrefix = props.secretPrefix ?? 'swarm';
 
     const isProd = environment === 'prod' || environment === 'production';
+    const isPersistentEnv = isProd || environment === 'staging';
 
     // In production, cap non-Orb authenticated access to the top N most recent logins.
     // Orb holders bypass this limit (enforced in the admin-api auth layer).
@@ -254,8 +255,10 @@ export class AdminApiConstruct extends Construct {
         partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
         sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
         billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-        removalPolicy: isProd
-          ? cdk.RemovalPolicy.RETAIN 
+        // Staging contains real state we often want to preserve while iterating on infra.
+        // This also enables safe cleanup of legacy stacks without data loss.
+        removalPolicy: isPersistentEnv
+          ? cdk.RemovalPolicy.RETAIN
           : cdk.RemovalPolicy.DESTROY,
         pointInTimeRecoverySpecification: {
           pointInTimeRecoveryEnabled: isProd,

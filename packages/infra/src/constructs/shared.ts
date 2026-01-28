@@ -66,6 +66,7 @@ export class SharedInfrastructure extends Construct {
 
     const { environment, enableCdn = true, layerCodePath, cdnDomain, cdnCertificateArn, nameSuffix } = props;
     const suffix = nameSuffix ?? '';
+    const isPersistentEnv = environment === 'prod' || environment === 'production' || environment === 'staging';
 
     // State table (multi-tenant)
     this.stateTable = new dynamodb.Table(this, 'StateTable', {
@@ -73,8 +74,8 @@ export class SharedInfrastructure extends Construct {
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: environment === 'prod' 
-        ? cdk.RemovalPolicy.RETAIN 
+      removalPolicy: isPersistentEnv
+        ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
       timeToLiveAttribute: 'ttl',
     });
@@ -93,8 +94,8 @@ export class SharedInfrastructure extends Construct {
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: environment === 'prod' 
-        ? cdk.RemovalPolicy.RETAIN 
+      removalPolicy: isPersistentEnv
+        ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
       timeToLiveAttribute: 'ttl',
     });
@@ -102,10 +103,10 @@ export class SharedInfrastructure extends Construct {
     // Media bucket
     this.mediaBucket = new s3.Bucket(this, 'MediaBucket', {
       bucketName: `swarm-media-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`,
-      removalPolicy: environment === 'prod' 
-        ? cdk.RemovalPolicy.RETAIN 
+      removalPolicy: isPersistentEnv
+        ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: environment !== 'prod',
+      autoDeleteObjects: !isPersistentEnv,
       cors: [
         {
           allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT],
