@@ -266,7 +266,9 @@ jobs:
         id: diff
         working-directory: packages/infra
         env:
-          SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          # Default to split stacks for staging on push-to-main.
+          # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
+          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && inputs.split_stacks || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
           ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
@@ -328,7 +330,9 @@ jobs:
         if: steps.diff.outputs.skip != 'true'
         working-directory: packages/infra
         env:
-          SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          # Default to split stacks for staging on push-to-main.
+          # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
+          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && inputs.split_stacks || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
           ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
@@ -363,7 +367,9 @@ jobs:
       - name: Get stack outputs
         id: outputs
         env:
-          SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          # Default to split stacks for staging on push-to-main.
+          # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
+          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && inputs.split_stacks || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
@@ -472,7 +478,9 @@ jobs:
       - name: Get stack outputs
         id: outputs
         env:
-          SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          # Default to split stacks for staging on push-to-main.
+          # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
+          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && inputs.split_stacks || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
