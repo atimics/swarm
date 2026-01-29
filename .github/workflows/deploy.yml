@@ -216,6 +216,7 @@ jobs:
           SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
+          ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
         run: |
           # Safety: when migrating staging to split stacks (no stack_hash), shared resources already exist.
           # Auto-enable adoption mode to avoid early validation failures.
@@ -223,10 +224,24 @@ jobs:
             USE_EXISTING_SHARED_RESOURCES="true"
           fi
 
+          # Ensure we always use the correct admin domain + cert per environment.
+          # This prevents cross-account ACM ARNs in shared cdk.context.json from breaking prod.
+          ADMIN_DOMAIN=$(echo "${{ needs.setup.outputs.admin_url }}" | sed -E 's|^https?://||' | cut -d/ -f1)
+          EXTRA_CONTEXT_ARGS="-c adminDomain=${ADMIN_DOMAIN}"
+
+          if [ "${{ needs.setup.outputs.environment }}" = "production" ] && [ -z "$ADMIN_CERTIFICATE_ARN" ]; then
+            echo "::error::Missing required environment secret ADMIN_CERTIFICATE_ARN for production"
+            exit 1
+          fi
+
+          if [ -n "$ADMIN_CERTIFICATE_ARN" ]; then
+            EXTRA_CONTEXT_ARGS="${EXTRA_CONTEXT_ARGS} -c adminCertificateArn=${ADMIN_CERTIFICATE_ARN}"
+          fi
+
           STACK="${{ inputs.stack }}"
           echo "Checking for infrastructure changes..."
           set +e
-          npx cdk diff ${STACK:-'--all'} -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c stackHash=$STACK_HASH 2>&1 | tee diff-output.txt
+          npx cdk diff ${STACK:-'--all'} -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
           DIFF_EXIT=$?
           set -e
           
@@ -247,6 +262,7 @@ jobs:
           SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
+          ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
         run: |
           # Safety: when migrating staging to split stacks (no stack_hash), shared resources already exist.
           # Auto-enable adoption mode to avoid early validation failures.
@@ -254,9 +270,22 @@ jobs:
             USE_EXISTING_SHARED_RESOURCES="true"
           fi
 
+          # Ensure we always use the correct admin domain + cert per environment.
+          ADMIN_DOMAIN=$(echo "${{ needs.setup.outputs.admin_url }}" | sed -E 's|^https?://||' | cut -d/ -f1)
+          EXTRA_CONTEXT_ARGS="-c adminDomain=${ADMIN_DOMAIN}"
+
+          if [ "${{ needs.setup.outputs.environment }}" = "production" ] && [ -z "$ADMIN_CERTIFICATE_ARN" ]; then
+            echo "::error::Missing required environment secret ADMIN_CERTIFICATE_ARN for production"
+            exit 1
+          fi
+
+          if [ -n "$ADMIN_CERTIFICATE_ARN" ]; then
+            EXTRA_CONTEXT_ARGS="${EXTRA_CONTEXT_ARGS} -c adminCertificateArn=${ADMIN_CERTIFICATE_ARN}"
+          fi
+
           HOTSWAP=${{ needs.setup.outputs.cdk_env == 'staging' && '--hotswap-fallback' || '' }}
           STACK="${{ inputs.stack }}"
-          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c stackHash=$STACK_HASH
+          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
 
       - name: Skip Deploy (no changes)
         if: steps.diff.outputs.skip == 'true'
