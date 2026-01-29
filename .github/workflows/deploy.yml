@@ -273,6 +273,12 @@ jobs:
           STACK_HASH: ${{ inputs.stack_hash || '' }}
           ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
         run: |
+          # Staging uses split stacks but shares the legacy shared resources (tables/bucket/cluster).
+          # Auto-enable adoption mode when deploying staging split stacks without a suffix.
+          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
           # Ensure we always use the correct admin domain + cert per environment.
           # This prevents cross-account ACM ARNs in shared cdk.context.json from breaking prod.
           ADMIN_DOMAIN=$(echo "${{ needs.setup.outputs.admin_url }}" | sed -E 's|^https?://||' | cut -d/ -f1)
@@ -331,6 +337,12 @@ jobs:
           STACK_HASH: ${{ inputs.stack_hash || '' }}
           ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
         run: |
+          # Staging uses split stacks but shares the legacy shared resources (tables/bucket/cluster).
+          # Auto-enable adoption mode when deploying staging split stacks without a suffix.
+          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
           # Ensure we always use the correct admin domain + cert per environment.
           ADMIN_DOMAIN=$(echo "${{ needs.setup.outputs.admin_url }}" | sed -E 's|^https?://||' | cut -d/ -f1)
           EXTRA_CONTEXT_ARGS="-c adminDomain=${ADMIN_DOMAIN}"
@@ -361,6 +373,12 @@ jobs:
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
+          # In migration mode (staging split stacks without stack_hash), the infra uses a '-split'
+          # suffix for non-shared resource names/exports to avoid colliding with legacy exports.
+          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
           STACK_HASH_SUFFIX=""
           if [ -n "$STACK_HASH" ]; then
             STACK_HASH_SUFFIX="-$STACK_HASH"
@@ -466,6 +484,12 @@ jobs:
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
+          # In migration mode (staging split stacks without stack_hash), the infra uses a '-split'
+          # suffix for non-shared resource names/exports to avoid colliding with legacy exports.
+          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
           STACK_HASH_SUFFIX=""
           if [ -n "$STACK_HASH" ]; then
             STACK_HASH_SUFFIX="-$STACK_HASH"
