@@ -226,19 +226,18 @@ export class MessageProcessor {
     config: ProcessorConfig,
     options: ProcessorOptions
   ): Promise<string> {
-    // Use custom prompt if provided
-    if (options.customSystemPrompt) {
-      return options.customSystemPrompt;
-    }
+    // Base prompt: custom prompt override if provided, otherwise build based on platform.
+    // Note: we still inject dreams/memory below even for custom prompts.
+    let systemPrompt: string = options.customSystemPrompt || '';
 
-    // Build base prompt based on platform
-    let systemPrompt: string;
-    if (config.platform === 'admin-ui' || config.platform === 'api') {
-      // Full dynamic prompt for admin UI
-      systemPrompt = buildDynamicSystemPrompt(avatar, config.platform);
-    } else {
-      // Shorter chat-optimized prompt for messaging platforms
-      systemPrompt = buildChatSystemPrompt(avatar, config.platform as 'telegram' | 'discord' | 'twitter' | 'web');
+    if (!systemPrompt) {
+      if (config.platform === 'admin-ui' || config.platform === 'api') {
+        // Full dynamic prompt for admin UI
+        systemPrompt = buildDynamicSystemPrompt(avatar, config.platform);
+      } else {
+        // Shorter chat-optimized prompt for messaging platforms
+        systemPrompt = buildChatSystemPrompt(avatar, config.platform as 'telegram' | 'discord' | 'twitter' | 'web');
+      }
     }
 
     // Inject dreams context if enabled
