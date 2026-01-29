@@ -333,20 +333,39 @@ jobs:
         id: outputs
         env:
           SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
-          STACK_SUFFIX=""
-          if [ -n "$STACK_HASH" ]; then
-            STACK_SUFFIX="-$STACK_HASH"
+          # In migration mode (staging split stacks without stack_hash), the infra uses a '-split'
+          # suffix for non-shared resource names/exports to avoid colliding with legacy exports.
+          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
           fi
+
+          STACK_HASH_SUFFIX=""
+          if [ -n "$STACK_HASH" ]; then
+            STACK_HASH_SUFFIX="-$STACK_HASH"
+          fi
+
+          STACK_ID_SUFFIX=""
+          if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
+            STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
+          fi
+
+          EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
+          if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
+            EXPORT_SUFFIX="-split"
+          fi
+
           # Use UI stack for split stacks, monolithic stack otherwise
           if [ "$SPLIT_STACKS" = "true" ]; then
-            STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
+            STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
           else
-            STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
+            STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
           fi
-          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+
+          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
 
   # Admin UI build (runs in parallel with CDK)
   admin-ui-build:
@@ -423,20 +442,39 @@ jobs:
         id: outputs
         env:
           SPLIT_STACKS: ${{ inputs.split_stacks || 'false' }}
+          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
         run: |
-          STACK_SUFFIX=""
-          if [ -n "$STACK_HASH" ]; then
-            STACK_SUFFIX="-$STACK_HASH"
+          # In migration mode (staging split stacks without stack_hash), the infra uses a '-split'
+          # suffix for non-shared resource names/exports to avoid colliding with legacy exports.
+          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
           fi
+
+          STACK_HASH_SUFFIX=""
+          if [ -n "$STACK_HASH" ]; then
+            STACK_HASH_SUFFIX="-$STACK_HASH"
+          fi
+
+          STACK_ID_SUFFIX=""
+          if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
+            STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
+          fi
+
+          EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
+          if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
+            EXPORT_SUFFIX="-split"
+          fi
+
           # Use UI stack for split stacks, monolithic stack otherwise
           if [ "$SPLIT_STACKS" = "true" ]; then
-            STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
+            STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
           else
-            STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
+            STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
           fi
-          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+
+          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
 
   admin-ui-deploy:
     name: Deploy Admin UI
