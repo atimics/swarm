@@ -92,19 +92,39 @@ function getAllowedDmUserIdsForAdmin(telegramCfg: {
 async function isTelegramUserOwnerOfAvatar(telegramUserId: string, avatarId: string): Promise<boolean> {
   if (!ADMIN_TABLE) return false;
 
-  const result = await dynamoClient.send(
+  // New format: one record per avatar.
+  // Key: pk=TELEGRAM_USER#{telegramUserId}, sk=CREATED_BOT#{avatarId}
+  // Legacy format (back-compat): pk=TELEGRAM_USER#{telegramUserId}, sk=CREATED_BOT
+  const newKeyResult = await dynamoClient.send(
+    new GetCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: `TELEGRAM_USER#${telegramUserId}`,
+        sk: `CREATED_BOT#${avatarId}`,
+      },
+      ProjectionExpression: 'avatarId, avatarIds',
+    })
+  );
+
+  if (newKeyResult.Item) return true;
+
+  const legacyResult = await dynamoClient.send(
     new GetCommand({
       TableName: ADMIN_TABLE,
       Key: {
         pk: `TELEGRAM_USER#${telegramUserId}`,
         sk: 'CREATED_BOT',
       },
-      ProjectionExpression: 'avatarId',
+      ProjectionExpression: 'avatarId, avatarIds',
     })
   );
 
-  const ownedAvatarId = (result.Item as { avatarId?: string } | undefined)?.avatarId;
-  return ownedAvatarId === avatarId;
+  const legacy = legacyResult.Item as { avatarId?: string; avatarIds?: string[] } | undefined;
+  if (!legacy) return false;
+
+  if (legacy.avatarId) return legacy.avatarId === avatarId;
+  if (Array.isArray(legacy.avatarIds)) return legacy.avatarIds.includes(avatarId);
+  return false;
 }
 
 export function mergeAllowedChats(

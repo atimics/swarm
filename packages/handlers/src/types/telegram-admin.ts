@@ -117,8 +117,9 @@ export interface ConfirmationStateData {
 // =============================================================================
 
 /**
- * User bot registry record - enforces one bot per Telegram user
- * Key: pk=TELEGRAM_USER#{telegramUserId}, sk=CREATED_BOT
+ * User bot registry record.
+ * Key (new): pk=TELEGRAM_USER#{telegramUserId}, sk=CREATED_BOT#{avatarId}
+ * Key (legacy/back-compat): pk=TELEGRAM_USER#{telegramUserId}, sk=CREATED_BOT
  */
 export interface TelegramUserBotRecord {
   pk: string;

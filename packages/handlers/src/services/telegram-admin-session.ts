@@ -253,15 +253,33 @@ export function createTelegramAdminSessionService(tableName: string) {
      * Check if user has already created a bot
      */
     async getUserBot(telegramUserId: string): Promise<TelegramUserBotRecord | null> {
-      const result = await dynamoClient.send(new GetCommand({
+      // New format: store one record per avatar (sk=CREATED_BOT#{avatarId}).
+      // This getter returns the most recently created record (by createdAt) to preserve
+      // the existing UX, while allowing users to own multiple bots.
+      const result = await dynamoClient.send(new QueryCommand({
         TableName: tableName,
-        Key: {
-          pk: `TELEGRAM_USER#${telegramUserId}`,
-          sk: 'CREATED_BOT',
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :skPrefix)',
+        ExpressionAttributeValues: {
+          ':pk': `TELEGRAM_USER#${telegramUserId}`,
+          ':skPrefix': 'CREATED_BOT#',
         },
       }));
 
-      return (result.Item as TelegramUserBotRecord) || null;
+      const items = (result.Items as TelegramUserBotRecord[] | undefined) || [];
+      if (items.length === 0) {
+        // Legacy fallback (back-compat)
+        const legacy = await dynamoClient.send(new GetCommand({
+          TableName: tableName,
+          Key: {
+            pk: `TELEGRAM_USER#${telegramUserId}`,
+            sk: 'CREATED_BOT',
+          },
+        }));
+
+        return (legacy.Item as TelegramUserBotRecord) || null;
+      }
+
+      return items.reduce((best, item) => (item.createdAt > best.createdAt ? item : best), items[0]);
     },
 
     /**
@@ -277,7 +295,7 @@ export function createTelegramAdminSessionService(tableName: string) {
 
       const record: TelegramUserBotRecord = {
         pk: `TELEGRAM_USER#${telegramUserId}`,
-        sk: 'CREATED_BOT',
+        sk: `CREATED_BOT#${avatarId}`,
         telegramUserId,
         telegramUsername,
         avatarId,
