@@ -812,15 +812,13 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       if (chatId && (newStatus === 'member' || newStatus === 'administrator')) {
         // Only auto-register for groups, supergroups, channels (not private chats)
         if (chatType === 'group' || chatType === 'supergroup' || chatType === 'channel') {
-          // Skip @ratibots (the default community channel)
-          if (chatUsername?.toLowerCase() !== 'ratibots') {
-            // Check if avatar already has a home channel configured
-            const hasHomeChannel = Boolean(avatarConfig.platforms.telegram?.homeChannelId);
+          const botUsername = avatarConfig.platforms.telegram?.botUsername || '';
 
-            if (!hasHomeChannel && ADMIN_TABLE) {
+          // Special-case @ratibots: treat as a global home channel so *all* bots can work there,
+          // but do not set it as the bot's own homeChannelId.
+          if (chatUsername?.toLowerCase() === 'ratibots') {
+            if (ADMIN_TABLE && botUsername) {
               try {
-                // Register as home channel
-                const botUsername = avatarConfig.platforms.telegram?.botUsername || '';
                 await registerHomeChannelFromWebhook(
                   avatarId,
                   String(chatId),
@@ -829,29 +827,62 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
                   chatTitle
                 );
 
-                // Update avatar config with home channel info
-                await updateAvatarHomeChannel(
-                  avatarId,
-                  String(chatId),
-                  chatUsername,
-                  chatTitle
-                );
-
-                logger.info('Auto-registered home channel', {
-                  event: 'home_channel_auto_registered',
+                logger.info('Registered @ratibots as global home channel', {
+                  event: 'ratibots_registered',
                   avatarId,
                   chatId: String(chatId),
                   chatUsername,
                   chatTitle,
                 });
               } catch (err) {
-                logger.warn('Failed to auto-register home channel', {
-                  event: 'home_channel_auto_register_failed',
+                logger.warn('Failed to register @ratibots as global home channel', {
+                  event: 'ratibots_register_failed',
                   avatarId,
                   chatId: String(chatId),
                   error: err instanceof Error ? err.message : String(err),
                 });
               }
+            }
+
+            return ok();
+          }
+
+          // Check if avatar already has a home channel configured
+          const hasHomeChannel = Boolean(avatarConfig.platforms.telegram?.homeChannelId);
+
+          if (!hasHomeChannel && ADMIN_TABLE && botUsername) {
+            try {
+              // Register as home channel
+              await registerHomeChannelFromWebhook(
+                avatarId,
+                String(chatId),
+                botUsername,
+                chatUsername,
+                chatTitle
+              );
+
+              // Update avatar config with home channel info
+              await updateAvatarHomeChannel(
+                avatarId,
+                String(chatId),
+                chatUsername,
+                chatTitle
+              );
+
+              logger.info('Auto-registered home channel', {
+                event: 'home_channel_auto_registered',
+                avatarId,
+                chatId: String(chatId),
+                chatUsername,
+                chatTitle,
+              });
+            } catch (err) {
+              logger.warn('Failed to auto-register home channel', {
+                event: 'home_channel_auto_register_failed',
+                avatarId,
+                chatId: String(chatId),
+                error: err instanceof Error ? err.message : String(err),
+              });
             }
           }
         }
