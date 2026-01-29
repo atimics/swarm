@@ -295,3 +295,32 @@ describe('telegram-webhook-shared DM redirect', () => {
   });
 });
 
+describe('telegram-webhook-shared /activate helpers', () => {
+  it('mergeAllowedChats de-dupes IDs and preserves metadata', async () => {
+    const { mergeAllowedChats } = (await modPromise);
+
+    const merged = mergeAllowedChats({
+      existingAllowedChatIds: ['-1001', '-1002'],
+      existingAllowedChats: [{ chatId: '-1002', title: 'My Group' }],
+      add: { chatId: '-1001', username: 'mychannel' },
+    });
+
+    expect(merged.allowedChatIds.sort()).toEqual(['-1001', '-1002']);
+    expect(merged.allowedChats).toContainEqual({ chatId: '-1002', title: 'My Group' });
+    expect(merged.allowedChats).toContainEqual({ chatId: '-1001', username: 'mychannel' });
+  });
+
+  it('mergeAllowedChats prefers new metadata when adding an existing chatId', async () => {
+    const { mergeAllowedChats } = (await modPromise);
+
+    const merged = mergeAllowedChats({
+      existingAllowedChats: [{ chatId: '-1001', title: 'Old Title', username: 'old' }],
+      existingAllowedChatIds: ['-1001'],
+      add: { chatId: '-1001', title: 'New Title' },
+    });
+
+    expect(merged.allowedChatIds).toEqual(['-1001']);
+    expect(merged.allowedChats).toEqual([{ chatId: '-1001', username: 'old', title: 'New Title' }]);
+  });
+});
+

@@ -244,7 +244,7 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
       botUsername: record.platforms.telegram.botUsername || '',
       botId: record.platforms.telegram.botId,
       webhookPath: `/webhook/telegram/${record.avatarId}`,
-      allowedChatTypes: ['private', 'group', 'supergroup'],
+      allowedChatTypes: ['private', 'group', 'supergroup', 'channel'],
       allowedChatIds: record.platforms.telegram.allowedChatIds,
       allowedDmUserIds: record.platforms.telegram.allowedDmUserIds,
     };

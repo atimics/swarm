@@ -40,6 +40,7 @@ describe('config-sync convertToAvatarConfig', () => {
     const config = convertToAvatarConfig(record);
 
     expect(config.platforms.telegram?.enabled).toBe(true);
+    expect(config.platforms.telegram?.allowedChatTypes).toEqual(['private', 'group', 'supergroup', 'channel']);
     expect(config.platforms.telegram?.allowedChatIds).toEqual(['-1001', '-1002']);
     expect(config.platforms.telegram?.allowedDmUserIds).toEqual(['111', '222']);
   });
@@ -79,6 +80,7 @@ describe('config-sync convertToAvatarConfig', () => {
     const config = convertToAvatarConfig(record);
 
     expect(config.platforms.telegram?.enabled).toBe(true);
+    expect(config.platforms.telegram?.allowedChatTypes).toEqual(['private', 'group', 'supergroup', 'channel']);
     expect(config.platforms.telegram?.allowedChatIds).toBeUndefined();
     expect(config.platforms.telegram?.allowedDmUserIds).toBeUndefined();
   });

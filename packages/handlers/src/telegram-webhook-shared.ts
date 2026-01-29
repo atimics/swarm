@@ -12,7 +12,7 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, QueryCommand, DeleteCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand, GetCommand, DeleteCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { randomUUID, timingSafeEqual } from 'crypto';
 import {
   TelegramAdapter,
@@ -55,6 +55,147 @@ let homeChannelCache: { ids: Set<string>; expiresAt: number } | null = null;
 const DEFAULT_HOME_CHANNEL_URL = 'https://t.me/ratichat';
 const DEFAULT_COIN_SYMBOL = '$RATiOS';
 const DEFAULT_COIN_ADDRESS = '281Qdc3ZcPQtn8odD9p4GyhzBSko1r5jmQrNU1dQBAGS';
+
+const DEFAULT_SUPERADMIN_TELEGRAM_USERNAMES = ['ratimics'];
+
+function getSuperadminTelegramUsernames(): string[] {
+  const raw = process.env.TELEGRAM_SUPERADMIN_USERNAMES;
+  if (!raw) return DEFAULT_SUPERADMIN_TELEGRAM_USERNAMES;
+  const parsed = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s.replace(/^@/, '').toLowerCase());
+  return parsed.length > 0 ? parsed : DEFAULT_SUPERADMIN_TELEGRAM_USERNAMES;
+}
+
+function isTelegramSuperadmin(username?: string): boolean {
+  if (!username) return false;
+  const u = username.replace(/^@/, '').toLowerCase();
+  return getSuperadminTelegramUsernames().includes(u);
+}
+
+function getAllowedDmUserIdsForAdmin(telegramCfg: {
+  allowedDmUserIds?: string[];
+  allowedDmUsers?: Array<{ userId: string | number }>;
+} | undefined): string[] {
+  if (!telegramCfg) return [];
+
+  // New format takes precedence if present (even if empty).
+  if ('allowedDmUsers' in telegramCfg) {
+    return telegramCfg.allowedDmUsers?.map((u) => String(u.userId)) || [];
+  }
+
+  return telegramCfg.allowedDmUserIds || [];
+}
+
+async function isTelegramUserOwnerOfAvatar(telegramUserId: string, avatarId: string): Promise<boolean> {
+  if (!ADMIN_TABLE) return false;
+
+  const result = await dynamoClient.send(
+    new GetCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: `TELEGRAM_USER#${telegramUserId}`,
+        sk: 'CREATED_BOT',
+      },
+      ProjectionExpression: 'avatarId',
+    })
+  );
+
+  const ownedAvatarId = (result.Item as { avatarId?: string } | undefined)?.avatarId;
+  return ownedAvatarId === avatarId;
+}
+
+export function mergeAllowedChats(
+  params: {
+    existingAllowedChats?: Array<{ chatId: string; username?: string; title?: string }>;
+    existingAllowedChatIds?: string[];
+    add: { chatId: string; username?: string; title?: string };
+  }
+): {
+  allowedChats: Array<{ chatId: string; username?: string; title?: string }>;
+  allowedChatIds: string[];
+} {
+  const seen = new Map<string, { chatId: string; username?: string; title?: string }>();
+
+  for (const id of params.existingAllowedChatIds || []) {
+    const chatId = String(id);
+    if (!seen.has(chatId)) seen.set(chatId, { chatId });
+  }
+
+  for (const c of params.existingAllowedChats || []) {
+    const chatId = String(c.chatId);
+    const existing = seen.get(chatId);
+    if (existing) {
+      seen.set(chatId, {
+        chatId,
+        username: existing.username ?? c.username,
+        title: existing.title ?? c.title,
+      });
+    } else {
+      seen.set(chatId, { chatId, username: c.username, title: c.title });
+    }
+  }
+
+  {
+    const chatId = String(params.add.chatId);
+    const existing = seen.get(chatId);
+    if (existing) {
+      seen.set(chatId, {
+        chatId,
+        username: params.add.username ?? existing.username,
+        title: params.add.title ?? existing.title,
+      });
+    } else {
+      seen.set(chatId, { chatId, username: params.add.username, title: params.add.title });
+    }
+  }
+
+  const allowedChats = Array.from(seen.values());
+  const allowedChatIds = allowedChats.map((c) => c.chatId);
+  return { allowedChats, allowedChatIds };
+}
+
+async function activateAvatarInChatFromWebhook(
+  avatarId: string,
+  chat: { chatId: string; username?: string; title?: string }
+): Promise<void> {
+  if (!STATE_TABLE) return;
+
+  const avatarConfig = await getAvatarConfig(avatarId);
+  if (!avatarConfig) throw new Error(`Avatar not found: ${avatarId}`);
+
+  const telegramCfg = avatarConfig.platforms.telegram;
+  const merged = mergeAllowedChats({
+    existingAllowedChats: telegramCfg?.allowedChats,
+    existingAllowedChatIds: telegramCfg?.allowedChatIds,
+    add: { chatId: chat.chatId, username: chat.username, title: chat.title },
+  });
+
+  await dynamoClient.send(
+    new UpdateCommand({
+      TableName: STATE_TABLE,
+      Key: {
+        pk: `AVATAR#${avatarId}`,
+        sk: 'CONFIG',
+      },
+      UpdateExpression: 'SET #platforms.#telegram.#allowedChats = :allowedChats, #platforms.#telegram.#allowedChatIds = :allowedChatIds',
+      ExpressionAttributeNames: {
+        '#platforms': 'platforms',
+        '#telegram': 'telegram',
+        '#allowedChats': 'allowedChats',
+        '#allowedChatIds': 'allowedChatIds',
+      },
+      ExpressionAttributeValues: {
+        ':allowedChats': merged.allowedChats,
+        ':allowedChatIds': merged.allowedChatIds,
+      },
+    })
+  );
+
+  avatarConfigCache.delete(avatarId);
+}
 
 /**
  * Build redirect message for blocked channels.
@@ -728,6 +869,62 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     if (!envelope) return ok();
 
     envelope.traceId = traceId;
+
+    // /activate command: allow bot owner (and superadmins) to activate this bot in the current chat.
+    // This must run BEFORE the chat-allowed gate so activation works in new channels.
+    if (envelope.content.command?.command === 'activate') {
+      const message = (update as any).message || (update as any).edited_message || (update as any).channel_post;
+      const chatType = envelope.metadata.chatType;
+      const chatId = envelope.conversationId;
+      const chatUsername = message?.chat?.username as string | undefined;
+      const chatTitle = message?.chat?.title as string | undefined;
+
+      if (chatType === 'private') {
+        return ok();
+      }
+
+      const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
+      const senderUsername = envelope.sender.username;
+
+      const allowedDmUserIds = getAllowedDmUserIdsForAdmin(avatarConfig.platforms.telegram);
+      const isOwnerLike = allowedDmUserIds.includes(senderId) || (await isTelegramUserOwnerOfAvatar(senderId, avatarId));
+      const authorized = isTelegramSuperadmin(senderUsername) || isOwnerLike;
+
+      try {
+        const bot = telegramAdapter.getBot();
+        if (bot) {
+          if (!authorized) {
+            await bot.api.sendMessage(
+              parseInt(chatId),
+              'Not authorized to activate this avatar in this channel.',
+              { reply_to_message_id: parseInt(envelope.messageId) }
+            );
+            return ok();
+          }
+
+          await activateAvatarInChatFromWebhook(avatarId, {
+            chatId,
+            username: chatUsername,
+            title: chatTitle,
+          });
+
+          await bot.api.sendMessage(
+            parseInt(chatId),
+            'Activated for this channel. I can now respond here (typically when mentioned or replied to).',
+            { reply_to_message_id: parseInt(envelope.messageId) }
+          );
+        }
+      } catch (err) {
+        logger.warn('Failed to activate avatar in chat', {
+          event: 'activate_failed',
+          avatarId,
+          chatId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      return ok();
+    }
 
     // Use home channel checker for groups/channels if ADMIN_TABLE is configured
     const homeChecker = ADMIN_TABLE ? createHomeChannelChecker() : undefined;
