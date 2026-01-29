@@ -176,6 +176,37 @@ jobs:
             fi
           fi
 
+      - name: Debug GitHub OIDC claims (no token)
+        if: always()
+        run: |
+          echo "Repo: $GITHUB_REPOSITORY"
+          echo "Ref: $GITHUB_REF"
+          echo "SHA: $GITHUB_SHA"
+          echo "Environment: ${{ needs.setup.outputs.environment }}"
+          echo "CDK env: ${{ needs.setup.outputs.cdk_env }}"
+
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ] || [ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+            echo "OIDC token request env vars missing (check job permissions id-token: write)"
+            exit 0
+          fi
+
+          TOKEN_JSON=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+          TOKEN=$(echo "$TOKEN_JSON" | jq -r '.value // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "Failed to fetch OIDC token (empty value)"
+            exit 0
+          fi
+
+          # Decode JWT payload safely (add base64 padding).
+          PAYLOAD_B64=$(echo "$TOKEN" | cut -d '.' -f2)
+          PAD=$(( (4 - ${#PAYLOAD_B64} % 4) % 4 ))
+          if [ "$PAD" -eq 1 ]; then PAYLOAD_B64="${PAYLOAD_B64}="; fi
+          if [ "$PAD" -eq 2 ]; then PAYLOAD_B64="${PAYLOAD_B64}=="; fi
+          if [ "$PAD" -eq 3 ]; then PAYLOAD_B64="${PAYLOAD_B64}==="; fi
+          PAYLOAD_JSON=$(echo "$PAYLOAD_B64" | tr '_-' '/+' | base64 -d 2>/dev/null || true)
+
+          echo "$PAYLOAD_JSON" | jq -c '{iss,aud,sub,repository,ref,environment,job_workflow_ref,actor,repository_owner,sha,workflow}' || true
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}

@@ -259,6 +259,9 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       let avatarQueued = 0;
       let avatarFiltered = 0;
 
+      // Cache to avoid refetching the same thread context within a poll run.
+      const threadContextCache = new Map<string, string | undefined>();
+
       for (const envelope of sortedMentions) {
         const traceId = randomUUID();
         envelope.traceId = traceId;
@@ -319,6 +322,36 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
           // Still update cursor to prevent re-polling
           newestMentionId = maxTwitterId(newestMentionId, envelope.messageId);
           continue;
+        }
+
+        // Fetch reply-chain context so the model sees the whole thread, not just the mention.
+        // This is best-effort: failures should not block mention processing.
+        try {
+          const rawTweet = envelope.raw as { referenced_tweets?: Array<{ type: string; id: string }> };
+          const replyToId = rawTweet.referenced_tweets?.find(r => r.type === 'replied_to')?.id;
+          if (replyToId) {
+            let threadContext = threadContextCache.get(envelope.messageId);
+            if (threadContext === undefined) {
+              threadContext = await twitterAdapter.buildReplyChainContextText(rawTweet as any, {
+                maxParentTweets: 8,
+                maxChars: 2000,
+              });
+              threadContextCache.set(envelope.messageId, threadContext);
+            }
+
+            if (threadContext) {
+              const original = envelope.content.text || '';
+              envelope.content.text = `${threadContext}\n\nMention:\n${original}`.trim();
+            }
+          }
+        } catch (error) {
+          logger.warn('Failed to fetch Twitter thread context; continuing without it', {
+            event: 'thread_context_fetch_failed',
+            subsystem: 'twitter',
+            avatarId,
+            tweetId: envelope.messageId,
+            errorMessage: (error as any)?.message || String(error),
+          });
         }
 
         await activityService.logMessageReceived(

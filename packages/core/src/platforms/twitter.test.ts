@@ -41,6 +41,7 @@ function createMockTwitterClient() {
       tweet: mock(() => Promise.resolve({ data: { id: 'tweet-123' } })),
       like: mock(() => Promise.resolve({ data: { liked: true } })),
       userMentionTimeline: mock(() => Promise.resolve({ data: { data: [] }, includes: {} })),
+      singleTweet: mock(() => Promise.resolve({ data: null, includes: {} })),
       me: mock(() => Promise.resolve({ data: { id: 'bot-user-id' } })),
     },
     v1: {
@@ -441,6 +442,77 @@ describe('TwitterAdapter - Mentions Retrieval', () => {
 
     expect(result[0].sender.username).toBe('testuser');
     expect(result[0].sender.displayName).toBe('Test User');
+  });
+});
+
+describe('TwitterAdapter - Reply Chain Context', () => {
+  let adapter: TwitterAdapter;
+  let mockClient: ReturnType<typeof createMockTwitterClient>;
+
+  beforeEach(() => {
+    mockClient = createMockTwitterClient();
+    adapter = new TwitterAdapter(createMockAvatarConfig(), createMockCredentials(), mockClient);
+  });
+
+  it('buildReplyChainContextText returns undefined when tweet is not a reply', async () => {
+    const context = await adapter.buildReplyChainContextText({
+      id: 'm1',
+      text: '@test_bot hi',
+      referenced_tweets: [],
+    } as any);
+
+    expect(context).toBeUndefined();
+  });
+
+  it('buildReplyChainContextText walks replied_to chain and formats oldest→newest', async () => {
+    const singleTweet = mockClient.v2.singleTweet as unknown as ReturnType<typeof mock>;
+    singleTweet.mockImplementation((tweetId: string) => {
+      if (tweetId === 'p1') {
+        return Promise.resolve({
+          data: {
+            id: 'p1',
+            text: 'Parent tweet',
+            author_id: 'u2',
+            referenced_tweets: [{ type: 'replied_to', id: 'r1' }],
+          },
+          includes: {
+            users: [{ id: 'u2', username: 'bob', name: 'Bob' }],
+          },
+        });
+      }
+
+      if (tweetId === 'r1') {
+        return Promise.resolve({
+          data: {
+            id: 'r1',
+            text: 'Root tweet',
+            author_id: 'u3',
+          },
+          includes: {
+            users: [{ id: 'u3', username: 'carol', name: 'Carol' }],
+          },
+        });
+      }
+
+      return Promise.resolve({ data: null, includes: {} });
+    });
+
+    const context = await adapter.buildReplyChainContextText({
+      id: 'm1',
+      text: '@test_bot hi',
+      referenced_tweets: [{ type: 'replied_to', id: 'p1' }],
+    } as any, { maxParentTweets: 8, maxChars: 2000 });
+
+    expect(context).toBeTruthy();
+    expect(context!).toContain('Thread context');
+
+    const rootIndex = context!.indexOf('@carol: Root tweet');
+    const parentIndex = context!.indexOf('@bob: Parent tweet');
+    expect(rootIndex).toBeGreaterThanOrEqual(0);
+    expect(parentIndex).toBeGreaterThanOrEqual(0);
+    expect(rootIndex).toBeLessThan(parentIndex);
+
+    expect(singleTweet).toHaveBeenCalledTimes(2);
   });
 });
 

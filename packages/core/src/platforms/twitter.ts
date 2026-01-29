@@ -16,6 +16,12 @@ import type {
   TwitterConfig,
 } from '../types/index.js';
 
+type TweetWithOptionalAuthor = TweetV2 & {
+  author?: UserV2;
+  author_id?: string;
+  referenced_tweets?: Array<{ type: string; id: string }>;
+};
+
 export interface TwitterCredentials {
   appKey: string;
   appSecret: string;
@@ -340,7 +346,7 @@ export class TwitterAdapter extends PlatformAdapter {
       since_id: sinceId,
       max_results: maxResults,
       expansions: ['author_id', 'referenced_tweets.id'],
-      'tweet.fields': ['created_at', 'conversation_id', 'in_reply_to_user_id'],
+      'tweet.fields': ['created_at', 'conversation_id', 'in_reply_to_user_id', 'referenced_tweets'],
       'user.fields': ['username', 'name'],
     });
 
@@ -355,6 +361,93 @@ export class TwitterAdapter extends PlatformAdapter {
     }
 
     return envelopes;
+  }
+
+  /**
+   * Build a human-readable thread context string by walking the reply chain upward.
+   *
+   * This is designed for mention replies where we want the bot to see what the user
+   * is replying to (root tweet + intermediate parents), without doing a full
+   * conversation search.
+   */
+  async buildReplyChainContextText(
+    mentionTweet: TweetWithOptionalAuthor,
+    options?: { maxParentTweets?: number; maxChars?: number }
+  ): Promise<string | undefined> {
+    if (!this.client) {
+      throw new Error('Twitter client not initialized');
+    }
+
+    const maxParentTweets = Math.max(1, Math.min(20, options?.maxParentTweets ?? 8));
+    const maxChars = Math.max(200, Math.min(10_000, options?.maxChars ?? 2_000));
+
+    const repliedToId = mentionTweet.referenced_tweets?.find(r => r.type === 'replied_to')?.id;
+    if (!repliedToId) return undefined;
+
+    const parents: TweetWithOptionalAuthor[] = [];
+    const seen = new Set<string>();
+
+    let cursor: string | undefined = repliedToId;
+    while (cursor && parents.length < maxParentTweets) {
+      if (seen.has(cursor)) break;
+      seen.add(cursor);
+
+      const parent = await this.fetchTweetWithAuthor(cursor);
+      if (!parent) break;
+
+      parents.push(parent);
+      cursor = parent.referenced_tweets?.find(r => r.type === 'replied_to')?.id;
+    }
+
+    if (parents.length === 0) return undefined;
+
+    // Oldest -> newest (closest parent last)
+    const ordered = parents.slice().reverse();
+    const lines = ordered.map((tweet) => {
+      const username = tweet.author?.username;
+      const who = username ? `@${username}` : (tweet.author_id ? `user:${tweet.author_id}` : 'unknown');
+      const text = (tweet.text || '').replace(/\s+/g, ' ').trim();
+      return `${who}: ${text}`.trim();
+    }).filter(Boolean);
+
+    if (lines.length === 0) return undefined;
+
+    let rendered = `Thread context (oldest→newest):\n${lines.join('\n')}`;
+
+    // Hard cap by dropping oldest lines first.
+    while (rendered.length > maxChars && lines.length > 1) {
+      lines.shift();
+      rendered = `Thread context (oldest→newest):\n${lines.join('\n')}`;
+    }
+
+    if (rendered.length > maxChars) {
+      rendered = rendered.slice(0, maxChars - 20).trimEnd() + '\n…(truncated)';
+    }
+
+    return rendered;
+  }
+
+  private async fetchTweetWithAuthor(tweetId: string): Promise<TweetWithOptionalAuthor | null> {
+    if (!this.client) {
+      throw new Error('Twitter client not initialized');
+    }
+
+    try {
+      // twitter-api-v2: v2.singleTweet(id, params)
+      const result = await (this.client.v2 as any).singleTweet(tweetId, {
+        expansions: ['author_id', 'referenced_tweets.id'],
+        'tweet.fields': ['created_at', 'conversation_id', 'in_reply_to_user_id', 'referenced_tweets'],
+        'user.fields': ['username', 'name'],
+      });
+
+      const data = (result?.data ?? null) as TweetWithOptionalAuthor | null;
+      if (!data?.id) return null;
+
+      const author = (result?.includes?.users as UserV2[] | undefined)?.find((u) => u.id === (data.author_id as string | undefined));
+      return { ...data, author };
+    } catch {
+      return null;
+    }
   }
 
   /**
