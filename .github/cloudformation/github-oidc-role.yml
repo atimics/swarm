@@ -67,6 +67,105 @@ Resources:
                 Action: sts:AssumeRole
                 Resource:
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-*'
+
+        # Permissions required to run `cdk bootstrap` (create/update/rollback CDKToolkit)
+        - PolicyName: CDKBootstrapResources
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: IAMForBootstrap
+                Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:CreatePolicy
+                  - iam:CreatePolicyVersion
+                  - iam:CreateRole
+                  - iam:DeletePolicy
+                  - iam:DeletePolicyVersion
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:GetRole
+                  - iam:ListPolicyVersions
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - iam:TagPolicy
+                  - iam:TagRole
+                  - iam:UntagPolicy
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-hnb659fds-*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:policy/cdk-hnb659fds-*'
+
+              - Sid: S3ForBootstrap
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                  - s3:GetBucketLocation
+                  - s3:GetBucketPolicy
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetLifecycleConfiguration
+                  - s3:GetObject*
+                  - s3:ListBucket
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutLifecycleConfiguration
+                  - s3:PutBucketOwnershipControls
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketTagging
+                  - s3:PutBucketVersioning
+                  - s3:PutObject*
+                  - s3:DeleteObject*
+                Resource:
+                  - !Sub 'arn:aws:s3:::cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}'
+                  - !Sub 'arn:aws:s3:::cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}/*'
+
+              - Sid: ECRForBootstrap
+                Effect: Allow
+                Action:
+                  - ecr:CreateRepository
+                  - ecr:DeleteRepository
+                  - ecr:DescribeRepositories
+                  - ecr:GetAuthorizationToken
+                  - ecr:SetRepositoryPolicy
+                  - ecr:TagResource
+                  - ecr:UntagResource
+                Resource:
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/cdk-hnb659fds-container-assets-${AWS::AccountId}-${AWS::Region}'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/cdk-hnb659fds-container-assets-${AWS::AccountId}-${AWS::Region}/*'
+
+              # GetAuthorizationToken does not support resource-level permissions
+              - Sid: ECRAuthWildcard
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+
+              - Sid: SSMForBootstrap
+                Effect: Allow
+                Action:
+                  - ssm:DeleteParameter
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource:
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cdk-bootstrap/*'
+
+              # CDK bootstrap may create a KMS key for the assets bucket.
+              - Sid: KMSForBootstrap
+                Effect: Allow
+                Action:
+                  - kms:CreateAlias
+                  - kms:CreateKey
+                  - kms:DescribeKey
+                  - kms:EnableKeyRotation
+                  - kms:GetKeyPolicy
+                  - kms:PutKeyPolicy
+                  - kms:TagResource
+                Resource: '*'
         
         # CloudFormation permissions
         - PolicyName: CloudFormation
@@ -110,8 +209,8 @@ Resources:
                   - s3:ListBucket
                   - s3:GetBucketLocation
                 Resource:
-                  - !Sub 'arn:aws:s3:::swarm-admin-ui-*'
-                  - !Sub 'arn:aws:s3:::swarm-admin-ui-*/*'
+                  - 'arn:aws:s3:::swarm-admin-ui-*'
+                  - 'arn:aws:s3:::swarm-admin-ui-*/*'
 
               - Sid: CDKContextBucket
                 Effect: Allow
@@ -122,8 +221,8 @@ Resources:
                   - s3:ListBucket
                   - s3:GetBucketLocation
                 Resource:
-                  - !Sub 'arn:aws:s3:::swarm-cdk-context-*'
-                  - !Sub 'arn:aws:s3:::swarm-cdk-context-*/*'
+                  - 'arn:aws:s3:::swarm-cdk-context-*'
+                  - 'arn:aws:s3:::swarm-cdk-context-*/*'
         
         # ECR permissions (if using container images)
         - PolicyName: ECRAccess

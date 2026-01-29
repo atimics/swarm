@@ -154,6 +154,28 @@ jobs:
           fi
           pnpm -r --filter '!admin-ui' build
 
+      - name: Validate AWS environment secrets
+        run: |
+          ROLE_ARN="${{ secrets.AWS_ROLE_ARN }}"
+          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+
+          if [ -z "$ROLE_ARN" ]; then
+            echo "::error::Missing required environment secret AWS_ROLE_ARN"
+            exit 1
+          fi
+
+          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+            if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for production"
+              exit 1
+            fi
+
+            if [[ "$ROLE_ARN" != arn:aws:iam::${EXPECTED_AWS_ACCOUNT_ID}:role/* ]]; then
+              echo "::error::AWS_ROLE_ARN does not match AWS_ACCOUNT_ID (role='$ROLE_ARN', expected account='${EXPECTED_AWS_ACCOUNT_ID}')"
+              exit 1
+            fi
+          fi
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
