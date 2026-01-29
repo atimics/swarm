@@ -28,6 +28,17 @@ const app = new cdk.App();
 
 type EnvConfig = Record<string, unknown>;
 
+function parseBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  if (normalized === '1') return true;
+  if (normalized === '0') return false;
+  return undefined;
+}
+
 function normalizeEnvironmentName(env: string): string {
   // Support both "production" (GitHub env) and "prod" (CDK stack env)
   return env === 'production' ? 'prod' : env;
@@ -69,7 +80,8 @@ const envConfig = environments[environment] || environments[rawEnvironment] || {
 
 // Domain configuration
 // Prefer explicit adminDomain, but allow a computed stack domain for easier multi-stack deployments.
-const disableComputedAdminDomain = (getContextValue<boolean>('disableComputedAdminDomain', envConfig) ?? false) as boolean;
+const disableComputedAdminDomain =
+  parseBoolean(getContextValue<unknown>('disableComputedAdminDomain', envConfig)) ?? false;
 const domainBase = getContextValue<string>('domainBase', envConfig) || 'rati.chat';
 const stackSubdomain = getContextValue<string>('stackSubdomain', envConfig) || 'swarm';
 const computedAdminDomain = disableComputedAdminDomain
@@ -95,8 +107,8 @@ const privyAppSecretArn = getContextValue<string>('privyAppSecretArn', envConfig
 const privyJwtVerificationKeyArn = getContextValue<string>('privyJwtVerificationKeyArn', envConfig);
 const galleryDomain = getContextValue<string>('galleryDomain', envConfig);
 const galleryCertificateArn = getContextValue<string>('galleryCertificateArn', envConfig);
-const enableClaudeCode = (getContextValue<boolean>('enableClaudeCode', envConfig) ?? false) as boolean;
-const claudeCodeUseOpenRouter = (getContextValue<boolean>('claudeCodeUseOpenRouter', envConfig) ?? false) as boolean;
+const enableClaudeCode = parseBoolean(getContextValue<unknown>('enableClaudeCode', envConfig)) ?? false;
+const claudeCodeUseOpenRouter = parseBoolean(getContextValue<unknown>('claudeCodeUseOpenRouter', envConfig)) ?? false;
 const anthropicApiKeyArn = getContextValue<string>('anthropicApiKeyArn', envConfig);
 const secretPrefixRaw = getContextValue<string>('secretPrefix', envConfig);
 const stackHashRaw = getContextValue<string>('stackHash', envConfig);
@@ -118,11 +130,12 @@ const secretPrefix = (secretPrefixRaw && secretPrefixRaw.trim())
 
 // Check if we should use split stacks (new) or monolithic stack (legacy)
 // Default to false for backward compatibility during migration
-const useSplitStacks = (app.node.tryGetContext('splitStacks') as boolean | undefined) ?? false;
+const useSplitStacks = parseBoolean(app.node.tryGetContext('splitStacks')) ?? false;
 
 // When migrating from the monolithic stack, shared resources may already exist.
 // This flag makes SharedInfraStack adopt/import those shared resources instead of creating them.
-const useExistingSharedResources = (getContextValue<boolean>('useExistingSharedResources', envConfig) ?? false) as boolean;
+const useExistingSharedResources =
+  parseBoolean(getContextValue<unknown>('useExistingSharedResources', envConfig)) ?? false;
 const existingDependencyLayerArn = getContextValue<string>('existingDependencyLayerArn', envConfig);
 const existingCdnDistributionId = getContextValue<string>('existingCdnDistributionId', envConfig);
 
@@ -143,8 +156,8 @@ const secretPrefixForSplitStacks = (useSplitStacks && useExistingSharedResources
 
 // Enable shared handlers (Twitter mention polling, autonomous tweets, shared queues)
 // Default to true. Telegram ingress uses the shared multi-tenant webhook.
-const enableSharedHandlersExplicit = getContextValue<boolean>('enableSharedHandlers', envConfig);
-const enableSharedHandlers = (enableSharedHandlersExplicit ?? true) as boolean;
+const enableSharedHandlersExplicit = parseBoolean(getContextValue<unknown>('enableSharedHandlers', envConfig));
+const enableSharedHandlers = enableSharedHandlersExplicit ?? true;
 
 // Migration guardrails: when adopting existing shared resources for split stacks without a suffix,
 // many resources already exist from the legacy monolithic stack.
