@@ -45,6 +45,59 @@ describe('config-sync convertToAvatarConfig', () => {
     expect(config.platforms.telegram?.allowedDmUserIds).toEqual(['111', '222']);
   });
 
+  it('includes Telegram allowedDmUsers and allowedChats when present', () => {
+    const record = {
+      pk: 'AVATAR#test-avatar',
+      sk: 'CONFIG',
+      avatarId: 'test-avatar',
+      name: 'Test Avatar',
+      platforms: {
+        telegram: {
+          enabled: true,
+          botUsername: 'testbot',
+          allowedDmUsers: [
+            { userId: '111', username: 'alice', displayName: 'Alice' },
+            { userId: '222' },
+          ],
+          allowedChats: [
+            { chatId: '-1001', title: 'My Group' },
+            { chatId: '-1002', username: 'mychannel' },
+          ],
+        },
+      },
+      voiceConfig: {
+        enabled: true,
+        ttsProvider: 'voice-clone',
+        format: 'ogg',
+      },
+      llmConfig: {
+        provider: 'openrouter',
+        model: 'anthropic/claude-sonnet-4',
+        temperature: 0.8,
+        maxTokens: 1024,
+        useGlobalKey: true,
+      },
+      currentEra: 0,
+      status: 'active',
+      createdAt: Date.now(),
+      createdBy: 'test@example.com',
+      updatedAt: Date.now(),
+      updatedBy: 'test@example.com',
+    } satisfies Partial<AvatarRecord> as AvatarRecord;
+
+    const config = convertToAvatarConfig(record);
+
+    expect(config.platforms.telegram?.enabled).toBe(true);
+    expect(config.platforms.telegram?.allowedDmUsers).toEqual([
+      { userId: '111', username: 'alice', displayName: 'Alice' },
+      { userId: '222' },
+    ]);
+    expect(config.platforms.telegram?.allowedChats).toEqual([
+      { chatId: '-1001', title: 'My Group' },
+      { chatId: '-1002', username: 'mychannel' },
+    ]);
+  });
+
   it('does not require Telegram allowlists to be set', () => {
     const record = {
       pk: 'AVATAR#test-avatar',

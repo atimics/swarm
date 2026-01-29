@@ -46,6 +46,8 @@ interface AvatarConfig {
       allowedChatTypes?: ('private' | 'group' | 'supergroup' | 'channel')[];
       allowedChatIds?: string[];
       allowedDmUserIds?: string[];
+      allowedDmUsers?: Array<{ userId: string; username?: string; displayName?: string }>;
+      allowedChats?: Array<{ chatId: string; username?: string; title?: string }>;
     };
     twitter?: {
       enabled: boolean;
@@ -247,6 +249,8 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
       allowedChatTypes: ['private', 'group', 'supergroup', 'channel'],
       allowedChatIds: record.platforms.telegram.allowedChatIds,
       allowedDmUserIds: record.platforms.telegram.allowedDmUserIds,
+      allowedDmUsers: record.platforms.telegram.allowedDmUsers,
+      allowedChats: record.platforms.telegram.allowedChats,
     };
     config.secrets.push('TELEGRAM_BOT_TOKEN');
   }
