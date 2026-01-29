@@ -256,6 +256,7 @@ export interface HistoryService {
  */
 export interface MemoryService {
   getMemoryContext(avatarId: string): Promise<string | null>;
+  getMemoryContextForQuery?(avatarId: string, query: string): Promise<string | null>;
   remember(avatarId: string, fact: string, about?: string, userId?: string): Promise<void>;
   recall(avatarId: string, query: string, userId?: string): Promise<Array<{ fact: string; about?: string; timestamp: number }>>;
 }

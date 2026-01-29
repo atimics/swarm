@@ -422,6 +422,9 @@ export function createProcessor(options: ProcessorAdapterOptions): MessageProces
       getMemoryContext: async (avatarId: string) => {
         return memory.getMemoryContext(avatarId);
       },
+      getMemoryContextForQuery: async (avatarId: string, query: string) => {
+        return memory.getMemoryContextForQuery(avatarId, query);
+      },
       remember: async (avatarId: string, fact: string, about?: string, userId?: string) => {
         await memory.remember(avatarId, fact, about, userId);
       },

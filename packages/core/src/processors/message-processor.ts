@@ -171,7 +171,7 @@ export class MessageProcessor {
     const llmTools = await this.deps.toLLMFormat(filteredTools, toolContext);
 
     // 4. Build system prompt
-    const systemPrompt = await this.buildSystemPrompt(avatar, config, options);
+    const systemPrompt = await this.buildSystemPrompt(avatar, config, options, userMessage, conversationHistory);
 
     // 5. Prepare messages
     const messages = await this.prepareMessages(
@@ -224,7 +224,9 @@ export class MessageProcessor {
   private async buildSystemPrompt(
     avatar: ProcessorAvatarConfig,
     config: ProcessorConfig,
-    options: ProcessorOptions
+    options: ProcessorOptions,
+    userMessage: string | null,
+    conversationHistory: ProcessorMessage[]
   ): Promise<string> {
     // Base prompt: custom prompt override if provided, otherwise build based on platform.
     // Note: we still inject dreams/memory below even for custom prompts.
@@ -262,7 +264,28 @@ export class MessageProcessor {
       avatar.enabledCategories.includes('memory')
     ) {
       try {
-        const memoryContext = await this.deps.memoryService.getMemoryContext(config.avatarId);
+        const lastUserFromHistory = (() => {
+          for (let i = conversationHistory.length - 1; i >= 0; i -= 1) {
+            const msg = conversationHistory[i];
+            if (msg?.role !== 'user') continue;
+            if (typeof msg.content === 'string') return msg.content;
+            // Multimodal: best-effort extract text parts.
+            if (Array.isArray(msg.content)) {
+              const text = msg.content
+                .filter((p: any) => p && typeof p === 'object' && p.type === 'text' && typeof p.text === 'string')
+                .map((p: any) => p.text)
+                .join('\n');
+              if (text.trim()) return text;
+            }
+          }
+          return '';
+        })();
+
+        const query = (userMessage ?? lastUserFromHistory).trim();
+
+        const memoryContext = query && this.deps.memoryService.getMemoryContextForQuery
+          ? await this.deps.memoryService.getMemoryContextForQuery(config.avatarId, query)
+          : await this.deps.memoryService.getMemoryContext(config.avatarId);
         if (memoryContext) {
           systemPrompt += '\n\n' + memoryContext;
         }

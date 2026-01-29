@@ -385,6 +385,30 @@ describe('MessageProcessor', () => {
       expect(callArgs.messages[0].content).toContain('Memory Context');
     });
 
+    it('should prefer query-aware memory context when available', async () => {
+      mockAvatar.enabledCategories = ['memory'];
+
+      // Provide both methods; processor should use getMemoryContextForQuery.
+      (mockDeps.memoryService as any).getMemoryContextForQuery = mock(() =>
+        Promise.resolve('## Relevant Memories\n- Query-specific memory.')
+      );
+      (mockDeps.memoryService!.getMemoryContext as ReturnType<typeof mock>).mockImplementation(() =>
+        Promise.resolve('## Memory Context\n- Generic memory.')
+      );
+
+      const config: ProcessorConfig = {
+        avatarId: 'test-avatar',
+        platform: 'telegram',
+        conversationId: 'chat-123',
+      };
+
+      await processor.process('Tell me about cats', [], config);
+
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(callArgs.messages[0].content).toContain('Query-specific memory');
+      expect((mockDeps.memoryService as any).getMemoryContextForQuery).toHaveBeenCalledWith('test-avatar', 'Tell me about cats');
+    });
+
     it('should inject dreams context when enabled', async () => {
       (mockDeps.dreamsService!.getDreamForResponse as ReturnType<typeof mock>).mockImplementation(() =>
         Promise.resolve({ dream: { content: 'A dream about cats' }, isGenerating: false })

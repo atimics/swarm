@@ -1213,6 +1213,63 @@ export async function getMemoryContext(avatarId: string): Promise<string> {
   return sections.length > 0 ? sections.join('\n') : '';
 }
 
+/**
+ * Get memory context for prompt injection, tailored to the current user query.
+ *
+ * This is a higher-signal variant of getMemoryContext(): it uses semantic search
+ * to surface the most relevant memories, then formats them consistently for
+ * prompt injection.
+ */
+export async function getMemoryContextForQuery(
+  avatarId: string,
+  query: string,
+  options: {
+    limit?: number;
+    minSimilarity?: number;
+    maxChars?: number;
+  } = {}
+): Promise<string> {
+  const validAvatarId = validateAvatarId(avatarId);
+  const queryText = query.trim();
+  if (!queryText) {
+    return getMemoryContext(validAvatarId);
+  }
+
+  const limit = Math.min(options.limit ?? 12, 25);
+  const minSimilarity = options.minSimilarity ?? 0.28;
+  const maxChars = options.maxChars ?? 2400;
+
+  const [identity, relevant] = await Promise.all([
+    getIdentity(validAvatarId),
+    searchMemories(validAvatarId, queryText, limit, { semanticSearch: true, minSimilarity }),
+  ]);
+
+  const sections: string[] = [];
+
+  if (identity.length > 0) {
+    sections.push('## Who I Am');
+    for (const mem of identity) {
+      sections.push(`- ${mem.content}`);
+    }
+  }
+
+  const identityIds = new Set(identity.map((m) => m.id));
+  const picked = relevant
+    .filter((m) => !identityIds.has(m.id))
+    .slice(0, limit);
+
+  if (picked.length > 0) {
+    sections.push('\n## Relevant Memories');
+    for (const mem of picked) {
+      const aboutStr = mem.about ? ` (about ${mem.about})` : '';
+      sections.push(`- ${mem.content}${aboutStr}`);
+    }
+  }
+
+  const out = sections.length > 0 ? sections.join('\n') : '';
+  return out.length > maxChars ? out.slice(0, maxChars) : out;
+}
+
 // ============================================================================
 // Statistics & Diagnostics
 // ============================================================================
