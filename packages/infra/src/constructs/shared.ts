@@ -15,6 +15,7 @@ import { Construct } from 'constructs';
 
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { computeDependencyLayerAssetHash } from '../utils/layer-asset-hash.js';
 
 // ESM __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -192,7 +193,9 @@ export class SharedInfrastructure extends Construct {
       compatibleRuntimes: [lambda.Runtime.NODEJS_20_X],
       code: layerCodePath 
         ? lambda.Code.fromAsset(layerCodePath)
-        : lambda.Code.fromAsset(layerPath),
+        : lambda.Code.fromAsset(layerPath, {
+            assetHash: computeDependencyLayerAssetHash(layerPath),
+          }),
     });
 
     const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });

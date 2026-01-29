@@ -9,6 +9,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { SharedInfrastructure } from '../constructs/shared.js';
+import { computeDependencyLayerAssetHash } from '../utils/layer-asset-hash.js';
 
 // ESM __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -140,7 +141,9 @@ export class SharedInfraStack extends cdk.Stack {
           layerVersionName: `swarm-deps-${environment}${suffix}-split`,
           description: 'Shared dependencies for swarm handlers (split-stack migration layer)',
           compatibleRuntimes: [lambda.Runtime.NODEJS_20_X],
-          code: lambda.Code.fromAsset(layerPath),
+          code: lambda.Code.fromAsset(layerPath, {
+            assetHash: computeDependencyLayerAssetHash(layerPath),
+          }),
         });
         this.dependencyLayerArn = layer.layerVersionArn;
       }
