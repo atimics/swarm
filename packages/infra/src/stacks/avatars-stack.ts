@@ -10,6 +10,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as cr from 'aws-cdk-lib/custom-resources';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
@@ -132,10 +133,15 @@ export class AvatarsStack extends cdk.Stack {
       bucketName: sharedInfraStack.mediaBucketName,
     });
 
+    // Use SSM dynamic reference for layer ARN to avoid CloudFormation export conflicts.
+    const dependencyLayerArn = ssm.StringParameter.valueForStringParameter(
+      this,
+      sharedInfraStack.dependencyLayerArnParamName
+    );
     const dependencyLayer = lambda.LayerVersion.fromLayerVersionArn(
       this,
       'DependencyLayer',
-      sharedInfraStack.dependencyLayerArn
+      dependencyLayerArn
     );
 
     // Look up default VPC for ECS cluster

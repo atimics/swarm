@@ -6,6 +6,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { SharedInfrastructure } from '../constructs/shared.js';
@@ -73,6 +74,11 @@ export class SharedInfraStack extends cdk.Stack {
   public readonly mediaBucketArn: string;
   public readonly mediaBucketName: string;
   public readonly dependencyLayerArn: string;
+  /**
+   * SSM parameter name for the dependency layer ARN.
+   * Consumer stacks should use this via SSM lookup to avoid CloudFormation export conflicts.
+   */
+  public readonly dependencyLayerArnParamName: string;
   public readonly cdnUrl?: string;
   public readonly cdnDistributionId?: string;
   public readonly discordClusterArn: string;
@@ -92,6 +98,9 @@ export class SharedInfraStack extends cdk.Stack {
       existingCdnDistributionId,
     } = props;
     const suffix = nameSuffix ?? '';
+
+    // SSM parameter name for dependency layer ARN - consistent across all code paths
+    this.dependencyLayerArnParamName = `/swarm/${environment}${suffix}/dependency-layer-arn`;
 
     if (useExistingResources) {
       // Import/export compatibility: legacy monolithic stack exports these names.
@@ -170,6 +179,15 @@ export class SharedInfraStack extends cdk.Stack {
       this.discordClusterArn = this.shared.discordCluster.clusterArn;
       this.discordClusterName = this.shared.discordCluster.clusterName;
     }
+
+    // Store dependency layer ARN in SSM to allow updates without breaking cross-stack refs.
+    // CloudFormation exports fail to update when imported by another stack, but SSM parameters
+    // can be updated freely.
+    new ssm.StringParameter(this, 'DependencyLayerArnParam', {
+      parameterName: this.dependencyLayerArnParamName,
+      stringValue: this.dependencyLayerArn,
+      description: 'Dependency layer ARN for swarm handlers',
+    });
 
     // Export values for cross-stack references
     new cdk.CfnOutput(this, 'StateTableArnExport', {

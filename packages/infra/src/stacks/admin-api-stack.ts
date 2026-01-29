@@ -11,6 +11,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 import { AdminApiConstruct } from '../constructs/admin-api.js';
 import { SharedHandlers } from '../constructs/shared-handlers.js';
@@ -203,10 +204,18 @@ export class AdminApiStack extends cdk.Stack {
       bucketName: sharedInfraStack.mediaBucketName,
     });
 
+    // Use SSM dynamic reference for layer ARN to avoid CloudFormation export conflicts.
+    // When the layer changes, the SSM parameter is updated, and consumer stacks
+    // can be deployed without the export-in-use error.
+    // Note: valueForStringParameter resolves at deploy-time, not synth-time.
+    const dependencyLayerArn = ssm.StringParameter.valueForStringParameter(
+      this,
+      sharedInfraStack.dependencyLayerArnParamName
+    );
     const dependencyLayer = lambda.LayerVersion.fromLayerVersionArn(
       this,
       'DependencyLayer',
-      sharedInfraStack.dependencyLayerArn
+      dependencyLayerArn
     );
 
     const mediaCdn = sharedInfraStack.cdnDistributionId
