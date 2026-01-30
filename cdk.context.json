@@ -102,7 +102,8 @@
   "environments": {
     "prod": {
       "privyAppSecretArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/privy-app-secret-nGyYwB",
-      "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/privy-jwt-verification-key-ebLxf6"
+      "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/privy-jwt-verification-key-ebLxf6",
+      "heliusApiKeyArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/helius-api-key-0N6fbn"
     }
   },
   "adminDomain": "admin-staging.rati.chat",
