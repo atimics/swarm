@@ -993,6 +993,15 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
       const isAllowedDmUser = allowedDmUserIds.includes(senderId);
 
+      // Debug logging to understand why DMs are being blocked
+      logger.info('DM allowlist check', {
+        event: 'dm_allowlist_check',
+        senderId,
+        allowedDmUserIds,
+        isAllowedDmUser,
+        hasTelegramCfg: !!telegramCfg,
+      });
+
       if (isAllowedDmUser) {
         // Allowed users can DM - queue the message for processing
         logger.info('DM from allowed user, queueing for processing', {
