@@ -228,10 +228,13 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     communities?: Array<{ id: string; name: string }>;
   } | null>(null);
 
-  const args = toolCall.arguments as {
-    integration: 'telegram' | 'twitter' | 'discord' | 'replicate' | 'openai' | 'anthropic' | 'openrouter';
+  const args = (toolCall.arguments ?? {}) as {
+    integration?: 'telegram' | 'twitter' | 'discord' | 'replicate' | 'openai' | 'anthropic' | 'openrouter';
     reason?: string;
   };
+
+  // After early return check, we know integration is defined - use type assertion for hook callbacks
+  const integration = args.integration;
 
   // Tool prompts can be re-used across chat turns. Reset transient state when a new
   // tool call arrives so we always load the latest backend config.
@@ -349,7 +352,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   // When opening the Telegram integration panel (or switching avatars), show current
   // integration health and auto-repair fixable issues.
   useEffect(() => {
-    if (args.integration !== 'telegram') return;
+    if (integration !== 'telegram') return;
     if (!activeAgent?.id) return;
 
     const diagnoseAndRepair = async () => {
@@ -388,11 +391,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     void fetchKnownUsers();
     // Intentionally omit functions from deps to avoid re-running on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toolCall.id, args.integration, activeAgent?.id]);
+  }, [toolCall.id, integration, activeAgent?.id]);
 
   // When opening the Twitter integration panel, load current config
   useEffect(() => {
-    if (args.integration !== 'twitter') return;
+    if (integration !== 'twitter') return;
     if (!activeAgent?.id) return;
     if (twitterConfigLoaded) return;
 
@@ -453,7 +456,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     };
 
     void loadTwitterConfig();
-  }, [toolCall.id, args.integration, activeAgent?.id, twitterConfigLoaded]);
+  }, [toolCall.id, integration, activeAgent?.id, twitterConfigLoaded]);
 
   // Auto-hide the "Saved" banner after a short delay.
   useEffect(() => {
@@ -561,7 +564,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     },
   };
 
-  const config = integrationConfig[args.integration];
+  const config = integration ? integrationConfig[integration] : undefined;
 
   const normalizeList = (values: unknown): string[] => {
     if (!Array.isArray(values)) return [];
@@ -573,7 +576,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const stableSorted = (values: string[]) => [...values].map(v => v.trim()).filter(Boolean).sort();
 
   const hasTelegramPolicyChanges = (() => {
-    if (args.integration !== 'telegram') return false;
+    if (integration !== 'telegram') return false;
     if (!initialPolicyRef.current) return false;
     // Compare by userId/chatId for stable comparison
     const currentDmIds = allowedDmUsers.map(u => u.userId).sort();
@@ -585,7 +588,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   })();
 
   const hasTwitterConfigChanges = (() => {
-    if (args.integration !== 'twitter') return false;
+    if (integration !== 'twitter') return false;
     if (!initialTwitterConfigRef.current) return false;
     const current = {
       features: stableSorted(twitterFeatures),
@@ -613,7 +616,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   })();
 
   useEffect(() => {
-    if (args.integration !== 'telegram') return;
+    if (integration !== 'telegram') return;
     if (!activeAgent?.id) return;
 
     const run = async () => {
@@ -672,10 +675,10 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     void run();
     // Only re-run when switching avatars
 
-  }, [args.integration, activeAgent?.id]);
+  }, [integration, activeAgent?.id]);
 
   useEffect(() => {
-    if (!config?.isAiProvider) return;
+    if (!config?.isAiProvider || !integration) return;
 
     const run = async () => {
       setModelsLoadError(null);
@@ -683,7 +686,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
 
       try {
         const response = await fetch(
-          `${API_BASE}/integrations/models?integration=${encodeURIComponent(args.integration)}`,
+          `${API_BASE}/integrations/models?integration=${encodeURIComponent(integration)}`,
           {
             method: 'GET',
             credentials: 'include',
@@ -712,12 +715,12 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     };
 
     void run();
-  }, [args.integration, config?.isAiProvider]);
+  }, [integration, config?.isAiProvider]);
 
   useEffect(() => {
     if (!activeAgent?.id || !config?.isAiProvider) return;
 
-    const initKey = `${activeAgent.id}:${args.integration}`;
+    const initKey = `${activeAgent.id}:${integration}`;
     if (didInitFromStatus.current === initKey) return;
     didInitFromStatus.current = initKey;
 
@@ -745,7 +748,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
           }>;
         };
 
-        const match = payload.integrations?.find((s) => s.type === args.integration);
+        const match = payload.integrations?.find((s) => s.type === integration);
         if (!match) return;
 
         setGlobalKeyAvailable(Boolean(match.hasGlobalKey));
@@ -762,14 +765,22 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     };
 
     void run();
-  }, [activeAgent?.id, args.integration, config?.isAiProvider]);
+  }, [activeAgent?.id, integration, config?.isAiProvider]);
 
-  // Guard: If integration type is unknown, show fallback UI (after hooks)
-  if (!config) {
+  // Guard: If integration type is unknown or missing, show fallback UI (after hooks)
+  if (!integration || !config) {
+    // When restored from history without full arguments, show graceful completion message
+    if (!integration) {
+      return (
+        <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg p-4">
+          <p className="text-[var(--color-text-tertiary)] text-sm">Integration configuration complete.</p>
+        </div>
+      );
+    }
     return (
       <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg p-4">
         <p className="text-[var(--color-text-secondary)]">
-          Unknown integration type: {args.integration || '(not specified)'}
+          Unknown integration type: {integration}
         </p>
       </div>
     );
@@ -794,7 +805,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ integration: args.integration, value: token.trim() }),
+          body: JSON.stringify({ integration: integration, value: token.trim() }),
         });
 
         let result: Record<string, unknown>;
@@ -862,8 +873,8 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
     if (isSubmitting || !activeAgent?.id) return;
     // For AI providers with global key, token is optional
     // For Twitter, allow save if config has changed even without token
-    const allowTwitterSave = args.integration === 'twitter' && hasTwitterConfigChanges;
-    if (!config.isAiProvider && !token.trim() && !(args.integration === 'telegram' && hasTelegramPolicyChanges) && !allowTwitterSave) return;
+    const allowTwitterSave = integration === 'twitter' && hasTwitterConfigChanges;
+    if (!config.isAiProvider && !token.trim() && !(integration === 'telegram' && hasTelegramPolicyChanges) && !allowTwitterSave) return;
     if (config.isAiProvider && !useGlobalKey && !token.trim()) return;
     if (config.isAiProvider && useGlobalKey && globalKeyAvailable === false) {
       setSaveError('No system/global API key is configured for this provider. Turn off “Use System API Key” and provide your own key.');
@@ -894,13 +905,13 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
           throw new Error(payload.error || payload.message || 'Failed to save');
         }
 
-        if (args.integration === 'telegram') {
+        if (integration === 'telegram') {
           telegramStatusFromSave = (payload as { telegramStatus?: unknown }).telegramStatus;
         }
       }
 
       // Persist Telegram policy (DM allowlist + allowed group chats)
-      if (args.integration === 'telegram' && hasTelegramPolicyChanges) {
+      if (integration === 'telegram' && hasTelegramPolicyChanges) {
         // Save in new format with display info, and also old format for backwards compatibility
         const policyResponse = await fetch(`${API_BASE}/avatars/${activeAgent.id}`, {
           method: 'PUT',
@@ -930,12 +941,12 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         };
       }
 
-      if (args.integration === 'telegram' && (token.trim() || hasTelegramPolicyChanges)) {
+      if (integration === 'telegram' && (token.trim() || hasTelegramPolicyChanges)) {
         telegramDiagnosisFromSave = await runTelegramDiagnostics();
       }
 
       // Persist Twitter configuration (features, autonomous posts, communities)
-      if (args.integration === 'twitter' && hasTwitterConfigChanges) {
+      if (integration === 'twitter' && hasTwitterConfigChanges) {
         const twitterConfig: {
           features: string[];
           autonomousPosts?: {
@@ -1001,7 +1012,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
       // Build result with AI provider specific config
       const result: Record<string, unknown> = {
         configured: true,
-        integration: args.integration,
+        integration: integration,
       };
 
       if (config.isAiProvider) {
@@ -1029,7 +1040,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         }
       }
 
-      if (args.integration === 'telegram') {
+      if (integration === 'telegram') {
         if (telegramStatusFromSave) result.telegramStatus = telegramStatusFromSave;
         if (telegramDiagnosisFromSave) result.telegramDiagnosis = telegramDiagnosisFromSave;
       }
@@ -1051,7 +1062,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
   const handleOAuth = () => {
     if (!activeAgent?.id) return;
     // Redirect to OAuth flow
-    window.location.href = `${API_BASE}/oauth/${args.integration}/start?avatarId=${encodeURIComponent(activeAgent.id)}`;
+    window.location.href = `${API_BASE}/oauth/${integration}/start?avatarId=${encodeURIComponent(activeAgent.id)}`;
   };
 
   return (
@@ -1083,7 +1094,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         )}
 
         {/* Telegram Health Status Indicator */}
-        {args.integration === 'telegram' && (
+        {integration === 'telegram' && (
           <div className="space-y-2">
             {telegramDiagnosisLoading ? (
               <div className="flex items-center gap-2 px-3 py-2 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg">
@@ -1158,7 +1169,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
             </div>
 
             {/* Twitter-specific configuration */}
-            {args.integration === 'twitter' && (
+            {integration === 'twitter' && (
               <>
                 {/* Features Selection */}
                 <div className="p-3 bg-[var(--color-bg-tertiary)] rounded-lg border border-[var(--color-border)] space-y-3">
@@ -1626,7 +1637,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         ) : (
           // Token-based platform integration (Telegram, Discord)
           <>
-            {args.integration === 'telegram' && (
+            {integration === 'telegram' && (
               <div className="space-y-3">
                 <div className="p-3 bg-[var(--color-bg-tertiary)] rounded-lg border border-[var(--color-border)]">
                   <p className="text-sm font-medium text-[var(--color-text)]">Telegram DM + Group Policy</p>

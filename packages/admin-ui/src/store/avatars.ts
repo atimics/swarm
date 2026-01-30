@@ -290,16 +290,36 @@ export const useAvatarStore = create<AvatarState>()(
 
           if (history.length > 0) {
             // Convert backend history to ChatMessage format
-            const messages: ChatMessage[] = history.map((msg, index) => ({
-              id: `synced-${index}`,
-              role: (msg.role === 'tool' ? 'assistant' : msg.role) as 'user' | 'assistant',
-              content: msg.content,
-              thinking: (msg as unknown as { thinking?: string[] }).thinking,
-              isToolResult: msg.role === 'tool',
-              timestamp: Date.now() - (history.length - index) * 1000,
-              // Include media if present (for images to persist across refresh)
-              media: msg.media,
-            }));
+            const messages: ChatMessage[] = history.map((msg, index) => {
+              // Convert backend tool_calls to frontend toolCalls format
+              // Backend stores arguments as JSON string, frontend expects parsed object
+              const toolCalls = (msg as unknown as { tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }> }).tool_calls?.map(tc => ({
+                id: tc.id,
+                name: tc.function.name,
+                arguments: (() => {
+                  try {
+                    return JSON.parse(tc.function.arguments);
+                  } catch {
+                    return {};
+                  }
+                })(),
+                // Restored tool calls from history are already completed (user interacted with them)
+                status: 'completed' as const,
+              }));
+
+              return {
+                id: `synced-${index}`,
+                role: (msg.role === 'tool' ? 'assistant' : msg.role) as 'user' | 'assistant',
+                content: msg.content,
+                thinking: (msg as unknown as { thinking?: string[] }).thinking,
+                isToolResult: msg.role === 'tool',
+                timestamp: Date.now() - (history.length - index) * 1000,
+                // Include media if present (for images to persist across refresh)
+                media: msg.media,
+                // Include tool calls if present (for interactive prompts to show in history)
+                toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
+              };
+            });
 
             set((state) => ({
               chats: {
