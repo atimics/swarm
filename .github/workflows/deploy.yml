@@ -338,13 +338,18 @@ jobs:
           done
           
           # Delete orphaned S3 buckets (need to empty first)
-          echo "Checking for orphaned S3 buckets..."
-          for BUCKET_PREFIX in swarm-admin-ui-prod swarm-media-prod; do
-            BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name, '${BUCKET_PREFIX}')].Name" --output text | head -1)
-            if [ -n "$BUCKET" ] && [ "$BUCKET" != "None" ]; then
+          # Use direct bucket names since we know the naming pattern and don't have ListAllMyBuckets permission
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "AWS Account ID: $AWS_ACCOUNT_ID"
+          
+          for BUCKET in "swarm-admin-ui-prod-${AWS_ACCOUNT_ID}" "swarm-media-prod-${AWS_ACCOUNT_ID}"; do
+            echo "Checking for orphaned bucket: $BUCKET"
+            if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
               echo "Emptying and deleting orphaned bucket: $BUCKET"
               aws s3 rm "s3://${BUCKET}" --recursive || true
               aws s3api delete-bucket --bucket "$BUCKET" || true
+            else
+              echo "Bucket $BUCKET does not exist or is not accessible"
             fi
           done
           
