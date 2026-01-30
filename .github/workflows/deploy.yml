@@ -32,6 +32,11 @@ on:
         required: false
         default: false
         type: boolean
+      skip_domain_aliases:
+        description: 'Deploy CloudFront without domain aliases (use when CNAME is locked by orphaned distribution)'
+        required: false
+        default: false
+        type: boolean
       stack_hash:
         description: 'Six-digit hash suffix for parallel stacks'
         required: false
@@ -500,6 +505,7 @@ jobs:
           SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && inputs.split_stacks || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
           USE_EXISTING_BUCKETS: ${{ inputs.use_existing_buckets || 'false' }}
+          SKIP_DOMAIN_ALIASES: ${{ inputs.skip_domain_aliases || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
           ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
         run: |
@@ -524,7 +530,7 @@ jobs:
 
           HOTSWAP=${{ needs.setup.outputs.cdk_env == 'staging' && '--hotswap-fallback' || '' }}
           STACK="${{ inputs.stack }}"
-          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
+          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
 
       - name: Skip Deploy (no changes)
         if: steps.diff.outputs.skip == 'true'
@@ -569,6 +575,35 @@ jobs:
 
           # Get distribution ID (bucket is queried directly in deploy job to avoid secret masking)
           echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+
+      - name: Associate domain alias (if skipped during deployment)
+        if: inputs.skip_domain_aliases && steps.outputs.outputs.distribution != ''
+        env:
+          DISTRIBUTION_ID: ${{ steps.outputs.outputs.distribution }}
+          ADMIN_DOMAIN: ${{ needs.setup.outputs.admin_url }}
+        run: |
+          # Extract just the hostname from the URL
+          DOMAIN=$(echo "$ADMIN_DOMAIN" | sed -E 's|^https?://||' | cut -d/ -f1)
+          
+          echo "Attempting to associate domain alias '$DOMAIN' with distribution '$DISTRIBUTION_ID'..."
+          
+          # Try to associate the alias. This moves the CNAME from any orphaned distribution.
+          if aws cloudfront associate-alias --target-distribution-id "$DISTRIBUTION_ID" --alias "$DOMAIN" 2>&1; then
+            echo "✅ Successfully associated '$DOMAIN' with distribution '$DISTRIBUTION_ID'"
+          else
+            echo "⚠️ Could not associate alias. You may need to:"
+            echo "   1. Add a TXT record '_cf-domain-ownership.$DOMAIN' with value '$DISTRIBUTION_ID'"
+            echo "   2. Or contact AWS Support to release the orphaned CNAME"
+            echo ""
+            echo "After adding the TXT record, retry with: aws cloudfront associate-alias --target-distribution-id $DISTRIBUTION_ID --alias $DOMAIN"
+          fi
+          
+          # Also try to associate the wildcard if this is production
+          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+            WILDCARD=$(echo "$DOMAIN" | sed 's/^[^.]*/*./')
+            echo "Attempting to associate wildcard alias '$WILDCARD' with distribution '$DISTRIBUTION_ID'..."
+            aws cloudfront associate-alias --target-distribution-id "$DISTRIBUTION_ID" --alias "$WILDCARD" 2>&1 || echo "⚠️ Could not associate wildcard alias"
+          fi
 
   # Admin UI build (runs in parallel with CDK)
   admin-ui-build:

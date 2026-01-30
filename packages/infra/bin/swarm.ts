@@ -187,6 +187,11 @@ const existingAdminTableName = getContextValue<string>('existingAdminTableName',
 // deletion with RETAIN policy), import the existing buckets instead of trying to create new ones.
 const useExistingBuckets = parseBoolean(getContextValue<unknown>('useExistingBuckets', envConfig)) ?? false;
 
+// When the CNAME is locked by an orphaned CloudFront distribution (e.g., after a stack deletion),
+// skip adding domain aliases during deployment. After deployment, use `aws cloudfront associate-alias`
+// to move the CNAME to the new distribution.
+const skipDomainAliases = parseBoolean(getContextValue<unknown>('skipDomainAliases', envConfig)) ?? false;
+
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
 const monorepoRoot = path.resolve(__dirname, '../../..');
@@ -309,6 +314,7 @@ if (useSplitStacks) {
     enableSharedHandlers,
     secretPrefix,
     useExistingBuckets,
+    skipDomainAliases,
     env: stackEnv,
     description: `Swarm AI Avatar Framework (${environment})`,
   });

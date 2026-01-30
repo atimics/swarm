@@ -204,6 +204,13 @@ export interface SwarmStackProps extends cdk.StackProps {
    * Use this when buckets already exist from a previous stack with RETAIN policy.
    */
   useExistingBuckets?: boolean;
+
+  /**
+   * Skip adding domain aliases to CloudFront distributions.
+   * Use this when CNAMEs are locked by orphaned distributions and need to be
+   * associated after deployment using `aws cloudfront associate-alias`.
+   */
+  skipDomainAliases?: boolean;
 }
 
 export class SwarmStack extends cdk.Stack {
@@ -351,6 +358,7 @@ export class SwarmStack extends cdk.Stack {
       apiDomain: apiGatewayHost,
       nameSuffix,
       useExistingBucket: useExistingBuckets,
+      skipDomainAliases: props.skipDomainAliases,
     });
 
     // Create Claude Code worker if enabled

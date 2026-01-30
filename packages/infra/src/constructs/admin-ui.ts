@@ -48,6 +48,13 @@ export interface AdminUiProps {
    * Use this when the bucket already exists (e.g., from a previous stack with RETAIN policy).
    */
   useExistingBucket?: boolean;
+
+  /**
+   * Whether to skip adding domain aliases to the CloudFront distribution.
+   * Use this when the CNAME is locked by an orphaned distribution and needs to be
+   * associated after deployment using `aws cloudfront associate-alias`.
+   */
+  skipDomainAliases?: boolean;
 }
 
 export class AdminUi extends Construct {
@@ -58,7 +65,7 @@ export class AdminUi extends Construct {
   constructor(scope: Construct, id: string, props: AdminUiProps) {
     super(scope, id);
 
-    const { environment, domainName, certificateArn, apiDomain, nameSuffix, includeWildcardAliases, useExistingBucket } = props;
+    const { environment, domainName, certificateArn, apiDomain, nameSuffix, includeWildcardAliases, useExistingBucket, skipDomainAliases } = props;
     const suffix = nameSuffix ?? '';
     const bucketName = `swarm-admin-ui-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`;
 
@@ -98,7 +105,10 @@ export class AdminUi extends Construct {
 
     const shouldIncludeWildcardAliases = includeWildcardAliases ?? environment === 'prod';
 
-    const domainNames = domainName
+    // When skipDomainAliases is true, we deploy without CNAME aliases.
+    // This is useful when the CNAME is locked by an orphaned distribution and
+    // needs to be associated after deployment using `aws cloudfront associate-alias`.
+    const domainNames = (domainName && !skipDomainAliases)
       ? Array.from(
           new Set([
             domainName,
@@ -111,7 +121,7 @@ export class AdminUi extends Construct {
         )
       : undefined;
 
-    const certificate = certificateArn
+    const certificate = (certificateArn && !skipDomainAliases)
       ? acm.Certificate.fromCertificateArn(this, 'Certificate', certificateArn)
       : undefined;
 
