@@ -325,6 +325,31 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Cleanup orphaned production resources
+        if: steps.diff.outputs.skip != 'true' && needs.setup.outputs.cdk_env == 'prod'
+        run: |
+          # Delete orphaned DynamoDB tables that were retained from previous stack deletions
+          echo "Checking for orphaned DynamoDB tables..."
+          for TABLE in swarm-state-prod swarm-activity-prod SwarmAdmin-prod; do
+            if aws dynamodb describe-table --table-name "$TABLE" 2>/dev/null; then
+              echo "Deleting orphaned table: $TABLE"
+              aws dynamodb delete-table --table-name "$TABLE" || true
+            fi
+          done
+          
+          # Delete orphaned S3 buckets (need to empty first)
+          echo "Checking for orphaned S3 buckets..."
+          for BUCKET_PREFIX in swarm-admin-ui-prod swarm-media-prod; do
+            BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name, '${BUCKET_PREFIX}')].Name" --output text | head -1)
+            if [ -n "$BUCKET" ] && [ "$BUCKET" != "None" ]; then
+              echo "Emptying and deleting orphaned bucket: $BUCKET"
+              aws s3 rm "s3://${BUCKET}" --recursive || true
+              aws s3api delete-bucket --bucket "$BUCKET" || true
+            fi
+          done
+          
+          echo "Orphaned resource cleanup complete"
+
       - name: CDK Deploy
         if: steps.diff.outputs.skip != 'true'
         working-directory: packages/infra
