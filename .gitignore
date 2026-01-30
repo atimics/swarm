@@ -60,3 +60,4 @@ issues/*
 audit/
 packages/infra/cdk.out.prod/*
 packages/infra/prod-resource-mapping.json
+migrations/
