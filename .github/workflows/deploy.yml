@@ -116,7 +116,7 @@ jobs:
     needs: setup
     environment: ${{ needs.setup.outputs.environment }}
     outputs:
-      bucket: ${{ steps.outputs.outputs.bucket }}
+      bucket_b64: ${{ steps.outputs.outputs.bucket_b64 }}
       distribution: ${{ steps.outputs.outputs.distribution }}
 
     steps:
@@ -401,7 +401,9 @@ jobs:
             STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
           fi
 
-          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+          # Get bucket and distribution, base64 encoding bucket to avoid secret masking
+          BUCKET_RAW=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)
+          echo "bucket_b64=$(echo -n "$BUCKET_RAW" | base64)" >> $GITHUB_OUTPUT
           echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
 
   # Admin UI build (runs in parallel with CDK)
@@ -445,7 +447,7 @@ jobs:
     needs: [setup, cdk-deploy]
     environment: ${{ needs.setup.outputs.environment }}
     outputs:
-      bucket: ${{ steps.outputs.outputs.bucket }}
+      bucket_b64: ${{ steps.outputs.outputs.bucket_b64 }}
       distribution: ${{ steps.outputs.outputs.distribution }}
 
     steps:
@@ -512,7 +514,9 @@ jobs:
             STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
           fi
 
-          echo "bucket=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+          # Get bucket and distribution, base64 encoding bucket to avoid secret masking
+          BUCKET_RAW=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)
+          echo "bucket_b64=$(echo -n "$BUCKET_RAW" | base64)" >> $GITHUB_OUTPUT
           echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
 
   admin-ui-deploy:
@@ -561,9 +565,15 @@ jobs:
 
       - name: Deploy to S3
         run: |
-          BUCKET="${{ needs.cdk-deploy.outputs.bucket || needs.stack-outputs.outputs.bucket }}"
-          if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ]; then
+          # Decode base64-encoded bucket name to avoid GitHub Actions secret masking
+          BUCKET_B64="${{ needs.cdk-deploy.outputs.bucket_b64 || needs.stack-outputs.outputs.bucket_b64 }}"
+          if [ -z "$BUCKET_B64" ]; then
             echo "::error::Could not get bucket name from CDK outputs"
+            exit 1
+          fi
+          BUCKET=$(echo -n "$BUCKET_B64" | base64 --decode)
+          if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ]; then
+            echo "::error::Could not decode bucket name from base64"
             exit 1
           fi
           aws s3 sync dist s3://$BUCKET --delete --cache-control "max-age=31536000,immutable" --exclude "index.html" --exclude "*.json"
