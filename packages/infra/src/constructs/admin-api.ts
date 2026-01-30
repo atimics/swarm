@@ -260,6 +260,8 @@ export class AdminApiConstruct extends Construct {
         removalPolicy: isPersistentEnv
           ? cdk.RemovalPolicy.RETAIN
           : cdk.RemovalPolicy.DESTROY,
+        // Deletion protection prevents accidental deletion during rollbacks
+        deletionProtection: isPersistentEnv,
         pointInTimeRecoverySpecification: {
           pointInTimeRecoveryEnabled: isProd,
         },
