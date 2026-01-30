@@ -189,6 +189,19 @@ export class SharedInfraStack extends cdk.Stack {
       description: 'Dependency layer ARN for swarm handlers',
     });
 
+    // MIGRATION BRIDGE: Maintain the old CDK implicit export while consumer stacks migrate to SSM.
+    // This prevents "export in use" errors during the first deployment after switching to SSM.
+    // We use the exact same logical ID as CDK's auto-generated output so CloudFormation sees
+    // it as an update (no-op) rather than a delete+create.
+    // Once all consumer stacks are deployed with SSM lookups, this can be removed.
+    const legacyExport = new cdk.CfnOutput(this, 'LegacyLayerExport', {
+      value: this.dependencyLayerArn,
+      exportName: `${this.stackName}:ExportsOutputRefDependencyLayerE4A0C25129DFB32E`,
+      description: 'Legacy export for migration - will be removed after all stacks use SSM',
+    });
+    // Override the logical ID to match the old auto-generated one
+    legacyExport.overrideLogicalId('ExportsOutputRefDependencyLayerE4A0C25129DFB32E');
+
     // Export values for cross-stack references
     new cdk.CfnOutput(this, 'StateTableArnExport', {
       value: this.stateTableArn,
