@@ -49,6 +49,23 @@ function isTelegramDirectMessageChatId(conversationId: string): boolean {
   return Number.isFinite(chatId) && chatId > 0;
 }
 
+function isAllowedDmUser(conversationId: string, telegramCfg: { allowedDmUserIds?: string[]; allowedDmUsers?: Array<{ userId: string | number }> } | undefined): boolean {
+  if (!telegramCfg) return false;
+  
+  // New format takes precedence
+  if ('allowedDmUsers' in telegramCfg && telegramCfg.allowedDmUsers) {
+    const allowedIds = telegramCfg.allowedDmUsers.map((u) => String(u.userId));
+    return allowedIds.includes(conversationId);
+  }
+  
+  // Fall back to old format
+  if (telegramCfg.allowedDmUserIds) {
+    return telegramCfg.allowedDmUserIds.includes(conversationId);
+  }
+  
+  return false;
+}
+
 function buildTelegramDmRedirect(params?: { ratichatUrl?: string }): {
   text: string;
   replyMarkup: {
@@ -341,9 +358,15 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
         actions: response.actions.length,
       });
 
-      // Defense-in-depth: avatar bots should not send persona replies in Telegram DMs.
-      // If a DM response ever makes it to the outbound sender, replace it with RATi Chat onboarding.
-      if (response.platform === 'telegram' && isTelegramDirectMessageChatId(response.conversationId)) {
+      // Defense-in-depth: avatar bots should not send persona replies in Telegram DMs
+      // UNLESS the user is in the allowedDmUserIds list.
+      // For DMs, conversationId is the user's Telegram ID.
+      const telegramCfg = outboundRuntime.avatarConfig.platforms.telegram;
+      if (
+        response.platform === 'telegram' &&
+        isTelegramDirectMessageChatId(response.conversationId) &&
+        !isAllowedDmUser(response.conversationId, telegramCfg)
+      ) {
         const adapter = outboundRuntime.platformRegistry.get('telegram');
         if (!adapter || !(adapter instanceof TelegramAdapter)) {
           logger.error('Telegram adapter missing for DM redirect', {
