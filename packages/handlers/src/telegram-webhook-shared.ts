@@ -979,7 +979,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
     // Use home channel checker for groups/channels if ADMIN_TABLE is configured
     const homeChecker = ADMIN_TABLE ? createHomeChannelChecker() : undefined;
-    // DMs: all bots support the RATi OS onboarding/admin workflow in private chats.
+    // DMs: check if sender is in allowedDmUserIds before deciding how to handle
     if (envelope.metadata.chatType === 'private') {
       // Idempotency check (before any responses)
       const isNewMessage = await stateService.checkAndSetIdempotency(envelope.metadata.idempotencyKey);
@@ -988,8 +988,71 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         return ok();
       }
 
-      // Avatar bots should not run persona chat in DMs.
-      // Always redirect the user to RATi Chat onboarding.
+      // Check if sender is in the allowed DM users list
+      const allowedDmUserIds = getAllowedDmUserIdsForAdmin(telegramCfg);
+      const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
+      const isAllowedDmUser = allowedDmUserIds.includes(senderId);
+
+      if (isAllowedDmUser) {
+        // Allowed users can DM - queue the message for processing
+        logger.info('DM from allowed user, queueing for processing', {
+          event: 'dm_allowed',
+          senderId,
+          messageId: envelope.messageId,
+        });
+
+        // Evaluate if we should respond
+        const evaluator = createMessageEvaluator(avatarConfig, stateService, {
+          botUsernames: [telegramCfg?.botUsername || ''],
+        });
+
+        const evaluation = await evaluator.evaluate(envelope);
+        envelope.metadata.shouldRespond = evaluation.shouldRespond;
+        envelope.metadata.responseReason = evaluation.reason;
+        envelope.metadata.priority = evaluation.priority;
+
+        // Queue for processing
+        await stateService.addMessageToChannel(
+          avatarId,
+          envelope.conversationId,
+          'telegram',
+          {
+            messageId: envelope.messageId,
+            sender: envelope.sender.displayName || envelope.sender.username || envelope.sender.id,
+            isBot: envelope.sender.isBot,
+            content: envelope.content.text || '[media]',
+            timestamp: envelope.timestamp,
+          },
+          undefined,
+          'private',
+          undefined
+        );
+
+        await sqs.send(new SendMessageCommand({
+          QueueUrl: MESSAGE_QUEUE_URL,
+          MessageBody: JSON.stringify({
+            envelope,
+            enqueuedAt: Date.now(),
+            attempts: 0,
+            maxAttempts: 3,
+          }),
+          MessageAttributes: {
+            traceId: { DataType: 'String', StringValue: traceId },
+          },
+          MessageGroupId: `${avatarId}#${envelope.conversationId}`,
+          MessageDeduplicationId: envelope.metadata.idempotencyKey,
+        }));
+
+        logger.info('DM message queued', {
+          event: 'dm_message_queued',
+          messageId: envelope.messageId,
+          senderId,
+        });
+
+        return ok();
+      }
+
+      // Non-allowed users: redirect to RATi Chat onboarding
       try {
         const bot = telegramAdapter.getBot();
         if (bot) {
