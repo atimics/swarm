@@ -1,4 +1,54 @@
 {
+  "vpc-provider:account=332730082708:filter.isDefault=true:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-0a5c9f8bde90c002b",
+    "vpcCidrBlock": "172.31.0.0/16",
+    "ownerAccountId": "332730082708",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "Public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-06d6c29713c0e789c",
+            "cidr": "172.31.0.0/20",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-0d5cd5db34df5e8e6"
+          },
+          {
+            "subnetId": "subnet-0037047eabe8febac",
+            "cidr": "172.31.80.0/20",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-0d5cd5db34df5e8e6"
+          },
+          {
+            "subnetId": "subnet-08c4c8ee741cf9cd4",
+            "cidr": "172.31.16.0/20",
+            "availabilityZone": "us-east-1c",
+            "routeTableId": "rtb-0d5cd5db34df5e8e6"
+          },
+          {
+            "subnetId": "subnet-0b06f32ee3c9f2daa",
+            "cidr": "172.31.32.0/20",
+            "availabilityZone": "us-east-1d",
+            "routeTableId": "rtb-0d5cd5db34df5e8e6"
+          },
+          {
+            "subnetId": "subnet-02c252bd1e0f84a3e",
+            "cidr": "172.31.48.0/20",
+            "availabilityZone": "us-east-1e",
+            "routeTableId": "rtb-0d5cd5db34df5e8e6"
+          },
+          {
+            "subnetId": "subnet-0e9e52dc733e0d6db",
+            "cidr": "172.31.64.0/20",
+            "availabilityZone": "us-east-1f",
+            "routeTableId": "rtb-0d5cd5db34df5e8e6"
+          }
+        ]
+      }
+    ]
+  },
   "vpc-provider:account=022118847419:filter.isDefault=true:region=us-east-1:returnAsymmetricSubnets=true": {
     "vpcId": "vpc-50cd4a29",
     "vpcCidrBlock": "172.31.0.0/16",
@@ -55,5 +105,8 @@
   "adminEmails": "hello@ratimics.com",
   "privyAppId": "cmk602g84025hjp0cr6w0f6ef",
   "privyAppSecretArn": "arn:aws:secretsmanager:us-east-1:022118847419:secret:swarm/staging/privy-app-secret-oFyvjH",
-  "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:us-east-1:022118847419:secret:swarm/staging/privy-jwt-verification-key-ExpprY"
+  "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:us-east-1:022118847419:secret:swarm/staging/privy-jwt-verification-key-ExpprY",
+  "acknowledged-issue-numbers": [
+    34892
+  ]
 }

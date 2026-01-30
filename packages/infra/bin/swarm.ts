@@ -183,6 +183,10 @@ if (!enableSharedHandlersForDeploy) {
 const useExistingAdminTable = isMigrationSplitWithoutSuffix;
 const existingAdminTableName = getContextValue<string>('existingAdminTableName', envConfig);
 
+// When deploying to an environment where S3 buckets already exist (e.g., from a previous stack
+// deletion with RETAIN policy), import the existing buckets instead of trying to create new ones.
+const useExistingBuckets = parseBoolean(getContextValue<unknown>('useExistingBuckets', envConfig)) ?? false;
+
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
 const monorepoRoot = path.resolve(__dirname, '../../..');
@@ -304,6 +308,7 @@ if (useSplitStacks) {
     claudeCodeUseOpenRouter,
     enableSharedHandlers,
     secretPrefix,
+    useExistingBuckets,
     env: stackEnv,
     description: `Swarm AI Avatar Framework (${environment})`,
   });

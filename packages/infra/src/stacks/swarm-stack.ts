@@ -198,6 +198,12 @@ export interface SwarmStackProps extends cdk.StackProps {
    * Use OpenRouter instead of direct Anthropic API for Claude Code
    */
   claudeCodeUseOpenRouter?: boolean;
+
+  /**
+   * Import existing S3 buckets instead of creating new ones.
+   * Use this when buckets already exist from a previous stack with RETAIN policy.
+   */
+  useExistingBuckets?: boolean;
 }
 
 export class SwarmStack extends cdk.Stack {
@@ -240,6 +246,7 @@ export class SwarmStack extends cdk.Stack {
       claudeCodeUseOpenRouter = false,
       enableSharedHandlers = false,
       secretPrefix,
+      useExistingBuckets = false,
     } = props;
 
     // Create shared infrastructure
@@ -249,6 +256,7 @@ export class SwarmStack extends cdk.Stack {
       enableCdn,
       cdnDomain: galleryDomain,
       cdnCertificateArn: galleryCertificateArn,
+      useExistingMediaBucket: useExistingBuckets,
     });
 
     // Generate a single internal test key for all constructs in non-production environments
@@ -342,6 +350,7 @@ export class SwarmStack extends cdk.Stack {
       // Use raw API Gateway endpoint hostname for CloudFront origin
       apiDomain: apiGatewayHost,
       nameSuffix,
+      useExistingBucket: useExistingBuckets,
     });
 
     // Create Claude Code worker if enabled

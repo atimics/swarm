@@ -51,12 +51,18 @@ export interface SharedInfrastructureProps {
    * ACM certificate ARN for the CDN custom domain (must be in us-east-1)
    */
   cdnCertificateArn?: string;
+
+  /**
+   * Whether to import existing S3 bucket instead of creating a new one.
+   * Use this when the bucket already exists (e.g., from a previous stack with RETAIN policy).
+   */
+  useExistingMediaBucket?: boolean;
 }
 
 export class SharedInfrastructure extends Construct {
   public readonly stateTable: dynamodb.Table;
   public readonly activityTable: dynamodb.Table;
-  public readonly mediaBucket: s3.Bucket;
+  public readonly mediaBucket: s3.IBucket;
   public readonly distribution?: cloudfront.Distribution;
   public readonly dependencyLayer: lambda.LayerVersion;
   public readonly cdnUrl?: string;
@@ -65,7 +71,7 @@ export class SharedInfrastructure extends Construct {
   constructor(scope: Construct, id: string, props: SharedInfrastructureProps) {
     super(scope, id);
 
-    const { environment, enableCdn = true, layerCodePath, cdnDomain, cdnCertificateArn, nameSuffix } = props;
+    const { environment, enableCdn = true, layerCodePath, cdnDomain, cdnCertificateArn, nameSuffix, useExistingMediaBucket } = props;
     const suffix = nameSuffix ?? '';
     const isPersistentEnv = environment === 'prod' || environment === 'production' || environment === 'staging';
 
@@ -101,37 +107,42 @@ export class SharedInfrastructure extends Construct {
       timeToLiveAttribute: 'ttl',
     });
 
-    // Media bucket
-    this.mediaBucket = new s3.Bucket(this, 'MediaBucket', {
-      bucketName: `swarm-media-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`,
-      removalPolicy: isPersistentEnv
-        ? cdk.RemovalPolicy.RETAIN
-        : cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: !isPersistentEnv,
-      cors: [
-        {
-          allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT],
-          allowedOrigins: ['*'],
-          allowedHeaders: ['*'],
-        },
-      ],
-      lifecycleRules: [
-        {
-          id: 'expire-temp-files',
-          prefix: 'temp/',
-          expiration: cdk.Duration.days(1),
-        },
-        {
-          id: 'intelligent-tiering',
-          transitions: [
-            {
-              storageClass: s3.StorageClass.INTELLIGENT_TIERING,
-              transitionAfter: cdk.Duration.days(30),
-            },
-          ],
-        },
-      ],
-    });
+    // Media bucket - import existing or create new
+    const mediaBucketName = `swarm-media-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`;
+    if (useExistingMediaBucket) {
+      this.mediaBucket = s3.Bucket.fromBucketName(this, 'MediaBucket', mediaBucketName);
+    } else {
+      this.mediaBucket = new s3.Bucket(this, 'MediaBucket', {
+        bucketName: mediaBucketName,
+        removalPolicy: isPersistentEnv
+          ? cdk.RemovalPolicy.RETAIN
+          : cdk.RemovalPolicy.DESTROY,
+        autoDeleteObjects: !isPersistentEnv,
+        cors: [
+          {
+            allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT],
+            allowedOrigins: ['*'],
+            allowedHeaders: ['*'],
+          },
+        ],
+        lifecycleRules: [
+          {
+            id: 'expire-temp-files',
+            prefix: 'temp/',
+            expiration: cdk.Duration.days(1),
+          },
+          {
+            id: 'intelligent-tiering',
+            transitions: [
+              {
+                storageClass: s3.StorageClass.INTELLIGENT_TIERING,
+                transitionAfter: cdk.Duration.days(30),
+              },
+            ],
+          },
+        ],
+      });
+    }
 
     // CloudFront CDN - REQUIRED for media to be accessible
     // S3 bucket is private, only CloudFront can access it via OAI

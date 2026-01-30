@@ -42,29 +42,40 @@ export interface AdminUiProps {
    * wildcard in a separate account/distribution.
    */
   includeWildcardAliases?: boolean;
+
+  /**
+   * Whether to import an existing bucket instead of creating a new one.
+   * Use this when the bucket already exists (e.g., from a previous stack with RETAIN policy).
+   */
+  useExistingBucket?: boolean;
 }
 
 export class AdminUi extends Construct {
-  public readonly bucket: s3.Bucket;
+  public readonly bucket: s3.IBucket;
   public readonly distribution: cloudfront.Distribution;
   public readonly domainUrl: string;
 
   constructor(scope: Construct, id: string, props: AdminUiProps) {
     super(scope, id);
 
-    const { environment, domainName, certificateArn, apiDomain, nameSuffix, includeWildcardAliases } = props;
+    const { environment, domainName, certificateArn, apiDomain, nameSuffix, includeWildcardAliases, useExistingBucket } = props;
     const suffix = nameSuffix ?? '';
+    const bucketName = `swarm-admin-ui-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`;
 
-    // S3 bucket for static hosting
-    this.bucket = new s3.Bucket(this, 'Bucket', {
-      bucketName: `swarm-admin-ui-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`,
-      removalPolicy: environment === 'prod'
-        ? cdk.RemovalPolicy.RETAIN
-        : cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: environment !== 'prod',
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      encryption: s3.BucketEncryption.S3_MANAGED,
-    });
+    // S3 bucket for static hosting - import existing or create new
+    if (useExistingBucket) {
+      this.bucket = s3.Bucket.fromBucketName(this, 'Bucket', bucketName);
+    } else {
+      this.bucket = new s3.Bucket(this, 'Bucket', {
+        bucketName,
+        removalPolicy: environment === 'prod'
+          ? cdk.RemovalPolicy.RETAIN
+          : cdk.RemovalPolicy.DESTROY,
+        autoDeleteObjects: environment !== 'prod',
+        blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+        encryption: s3.BucketEncryption.S3_MANAGED,
+      });
+    }
 
     // CloudFront Origin Access Identity
     const originAccessIdentity = new cloudfront.OriginAccessIdentity(this, 'OAI', {
