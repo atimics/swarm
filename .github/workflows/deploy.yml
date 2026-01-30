@@ -422,18 +422,28 @@ jobs:
           
           # Check for orphaned CloudFront distributions with swarm.rati.chat alias
           echo "Checking for orphaned CloudFront distributions with swarm.rati.chat alias..."
-          ORPHAN_DISTS=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items!=null] | [?contains(Aliases.Items, 'swarm.rati.chat') || contains(Aliases.Items, '*.rati.chat')].{Id:Id,Status:Status,Enabled:Enabled}" --output json 2>/dev/null || echo "[]")
           
-          if [ "$ORPHAN_DISTS" != "[]" ] && [ "$ORPHAN_DISTS" != "null" ] && [ -n "$ORPHAN_DISTS" ]; then
-            echo "Found CloudFront distributions with swarm.rati.chat alias:"
+          # Get all distributions and filter with jq (more reliable than JMESPath for complex queries)
+          ALL_DISTS=$(aws cloudfront list-distributions --output json 2>/dev/null || echo '{"DistributionList":{}}')
+          echo "Total distributions found: $(echo "$ALL_DISTS" | jq '.DistributionList.Items // [] | length')"
+          
+          # Find distributions with swarm.rati.chat or *.rati.chat in their aliases
+          ORPHAN_DISTS=$(echo "$ALL_DISTS" | jq '[.DistributionList.Items // [] | .[] | select(.Aliases.Items != null) | select(.Aliases.Items | map(select(. == "swarm.rati.chat" or . == "*.rati.chat" or test("swarm\\.rati\\.chat"))) | length > 0) | {Id: .Id, Status: .Status, Enabled: .Enabled, Aliases: .Aliases.Items}]')
+          
+          DIST_COUNT=$(echo "$ORPHAN_DISTS" | jq 'length')
+          echo "Found $DIST_COUNT distribution(s) with swarm.rati.chat alias"
+          
+          if [ "$DIST_COUNT" -gt 0 ]; then
+            echo "CloudFront distributions with swarm.rati.chat alias:"
             echo "$ORPHAN_DISTS" | jq '.'
             
             # Attempt to disable and delete orphaned distributions
             echo "$ORPHAN_DISTS" | jq -c '.[]' | while read DIST; do
               DIST_ID=$(echo "$DIST" | jq -r '.Id')
               ENABLED=$(echo "$DIST" | jq -r '.Enabled')
+              STATUS=$(echo "$DIST" | jq -r '.Status')
               
-              echo "Processing orphaned distribution: $DIST_ID (Enabled: $ENABLED)"
+              echo "Processing distribution: $DIST_ID (Enabled: $ENABLED, Status: $STATUS)"
               
               # Get the current ETag for the distribution
               DIST_CONFIG=$(aws cloudfront get-distribution-config --id "$DIST_ID" 2>/dev/null)
@@ -443,26 +453,37 @@ jobs:
               fi
               
               ETAG=$(echo "$DIST_CONFIG" | jq -r '.ETag')
+              echo "Got ETag: $ETAG"
               
               # If enabled, disable it first
               if [ "$ENABLED" = "true" ]; then
                 echo "Disabling distribution $DIST_ID..."
                 MODIFIED_CONFIG=$(echo "$DIST_CONFIG" | jq '.DistributionConfig.Enabled = false | .DistributionConfig')
                 echo "$MODIFIED_CONFIG" > /tmp/dist-config.json
-                aws cloudfront update-distribution --id "$DIST_ID" --if-match "$ETAG" --distribution-config file:///tmp/dist-config.json 2>&1 || echo "Warning: Could not disable distribution $DIST_ID"
+                
+                UPDATE_RESULT=$(aws cloudfront update-distribution --id "$DIST_ID" --if-match "$ETAG" --distribution-config file:///tmp/dist-config.json 2>&1) || true
+                echo "Update result: $UPDATE_RESULT"
                 
                 # Wait for distribution to be deployed (disabled)
-                echo "Waiting for distribution $DIST_ID to be disabled (this may take a few minutes)..."
-                aws cloudfront wait distribution-deployed --id "$DIST_ID" 2>&1 || echo "Warning: Timeout waiting for distribution to be disabled"
+                echo "Waiting for distribution $DIST_ID to be disabled (this may take several minutes)..."
+                aws cloudfront wait distribution-deployed --id "$DIST_ID" 2>&1 || echo "Warning: Timeout waiting for distribution to be disabled - will try to delete anyway"
                 
                 # Get new ETag after update
                 DIST_CONFIG=$(aws cloudfront get-distribution-config --id "$DIST_ID" 2>/dev/null)
                 ETAG=$(echo "$DIST_CONFIG" | jq -r '.ETag')
+                echo "New ETag after disable: $ETAG"
               fi
               
               # Delete the distribution
-              echo "Deleting distribution $DIST_ID..."
-              aws cloudfront delete-distribution --id "$DIST_ID" --if-match "$ETAG" 2>&1 || echo "Warning: Could not delete distribution $DIST_ID - it may still be deploying or have dependencies"
+              echo "Deleting distribution $DIST_ID with ETag $ETAG..."
+              DELETE_RESULT=$(aws cloudfront delete-distribution --id "$DIST_ID" --if-match "$ETAG" 2>&1) || true
+              echo "Delete result: $DELETE_RESULT"
+              
+              if [ -z "$DELETE_RESULT" ]; then
+                echo "Successfully deleted distribution $DIST_ID"
+              else
+                echo "Warning: Could not delete distribution $DIST_ID - $DELETE_RESULT"
+              fi
             done
           else
             echo "No orphaned CloudFront distributions found with swarm.rati.chat alias"
