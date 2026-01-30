@@ -116,7 +116,6 @@ jobs:
     needs: setup
     environment: ${{ needs.setup.outputs.environment }}
     outputs:
-      bucket_b64: ${{ steps.outputs.outputs.bucket_b64 }}
       distribution: ${{ steps.outputs.outputs.distribution }}
 
     steps:
@@ -401,9 +400,7 @@ jobs:
             STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
           fi
 
-          # Get bucket and distribution, base64 encoding bucket to avoid secret masking
-          BUCKET_RAW=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)
-          echo "bucket_b64=$(echo -n "$BUCKET_RAW" | base64)" >> $GITHUB_OUTPUT
+          # Get distribution ID (bucket is queried directly in deploy job to avoid secret masking)
           echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
 
   # Admin UI build (runs in parallel with CDK)
@@ -447,7 +444,6 @@ jobs:
     needs: [setup, cdk-deploy]
     environment: ${{ needs.setup.outputs.environment }}
     outputs:
-      bucket_b64: ${{ steps.outputs.outputs.bucket_b64 }}
       distribution: ${{ steps.outputs.outputs.distribution }}
 
     steps:
@@ -514,9 +510,7 @@ jobs:
             STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
           fi
 
-          # Get bucket and distribution, base64 encoding bucket to avoid secret masking
-          BUCKET_RAW=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)
-          echo "bucket_b64=$(echo -n "$BUCKET_RAW" | base64)" >> $GITHUB_OUTPUT
+          # Get distribution ID (bucket is queried directly in deploy job to avoid secret masking)
           echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
 
   admin-ui-deploy:
@@ -564,24 +558,99 @@ jobs:
           fi
 
       - name: Deploy to S3
+        env:
+          # Default to split stacks for staging on push-to-main
+          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && inputs.split_stacks || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
+          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
+          STACK_HASH: ${{ inputs.stack_hash || '' }}
+          CDK_ENV: ${{ needs.setup.outputs.cdk_env }}
         run: |
-          # Decode base64-encoded bucket name to avoid GitHub Actions secret masking
-          BUCKET_B64="${{ needs.cdk-deploy.outputs.bucket_b64 || needs.stack-outputs.outputs.bucket_b64 }}"
-          if [ -z "$BUCKET_B64" ]; then
-            echo "::error::Could not get bucket name from CDK outputs"
-            exit 1
+          # Query bucket name directly from CloudFormation to avoid GitHub Actions secret masking.
+          # GitHub masks outputs that contain secrets (like AWS account IDs in bucket names),
+          # even when base64-encoded. Direct query bypasses the output mechanism.
+          
+          # Calculate stack name and export suffix (same logic as stack-outputs job)
+          if [ "$SPLIT_STACKS" = "true" ] && [ "$CDK_ENV" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
           fi
-          BUCKET=$(echo -n "$BUCKET_B64" | base64 --decode)
+
+          STACK_HASH_SUFFIX=""
+          if [ -n "$STACK_HASH" ]; then
+            STACK_HASH_SUFFIX="-$STACK_HASH"
+          fi
+
+          STACK_ID_SUFFIX=""
+          if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
+            STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
+          fi
+
+          EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
+          if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
+            EXPORT_SUFFIX="-split"
+          fi
+
+          # Use UI stack for split stacks, monolithic stack otherwise
+          if [ "$SPLIT_STACKS" = "true" ]; then
+            STACK="SwarmUi-${CDK_ENV}${STACK_ID_SUFFIX}"
+          else
+            STACK="SwarmStack-${CDK_ENV}${STACK_ID_SUFFIX}"
+          fi
+
+          BUCKET=$(aws cloudformation describe-stacks --stack-name "$STACK" \
+            --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${CDK_ENV}${EXPORT_SUFFIX}'].OutputValue" \
+            --output text)
+          
           if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ]; then
-            echo "::error::Could not decode bucket name from base64"
+            echo "::error::Could not get bucket name from stack $STACK"
             exit 1
           fi
+          
+          echo "Deploying to bucket: ${BUCKET:0:20}..." # Truncate to avoid logging full name
           aws s3 sync dist s3://$BUCKET --delete --cache-control "max-age=31536000,immutable" --exclude "index.html" --exclude "*.json"
           aws s3 cp dist/index.html s3://$BUCKET/index.html --cache-control "no-cache"
 
       - name: Invalidate CDN
+        env:
+          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && inputs.split_stacks || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
+          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
+          STACK_HASH: ${{ inputs.stack_hash || '' }}
+          CDK_ENV: ${{ needs.setup.outputs.cdk_env }}
         run: |
+          # Try to get distribution from outputs first, fall back to direct query
           DIST="${{ needs.cdk-deploy.outputs.distribution || needs.stack-outputs.outputs.distribution }}"
+          
+          if [ -z "$DIST" ] || [ "$DIST" = "None" ]; then
+            # Query CloudFormation directly (same logic as Deploy to S3 step)
+            if [ "$SPLIT_STACKS" = "true" ] && [ "$CDK_ENV" = "staging" ] && [ -z "$STACK_HASH" ]; then
+              USE_EXISTING_SHARED_RESOURCES="true"
+            fi
+
+            STACK_HASH_SUFFIX=""
+            if [ -n "$STACK_HASH" ]; then
+              STACK_HASH_SUFFIX="-$STACK_HASH"
+            fi
+
+            STACK_ID_SUFFIX=""
+            if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
+              STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
+            fi
+
+            EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
+            if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
+              EXPORT_SUFFIX="-split"
+            fi
+
+            if [ "$SPLIT_STACKS" = "true" ]; then
+              STACK="SwarmUi-${CDK_ENV}${STACK_ID_SUFFIX}"
+            else
+              STACK="SwarmStack-${CDK_ENV}${STACK_ID_SUFFIX}"
+            fi
+
+            DIST=$(aws cloudformation describe-stacks --stack-name "$STACK" \
+              --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${CDK_ENV}${EXPORT_SUFFIX}'].OutputValue" \
+              --output text)
+          fi
+          
           if [ -n "$DIST" ] && [ "$DIST" != "None" ]; then
             aws cloudfront create-invalidation --distribution-id $DIST --paths "/*" --no-cli-pager
             echo "✅ CDN invalidated" >> $GITHUB_STEP_SUMMARY
