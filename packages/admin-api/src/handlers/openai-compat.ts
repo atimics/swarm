@@ -34,6 +34,7 @@ import { processChat } from './chat.js';
 import type { UserSession } from '../types.js';
 import * as avatars from '../services/avatars.js';
 import * as voice from '../services/voice.js';
+import * as energy from '../services/energy.js';
 import { getCorsHeaders } from '../http/cors.js';
 
 // =============================================================================
@@ -347,6 +348,7 @@ async function handleListModels(
       }
 
       const voiceCheck = await voice.hasVoice(avatar.avatarId);
+      const energyStatus = await energy.getEnergyStatus(avatar.avatarId);
 
       return jsonResponse(200, {
         object: 'list',
@@ -367,6 +369,13 @@ async function handleListModels(
             name: avatar.name,
             description: avatar.description || null,
             profile_image: avatar.profileImage?.url || null,
+          },
+          // Energy availability
+          energy: {
+            current: energyStatus.currentEnergy,
+            max: energyStatus.maxEnergy,
+            refill_rate: energyStatus.refillRate,
+            next_refill_minutes: energyStatus.nextRefillIn,
           },
         }],
       }, corsHeaders);
@@ -461,6 +470,7 @@ async function handleGetModel(
     }
 
     const voiceCheck = await voice.hasVoice(avatar.avatarId);
+    const energyStatus = await energy.getEnergyStatus(avatar.avatarId);
 
     // Build detailed model response with avatar info
     const response = {
@@ -505,6 +515,18 @@ async function handleGetModel(
           title: avatar.stickerPack.title,
           count: avatar.stickerPack.stickerCount,
         } : null,
+      },
+      // Energy availability for rate-limited operations
+      energy: {
+        current: energyStatus.currentEnergy,
+        max: energyStatus.maxEnergy,
+        refill_rate: energyStatus.refillRate,
+        next_refill_minutes: energyStatus.nextRefillIn,
+        costs: {
+          voice: 1,
+          image: 2,
+          video: 3,
+        },
       },
     };
 
