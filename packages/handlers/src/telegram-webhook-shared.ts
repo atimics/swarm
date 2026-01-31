@@ -127,6 +127,112 @@ async function isTelegramUserOwnerOfAvatar(telegramUserId: string, avatarId: str
   return false;
 }
 
+/**
+ * Store a mapping from Telegram username to user ID.
+ * This allows the system to resolve usernames entered in the admin UI to actual user IDs.
+ * Record format: pk=TELEGRAM_USERNAME#{lowercase_username}, sk=IDENTITY
+ */
+async function upsertTelegramUserMapping(userId: string, username?: string, displayName?: string): Promise<void> {
+  if (!ADMIN_TABLE || !username) return;
+
+  const normalizedUsername = username.replace(/^@/, '').toLowerCase();
+  if (!normalizedUsername) return;
+
+  try {
+    await dynamoClient.send(new PutCommand({
+      TableName: ADMIN_TABLE,
+      Item: {
+        pk: `TELEGRAM_USERNAME#${normalizedUsername}`,
+        sk: 'IDENTITY',
+        userId: userId,
+        username: username.replace(/^@/, ''),  // Store original case
+        displayName: displayName || username,
+        updatedAt: Date.now(),
+      },
+    }));
+  } catch (err) {
+    // Non-critical, log and continue
+    logger.warn('Failed to upsert Telegram user mapping', {
+      userId,
+      username,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Resolve a Telegram username to a user ID.
+ * Returns the user ID if found, or null if not found.
+ */
+async function resolveTelegramUsername(username: string): Promise<string | null> {
+  if (!ADMIN_TABLE) return null;
+
+  const normalizedUsername = username.replace(/^@/, '').toLowerCase();
+  if (!normalizedUsername) return null;
+
+  try {
+    const result = await dynamoClient.send(new GetCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: `TELEGRAM_USERNAME#${normalizedUsername}`,
+        sk: 'IDENTITY',
+      },
+      ProjectionExpression: 'userId',
+    }));
+
+    return (result.Item?.userId as string) || null;
+  } catch (err) {
+    logger.warn('Failed to resolve Telegram username', {
+      username,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Check if a sender is in the allowed DM users list.
+ * Handles both numeric user IDs and usernames in the allowlist.
+ */
+async function isAllowedDmUser(
+  senderId: string,
+  senderUsername: string | undefined,
+  allowedDmUserIds: string[]
+): Promise<boolean> {
+  // Fast path: check if sender ID is directly in the list
+  if (allowedDmUserIds.includes(senderId)) {
+    return true;
+  }
+
+  // Check if sender's username (lowercase) matches any entry that looks like a username
+  if (senderUsername) {
+    const normalizedSenderUsername = senderUsername.replace(/^@/, '').toLowerCase();
+    for (const entry of allowedDmUserIds) {
+      // If entry is non-numeric, it might be a username
+      if (!/^\d+$/.test(entry)) {
+        const normalizedEntry = entry.replace(/^@/, '').toLowerCase();
+        if (normalizedEntry === normalizedSenderUsername) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // Slow path: resolve non-numeric entries (usernames) to user IDs
+  for (const entry of allowedDmUserIds) {
+    // Skip numeric entries (already checked above)
+    if (/^\d+$/.test(entry)) continue;
+
+    // Try to resolve username to user ID
+    const resolvedUserId = await resolveTelegramUsername(entry);
+    if (resolvedUserId && resolvedUserId === senderId) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function mergeAllowedChats(
   params: {
     existingAllowedChats?: Array<{ chatId: string; username?: string; title?: string }>;
@@ -487,7 +593,7 @@ export interface HomeChannelChecker {
 export function isTelegramChatAllowed(
   envelope: {
     conversationId: string;
-    sender: { id: string | number; platformUserId?: string | number };
+    sender: { id: string | number; platformUserId?: string | number; username?: string };
     metadata: { chatType?: string };
   },
   telegramCfg: {
@@ -523,12 +629,14 @@ export function isTelegramChatAllowed(
 
     const allowedDmUserIds = getAllowedDmUserIds();
     const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
+    const senderUsername = envelope.sender.username;
 
     if (!allowedDmUserIds || allowedDmUserIds.length === 0) {
       return false;
     }
 
-    return allowedDmUserIds.includes(senderId);
+    // Use the async isAllowedDmUser which handles username resolution
+    return isAllowedDmUser(senderId, senderUsername, allowedDmUserIds);
   }
 
   // Groups/channels: use home channel logic if checker is provided
@@ -934,12 +1042,13 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         return ok();
       }
 
-      const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
-      const senderUsername = envelope.sender.username;
+      const activateSenderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
+      const activateSenderUsername = envelope.sender.username;
 
       const allowedDmUserIds = getAllowedDmUserIdsForAdmin(avatarConfig.platforms.telegram);
-      const isOwnerLike = allowedDmUserIds.includes(senderId) || (await isTelegramUserOwnerOfAvatar(senderId, avatarId));
-      const authorized = isTelegramSuperadmin(senderUsername) || isOwnerLike;
+      const isAllowedUser = await isAllowedDmUser(activateSenderId, activateSenderUsername, allowedDmUserIds);
+      const isOwnerLike = isAllowedUser || (await isTelegramUserOwnerOfAvatar(activateSenderId, avatarId));
+      const authorized = isTelegramSuperadmin(activateSenderUsername) || isOwnerLike;
 
       try {
         const bot = telegramAdapter.getBot();
@@ -979,6 +1088,16 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
     // Use home channel checker for groups/channels if ADMIN_TABLE is configured
     const homeChecker = ADMIN_TABLE ? createHomeChannelChecker() : undefined;
+
+    // Track username → userId mapping for any user we see (for username-based allowlist resolution)
+    const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
+    const senderUsername = envelope.sender.username;
+    const senderDisplayName = envelope.sender.displayName;
+    if (senderUsername) {
+      // Fire and forget - don't await, non-critical
+      upsertTelegramUserMapping(senderId, senderUsername, senderDisplayName).catch(() => {});
+    }
+
     // DMs: check if sender is in allowedDmUserIds before deciding how to handle
     if (envelope.metadata.chatType === 'private') {
       // Idempotency check (before any responses)
@@ -990,21 +1109,21 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
       // Check if sender is in the allowed DM users list OR is the bot owner
       const allowedDmUserIds = getAllowedDmUserIdsForAdmin(telegramCfg);
-      const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
-      const isAllowedDmUser = allowedDmUserIds.includes(senderId);
+      const isAllowedUser = await isAllowedDmUser(senderId, senderUsername, allowedDmUserIds);
       const isBotOwner = await isTelegramUserOwnerOfAvatar(senderId, avatarId);
 
       // Debug logging to understand why DMs are being blocked
       logger.info('DM allowlist check', {
         event: 'dm_allowlist_check',
         senderId,
+        senderUsername,
         allowedDmUserIds,
-        isAllowedDmUser,
+        isAllowedDmUser: isAllowedUser,
         isBotOwner,
         hasTelegramCfg: !!telegramCfg,
       });
 
-      if (isAllowedDmUser || isBotOwner) {
+      if (isAllowedUser || isBotOwner) {
         // Allowed users or bot owner can DM - queue the message for processing
         logger.info('DM from allowed user or owner, queueing for processing', {
           event: 'dm_allowed',
@@ -1140,9 +1259,10 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
       // DM allowlist user auto-activation: if a user on the DM allowlist mentions the bot in any channel, activate automatically
       if (!chatAllowed && isMentioned) {
-        const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
+        const autoActivateSenderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
+        const autoActivateSenderUsername = envelope.sender.username;
         const allowedDmUserIds = getAllowedDmUserIdsForAdmin(telegramCfg || {});
-        const isOnDmAllowlist = allowedDmUserIds.includes(senderId);
+        const isOnDmAllowlist = await isAllowedDmUser(autoActivateSenderId, autoActivateSenderUsername, allowedDmUserIds);
 
         if (isOnDmAllowlist) {
           const message = (update as any).message || (update as any).edited_message || (update as any).channel_post;

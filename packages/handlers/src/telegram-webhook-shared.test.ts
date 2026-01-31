@@ -23,7 +23,7 @@ describe('telegram-webhook-shared allowlists', () => {
 
   it('allows DMs only for allowlisted user IDs (string-coerced)', async () => {
     const { isTelegramChatAllowed } = (await modPromise);
-    const allowed = isTelegramChatAllowed(
+    const allowed = await isTelegramChatAllowed(
       {
         conversationId: 'dm',
         sender: { id: 123 },
@@ -37,7 +37,7 @@ describe('telegram-webhook-shared allowlists', () => {
 
   it('allows DMs only for allowlisted users using allowedDmUsers', async () => {
     const { isTelegramChatAllowed } = (await modPromise);
-    const allowed = isTelegramChatAllowed(
+    const allowed = await isTelegramChatAllowed(
       {
         conversationId: 'dm',
         sender: { id: 123 },
