@@ -12,6 +12,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  QueryCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type {
@@ -238,37 +239,66 @@ export class DynamoDBStateService implements StateService {
         pk: `AVATAR#${config.id}`,
         sk: 'CONFIG',
         config,
+        // GSI keys for efficient listing
+        gsi1pk: 'CONFIG',
+        gsi1sk: config.id,
+        // Metadata for tracking
         updatedAt: Date.now(),
+        syncedFrom: 'handler',
       },
     }));
   }
 
   async listAvatars(): Promise<string[]> {
-    // Note: Using Scan because begins_with() cannot be used on partition keys in Query.
-    // For better performance at scale, consider adding a GSI with entityType as PK.
+    // Use GSI1 (gsi1pk=CONFIG, gsi1sk=avatarId) for efficient listing.
+    // Falls back to scan if GSI returns no results (handles transition period).
     const avatarIds: string[] = [];
     let lastEvaluatedKey: Record<string, unknown> | undefined;
 
     do {
-      const result = await this.docClient.send(new ScanCommand({
+      const result = await this.docClient.send(new QueryCommand({
         TableName: this.tableName,
-        FilterExpression: 'begins_with(pk, :prefix) AND sk = :sk',
+        IndexName: 'gsi1',
+        KeyConditionExpression: 'gsi1pk = :pk',
         ExpressionAttributeValues: {
-          ':prefix': 'AVATAR#',
-          ':sk': 'CONFIG',
+          ':pk': 'CONFIG',
         },
-        ProjectionExpression: 'pk',
+        ProjectionExpression: 'gsi1sk',
         ExclusiveStartKey: lastEvaluatedKey as never,
       }));
 
       for (const item of result.Items || []) {
-        const pk = item.pk as string | undefined;
-        if (!pk?.startsWith('AVATAR#')) continue;
-        avatarIds.push(pk.replace('AVATAR#', ''));
+        const id = item.gsi1sk as string | undefined;
+        if (id) avatarIds.push(id);
       }
 
       lastEvaluatedKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
     } while (lastEvaluatedKey);
+
+    // Fallback to scan if GSI has no results (transition period before all configs re-synced)
+    if (avatarIds.length === 0) {
+      let scanKey: Record<string, unknown> | undefined;
+      do {
+        const result = await this.docClient.send(new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: 'begins_with(pk, :prefix) AND sk = :sk',
+          ExpressionAttributeValues: {
+            ':prefix': 'AVATAR#',
+            ':sk': 'CONFIG',
+          },
+          ProjectionExpression: 'pk',
+          ExclusiveStartKey: scanKey as never,
+        }));
+
+        for (const item of result.Items || []) {
+          const pk = item.pk as string | undefined;
+          if (!pk?.startsWith('AVATAR#')) continue;
+          avatarIds.push(pk.replace('AVATAR#', ''));
+        }
+
+        scanKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+      } while (scanKey);
+    }
 
     return avatarIds;
   }

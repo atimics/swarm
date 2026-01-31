@@ -48,6 +48,11 @@ interface AvatarConfig {
       allowedDmUserIds?: string[];
       allowedDmUsers?: Array<{ userId: string; username?: string; displayName?: string }>;
       allowedChats?: Array<{ chatId: string; username?: string; title?: string }>;
+      homeChannelId?: string;
+      homeChannelUsername?: string;
+      homeChannelUrl?: string;
+      coinSymbol?: string;
+      coinAddress?: string;
     };
     twitter?: {
       enabled: boolean;
@@ -251,6 +256,11 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
       allowedDmUserIds: record.platforms.telegram.allowedDmUserIds,
       allowedDmUsers: record.platforms.telegram.allowedDmUsers,
       allowedChats: record.platforms.telegram.allowedChats,
+      homeChannelId: record.platforms.telegram.homeChannelId,
+      homeChannelUsername: record.platforms.telegram.homeChannelUsername,
+      homeChannelUrl: record.platforms.telegram.homeChannelUrl,
+      coinSymbol: record.platforms.telegram.coinSymbol,
+      coinAddress: record.platforms.telegram.coinAddress,
     };
     config.secrets.push('TELEGRAM_BOT_TOKEN');
   }
@@ -403,6 +413,9 @@ export async function syncAvatarConfig(record: AvatarRecord): Promise<void> {
       pk: `AVATAR#${record.avatarId}`,
       sk: 'CONFIG',
       config,
+      // GSI keys for efficient listing
+      gsi1pk: 'CONFIG',
+      gsi1sk: record.avatarId,
       // Metadata for tracking
       syncedAt: Date.now(),
       syncedFrom: 'admin-api',

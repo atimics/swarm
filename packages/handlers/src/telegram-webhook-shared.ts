@@ -306,8 +306,9 @@ async function activateAvatarInChatFromWebhook(
         pk: `AVATAR#${avatarId}`,
         sk: 'CONFIG',
       },
-      UpdateExpression: 'SET #platforms.#telegram.#allowedChats = :allowedChats, #platforms.#telegram.#allowedChatIds = :allowedChatIds',
+      UpdateExpression: 'SET #config.#platforms.#telegram.#allowedChats = :allowedChats, #config.#platforms.#telegram.#allowedChatIds = :allowedChatIds',
       ExpressionAttributeNames: {
+        '#config': 'config',
         '#platforms': 'platforms',
         '#telegram': 'telegram',
         '#allowedChats': 'allowedChats',
@@ -319,6 +320,37 @@ async function activateAvatarInChatFromWebhook(
       },
     })
   );
+
+  // Propagate to ADMIN_TABLE (stores fields at platforms.telegram.* directly)
+  if (ADMIN_TABLE) {
+    try {
+      await dynamoClient.send(
+        new UpdateCommand({
+          TableName: ADMIN_TABLE,
+          Key: {
+            pk: `AVATAR#${avatarId}`,
+            sk: 'CONFIG',
+          },
+          UpdateExpression: 'SET #platforms.#telegram.#allowedChats = :allowedChats, #platforms.#telegram.#allowedChatIds = :allowedChatIds',
+          ExpressionAttributeNames: {
+            '#platforms': 'platforms',
+            '#telegram': 'telegram',
+            '#allowedChats': 'allowedChats',
+            '#allowedChatIds': 'allowedChatIds',
+          },
+          ExpressionAttributeValues: {
+            ':allowedChats': merged.allowedChats,
+            ':allowedChatIds': merged.allowedChatIds,
+          },
+        })
+      );
+    } catch (err) {
+      logger.warn('Failed to propagate allowedChats to ADMIN_TABLE', {
+        avatarId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   avatarConfigCache.delete(avatarId);
 }
@@ -467,11 +499,12 @@ async function updateAvatarHomeChannel(
 ): Promise<void> {
   if (!STATE_TABLE) return;
 
-  // Build the update expression dynamically
-  const updateParts: string[] = [
-    '#platforms.#telegram.#homeChannelId = :chatId',
+  // Build the update expression dynamically for STATE_TABLE (config is nested under `config` attr)
+  const stateUpdateParts: string[] = [
+    '#config.#platforms.#telegram.#homeChannelId = :chatId',
   ];
-  const expressionNames: Record<string, string> = {
+  const stateExprNames: Record<string, string> = {
+    '#config': 'config',
     '#platforms': 'platforms',
     '#telegram': 'telegram',
     '#homeChannelId': 'homeChannelId',
@@ -480,15 +513,30 @@ async function updateAvatarHomeChannel(
     ':chatId': chatId,
   };
 
+  // ADMIN_TABLE update parts (no `config` nesting)
+  const adminUpdateParts: string[] = [
+    '#platforms.#telegram.#homeChannelId = :chatId',
+  ];
+  const adminExprNames: Record<string, string> = {
+    '#platforms': 'platforms',
+    '#telegram': 'telegram',
+    '#homeChannelId': 'homeChannelId',
+  };
+
   if (channelUsername) {
-    updateParts.push('#platforms.#telegram.#homeChannelUsername = :username');
-    expressionNames['#homeChannelUsername'] = 'homeChannelUsername';
+    stateUpdateParts.push('#config.#platforms.#telegram.#homeChannelUsername = :username');
+    stateExprNames['#homeChannelUsername'] = 'homeChannelUsername';
     expressionValues[':username'] = channelUsername;
 
-    // Also set the home channel URL
-    updateParts.push('#platforms.#telegram.#homeChannelUrl = :url');
-    expressionNames['#homeChannelUrl'] = 'homeChannelUrl';
+    stateUpdateParts.push('#config.#platforms.#telegram.#homeChannelUrl = :url');
+    stateExprNames['#homeChannelUrl'] = 'homeChannelUrl';
     expressionValues[':url'] = `https://t.me/${channelUsername}`;
+
+    adminUpdateParts.push('#platforms.#telegram.#homeChannelUsername = :username');
+    adminExprNames['#homeChannelUsername'] = 'homeChannelUsername';
+
+    adminUpdateParts.push('#platforms.#telegram.#homeChannelUrl = :url');
+    adminExprNames['#homeChannelUrl'] = 'homeChannelUrl';
   }
 
   await dynamoClient.send(new UpdateCommand({
@@ -497,10 +545,31 @@ async function updateAvatarHomeChannel(
       pk: `AVATAR#${avatarId}`,
       sk: 'CONFIG',
     },
-    UpdateExpression: `SET ${updateParts.join(', ')}`,
-    ExpressionAttributeNames: expressionNames,
+    UpdateExpression: `SET ${stateUpdateParts.join(', ')}`,
+    ExpressionAttributeNames: stateExprNames,
     ExpressionAttributeValues: expressionValues,
   }));
+
+  // Propagate to ADMIN_TABLE (stores fields at platforms.telegram.* directly)
+  if (ADMIN_TABLE) {
+    try {
+      await dynamoClient.send(new UpdateCommand({
+        TableName: ADMIN_TABLE,
+        Key: {
+          pk: `AVATAR#${avatarId}`,
+          sk: 'CONFIG',
+        },
+        UpdateExpression: `SET ${adminUpdateParts.join(', ')}`,
+        ExpressionAttributeNames: adminExprNames,
+        ExpressionAttributeValues: expressionValues,
+      }));
+    } catch (err) {
+      logger.warn('Failed to propagate home channel to ADMIN_TABLE', {
+        avatarId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // Invalidate the avatar config cache
   avatarConfigCache.delete(avatarId);
