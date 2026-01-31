@@ -967,6 +967,18 @@ export class AdminApiConstruct extends Construct {
     });
 
     this.api.addRoutes({
+      path: '/avatars/{avatarId}/api-keys',
+      methods: [apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/api-keys',
+      methods: [apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
       path: '/avatars/{avatarId}/integrations',
       methods: [apigateway.HttpMethod.GET],
       integration: avatarsIntegration,
@@ -1096,6 +1108,71 @@ export class AdminApiConstruct extends Construct {
       path: '/health',
       methods: [apigateway.HttpMethod.GET],
       integration: healthIntegration,
+    });
+
+    // ==========================================================================
+    // OpenAI-Compatible API (Public with API Key auth)
+    // ==========================================================================
+    // This provides a /v1/chat/completions endpoint that external applications
+    // can use with the familiar OpenAI API format. Authentication is via API key
+    // (Bearer token in Authorization header) rather than Cloudflare Access.
+    const openaiCompatHandler = new nodejs.NodejsFunction(this, 'OpenAICompatHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/openai-compat.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.seconds(120), // Longer timeout for chat completions
+      memorySize: 1024,
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
+      environment: {
+        ADMIN_TABLE: this.table.tableName,
+        STATE_TABLE: stateTable?.tableName || '',
+        SECRET_PREFIX: secretPrefix,
+        LLM_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions',
+        LLM_MODEL: 'anthropic/claude-haiku-4.5',
+        LLM_TIMEOUT_MS: '60000', // More generous timeout for public API
+        LLM_MAX_RETRIES: '1',
+        LLM_MAX_STEPS: '4',
+        LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
+        NODE_ENV: environment,
+        ALLOWED_ORIGINS: '*', // Public API allows all origins
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*', 'sharp'],
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Grant permissions to OpenAI compat handler
+    this.table.grantReadWriteData(openaiCompatHandler);
+    llmApiKey.grantRead(openaiCompatHandler);
+    if (stateTable) {
+      stateTable.grantReadData(openaiCompatHandler);
+    }
+
+    // Grant secrets manager read for avatar secrets (persona/config)
+    openaiCompatHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['secretsmanager:GetSecretValue'],
+      resources: secretArnPatterns,
+    }));
+
+    const openaiCompatIntegration = new integrations.HttpLambdaIntegration(
+      'OpenAICompatIntegration',
+      openaiCompatHandler
+    );
+
+    // OpenAI-compatible routes
+    this.api.addRoutes({
+      path: '/v1/chat/completions',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: openaiCompatIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/v1/models',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
+      integration: openaiCompatIntegration,
     });
 
     // Jobs handler - for polling media job status

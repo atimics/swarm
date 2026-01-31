@@ -1378,6 +1378,85 @@ export async function handler(
       }
     }
 
+    // =========================================================================
+    // API Key Management for OpenAI-Compatible API
+    // =========================================================================
+
+    // POST /avatars/{id}/api-keys - Create a new API key for an avatar
+    const apiKeysMatch = path.match(/^\/avatars\/([^/]+)\/api-keys$/);
+    if (method === 'POST' && apiKeysMatch) {
+      const avatarId = apiKeysMatch[1];
+      const body = JSON.parse(event.body || '{}') as { name?: string };
+
+      // Check access
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      try {
+        const { createApiKey } = await import('./openai-compat.js');
+        const result = await createApiKey({
+          avatarId,
+          name: body.name || 'API Key',
+          createdBy: session.email || walletAddress || 'unknown',
+        });
+
+        logger.info('API key created', {
+          event: 'api_key_created',
+          avatarId,
+          keyPrefix: result.keyPrefix,
+        });
+
+        return jsonResponse(corsHeaders, 201, {
+          apiKey: result.fullKey,
+          keyPrefix: result.keyPrefix,
+          message: 'API key created. Save this key - it will not be shown again.',
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to create API key';
+        logger.error('Failed to create API key', { event: 'api_key_create_failed', avatarId, error: err });
+        return jsonResponse(corsHeaders, 500, { error: msg });
+      }
+    }
+
+    // POST /api-keys - Create a wildcard API key (admin only, access all avatars)
+    if (method === 'POST' && path === '/api-keys') {
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Admin access required for wildcard API keys' });
+      }
+
+      const body = JSON.parse(event.body || '{}') as { name?: string };
+
+      try {
+        const { createApiKey } = await import('./openai-compat.js');
+        const result = await createApiKey({
+          name: body.name || 'Wildcard API Key',
+          createdBy: session.email || walletAddress || 'unknown',
+        });
+
+        logger.info('Wildcard API key created', {
+          event: 'api_key_created_wildcard',
+          keyPrefix: result.keyPrefix,
+        });
+
+        return jsonResponse(corsHeaders, 201, {
+          apiKey: result.fullKey,
+          keyPrefix: result.keyPrefix,
+          message: 'Wildcard API key created. This key can access all avatars. Save it - it will not be shown again.',
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to create API key';
+        logger.error('Failed to create wildcard API key', { event: 'api_key_create_failed', error: err });
+        return jsonResponse(corsHeaders, 500, { error: msg });
+      }
+    }
+
     // Not found
     return {
       statusCode: 404,

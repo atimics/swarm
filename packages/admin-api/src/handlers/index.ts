@@ -7,3 +7,4 @@ export { handleSharedChat } from './shared-chat.js';
 export { handler as promptPreviewHandler } from './prompt-preview.js';
 export { handler as issuesHandler } from './issues.js';
 export { handler as consolidationWorkerHandler } from './consolidation-worker.js';
+export { handler as openaiCompatHandler, createApiKey } from './openai-compat.js';
