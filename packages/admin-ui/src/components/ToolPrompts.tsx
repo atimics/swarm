@@ -299,8 +299,11 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
         return null;
       }
 
-      setTelegramDiagnosis(payload as TelegramDiagnosis);
-      return payload as TelegramDiagnosis;
+      // Ensure issues array exists (API should always return it, but be defensive)
+      const diagnosis = payload as TelegramDiagnosis;
+      diagnosis.issues = diagnosis.issues ?? [];
+      setTelegramDiagnosis(diagnosis);
+      return diagnosis;
     } catch {
       setTelegramDiagnosis(null);
       setTelegramDiagnosisError('Failed to run Telegram diagnostics');
@@ -360,7 +363,7 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
       if (!diagnosis) return;
 
       // Auto-repair if there are fixable webhook issues
-      const hasFixableIssues = diagnosis.issues.some(
+      const hasFixableIssues = (diagnosis.issues ?? []).some(
         (i) =>
           i.code === 'webhook_url_mismatch' ||
           i.code === 'webhook_pending_updates' ||
@@ -1109,26 +1112,26 @@ export function IntegrationConfigPrompt({ toolCall, onSubmit, disabled }: ToolPr
             ) : telegramDiagnosis ? (
               <div
                 className={
-                  telegramDiagnosis.issues.length === 0
+                  (telegramDiagnosis.issues?.length ?? 0) === 0
                     ? 'flex items-center justify-between gap-2 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg'
                     : 'flex items-center justify-between gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg'
                 }
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">{telegramDiagnosis.issues.length === 0 ? '🟢' : '🟡'}</span>
+                  <span className="text-lg">{(telegramDiagnosis.issues?.length ?? 0) === 0 ? '🟢' : '🟡'}</span>
                   <span
                     className={
-                      telegramDiagnosis.issues.length === 0
+                      (telegramDiagnosis.issues?.length ?? 0) === 0
                         ? 'text-sm text-green-300'
                         : 'text-sm text-yellow-300'
                     }
                   >
-                    {telegramDiagnosis.issues.length === 0
+                    {(telegramDiagnosis.issues?.length ?? 0) === 0
                       ? `Connected${telegramDiagnosis.bot?.username ? ` as @${telegramDiagnosis.bot.username}` : ''}`
                       : 'Webhook issues'}
                   </span>
                 </div>
-                {telegramDiagnosis.issues.length > 0 && !telegramRepairLoading && (
+                {(telegramDiagnosis.issues?.length ?? 0) > 0 && !telegramRepairLoading && (
                   <button
                     type="button"
                     onClick={() => void repairTelegramWebhook()}
