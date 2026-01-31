@@ -169,10 +169,28 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
         return { id: result.s3Key || 'sticker', url: result.url };
       },
 
-      getProfileImageUrl: async () => undefined,
-      getReferenceImageUrl: async () => undefined,
-      getCharacterReferenceUrl: async () => undefined,
-      getBestReferenceImageUrl: async () => undefined,
+      getProfileImageUrl: async () => {
+        return avatarConfig.profileImage?.url;
+      },
+      getReferenceImageUrl: async (_avatarId: string, category?: string) => {
+        // For 'character' category, prefer characterReference
+        if (category === 'character' && avatarConfig.characterReference?.url) {
+          return avatarConfig.characterReference.url;
+        }
+        // Fall back to profile image
+        return avatarConfig.profileImage?.url;
+      },
+      getCharacterReferenceUrl: async () => {
+        return avatarConfig.characterReference?.url;
+      },
+      getBestReferenceImageUrl: async () => {
+        // Prefer character reference for full-body consistency
+        if (avatarConfig.characterReference?.url) {
+          return avatarConfig.characterReference.url;
+        }
+        // Fall back to profile image
+        return avatarConfig.profileImage?.url;
+      },
     },
 
     // =========================================================================
