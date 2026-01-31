@@ -271,6 +271,49 @@ jobs:
           echo "⚠️  CDK bootstrap missing in ${ACCOUNT_ID}/${AWS_REGION}; bootstrapping now"
           npx cdk bootstrap "aws://${ACCOUNT_ID}/${AWS_REGION}" --require-approval never
 
+      - name: Ensure dependency-layer SSM param (staging migration)
+        if: needs.setup.outputs.cdk_env == 'staging'
+        working-directory: packages/infra
+        env:
+          # Default to split stacks for staging on push-to-main.
+          # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
+          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && inputs.split_stacks || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
+          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
+          STACK_HASH: ${{ inputs.stack_hash || '' }}
+        run: |
+          # Only needed in migration mode (split stacks + adopt legacy shared resources, no suffix).
+          if [ "$SPLIT_STACKS" != "true" ] || [ -n "$STACK_HASH" ]; then
+            exit 0
+          fi
+
+          # Auto-enable adoption mode for staging split stacks without a suffix.
+          if [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
+          if [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
+            exit 0
+          fi
+
+          ENV="${{ needs.setup.outputs.cdk_env }}"
+          PARAM_NAME="/swarm/${ENV}/dependency-layer-arn"
+
+          if aws ssm get-parameter --name "$PARAM_NAME" --query 'Parameter.Value' --output text >/dev/null 2>&1; then
+            echo "✅ SSM param exists: $PARAM_NAME"
+            exit 0
+          fi
+
+          # Bootstrap the param from the current legacy export value.
+          EXPORT_NAME="SwarmShared-${ENV}:ExportsOutputRefDependencyLayerE4A0C25129DFB32E"
+          LAYER_ARN=$(aws cloudformation list-exports --query "Exports[?Name=='${EXPORT_NAME}'].Value" --output text)
+          if [ -z "$LAYER_ARN" ]; then
+            echo "::error::Missing CloudFormation export '${EXPORT_NAME}'. Cannot bootstrap ${PARAM_NAME}."
+            exit 1
+          fi
+
+          echo "Bootstrapping ${PARAM_NAME} from export ${EXPORT_NAME}"
+          aws ssm put-parameter --name "$PARAM_NAME" --type String --value "$LAYER_ARN" --overwrite
+
       - name: CDK Diff
         id: diff
         working-directory: packages/infra
@@ -286,6 +329,11 @@ jobs:
           # Auto-enable adoption mode when deploying staging split stacks without a suffix.
           if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
             USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
+          IS_MIGRATION_STAGING_SPLIT="false"
+          if [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
+            IS_MIGRATION_STAGING_SPLIT="true"
           fi
 
           # Ensure we always use the correct admin domain + cert per environment.
@@ -305,7 +353,15 @@ jobs:
           STACK="${{ inputs.stack }}"
           echo "Checking for infrastructure changes..."
           set +e
-          npx cdk diff ${STACK:-'--all'} -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
+          if [ -n "$STACK" ]; then
+            DIFF_TARGETS="$STACK"
+          elif [ "$IS_MIGRATION_STAGING_SPLIT" = "true" ]; then
+            DIFF_TARGETS="SwarmApi-${{ needs.setup.outputs.cdk_env }} SwarmUi-${{ needs.setup.outputs.cdk_env }} SwarmAvatars-${{ needs.setup.outputs.cdk_env }}"
+          else
+            DIFF_TARGETS="--all"
+          fi
+
+          npx cdk diff $DIFF_TARGETS -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
           DIFF_EXIT=$?
           set -e
           
@@ -515,6 +571,11 @@ jobs:
             USE_EXISTING_SHARED_RESOURCES="true"
           fi
 
+          IS_MIGRATION_STAGING_SPLIT="false"
+          if [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
+            IS_MIGRATION_STAGING_SPLIT="true"
+          fi
+
           # Ensure we always use the correct admin domain + cert per environment.
           ADMIN_DOMAIN=$(echo "${{ needs.setup.outputs.admin_url }}" | sed -E 's|^https?://||' | cut -d/ -f1)
           EXTRA_CONTEXT_ARGS="-c adminDomain=${ADMIN_DOMAIN}"
@@ -530,7 +591,23 @@ jobs:
 
           HOTSWAP=${{ needs.setup.outputs.cdk_env == 'staging' && '--hotswap-fallback' || '' }}
           STACK="${{ inputs.stack }}"
-          npx cdk deploy ${STACK:-'--all'} --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
+
+          if [ -n "$STACK" ]; then
+            npx cdk deploy "$STACK" --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
+            exit 0
+          fi
+
+          if [ "$IS_MIGRATION_STAGING_SPLIT" = "true" ]; then
+            # Break the deadlock: SwarmShared-staging cannot update its dependency-layer export while
+            # SwarmApi-staging still imports it. Consumer stacks use SSM for the layer ARN; deploy them
+            # exclusively so CDK does not try to deploy SwarmShared-staging as a dependency.
+            npx cdk deploy "SwarmApi-${{ needs.setup.outputs.cdk_env }}" --exclusively --require-approval never $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
+            npx cdk deploy "SwarmUi-${{ needs.setup.outputs.cdk_env }}" --exclusively --require-approval never $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
+            npx cdk deploy "SwarmAvatars-${{ needs.setup.outputs.cdk_env }}" --exclusively --require-approval never $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
+            exit 0
+          fi
+
+          npx cdk deploy --all --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
 
       - name: Skip Deploy (no changes)
         if: steps.diff.outputs.skip == 'true'
