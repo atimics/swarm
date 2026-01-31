@@ -372,9 +372,9 @@ async function handleListModels(
           },
           // Energy availability
           energy: {
-            current: energyStatus.currentEnergy,
-            max: energyStatus.maxEnergy,
-            refill_rate: energyStatus.refillRate,
+            current: energyStatus.current,
+            max: energyStatus.max,
+            refill_rate: energyStatus.refillPerHour,
             next_refill_minutes: energyStatus.nextRefillIn,
           },
         }],
@@ -518,9 +518,9 @@ async function handleGetModel(
       },
       // Energy availability for rate-limited operations
       energy: {
-        current: energyStatus.currentEnergy,
-        max: energyStatus.maxEnergy,
-        refill_rate: energyStatus.refillRate,
+        current: energyStatus.current,
+        max: energyStatus.max,
+        refill_rate: energyStatus.refillPerHour,
         next_refill_minutes: energyStatus.nextRefillIn,
         costs: {
           voice: 1,
