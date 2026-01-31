@@ -321,7 +321,9 @@ export async function transitionState(
 }
 
 /**
- * Mark response sent - transitions to COOLDOWN and clears buffer
+ * Mark response sent - transitions to COOLDOWN
+ * Note: recentMessages is NOT cleared here to preserve conversation history
+ * for context in future interactions. Buffer trimming is handled by addMessageToChannel.
  */
 export async function markResponseSent(
   docClient: DynamoDBDocumentClient,
@@ -339,8 +341,7 @@ export async function markResponseSent(
   current.lastResponseAt = now;
   current.lastResponseMessageId = responseMessageId;
   current.pendingResponseAt = undefined;
-  // Clear buffer after response
-  current.recentMessages = [];
+  // Keep recentMessages intact for conversation history/context
   current.ttl = Math.floor(now / 1000) + CHANNEL_CONFIG.BUFFER_TTL_SECONDS;
 
   await updateChannelState(docClient, tableName, current);

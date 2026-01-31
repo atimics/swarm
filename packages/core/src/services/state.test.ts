@@ -107,7 +107,7 @@ class InMemoryStateService extends DynamoDBStateService {
     current.lastResponseAt = now;
     current.lastResponseMessageId = responseMessageId;
     current.pendingResponseAt = undefined;
-    current.recentMessages = [];
+    // Keep recentMessages intact for conversation context
     current.ttl = Math.floor(now / 1000) + CHANNEL_CONFIG.BUFFER_TTL_SECONDS;
 
     await this.updateChannelState(current);
@@ -528,7 +528,7 @@ describe('Channel State Machine Logic', () => {
       expect(result.directEngagementAt).toBeLessThanOrEqual(afterTime);
     });
 
-    it('markResponseSent clears buffer and enters COOLDOWN', async () => {
+    it('markResponseSent preserves buffer and enters COOLDOWN', async () => {
       const svc = new InMemoryStateService();
       const now = Date.now();
       const initialState = createChannelState({
@@ -546,7 +546,8 @@ describe('Channel State Machine Logic', () => {
       const updated = await svc.markResponseSent('test-avatar', 'channel', 'resp-1');
 
       expect(updated?.state).toBe('COOLDOWN');
-      expect(updated?.recentMessages.length).toBe(0);
+      // recentMessages should be preserved for conversation context
+      expect(updated?.recentMessages.length).toBe(2);
       expect(updated?.lastResponseMessageId).toBe('resp-1');
       expect(updated?.lastResponseAt).toBeDefined();
     });
