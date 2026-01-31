@@ -175,6 +175,19 @@ async function processAvatar(
     llmService
   );
 
+  // Check for duplicate content (if content store enabled)
+  if (ENABLE_CONTENT_STORE && contentStoreService) {
+    const isDuplicate = await contentStoreService.isDuplicateContent(avatarId, content.text);
+    if (isDuplicate) {
+      logger.info('Duplicate content detected, skipping post', {
+        event: 'duplicate_content_skipped',
+        avatarId,
+        textPreview: content.text.slice(0, 50),
+      });
+      return { posted: false, error: 'Duplicate content' };
+    }
+  }
+
   // Optionally generate image
   let mediaUrl: string | undefined;
   let media: PostMedia[] | undefined;
@@ -230,6 +243,9 @@ async function processAvatar(
     }
     // else: requiresPreReview=true → stays pending_review (default)
 
+    // Get next available scheduled slot (30 min gap between tweets)
+    const scheduledAt = await contentStoreService.getNextScheduledSlot(avatarId, 30);
+
     const post = await contentStoreService.createPost({
       avatarId,
       text: content.text,
@@ -238,6 +254,7 @@ async function processAvatar(
       communityId: communityContext?.id,
       communityName: communityContext?.name,
       status: initialStatus,
+      scheduledAt,
     });
     postId = post.postId;
 
@@ -246,6 +263,7 @@ async function processAvatar(
       avatarId,
       postId,
       status: initialStatus,
+      scheduledAt: new Date(scheduledAt).toISOString(),
       isSimulationMode,
     });
 
@@ -276,11 +294,12 @@ async function processAvatar(
     // If decoupled posting is enabled, enqueue for tweet-sender instead of posting directly
     if (ENABLE_DECOUPLED_POSTING && POST_QUEUE_URL && initialStatus === 'queued') {
       try {
-        await enqueuePost(POST_QUEUE_URL, avatarId, postId!);
+        await enqueuePost(POST_QUEUE_URL, avatarId, postId!, scheduledAt);
         logger.info('Post enqueued for decoupled Twitter posting', {
           event: 'post_enqueued',
           avatarId,
           postId,
+          scheduledAt: new Date(scheduledAt).toISOString(),
         });
 
         await stateService.setLastAutonomousPostTime(avatarId, Date.now());

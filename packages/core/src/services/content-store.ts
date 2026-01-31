@@ -20,7 +20,7 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import type {
   ContentStorePost,
   CreatePostParams,
@@ -36,6 +36,12 @@ const POSTED_TTL_DAYS = 90;
 const REJECTED_TTL_DAYS = 7;
 const PENDING_TTL_DAYS = 30;
 
+// Deduplication settings
+const DEFAULT_DEDUP_WINDOW_HOURS = 24;
+
+// Scheduling settings
+const DEFAULT_MIN_GAP_MINUTES = 30; // Minimum gap between scheduled tweets
+
 /**
  * Content Store Service Interface
  */
@@ -45,6 +51,12 @@ export interface ContentStoreService {
   getPost(avatarId: string, postId: string): Promise<ContentStorePost | null>;
   listPostsByStatus(avatarId: string, status: PostStatus, limit?: number): Promise<ContentStorePost[]>;
   listRecentPosts(avatarId: string, limit?: number): Promise<ContentStorePost[]>;
+
+  // Deduplication
+  isDuplicateContent(avatarId: string, text: string, windowHours?: number): Promise<boolean>;
+
+  // Scheduling
+  getNextScheduledSlot(avatarId: string, minGapMinutes?: number): Promise<number>;
 
   // Lifecycle transitions
   markQueued(avatarId: string, postId: string): Promise<ContentStorePost | null>;
@@ -154,6 +166,27 @@ export class DynamoDBContentStoreService implements ContentStoreService {
       updatedAt: item.updatedAt as number,
       ttl: item.ttl as number | undefined,
     };
+  }
+
+  /**
+   * Normalize text for deduplication comparison
+   * - Lowercase
+   * - Remove extra whitespace
+   * - Remove common variable elements (timestamps, numbers)
+   */
+  private normalizeTextForDedup(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Create a hash of normalized text for fast comparison
+   */
+  private hashContent(text: string): string {
+    const normalized = this.normalizeTextForDedup(text);
+    return createHash('sha256').update(normalized).digest('hex').slice(0, 16);
   }
 
   // =========================================================================
@@ -290,6 +323,96 @@ export class DynamoDBContentStoreService implements ContentStoreService {
     }));
 
     return (result.Items || []).map(item => this.itemToPost(item as Record<string, unknown>));
+  }
+
+  // =========================================================================
+  // DEDUPLICATION
+  // =========================================================================
+
+  /**
+   * Check if content with similar text has been posted recently
+   * Uses content hashing for fast comparison
+   */
+  async isDuplicateContent(
+    avatarId: string,
+    text: string,
+    windowHours: number = DEFAULT_DEDUP_WINDOW_HOURS
+  ): Promise<boolean> {
+    const contentHash = this.hashContent(text);
+    const windowStart = Date.now() - (windowHours * 60 * 60 * 1000);
+
+    // Query recent posts (within window)
+    const result = await this.docClient.send(new QueryCommand({
+      TableName: this.tableName,
+      KeyConditionExpression: 'pk = :pk AND sk > :skStart',
+      ExpressionAttributeValues: {
+        ':pk': this.buildPK(avatarId),
+        ':skStart': `POST#${windowStart}`,
+      },
+      // Scan forward from the window start to get all posts in window
+      ScanIndexForward: true,
+    }));
+
+    if (!result.Items || result.Items.length === 0) {
+      return false;
+    }
+
+    // Check for matching content hash
+    for (const item of result.Items) {
+      const itemText = item.text as string | undefined;
+      if (itemText && this.hashContent(itemText) === contentHash) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // =========================================================================
+  // SCHEDULING
+  // =========================================================================
+
+  /**
+   * Get the next available scheduled slot for posting
+   * Ensures minimum gap between tweets to avoid flooding
+   */
+  async getNextScheduledSlot(
+    avatarId: string,
+    minGapMinutes: number = DEFAULT_MIN_GAP_MINUTES
+  ): Promise<number> {
+    const now = Date.now();
+    const minGapMs = minGapMinutes * 60 * 1000;
+
+    // Get posts that are queued or approved (not yet posted) with scheduledAt
+    const [queuedPosts, approvedPosts] = await Promise.all([
+      this.listPostsByStatus(avatarId, 'queued', 50),
+      this.listPostsByStatus(avatarId, 'approved', 50),
+    ]);
+
+    // Collect all scheduled times from pending posts
+    const scheduledTimes: number[] = [];
+    for (const post of [...queuedPosts, ...approvedPosts]) {
+      if (post.scheduledAt && post.scheduledAt > now) {
+        scheduledTimes.push(post.scheduledAt);
+      }
+    }
+
+    // Sort scheduled times
+    scheduledTimes.sort((a, b) => a - b);
+
+    // Find the first available slot
+    let nextSlot = now + minGapMs; // Start with minimum gap from now
+
+    for (const scheduledTime of scheduledTimes) {
+      // If there's enough gap before this scheduled time, use it
+      if (nextSlot + minGapMs <= scheduledTime) {
+        break;
+      }
+      // Otherwise, move past this scheduled time
+      nextSlot = scheduledTime + minGapMs;
+    }
+
+    return nextSlot;
   }
 
   // =========================================================================
