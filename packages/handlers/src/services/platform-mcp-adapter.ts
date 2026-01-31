@@ -614,7 +614,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
               const isFirstReply = await stateService.checkAndSetTweetReply(avatarId, tweetId);
               if (!isFirstReply) {
                 console.log(`[Twitter] Skipping duplicate reply to tweet ${tweetId} for avatar ${avatarId}`);
-                return { error: 'duplicate_reply', tweetId: null, url: null };
+                return null; // Return null for duplicates (same as error case)
               }
             }
             
