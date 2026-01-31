@@ -40,6 +40,32 @@ import { buildDynamicSystemPrompt, buildChatSystemPrompt } from './prompt-builde
 import { logger } from '../utils/logger.js';
 
 // =============================================================================
+// HELPERS
+// =============================================================================
+
+/**
+ * Strip avatar name prefix from response if the model accidentally included it.
+ * Models sometimes see `[Username]: message` in history and mimic the pattern.
+ */
+function stripAvatarNamePrefix(content: string | undefined, avatarName: string | undefined): string {
+  if (!content || !avatarName) return content || '';
+  
+  const escapedName = avatarName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp(`^\\[${escapedName}[^\\]]*\\]:\\s*`, 'i'),
+    new RegExp(`^${escapedName}:\\s*`, 'i'),
+  ];
+  
+  for (const pattern of patterns) {
+    if (pattern.test(content)) {
+      return content.replace(pattern, '').trim();
+    }
+  }
+  
+  return content;
+}
+
+// =============================================================================
 // TYPES
 // =============================================================================
 
@@ -401,8 +427,10 @@ export class MessageProcessor {
 
       // If no tool calls, we're done
       if (!llmResponse.toolCalls || llmResponse.toolCalls.length === 0) {
+        // Strip avatar name prefix if the model accidentally added it
+        const cleanedResponse = stripAvatarNamePrefix(llmResponse.content, avatar.name);
         return {
-          response: llmResponse.content,
+          response: cleanedResponse,
           history: messages.slice(1), // Remove system message
           media: allMedia.length > 0 ? allMedia : undefined,
           pendingJobs: pendingJobs.length > 0 ? pendingJobs : undefined,
