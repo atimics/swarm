@@ -706,12 +706,13 @@ async function handleChatCompletions(
 /**
  * Generate a new API key
  * Returns the full key (only shown once) and the record to store
+ * Format: sk-rati-{base64url random bytes}
  */
 export function generateApiKey(): { fullKey: string; record: Omit<ApiKeyRecord, 'pk' | 'sk' | 'createdAt' | 'createdBy' | 'usageCount' | 'enabled'> } {
   const randomPart = randomBytes(32).toString('base64url');
-  const fullKey = `sk-${randomPart}`;
+  const fullKey = `sk-rati-${randomPart}`;
   const keyHash = hashApiKey(fullKey);
-  const keyPrefix = fullKey.slice(0, 10);
+  const keyPrefix = fullKey.slice(0, 12) + '...'; // "sk-rati-xxxx..."
 
   return {
     fullKey,
