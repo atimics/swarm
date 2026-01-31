@@ -51,6 +51,7 @@ export interface EnergyConfig {
   bonusPerMillionTokens: number;
   maxBonusPerHour: number;
   tokenMint?: string;
+  refillCap?: number;  // Stop auto-refill when energy reaches this level
 }
 
 /** Extended energy status with refill rate info */
@@ -62,6 +63,7 @@ export interface EnergyStatus {
   baseRefillPerHour: number;  // Base rate
   bonusRefillPerHour: number; // Wallet-based bonus
   ownerTokenBalance?: number; // Owner's token balance (if available)
+  refillCap?: number;         // Auto-refill stops at this level
 }
 
 /** Energy consumption result */
@@ -135,11 +137,19 @@ async function getDefaultDeps(): Promise<EnergyServiceDeps> {
 /**
  * Get or create energy bucket for an avatar
  */
+/** Extended bucket with custom energy config fields */
+type EnergyBucket = CreditBucket & {
+  max?: number;
+  refillRate?: number;
+  refillIntervalMinutes?: number;
+  refillCap?: number;
+};
+
 async function getOrCreateEnergyBucket(
   avatarId: string,
   config: EnergyConfig,
   deps: EnergyServiceDeps
-): Promise<CreditBucket> {
+): Promise<EnergyBucket> {
   const pk = `AVATAR#${avatarId}`;
   const sk = 'CREDIT#energy';
 
@@ -149,11 +159,11 @@ async function getOrCreateEnergyBucket(
   }));
 
   if (result.Item) {
-    return result.Item as CreditBucket;
+    return result.Item as EnergyBucket;
   }
 
   const now = deps.now();
-  const bucket: CreditBucket = {
+  const bucket: EnergyBucket = {
     pk,
     sk,
     avatarId,
@@ -191,25 +201,45 @@ function getNextMidnightUTC(now: number): number {
 
 /**
  * Get energy configuration for an avatar
- * Can be overridden in avatar config.yaml
+ * Reads from the energy bucket if custom config exists, otherwise uses defaults
  */
 export async function getAvatarEnergyConfig(
   avatarId: string,
   deps?: EnergyServiceDeps
 ): Promise<EnergyConfig> {
   const d = deps ?? await getDefaultDeps();
-  
-  // TODO: Check avatar's config.yaml for energy overrides
-  // For now, return defaults
-  // const avatar = await d.getAvatar(avatarId);
-  // const avatarConfig = await getAvatarConfigYaml(avatarId);
-  // if (avatarConfig?.energy) { ... }
-  
-  // Ensure deps are initialized (side effect: validates avatarId exists)
-  void d;
-  void avatarId;
-  
-  return { ...DEFAULT_ENERGY_CONFIG };
+  const pk = `AVATAR#${avatarId}`;
+  const sk = 'CREDIT#energy';
+
+  // Check if bucket has custom config
+  const result = await d.dynamoClient.send(new GetCommand({
+    TableName: d.tableName,
+    Key: { pk, sk },
+  }));
+
+  const bucket = result.Item as CreditBucket & {
+    max?: number;
+    refillRate?: number;
+    refillIntervalMinutes?: number;
+    refillCap?: number;
+  } | undefined;
+
+  // Calculate baseRefillPerHour from bucket config if present
+  let baseRefillPerHour = DEFAULT_ENERGY_CONFIG.baseRefillPerHour;
+  if (bucket?.refillRate && bucket?.refillIntervalMinutes) {
+    // Convert refillRate per interval to per hour
+    // e.g., 1 per 15 min = 4 per hour
+    baseRefillPerHour = (bucket.refillRate * 60) / bucket.refillIntervalMinutes;
+  }
+
+  return {
+    maxEnergy: bucket?.max ?? DEFAULT_ENERGY_CONFIG.maxEnergy,
+    baseRefillPerHour,
+    bonusPerMillionTokens: DEFAULT_ENERGY_CONFIG.bonusPerMillionTokens,
+    maxBonusPerHour: DEFAULT_ENERGY_CONFIG.maxBonusPerHour,
+    tokenMint: DEFAULT_ENERGY_CONFIG.tokenMint,
+    refillCap: bucket?.refillCap,
+  };
 }
 
 /**
@@ -246,16 +276,27 @@ export async function calculateRefillRate(
 
 /**
  * Calculate current energy with refill
+ * Respects refillCap - auto-refill stops when energy is at or above the cap
  */
 function calculateCurrentEnergy(
-  bucket: CreditBucket,
+  bucket: EnergyBucket,
   refillPerHour: number,
   maxEnergy: number,
   now: number
 ): number {
+  const refillCap = bucket.refillCap ?? maxEnergy;  // Default to max if no cap
+  
+  // If already at or above refill cap, no auto-refill applies
+  if (bucket.credits >= refillCap) {
+    return Math.min(bucket.credits, maxEnergy);  // Still respect maxEnergy
+  }
+  
   const hoursSinceRefill = (now - bucket.lastRefillAt) / (1000 * 60 * 60);
   const energyToAdd = hoursSinceRefill * refillPerHour;
-  return Math.min(bucket.credits + energyToAdd, maxEnergy);
+  const newEnergy = bucket.credits + energyToAdd;
+  
+  // Cap at refillCap for auto-refill, but allow manual additions above
+  return Math.min(newEnergy, refillCap);
 }
 
 // =============================================================================
@@ -281,20 +322,25 @@ export async function getEnergyStatus(
   const currentEnergy = calculateCurrentEnergy(bucket, refillPerHour, config.maxEnergy, now);
   const flooredEnergy = Math.floor(currentEnergy);
   
-  // Calculate minutes until next energy point
+  // Calculate minutes until next energy point (only if below refillCap)
+  const refillCap = config.refillCap ?? config.maxEnergy;
   const fractionalEnergy = currentEnergy - flooredEnergy;
   const energyNeededForNext = 1 - fractionalEnergy;
   const hoursUntilNext = energyNeededForNext / refillPerHour;
   const minutesUntilNext = Math.ceil(hoursUntilNext * 60);
+  
+  // No refill if at or above refillCap
+  const effectiveNextRefill = flooredEnergy >= refillCap ? 0 : minutesUntilNext;
 
   return {
     current: flooredEnergy,
     max: config.maxEnergy,
-    nextRefillIn: flooredEnergy >= config.maxEnergy ? 0 : minutesUntilNext,
+    nextRefillIn: effectiveNextRefill,
     refillPerHour: Math.round(refillPerHour * 100) / 100,  // Round to 2 decimals
     baseRefillPerHour: config.baseRefillPerHour,
     bonusRefillPerHour: Math.round(bonusPerHour * 100) / 100,
     ownerTokenBalance: tokenBalance,
+    refillCap: config.refillCap,
   };
 }
 
