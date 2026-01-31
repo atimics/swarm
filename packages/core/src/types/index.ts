@@ -732,6 +732,10 @@ export interface StateService {
   // Twitter reply deduplication
   checkAndSetTweetReply?(avatarId: string, tweetId: string): Promise<boolean>;
   hasRepliedToTweet?(avatarId: string, tweetId: string): Promise<boolean>;
+  
+  // Moltbook heartbeat timing
+  getLastMoltbookHeartbeat(avatarId: string): Promise<number>;
+  setLastMoltbookHeartbeat(avatarId: string, timestamp: number): Promise<void>;
 }
 
 /**

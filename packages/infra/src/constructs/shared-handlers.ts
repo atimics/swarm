@@ -364,6 +364,28 @@ export class SharedHandlers extends Construct {
       targets: [new targets.LambdaFunction(autonomousTweetPoster)],
     });
 
+    // Moltbook Heartbeat - runs every 33 minutes, manages per-avatar timing internally
+    // Each avatar with Moltbook enabled gets feed checks and optional engagement
+    const moltbookHeartbeat = new nodejs.NodejsFunction(this, 'MoltbookHeartbeat', {
+      functionName: `swarm-${environment}${suffix}-moltbook-heartbeat`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(handlersEntry, 'moltbook-heartbeat.ts'),
+      handler: 'handler',
+      layers: dependencyLayer ? [dependencyLayer] : undefined,
+      role: lambdaRole,
+      timeout: cdk.Duration.minutes(5), // Longer timeout for multi-avatar processing
+      memorySize: 1024,
+      environment: commonEnv,
+      bundling: bundlingOptions,
+      tracing: lambda.Tracing.ACTIVE,
+      logRetention: logs.RetentionDays.ONE_MONTH,
+    });
+
+    new events.Rule(this, 'MoltbookHeartbeatSchedule', {
+      schedule: events.Schedule.rate(cdk.Duration.minutes(33)),
+      targets: [new targets.LambdaFunction(moltbookHeartbeat)],
+    });
+
     // Tweet Sender - Consumes POST_QUEUE for decoupled Twitter posting
     // Handles rate limiting, backoff, and content store integration
     const tweetSender = new nodejs.NodejsFunction(this, 'TweetSender', {

@@ -53,6 +53,10 @@ import {
   setLastAutonomousPostTime,
 } from './autonomous-timing.js';
 import {
+  getLastMoltbookHeartbeat,
+  setLastMoltbookHeartbeat,
+} from './moltbook-timing.js';
+import {
   getFacts,
   saveFact,
 } from './fact-store.js';
@@ -381,6 +385,18 @@ export class DynamoDBStateService implements StateService {
 
   async setLastAutonomousPostTime(avatarId: string, timestamp: number): Promise<void> {
     return setLastAutonomousPostTime(this.docClient, this.tableName, avatarId, timestamp);
+  }
+
+  // =====================================================================
+  // MOLTBOOK HEARTBEAT TIMING
+  // =====================================================================
+
+  async getLastMoltbookHeartbeat(avatarId: string): Promise<number> {
+    return getLastMoltbookHeartbeat(this.docClient, this.tableName, avatarId);
+  }
+
+  async setLastMoltbookHeartbeat(avatarId: string, timestamp: number): Promise<void> {
+    return setLastMoltbookHeartbeat(this.docClient, this.tableName, avatarId, timestamp);
   }
 
   // =====================================================================
