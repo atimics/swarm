@@ -4,6 +4,7 @@
  */
 import { Bot, InputFile, webhookCallback } from 'grammy';
 import type { Message, Update, MessageOrigin } from 'grammy/types';
+import { Jimp } from 'jimp';
 import { PlatformAdapter } from './base.js';
 import { fetchWithRetry } from '../utils/fetch-retry.js';
 import type {
@@ -182,7 +183,59 @@ function inferFileNameFromUrl(url: string, fallback: string): string {
   return fallback;
 }
 
-async function fetchToInputFile(url: string, fallbackName: string, timeoutMs: number = 20_000): Promise<InputFile> {
+// Telegram's limit for photos sent via URL is 5MB, but to be safe we compress at 4MB
+const TELEGRAM_PHOTO_SIZE_LIMIT = 4 * 1024 * 1024;
+
+/**
+ * Compress an image buffer to fit within Telegram's size limit.
+ * Uses JPEG compression with decreasing quality until the size is acceptable.
+ */
+async function compressImageForTelegram(buf: Buffer, originalName: string): Promise<{ buffer: Buffer; fileName: string }> {
+  // If already small enough, return as-is
+  if (buf.length <= TELEGRAM_PHOTO_SIZE_LIMIT) {
+    return { buffer: buf, fileName: originalName };
+  }
+
+  console.log(`[Telegram] Image too large (${(buf.length / 1024 / 1024).toFixed(2)}MB), compressing for Telegram...`);
+
+  try {
+    const image = await Jimp.read(buf);
+    
+    // Resize if dimensions are very large (max 2048px on longest side)
+    const maxDim = 2048;
+    if (image.width > maxDim || image.height > maxDim) {
+      if (image.width > image.height) {
+        image.resize({ w: maxDim });
+      } else {
+        image.resize({ h: maxDim });
+      }
+      console.log(`[Telegram] Resized to ${image.width}x${image.height}`);
+    }
+
+    // Try different quality levels until we're under the limit
+    for (const quality of [85, 70, 55, 40]) {
+      const compressed = await image.getBuffer('image/jpeg', { quality });
+      if (compressed.length <= TELEGRAM_PHOTO_SIZE_LIMIT) {
+        console.log(`[Telegram] Compressed to ${(compressed.length / 1024 / 1024).toFixed(2)}MB at quality ${quality}`);
+        // Change extension to .jpg
+        const jpgName = originalName.replace(/\.(png|webp|gif)$/i, '.jpg');
+        return { buffer: compressed, fileName: jpgName };
+      }
+    }
+
+    // Last resort: resize more aggressively
+    image.resize({ w: 1024 });
+    const finalBuffer = await image.getBuffer('image/jpeg', { quality: 40 });
+    console.log(`[Telegram] Final compression: ${(finalBuffer.length / 1024 / 1024).toFixed(2)}MB at 1024px`);
+    const jpgName = originalName.replace(/\.(png|webp|gif)$/i, '.jpg');
+    return { buffer: finalBuffer, fileName: jpgName };
+  } catch (err) {
+    console.warn('[Telegram] Failed to compress image, sending original:', err);
+    return { buffer: buf, fileName: originalName };
+  }
+}
+
+async function fetchToInputFile(url: string, fallbackName: string, timeoutMs: number = 60_000): Promise<InputFile> {
   const res = await fetchWithRetry(url, { method: 'GET' }, {
     timeoutMs,
     maxRetries: 2,
@@ -193,6 +246,14 @@ async function fetchToInputFile(url: string, fallbackName: string, timeoutMs: nu
   }
   const buf = Buffer.from(await res.arrayBuffer());
   const fileName = inferFileNameFromUrl(url, fallbackName);
+  
+  // Compress if it's an image and too large for Telegram
+  const isImage = /\.(png|jpg|jpeg|webp|gif)$/i.test(fileName) || fallbackName.includes('image');
+  if (isImage) {
+    const { buffer: compressedBuf, fileName: compressedName } = await compressImageForTelegram(buf, fileName);
+    return new InputFile(compressedBuf, compressedName);
+  }
+  
   return new InputFile(buf, fileName);
 }
 
