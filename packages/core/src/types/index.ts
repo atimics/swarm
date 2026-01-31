@@ -728,6 +728,10 @@ export interface StateService {
   // Memory/facts storage
   saveFact(avatarId: string, fact: MemoryFact): Promise<void>;
   getFacts(avatarId: string, query: string, userId?: string): Promise<MemoryFact[]>;
+  
+  // Twitter reply deduplication
+  checkAndSetTweetReply?(avatarId: string, tweetId: string): Promise<boolean>;
+  hasRepliedToTweet?(avatarId: string, tweetId: string): Promise<boolean>;
 }
 
 /**

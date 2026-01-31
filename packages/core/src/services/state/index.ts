@@ -298,6 +298,52 @@ export class DynamoDBStateService implements StateService {
   }
 
   // =====================================================================
+  // TWITTER REPLY DEDUPLICATION
+  // =====================================================================
+
+  /**
+   * Check if we've already replied to a specific tweet.
+   * Uses the idempotency pattern with TTL.
+   * 
+   * @param avatarId - The avatar ID
+   * @param tweetId - The tweet ID we're about to reply to
+   * @returns true if this is a new reply (we should proceed), false if already replied
+   */
+  async checkAndSetTweetReply(avatarId: string, tweetId: string): Promise<boolean> {
+    // Use a 7-day TTL for tweet reply tracking (longer than mention poll window)
+    const ttlSeconds = 7 * 24 * 60 * 60;
+    const key = `twitter-reply:${avatarId}:${tweetId}`;
+    return this.checkAndSetIdempotency(key, ttlSeconds);
+  }
+
+  /**
+   * Check if we've already replied to a tweet (read-only check).
+   * 
+   * @param avatarId - The avatar ID
+   * @param tweetId - The tweet ID to check
+   * @returns true if we've already replied, false otherwise
+   */
+  async hasRepliedToTweet(avatarId: string, tweetId: string): Promise<boolean> {
+    const key = `twitter-reply:${avatarId}:${tweetId}`;
+    const result = await this.docClient.send(new GetCommand({
+      TableName: this.tableName,
+      Key: {
+        pk: 'IDEMPOTENCY',
+        sk: key,
+      },
+    }));
+    
+    if (!result.Item) return false;
+    
+    // Check TTL
+    if (result.Item.ttl && Date.now() / 1000 > result.Item.ttl) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  // =====================================================================
   // SCHEDULED TASKS STATE
   // =====================================================================
 

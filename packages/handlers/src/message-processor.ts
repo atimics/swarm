@@ -995,7 +995,10 @@ async function generateResponse(
     for (const msg of recentHistory) {
       messages.push({
         role: msg.isBot ? 'assistant' : 'user',
-        content: `[${msg.sender}]: ${msg.content}`,
+        // Only prefix user messages with sender name for group chat context.
+        // Bot (assistant) messages should NOT include the name prefix,
+        // otherwise the LLM learns to prefix its own responses with its name.
+        content: msg.isBot ? msg.content : `[${msg.sender}]: ${msg.content}`,
       });
     }
 

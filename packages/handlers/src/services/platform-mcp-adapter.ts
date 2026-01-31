@@ -609,6 +609,15 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
 
         reply: async (tweetId: string, text: string, mediaUrls?: string[], mediaIds?: string[]) => {
           try {
+            // Check if we've already replied to this tweet (deduplication)
+            if (stateService.checkAndSetTweetReply) {
+              const isFirstReply = await stateService.checkAndSetTweetReply(avatarId, tweetId);
+              if (!isFirstReply) {
+                console.log(`[Twitter] Skipping duplicate reply to tweet ${tweetId} for avatar ${avatarId}`);
+                return { error: 'duplicate_reply', tweetId: null, url: null };
+              }
+            }
+            
             const resolvedMediaUrls = resolveMediaUrls(mediaUrls, mediaIds);
             const media = resolvedMediaUrls.map(url => ({ type: inferMediaType(url), url }));
             const replyId = await twitterAdapter.postTweet(text, media.length > 0 ? media : undefined, tweetId);
