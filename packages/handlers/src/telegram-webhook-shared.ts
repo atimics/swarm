@@ -988,10 +988,11 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         return ok();
       }
 
-      // Check if sender is in the allowed DM users list
+      // Check if sender is in the allowed DM users list OR is the bot owner
       const allowedDmUserIds = getAllowedDmUserIdsForAdmin(telegramCfg);
       const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
       const isAllowedDmUser = allowedDmUserIds.includes(senderId);
+      const isBotOwner = await isTelegramUserOwnerOfAvatar(senderId, avatarId);
 
       // Debug logging to understand why DMs are being blocked
       logger.info('DM allowlist check', {
@@ -999,15 +1000,17 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         senderId,
         allowedDmUserIds,
         isAllowedDmUser,
+        isBotOwner,
         hasTelegramCfg: !!telegramCfg,
       });
 
-      if (isAllowedDmUser) {
-        // Allowed users can DM - queue the message for processing
-        logger.info('DM from allowed user, queueing for processing', {
+      if (isAllowedDmUser || isBotOwner) {
+        // Allowed users or bot owner can DM - queue the message for processing
+        logger.info('DM from allowed user or owner, queueing for processing', {
           event: 'dm_allowed',
           senderId,
           messageId: envelope.messageId,
+          reason: isBotOwner ? 'bot_owner' : 'allowlist',
         });
 
         // Evaluate if we should respond
