@@ -1144,6 +1144,9 @@ export class AdminApiConstruct extends Construct {
         LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
         NODE_ENV: environment,
         ALLOWED_ORIGINS: '*', // Public API allows all origins
+        // Media bucket for voice audio storage
+        MEDIA_BUCKET: mediaBucket?.bucketName || '',
+        CDN_URL: cdnUrl || '',
       },
       bundling: {
         externalModules: ['@aws-sdk/*', 'sharp'],
@@ -1157,6 +1160,9 @@ export class AdminApiConstruct extends Construct {
     llmApiKey.grantRead(openaiCompatHandler);
     if (stateTable) {
       stateTable.grantReadData(openaiCompatHandler);
+    }
+    if (mediaBucket) {
+      mediaBucket.grantReadWrite(openaiCompatHandler);
     }
 
     // Grant secrets manager read for avatar secrets (persona/config)
