@@ -61,9 +61,17 @@ Returns all avatars available to your API key.
         "profile_image": "https://cdn.rati.chat/avatars/rati/profile.png"
       }
     }
-  ]
+  ],
+  "energy": {
+    "current": 8.5,
+    "max": 10,
+    "refill_rate": 1,
+    "next_refill_minutes": 42
+  }
 }
 ```
+
+The `energy` field shows the API key holder's current energy balance. Energy is consumed when making chat requests (1⚡ for text, 2⚡ for audio).
 
 ---
 
@@ -100,9 +108,21 @@ curl https://swarm.rati.chat/api/v1/models/avatar:rati \
     },
     "voice": { "style": "voice-clone" },
     "sticker_pack": { "name": "rati_stickers", "title": "Rati Stickers", "count": 12 }
+  },
+  "energy": {
+    "current": 8.5,
+    "max": 10,
+    "refill_rate": 1,
+    "next_refill_minutes": 42,
+    "costs": {
+      "text": 1,
+      "audio": 2
+    }
   }
 }
 ```
+
+The `energy.costs` field shows how much energy each request type consumes.
 
 ---
 
@@ -276,10 +296,53 @@ curl https://swarm.rati.chat/api/v1/chat/completions \
 | Status | Type | Description |
 |--------|------|-------------|
 | 401 | `authentication_error` | Missing or invalid API key |
+| 402 | `insufficient_energy` | Not enough energy to process request |
 | 403 | `permission_error` | API key doesn't have access to this avatar |
 | 404 | `not_found` | Avatar not found |
 | 400 | `invalid_request_error` | Malformed request body |
 | 500 | `server_error` | Internal error |
+
+---
+
+## Energy System
+
+Each API key has an energy balance that's consumed when making requests:
+
+| Request Type | Energy Cost |
+|--------------|-------------|
+| Text chat completion | 1⚡ |
+| Audio chat completion | 2⚡ |
+
+Energy automatically refills over time based on your key's configuration.
+
+**Checking Energy:**
+```bash
+# Get energy status with model list
+curl https://swarm.rati.chat/api/v1/models \
+  -H "Authorization: Bearer sk-rati-xxxxx"
+```
+
+**Response includes:**
+```json
+{
+  "energy": {
+    "current": 8.5,
+    "max": 10,
+    "refill_rate": 1,
+    "next_refill_minutes": 42
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `current` | Current energy balance |
+| `max` | Maximum energy capacity |
+| `refill_rate` | Energy restored per refill interval |
+| `next_refill_minutes` | Minutes until next refill |
+| `costs` | Energy cost per request type (in `/v1/models/{id}` response) |
+
+If you don't have enough energy, requests will return a `402 Payment Required` error.
 
 ---
 
