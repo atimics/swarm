@@ -1106,6 +1106,35 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         }
       }
 
+      // Superadmin auto-activation: if a superadmin mentions the bot in any channel, activate automatically
+      if (!chatAllowed && isMentioned && isTelegramSuperadmin(envelope.sender.username)) {
+        const message = (update as any).message || (update as any).edited_message || (update as any).channel_post;
+        const chatUsername = message?.chat?.username as string | undefined;
+        const chatTitle = message?.chat?.title as string | undefined;
+
+        try {
+          await activateAvatarInChatFromWebhook(avatarId, {
+            chatId: envelope.conversationId,
+            username: chatUsername,
+            title: chatTitle,
+          });
+          chatAllowed = true;
+          logger.info('Superadmin auto-activated avatar in chat', {
+            event: 'superadmin_auto_activate',
+            avatarId,
+            chatId: envelope.conversationId,
+            senderUsername: envelope.sender.username,
+          });
+        } catch (err) {
+          logger.warn('Failed to auto-activate avatar via superadmin mention', {
+            event: 'superadmin_auto_activate_failed',
+            avatarId,
+            chatId: envelope.conversationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       if (!chatAllowed) {
         logger.info('Chat not in home channel registry', { event: 'chat_blocked', chatId: envelope.conversationId });
 
