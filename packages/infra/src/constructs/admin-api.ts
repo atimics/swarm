@@ -263,7 +263,7 @@ export class AdminApiConstruct extends Construct {
         // Deletion protection prevents accidental deletion during rollbacks
         deletionProtection: isPersistentEnv,
         pointInTimeRecoverySpecification: {
-          pointInTimeRecoveryEnabled: isProd,
+          pointInTimeRecoveryEnabled: isPersistentEnv,
         },
         timeToLiveAttribute: 'ttl',
       });
@@ -293,10 +293,12 @@ export class AdminApiConstruct extends Construct {
       queueName: `swarm-response-queue-${environment}${suffix}`,
       visibilityTimeout: cdk.Duration.seconds(120), // Match Lambda timeout
       retentionPeriod: cdk.Duration.days(1),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
       deadLetterQueue: {
         queue: new sqs.Queue(this, 'ResponseDLQ', {
         queueName: `swarm-response-dlq-${environment}${suffix}`,
           retentionPeriod: cdk.Duration.days(14),
+          encryption: sqs.QueueEncryption.SQS_MANAGED,
         }),
         maxReceiveCount: 3,
       },
@@ -307,10 +309,12 @@ export class AdminApiConstruct extends Construct {
       queueName: `swarm-chat-queue-${environment}${suffix}`,
       visibilityTimeout: cdk.Duration.seconds(600),
       retentionPeriod: cdk.Duration.days(1),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
       deadLetterQueue: {
         queue: new sqs.Queue(this, 'ChatDLQ', {
         queueName: `swarm-chat-dlq-${environment}${suffix}`,
           retentionPeriod: cdk.Duration.days(14),
+          encryption: sqs.QueueEncryption.SQS_MANAGED,
         }),
         maxReceiveCount: 3,
       },

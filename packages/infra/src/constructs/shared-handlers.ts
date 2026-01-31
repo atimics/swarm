@@ -13,6 +13,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import type * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
@@ -95,8 +96,10 @@ export class SharedHandlers extends Construct {
     } = props;
     const suffix = props.nameSuffix ?? '';
 
-    // Generate internal test key if not provided (non-production only)
-    const effectiveInternalTestKey = environment !== 'prod' && environment !== 'production'
+    // Generate internal test key if not provided (non-production only).
+    // Production MUST NOT have a test key to prevent auth bypass.
+    const isProd = environment === 'prod' || environment === 'production';
+    const effectiveInternalTestKey = !isProd
       ? internalTestKey || process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`
       : '';
 
@@ -107,6 +110,7 @@ export class SharedHandlers extends Construct {
       queueName: `swarm-${environment}${suffix}-dlq.fifo`,
       fifo: true,
       retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
     this.messageQueue = new sqs.Queue(this, 'MessageQueue', {
@@ -116,6 +120,7 @@ export class SharedHandlers extends Construct {
       // Must be >= the message-processor Lambda timeout to avoid duplicate deliveries.
       visibilityTimeout: cdk.Duration.seconds(180),
       deadLetterQueue: { queue: dlq, maxReceiveCount: 3 },
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
     this.responseQueue = new sqs.Queue(this, 'ResponseQueue', {
@@ -125,6 +130,7 @@ export class SharedHandlers extends Construct {
       // Keep some headroom for retries within a single invocation.
       visibilityTimeout: cdk.Duration.seconds(180),
       deadLetterQueue: { queue: dlq, maxReceiveCount: 3 },
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
     this.mediaQueue = new sqs.Queue(this, 'MediaQueue', {
@@ -133,6 +139,7 @@ export class SharedHandlers extends Construct {
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.minutes(5),
       deadLetterQueue: { queue: dlq, maxReceiveCount: 3 },
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
     // POST_QUEUE for decoupled Twitter posting with rate limit handling
@@ -142,12 +149,14 @@ export class SharedHandlers extends Construct {
       // No content-based deduplication - we need explicit dedup IDs for retries
       visibilityTimeout: cdk.Duration.seconds(120),
       deadLetterQueue: { queue: dlq, maxReceiveCount: 5 },
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
     const lambdaRole = new iam.Role(this, 'LambdaRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AWSXRayDaemonWriteAccess'),
       ],
     });
 
@@ -248,6 +257,8 @@ export class SharedHandlers extends Construct {
       memorySize: 1024,
       environment: commonEnv,
       bundling: bundlingOptions,
+      tracing: lambda.Tracing.ACTIVE,
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
     this.telegramWebhook = new nodejs.NodejsFunction(this, 'TelegramWebhookShared', {
@@ -261,6 +272,8 @@ export class SharedHandlers extends Construct {
       memorySize: 512,
       environment: commonEnv,
       bundling: bundlingOptions,
+      tracing: lambda.Tracing.ACTIVE,
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
     messageProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.messageQueue, {
@@ -279,6 +292,8 @@ export class SharedHandlers extends Construct {
       memorySize: 1024,
       environment: commonEnv,
       bundling: bundlingOptions,
+      tracing: lambda.Tracing.ACTIVE,
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
     responseSender.addEventSource(new lambdaEventSources.SqsEventSource(this.responseQueue, {
@@ -297,6 +312,8 @@ export class SharedHandlers extends Construct {
       memorySize: 1024,
       environment: commonEnv,
       bundling: bundlingOptions,
+      tracing: lambda.Tracing.ACTIVE,
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
     mediaProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.mediaQueue, {
@@ -315,6 +332,8 @@ export class SharedHandlers extends Construct {
       memorySize: 512,
       environment: commonEnv,
       bundling: bundlingOptions,
+      tracing: lambda.Tracing.ACTIVE,
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
     new events.Rule(this, 'TwitterMentionPollSchedule', {
@@ -335,6 +354,8 @@ export class SharedHandlers extends Construct {
       memorySize: 1024,
       environment: commonEnv,
       bundling: bundlingOptions,
+      tracing: lambda.Tracing.ACTIVE,
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
     new events.Rule(this, 'AutonomousTweetSchedule', {
@@ -361,6 +382,8 @@ export class SharedHandlers extends Construct {
         ENABLE_CONTENT_STORE: 'true',
       },
       bundling: bundlingOptions,
+      tracing: lambda.Tracing.ACTIVE,
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
     tweetSender.addEventSource(new lambdaEventSources.SqsEventSource(this.postQueue, {

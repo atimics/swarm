@@ -156,9 +156,12 @@ export async function authenticateRequest(
   // Check for internal AWS testing mode
   // This header can only be set by someone with direct API Gateway access (not through Cloudflare)
   // and is verified by checking that the request comes from a known internal source
+  // Internal test key bypass - NEVER allow in production
+  const environment = process.env.ENVIRONMENT || '';
+  const isProd = environment === 'prod' || environment === 'production';
   const internalTestKey = process.env.INTERNAL_TEST_KEY;
   const providedTestKey = event.headers['x-internal-test-key'];
-  if (internalTestKey && providedTestKey && internalTestKey === providedTestKey) {
+  if (!isProd && internalTestKey && providedTestKey && internalTestKey === providedTestKey) {
     console.log('Auth: Internal test mode enabled');
     return {
       email: 'internal-test@aws.local',

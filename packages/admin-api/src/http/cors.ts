@@ -53,6 +53,10 @@ export function getCorsHeaders(
     'Access-Control-Allow-Headers': allowHeaders,
     // Important when reflecting specific origins.
     'Vary': 'Origin',
+    // Security headers
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
   };
 }
 

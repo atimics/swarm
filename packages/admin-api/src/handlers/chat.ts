@@ -2472,7 +2472,7 @@ export async function resumeChatAfterToolResult(params: {
           models,
           session,
         });
-        console.log(`[resumeChatAfterToolResult] Saved ${integration} config for avatar ${avatarId}:`, { useGlobalKey, models });
+        console.log(`[resumeChatAfterToolResult] Saved ${integration} config for avatar ${avatarId}`);
 
         // Sync to STATE_TABLE so handlers pick up the new config
         const updatedAvatar = await avatars.getAvatar(avatarId);
@@ -2481,7 +2481,7 @@ export async function resumeChatAfterToolResult(params: {
           console.log(`[resumeChatAfterToolResult] Synced config to STATE_TABLE for avatar ${avatarId}`);
         }
       } catch (err) {
-        console.error(`[resumeChatAfterToolResult] Failed to save ${integration} config:`, err);
+        console.error(`[resumeChatAfterToolResult] Failed to save ${integration} config:`, err instanceof Error ? err.message : 'Unknown error');
         // Don't throw - allow the conversation to continue even if config save fails
       }
     }

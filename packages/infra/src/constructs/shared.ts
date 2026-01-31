@@ -85,6 +85,7 @@ export class SharedInfrastructure extends Construct {
         ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
       deletionProtection: isPersistentEnv,
+      pointInTimeRecovery: isPersistentEnv,
       timeToLiveAttribute: 'ttl',
     });
 
@@ -106,6 +107,7 @@ export class SharedInfrastructure extends Construct {
         ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
       deletionProtection: isPersistentEnv,
+      pointInTimeRecovery: isPersistentEnv,
       timeToLiveAttribute: 'ttl',
     });
 

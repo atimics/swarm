@@ -33,13 +33,19 @@ import { handleCrossmintAuth } from './crossmint-auth.js';
 import { handlePrivyAuth } from './privy-auth.js';
 
 // Internal test key for E2E tests - bypasses NFT gate requirements
+// NEVER active in production
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
+const IS_PROD = (() => {
+  const env = process.env.ENVIRONMENT || '';
+  return env === 'prod' || env === 'production';
+})();
 
 /**
- * Check if request has valid internal test key
+ * Check if request has valid internal test key.
+ * Always returns false in production.
  */
 function hasInternalTestKey(event: APIGatewayProxyEventV2): boolean {
-  if (!INTERNAL_TEST_KEY) return false;
+  if (IS_PROD || !INTERNAL_TEST_KEY) return false;
   const providedKey = event.headers['x-internal-test-key'];
   return providedKey === INTERNAL_TEST_KEY;
 }

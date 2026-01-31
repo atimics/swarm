@@ -115,7 +115,7 @@ const WebConfigFileSchema = z.object({
   const tokenGated = val.tokenGated || val.token_gated;
   return {
     enabled: val.enabled,
-    corsOrigins: val.corsOrigins || val.cors_origins || ['*'],
+    corsOrigins: val.corsOrigins || val.cors_origins || [],
     rateLimit: {
       windowMs: rateLimit?.windowMs || rateLimit?.window_ms || 60000,
       maxRequests: rateLimit?.maxRequests || rateLimit?.max_requests || 20,

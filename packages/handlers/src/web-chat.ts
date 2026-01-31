@@ -105,7 +105,7 @@ async function initialize(): Promise<void> {
     platforms: {
       web: {
         enabled: true,
-        corsOrigins: ['*'],
+        corsOrigins: process.env.WEB_CORS_ORIGINS ? process.env.WEB_CORS_ORIGINS.split(',') : [],
         rateLimit: { windowMs: 60000, maxRequests: 20 },
       },
     },
@@ -326,6 +326,7 @@ export async function handler(
       statusCode: 200,
       headers: {
         ...corsHeaders,
+        ...getSecurityHeaders(),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(webResponse),
@@ -338,9 +339,18 @@ export async function handler(
       statusCode: 500,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+        ...getSecurityHeaders(),
       },
       body: JSON.stringify({ error: 'Internal server error' }),
     };
   }
+}
+
+/** Standard security headers applied to all responses */
+function getSecurityHeaders(): Record<string, string> {
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+  };
 }
