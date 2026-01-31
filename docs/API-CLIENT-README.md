@@ -5,7 +5,7 @@ Chat with AI avatars using an OpenAI-compatible API.
 ## Quick Start
 
 ```bash
-curl https://api.rati.chat/v1/chat/completions \
+curl https://swarm.rati.chat/api/v1/chat/completions \
   -H "Authorization: Bearer sk-rati-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
@@ -17,7 +17,7 @@ curl https://api.rati.chat/v1/chat/completions \
 ## Base URL
 
 ```
-https://api.rati.chat
+https://swarm.rati.chat/api
 ```
 
 ## Authentication
@@ -77,7 +77,7 @@ Get detailed information about a specific avatar.
 
 **Example:**
 ```bash
-curl https://api.rati.chat/v1/models/avatar:rati \
+curl https://swarm.rati.chat/api/v1/models/avatar:rati \
   -H "Authorization: Bearer sk-rati-xxxxx"
 ```
 
@@ -177,7 +177,7 @@ Avatars with voice capabilities can generate spoken audio responses.
 Add `"include_audio": true` to your chat request:
 
 ```bash
-curl https://api.rati.chat/v1/chat/completions \
+curl https://swarm.rati.chat/api/v1/chat/completions \
   -H "Authorization: Bearer sk-rati-xxxxx" \
   -H "Content-Type: application/json" \
   -d '{
@@ -217,7 +217,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="sk-rati-xxxxx",
-    base_url="https://api.rati.chat/v1"
+    base_url="https://swarm.rati.chat/api/v1"
 )
 
 response = client.chat.completions.create(
@@ -235,7 +235,7 @@ import OpenAI from 'openai';
 
 const client = new OpenAI({
   apiKey: 'sk-rati-xxxxx',
-  baseURL: 'https://api.rati.chat/v1',
+  baseURL: 'https://swarm.rati.chat/api/v1',
 });
 
 const response = await client.chat.completions.create({
@@ -249,7 +249,7 @@ console.log(response.choices[0].message.content);
 ### cURL
 
 ```bash
-curl https://api.rati.chat/v1/chat/completions \
+curl https://swarm.rati.chat/api/v1/chat/completions \
   -H "Authorization: Bearer sk-rati-xxxxx" \
   -H "Content-Type: application/json" \
   -d '{

@@ -5,7 +5,7 @@ The Swarm platform provides an OpenAI-compatible API that allows external applic
 ## Base URL
 
 ```
-https://api.rati.chat/v1
+https://swarm.rati.chat/api/v1
 ```
 
 (Or your custom API domain)
@@ -24,7 +24,7 @@ Authorization: Bearer sk-your-api-key-here
 Create an API key that only works with a specific avatar:
 
 ```bash
-curl -X POST https://api.rati.chat/avatars/{avatarId}/api-keys \
+curl -X POST https://swarm.rati.chat/api/avatars/{avatarId}/api-keys \
   -H "Content-Type: application/json" \
   -H "Cookie: swarm_session=..." \
   -d '{"name": "My Integration"}'
@@ -43,7 +43,7 @@ Response:
 Create an API key that can access all avatars:
 
 ```bash
-curl -X POST https://api.rati.chat/api-keys \
+curl -X POST https://swarm.rati.chat/api/api-keys \
   -H "Content-Type: application/json" \
   -H "Cookie: swarm_session=..." \
   -d '{"name": "Admin Integration"}'
@@ -224,7 +224,7 @@ The `audio` field is only present when:
 ### cURL
 
 ```bash
-curl -X POST https://api.rati.chat/v1/chat/completions \
+curl -X POST https://swarm.rati.chat/api/v1/chat/completions \
   -H "Authorization: Bearer sk-your-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -244,7 +244,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="sk-your-key",
-    base_url="https://api.rati.chat/v1"
+    base_url="https://swarm.rati.chat/api/v1"
 )
 
 response = client.chat.completions.create(
@@ -264,7 +264,7 @@ import OpenAI from 'openai';
 
 const client = new OpenAI({
   apiKey: 'sk-your-key',
-  baseURL: 'https://api.rati.chat/v1',
+  baseURL: 'https://swarm.rati.chat/api/v1',
 });
 
 const response = await client.chat.completions.create({
@@ -284,7 +284,7 @@ from langchain_openai import ChatOpenAI
 
 llm = ChatOpenAI(
     api_key="sk-your-key",
-    base_url="https://api.rati.chat/v1",
+    base_url="https://swarm.rati.chat/api/v1",
     model="avatar:my-bot"
 )
 
