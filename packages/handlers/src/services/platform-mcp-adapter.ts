@@ -12,7 +12,12 @@ import type {
   MediaService,
 } from '@swarm/core';
 import { TwitterAdapter } from '@swarm/core';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
+
+const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const ADMIN_TABLE = process.env.ADMIN_TABLE || 'SwarmAdmin-prod';
 
 export interface PlatformServicesConfig {
   avatarId: string;
@@ -219,12 +224,122 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     },
 
     // =========================================================================
-    // Gallery Services (simplified for platform)
+    // Gallery Services (platform has read access to gallery)
     // =========================================================================
     gallery: {
-      getGallery: async () => [],
-      getGalleryItem: async () => null,
-      searchGallery: async () => [],
+      getGallery: async (_avatarId: string, options?: { type?: 'image' | 'video' | 'sticker'; limit?: number }) => {
+        try {
+          const result = await dynamoClient.send(new QueryCommand({
+            TableName: ADMIN_TABLE,
+            KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
+            ExpressionAttributeValues: {
+              ':pk': `AVATAR#${avatarId}`,
+              ':sk': 'GALLERY#',
+            },
+            ScanIndexForward: false, // Most recent first
+            Limit: (options?.limit || 20) * 2,
+          }));
+          let items = (result.Items || []) as Array<{
+            id: string;
+            url: string;
+            s3Key: string;
+            type: string;
+            prompt?: string;
+            platform?: string;
+            createdAt: number;
+            postedToTwitter?: boolean;
+          }>;
+          if (options?.type) {
+            items = items.filter(item => item.type === options.type);
+          }
+          return items.slice(0, options?.limit || 20).map(item => ({
+            id: item.id,
+            url: item.url,
+            s3Key: item.s3Key,
+            type: item.type as 'image' | 'video' | 'sticker',
+            prompt: item.prompt,
+            platform: item.platform,
+            createdAt: item.createdAt,
+          }));
+        } catch {
+          return [];
+        }
+      },
+      getGalleryItem: async (_avatarId: string, itemId: string) => {
+        try {
+          const result = await dynamoClient.send(new QueryCommand({
+            TableName: ADMIN_TABLE,
+            KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
+            FilterExpression: 'id = :id',
+            ExpressionAttributeValues: {
+              ':pk': `AVATAR#${avatarId}`,
+              ':sk': 'GALLERY#',
+              ':id': itemId,
+            },
+            Limit: 100,
+          }));
+          const item = result.Items?.[0] as {
+            id: string;
+            url: string;
+            s3Key: string;
+            type: string;
+            prompt?: string;
+            platform?: string;
+            createdAt: number;
+          } | undefined;
+          if (!item) return null;
+          return {
+            id: item.id,
+            url: item.url,
+            s3Key: item.s3Key,
+            type: item.type as 'image' | 'video' | 'sticker',
+            prompt: item.prompt,
+            platform: item.platform,
+            createdAt: item.createdAt,
+          };
+        } catch {
+          return null;
+        }
+      },
+      searchGallery: async (_avatarId: string, query: string, _type?: 'image' | 'video' | 'sticker') => {
+        // Simple search by prompt text
+        try {
+          const result = await dynamoClient.send(new QueryCommand({
+            TableName: ADMIN_TABLE,
+            KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
+            ExpressionAttributeValues: {
+              ':pk': `AVATAR#${avatarId}`,
+              ':sk': 'GALLERY#',
+            },
+            ScanIndexForward: false,
+            Limit: 100,
+          }));
+          const items = (result.Items || []) as Array<{
+            id: string;
+            url: string;
+            s3Key: string;
+            type: string;
+            prompt?: string;
+            platform?: string;
+            createdAt: number;
+          }>;
+          const lowerQuery = query.toLowerCase();
+          return items
+            .filter(item => item.prompt?.toLowerCase().includes(lowerQuery))
+            .slice(0, 20)
+            .map(item => ({
+              id: item.id,
+              url: item.url,
+              s3Key: item.s3Key,
+              type: item.type as 'image' | 'video' | 'sticker',
+              prompt: item.prompt,
+              platform: item.platform,
+              createdAt: item.createdAt,
+            }));
+        } catch {
+          return [];
+        }
+      },
     },
 
     // =========================================================================
