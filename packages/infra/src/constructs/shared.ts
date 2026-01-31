@@ -122,10 +122,14 @@ export class SharedInfrastructure extends Construct {
           ? cdk.RemovalPolicy.RETAIN
           : cdk.RemovalPolicy.DESTROY,
         autoDeleteObjects: !isPersistentEnv,
+        versioned: isPersistentEnv,
+        encryption: s3.BucketEncryption.S3_MANAGED,
+        blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+        enforceSSL: true,
         cors: [
           {
             allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT],
-            allowedOrigins: ['*'],
+            allowedOrigins: ['*'], // Restricted to CloudFront at the origin level
             allowedHeaders: ['*'],
           },
         ],
@@ -166,6 +170,22 @@ export class SharedInfrastructure extends Construct {
         );
       }
 
+      // Access log bucket for CloudFront (persistent environments only)
+      const logBucket = isPersistentEnv
+        ? new s3.Bucket(this, 'CdnLogBucket', {
+            bucketName: `swarm-cdn-logs-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`,
+            removalPolicy: cdk.RemovalPolicy.RETAIN,
+            encryption: s3.BucketEncryption.S3_MANAGED,
+            blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+            enforceSSL: true,
+            lifecycleRules: [{
+              id: 'expire-old-logs',
+              expiration: cdk.Duration.days(90),
+            }],
+            objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_PREFERRED,
+          })
+        : undefined;
+
       this.distribution = new cloudfront.Distribution(this, 'MediaCdn', {
         defaultBehavior: {
           origin: origins.S3BucketOrigin.withOriginAccessControl(this.mediaBucket),
@@ -173,6 +193,7 @@ export class SharedInfrastructure extends Construct {
           cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         },
         comment: `Swarm media CDN (${environment})`,
+        ...(logBucket ? { logBucket, logFilePrefix: 'cdn/' } : {}),
         ...domainConfig,
       });
 

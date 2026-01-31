@@ -18,3 +18,8 @@ export {
   UpdateExpressionBuilder,
   type DynamoDbUpdateExpression,
 } from './dynamodb-expression.js';
+
+export {
+  fetchWithRetry,
+  type FetchRetryOptions,
+} from './fetch-retry.js';

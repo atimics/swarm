@@ -15,6 +15,7 @@ import type {
   MessageContent,
   TwitterConfig,
 } from '../types/index.js';
+import { fetchWithRetry } from '../utils/fetch-retry.js';
 
 type TweetWithOptionalAuthor = TweetV2 & {
   author?: UserV2;
@@ -605,7 +606,7 @@ async function downloadMedia(url: string): Promise<{ buffer: Buffer; contentType
   }
 
   console.log('[TwitterAdapter.downloadMedia] Fetching via HTTP:', url);
-  const response = await fetch(url);
+  const response = await fetchWithRetry(url, undefined, { maxRetries: 2, timeoutMs: 20_000 });
   if (!response.ok) {
     throw new Error(`HTTP fetch failed: ${response.status} ${response.statusText}`);
   }

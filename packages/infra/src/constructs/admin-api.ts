@@ -557,6 +557,15 @@ export class AdminApiConstruct extends Construct {
       },
     });
 
+    // Apply throttling to the default stage to prevent abuse
+    const defaultStage = this.api.defaultStage?.node.defaultChild as cdk.CfnResource | undefined;
+    if (defaultStage) {
+      defaultStage.addPropertyOverride('DefaultRouteSettings', {
+        ThrottlingBurstLimit: 100,
+        ThrottlingRateLimit: 50,
+      });
+    }
+
     // Telegram needs a publicly reachable webhook URL. In non-prod environments,
     // our custom domain is often protected by Cloudflare Access/WAF rules, so
     // default Telegram webhooks to the raw execute-api host (still stable per stack).

@@ -255,6 +255,7 @@ export class SharedHandlers extends Construct {
       // LLM calls and tool loops can exceed 60s in multi-agent channels.
       timeout: cdk.Duration.seconds(120),
       memorySize: 1024,
+      reservedConcurrentExecutions: 20,
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,

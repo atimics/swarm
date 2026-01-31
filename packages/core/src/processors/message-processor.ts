@@ -272,8 +272,8 @@ export class MessageProcessor {
             // Multimodal: best-effort extract text parts.
             if (Array.isArray(msg.content)) {
               const text = msg.content
-                .filter((p: any) => p && typeof p === 'object' && p.type === 'text' && typeof p.text === 'string')
-                .map((p: any) => p.text)
+                .filter((p: { type?: string; text?: string }) => p && typeof p === 'object' && p.type === 'text' && typeof p.text === 'string')
+                .map((p: { text?: string }) => p.text as string)
                 .join('\n');
               if (text.trim()) return text;
             }

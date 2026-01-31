@@ -5,6 +5,7 @@
 import { Bot, InputFile, webhookCallback } from 'grammy';
 import type { Message, Update, MessageOrigin } from 'grammy/types';
 import { PlatformAdapter } from './base.js';
+import { fetchWithRetry } from '../utils/fetch-retry.js';
 import type {
   AvatarConfig,
   SwarmEnvelope,
@@ -182,20 +183,17 @@ function inferFileNameFromUrl(url: string, fallback: string): string {
 }
 
 async function fetchToInputFile(url: string, fallbackName: string, timeoutMs: number = 20_000): Promise<InputFile> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { method: 'GET', signal: controller.signal });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Failed to fetch media: ${res.status} - ${text}`);
-    }
-    const buf = Buffer.from(await res.arrayBuffer());
-    const fileName = inferFileNameFromUrl(url, fallbackName);
-    return new InputFile(buf, fileName);
-  } finally {
-    clearTimeout(timeoutId);
+  const res = await fetchWithRetry(url, { method: 'GET' }, {
+    timeoutMs,
+    maxRetries: 2,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to fetch media: ${res.status} - ${text}`);
   }
+  const buf = Buffer.from(await res.arrayBuffer());
+  const fileName = inferFileNameFromUrl(url, fallbackName);
+  return new InputFile(buf, fileName);
 }
 
 /**

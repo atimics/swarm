@@ -1093,8 +1093,7 @@ export async function processChat(
     event: 'tools_created',
     avatarId,
     toolCount: tools.length,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    toolNames: tools.map((t: any) => t.function?.name ?? t.name),
+    toolNames: tools.map((t: { function?: { name?: string }; name?: string }) => t.function?.name ?? t.name),
   });
 
   const messages: AdminChatMessage[] = [

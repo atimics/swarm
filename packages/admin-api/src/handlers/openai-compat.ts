@@ -33,6 +33,7 @@ import type { ToolCategory } from '@swarm/core';
 import { processChat } from './chat.js';
 import type { UserSession } from '../types.js';
 import * as avatars from '../services/avatars.js';
+import * as voice from '../services/voice.js';
 import { getCorsHeaders } from '../http/cors.js';
 
 // =============================================================================
@@ -61,6 +62,8 @@ const ChatCompletionRequestSchema = z.object({
   max_tokens: z.number().int().positive().optional(),
   stream: z.boolean().optional().default(false),
   user: z.string().optional(), // Optional user identifier for tracking
+  // Non-standard extensions for avatar features
+  include_audio: z.boolean().optional().default(false), // Generate voice audio for response
 });
 
 type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
@@ -70,6 +73,11 @@ interface ChatCompletionChoice {
   message: {
     role: 'assistant';
     content: string;
+    audio?: {
+      url: string;
+      format: string;
+      duration_ms?: number;
+    };
   };
   finish_reason: 'stop' | 'length' | 'tool_calls' | 'content_filter';
 }
@@ -332,6 +340,8 @@ async function handleListModels(
         return jsonResponse(200, { object: 'list', data: [] }, corsHeaders);
       }
 
+      const voiceCheck = await voice.hasVoice(avatar.avatarId);
+
       return jsonResponse(200, {
         object: 'list',
         data: [{
@@ -342,6 +352,10 @@ async function handleListModels(
           permission: [],
           root: avatar.avatarId,
           parent: null,
+          // Non-standard extensions
+          capabilities: {
+            voice: voiceCheck.hasVoice,
+          },
         }],
       }, corsHeaders);
     }
@@ -360,15 +374,23 @@ async function handleListModels(
 
     const avatarList = (result.Items || [])
       .filter((item: Record<string, unknown>) => item.status !== 'archived')
-      .map((item: Record<string, unknown>) => ({
-        id: `avatar:${item.avatarId}`,
-        object: 'model',
-        created: Math.floor((item.createdAt as number || Date.now()) / 1000),
-        owned_by: 'swarm',
-        permission: [],
-        root: item.avatarId,
-        parent: null,
-      }));
+      .map((item: Record<string, unknown>) => {
+        const voiceConfig = item.voiceConfig as Record<string, unknown> | undefined;
+        const hasVoiceEnabled = !!(voiceConfig?.enabled && (voiceConfig?.defaultVoiceId || voiceConfig?.referenceUrl));
+        return {
+          id: `avatar:${item.avatarId}`,
+          object: 'model',
+          created: Math.floor((item.createdAt as number || Date.now()) / 1000),
+          owned_by: 'swarm',
+          permission: [],
+          root: item.avatarId,
+          parent: null,
+          // Non-standard extensions
+          capabilities: {
+            voice: hasVoiceEnabled,
+          },
+        };
+      });
 
     return jsonResponse(200, {
       object: 'list',
@@ -478,6 +500,55 @@ async function handleChatCompletions(
     const promptTokens = request.messages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
     const completionTokens = Math.ceil(result.response.length / 4);
 
+    // Generate audio if requested and avatar has voice configured
+    let audioData: { url: string; format: string; duration_ms?: number } | undefined;
+    if (request.include_audio) {
+      try {
+        const voiceCheck = await voice.hasVoice(avatarId);
+        if (voiceCheck.hasVoice) {
+          logger.info('Generating voice audio for response', {
+            event: 'voice_generation_start',
+            subsystem: 'openai-compat',
+            avatarId,
+            requestId,
+          });
+
+          const voiceResult = await voice.generateVoiceMessage({
+            avatarId,
+            text: result.response,
+          });
+
+          audioData = {
+            url: voiceResult.url,
+            format: voiceResult.format || 'wav',
+            duration_ms: voiceResult.durationMs,
+          };
+
+          logger.info('Voice audio generated', {
+            event: 'voice_generation_success',
+            subsystem: 'openai-compat',
+            avatarId,
+            audioUrl: voiceResult.url,
+            requestId,
+          });
+        } else {
+          logger.info('Voice not configured for avatar, skipping audio generation', {
+            subsystem: 'openai-compat',
+            avatarId,
+            requestId,
+          });
+        }
+      } catch (voiceErr) {
+        // Log but don't fail the request - audio is optional
+        logger.warn('Voice generation failed, returning text only', {
+          subsystem: 'openai-compat',
+          avatarId,
+          requestId,
+          error: voiceErr instanceof Error ? voiceErr.message : String(voiceErr),
+        });
+      }
+    }
+
     const response: ChatCompletionResponse = {
       id: completionId,
       object: 'chat.completion',
@@ -488,6 +559,7 @@ async function handleChatCompletions(
         message: {
           role: 'assistant',
           content: result.response,
+          ...(audioData && { audio: audioData }),
         },
         finish_reason: 'stop',
       }],
@@ -503,6 +575,7 @@ async function handleChatCompletions(
       subsystem: 'openai-compat',
       avatarId,
       responseLength: result.response.length,
+      hasAudio: !!audioData,
       requestId,
     });
 

@@ -16,6 +16,7 @@ import type {
   DiscordConfig,
   Mention,
 } from '../types/index.js';
+import { fetchWithRetry } from '../utils/fetch-retry.js';
 
 // Discord API types (minimal, to avoid dependency on discord.js in core)
 export interface DiscordMessage {
@@ -482,11 +483,11 @@ export class DiscordAdapter extends PlatformAdapter {
       })).filter(e => e.image);
     }
 
-    const response = await fetch(webhookUrl, {
+    const response = await fetchWithRetry(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    });
+    }, { maxRetries: 2, timeoutMs: 15_000 });
 
     if (!response.ok) {
       const error = await response.text();
@@ -520,14 +521,14 @@ export class DiscordAdapter extends PlatformAdapter {
       })).filter((e: Record<string, unknown>) => e.image);
     }
 
-    const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    const response = await fetchWithRetry(`https://discord.com/api/v10/channels/${channelId}/messages`, {
       method: 'POST',
       headers: {
         'Authorization': `Bot ${this.credentials.botToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    });
+    }, { maxRetries: 2, timeoutMs: 15_000 });
 
     if (!response.ok) {
       const error = await response.text();
@@ -563,14 +564,15 @@ export class DiscordAdapter extends PlatformAdapter {
     // URL encode the emoji
     const encodedEmoji = encodeURIComponent(emoji);
 
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}/reactions/${encodedEmoji}/@me`,
       {
         method: 'PUT',
         headers: {
           'Authorization': `Bot ${this.credentials.botToken}`,
         },
-      }
+      },
+      { maxRetries: 1, timeoutMs: 10_000 }
     );
 
     if (!response.ok) {
@@ -603,7 +605,7 @@ export class DiscordAdapter extends PlatformAdapter {
     content: string,
     ephemeral = false
   ): Promise<void> {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://discord.com/api/v10/interactions/${interactionId}/${interactionToken}/callback`,
       {
         method: 'POST',
@@ -615,7 +617,8 @@ export class DiscordAdapter extends PlatformAdapter {
             flags: ephemeral ? 64 : 0, // EPHEMERAL flag
           },
         }),
-      }
+      },
+      { maxRetries: 1, timeoutMs: 10_000 }
     );
 
     if (!response.ok) {
@@ -632,7 +635,7 @@ export class DiscordAdapter extends PlatformAdapter {
     interactionToken: string,
     ephemeral = false
   ): Promise<void> {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://discord.com/api/v10/interactions/${interactionId}/${interactionToken}/callback`,
       {
         method: 'POST',
@@ -643,7 +646,8 @@ export class DiscordAdapter extends PlatformAdapter {
             flags: ephemeral ? 64 : 0,
           },
         }),
-      }
+      },
+      { maxRetries: 1, timeoutMs: 10_000 }
     );
 
     if (!response.ok) {
@@ -660,13 +664,14 @@ export class DiscordAdapter extends PlatformAdapter {
     interactionToken: string,
     content: string
   ): Promise<void> {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}/messages/@original`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
-      }
+      },
+      { maxRetries: 1, timeoutMs: 10_000 }
     );
 
     if (!response.ok) {
