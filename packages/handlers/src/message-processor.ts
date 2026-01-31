@@ -246,8 +246,16 @@ async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, stri
       const appSecret = (parsed.TWITTER_APP_SECRET || parsed.consumer_secret || parsed.consumerSecret) as string | undefined;
       if (appKey && !secrets.TWITTER_API_KEY) secrets.TWITTER_API_KEY = appKey;
       if (appSecret && !secrets.TWITTER_API_SECRET) secrets.TWITTER_API_SECRET = appSecret;
-    } catch {
-      // Ignore parse/lookup errors and rely on per-avatar secrets if present.
+      logger.info('Loaded Twitter app credentials from global secret', {
+        hasAppKey: !!appKey,
+        hasAppSecret: !!appSecret,
+        secretId,
+      });
+    } catch (err) {
+      logger.warn('Failed to load Twitter app credentials', {
+        secretId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -290,6 +298,14 @@ async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, stri
       await tryLoadTwitterAppCredentials();
     }
   }
+
+  logger.info('Fetched avatar secrets', {
+    avatarId,
+    hasTwitterApiKey: !!secrets.TWITTER_API_KEY,
+    hasTwitterApiSecret: !!secrets.TWITTER_API_SECRET,
+    hasTwitterAccessToken: !!secrets.TWITTER_ACCESS_TOKEN,
+    hasTwitterAccessSecret: !!secrets.TWITTER_ACCESS_SECRET,
+  });
 
   return secrets;
 }
