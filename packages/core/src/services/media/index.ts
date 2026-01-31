@@ -108,7 +108,8 @@ export class SwarmMediaService implements MediaService {
           resolvedConfig.model,
           options?.aspectRatio || resolvedConfig.aspectRatio,
           avatarId,
-          apiKeyOverride
+          apiKeyOverride,
+          options?.referenceImageUrls
         );
         break;
 
@@ -240,7 +241,8 @@ export class SwarmMediaService implements MediaService {
     model: string,
     aspectRatio?: string,
     avatarId?: string,
-    apiKeyOverride?: string
+    apiKeyOverride?: string,
+    referenceImageUrls?: string[]
   ): Promise<GeneratedMedia> {
     // Use override or check for various key names
     const apiKey = apiKeyOverride
@@ -255,6 +257,20 @@ export class SwarmMediaService implements MediaService {
     // Use models endpoint for flexibility (handles both versioned and unversioned models)
     const endpoint = `https://api.replicate.com/v1/models/${model}/predictions`;
 
+    // Build input with optional image_input for reference images
+    const input: Record<string, unknown> = {
+      prompt,
+      num_outputs: 1,
+      output_format: 'png',
+      aspect_ratio: aspectRatio || '1:1',
+    };
+
+    // Add image_input if reference images provided (for nano-banana-pro and similar models)
+    if (referenceImageUrls && referenceImageUrls.length > 0) {
+      input.image_input = referenceImageUrls.slice(0, 14); // Max 14 reference images
+      console.log(`[MediaService] Using ${referenceImageUrls.length} reference image(s) for generation`);
+    }
+
     const createResponse = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -262,14 +278,7 @@ export class SwarmMediaService implements MediaService {
         'Authorization': `Bearer ${apiKey}`,
         'Prefer': 'wait',
       },
-      body: JSON.stringify({
-        input: {
-          prompt,
-          num_outputs: 1,
-          output_format: 'png',
-          aspect_ratio: aspectRatio || '1:1',
-        },
-      }),
+      body: JSON.stringify({ input }),
     });
 
     if (!createResponse.ok) {

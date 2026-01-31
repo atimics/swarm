@@ -125,7 +125,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // Media Services
     // =========================================================================
     media: {
-      generateImage: async (params: { prompt: string; aspectRatio?: string; platform?: string }) => {
+      generateImage: async (params: { prompt: string; aspectRatio?: string; platform?: string; referenceImageUrls?: string[] }) => {
         if (!mediaService) {
           throw new Error('Media service not configured');
         }
@@ -143,6 +143,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
           platform: params.platform,
           saveToGallery: true,
           checkCredits: true,
+          referenceImageUrls: params.referenceImageUrls,
         });
         return { id: result.s3Key || 'generated', url: result.url };
       },
