@@ -306,6 +306,12 @@ export async function handler(
     return handleListModels(event, corsHeaders);
   }
 
+  // GET /v1/models/{model_id} - Get specific avatar details
+  const modelMatch = path.match(/^\/v1\/models\/(.+)$/) || path.match(/^\/models\/(.+)$/);
+  if (method === 'GET' && modelMatch) {
+    return handleGetModel(event, modelMatch[1], corsHeaders);
+  }
+
   // POST /v1/chat/completions - Main chat endpoint
   if (method === 'POST' && (path === '/v1/chat/completions' || path === '/chat/completions')) {
     return handleChatCompletions(event, corsHeaders, requestId);
@@ -356,6 +362,12 @@ async function handleListModels(
           capabilities: {
             voice: voiceCheck.hasVoice,
           },
+          // Basic avatar info
+          avatar: {
+            name: avatar.name,
+            description: avatar.description || null,
+            profile_image: avatar.profileImage?.url || null,
+          },
         }],
       }, corsHeaders);
     }
@@ -377,6 +389,7 @@ async function handleListModels(
       .map((item: Record<string, unknown>) => {
         const voiceConfig = item.voiceConfig as Record<string, unknown> | undefined;
         const hasVoiceEnabled = !!(voiceConfig?.enabled && (voiceConfig?.defaultVoiceId || voiceConfig?.referenceUrl));
+        const profileImage = item.profileImage as Record<string, unknown> | undefined;
         return {
           id: `avatar:${item.avatarId}`,
           object: 'model',
@@ -389,6 +402,12 @@ async function handleListModels(
           capabilities: {
             voice: hasVoiceEnabled,
           },
+          // Basic avatar info for listing
+          avatar: {
+            name: item.name || null,
+            description: item.description || null,
+            profile_image: profileImage?.url || null,
+          },
         };
       });
 
@@ -399,6 +418,94 @@ async function handleListModels(
   } catch (err) {
     logger.error('Failed to list models', err);
     return errorResponse(500, 'Failed to list models', 'server_error', undefined, corsHeaders);
+  }
+}
+
+/**
+ * GET /v1/models/{model_id} - Get detailed info about a specific avatar
+ */
+async function handleGetModel(
+  event: APIGatewayProxyEventV2,
+  modelId: string,
+  corsHeaders: Record<string, string>
+): Promise<APIGatewayProxyResultV2> {
+  // Validate API key
+  const apiKey = extractApiKey(event);
+  if (!apiKey) {
+    return errorResponse(401, 'Missing API key', 'authentication_error', 'missing_api_key', corsHeaders);
+  }
+
+  const validation = await validateApiKey(apiKey);
+  if (!validation.valid) {
+    return errorResponse(401, validation.error || 'Invalid API key', 'authentication_error', 'invalid_api_key', corsHeaders);
+  }
+
+  try {
+    // Parse model ID (strip avatar: prefix if present)
+    const avatarId = modelId.replace(/^avatar:/, '');
+
+    // Check if API key is scoped and has access to this avatar
+    if (validation.avatarId && validation.avatarId !== avatarId) {
+      return errorResponse(403, 'API key does not have access to this avatar', 'permission_error', 'access_denied', corsHeaders);
+    }
+
+    const avatar = await avatars.getAvatar(avatarId);
+    if (!avatar) {
+      return errorResponse(404, `Model not found: ${modelId}`, 'not_found', 'model_not_found', corsHeaders);
+    }
+
+    const voiceCheck = await voice.hasVoice(avatar.avatarId);
+
+    // Build detailed model response with avatar info
+    const response = {
+      id: `avatar:${avatar.avatarId}`,
+      object: 'model',
+      created: Math.floor((avatar.createdAt || Date.now()) / 1000),
+      owned_by: 'swarm',
+      permission: [],
+      root: avatar.avatarId,
+      parent: null,
+      // Non-standard extensions with avatar details
+      capabilities: {
+        voice: voiceCheck.hasVoice,
+      },
+      avatar: {
+        id: avatar.avatarId,
+        name: avatar.name,
+        description: avatar.description || null,
+        // Profile images
+        profile_image: avatar.profileImage?.url || null,
+        character_reference: avatar.characterReference?.url || null,
+        // Platform presence
+        platforms: {
+          telegram: avatar.platforms?.telegram?.enabled ? {
+            username: avatar.platforms.telegram.botUsername || null,
+            home_channel: avatar.platforms.telegram.homeChannelUrl || null,
+          } : null,
+          twitter: avatar.platforms?.twitter?.enabled ? {
+            username: avatar.platforms.twitter.username || null,
+          } : null,
+          discord: avatar.platforms?.discord?.enabled ? {
+            guild_id: avatar.platforms.discord.guildId || null,
+          } : null,
+        },
+        // Voice info
+        voice: voiceCheck.hasVoice ? {
+          style: voiceCheck.voiceStyle || null,
+        } : null,
+        // Sticker pack (if available)
+        sticker_pack: avatar.stickerPack ? {
+          name: avatar.stickerPack.name,
+          title: avatar.stickerPack.title,
+          count: avatar.stickerPack.stickerCount,
+        } : null,
+      },
+    };
+
+    return jsonResponse(200, response, corsHeaders);
+  } catch (err) {
+    logger.error('Failed to get model', err);
+    return errorResponse(500, 'Failed to get model', 'server_error', undefined, corsHeaders);
   }
 }
 

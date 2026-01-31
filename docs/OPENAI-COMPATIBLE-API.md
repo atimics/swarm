@@ -78,6 +78,11 @@ Lists all avatars available to your API key.
       "parent": null,
       "capabilities": {
         "voice": true
+      },
+      "avatar": {
+        "name": "My Bot",
+        "description": "A helpful assistant",
+        "profile_image": "https://cdn.rati.chat/avatars/my-bot/profile.png"
       }
     }
   ]
@@ -85,6 +90,57 @@ Lists all avatars available to your API key.
 ```
 
 The `capabilities.voice` field indicates whether the avatar has voice generation enabled. If `true`, you can use `include_audio: true` in chat requests.
+
+---
+
+### Get Model Details
+
+```bash
+GET /v1/models/{model_id}
+```
+
+Get detailed information about a specific avatar, including profile images, platform presence, and capabilities.
+
+**Response:**
+```json
+{
+  "id": "avatar:my-bot",
+  "object": "model",
+  "created": 1706644800,
+  "owned_by": "swarm",
+  "permission": [],
+  "root": "my-bot",
+  "parent": null,
+  "capabilities": {
+    "voice": true
+  },
+  "avatar": {
+    "id": "my-bot",
+    "name": "My Bot",
+    "description": "A helpful assistant",
+    "profile_image": "https://cdn.rati.chat/avatars/my-bot/profile.png",
+    "character_reference": "https://cdn.rati.chat/avatars/my-bot/character.png",
+    "platforms": {
+      "telegram": {
+        "username": "mybot",
+        "home_channel": "https://t.me/mybotchat"
+      },
+      "twitter": {
+        "username": "mybot"
+      },
+      "discord": null
+    },
+    "voice": {
+      "style": "voice-clone"
+    },
+    "sticker_pack": {
+      "name": "mybot_stickers",
+      "title": "My Bot Stickers",
+      "count": 12
+    }
+  }
+}
+```
 
 ---
 
