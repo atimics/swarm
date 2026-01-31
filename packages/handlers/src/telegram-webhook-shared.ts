@@ -1135,6 +1135,42 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         }
       }
 
+      // DM allowlist user auto-activation: if a user on the DM allowlist mentions the bot in any channel, activate automatically
+      if (!chatAllowed && isMentioned) {
+        const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
+        const allowedDmUserIds = getAllowedDmUserIdsForAdmin(telegramCfg || {});
+        const isOnDmAllowlist = allowedDmUserIds.includes(senderId);
+
+        if (isOnDmAllowlist) {
+          const message = (update as any).message || (update as any).edited_message || (update as any).channel_post;
+          const chatUsername = message?.chat?.username as string | undefined;
+          const chatTitle = message?.chat?.title as string | undefined;
+
+          try {
+            await activateAvatarInChatFromWebhook(avatarId, {
+              chatId: envelope.conversationId,
+              username: chatUsername,
+              title: chatTitle,
+            });
+            chatAllowed = true;
+            logger.info('DM allowlist user auto-activated avatar in chat', {
+              event: 'dm_allowlist_auto_activate',
+              avatarId,
+              chatId: envelope.conversationId,
+              senderId,
+              senderUsername: envelope.sender.username,
+            });
+          } catch (err) {
+            logger.warn('Failed to auto-activate avatar via DM allowlist mention', {
+              event: 'dm_allowlist_auto_activate_failed',
+              avatarId,
+              chatId: envelope.conversationId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      }
+
       if (!chatAllowed) {
         logger.info('Chat not in home channel registry', { event: 'chat_blocked', chatId: envelope.conversationId });
 
