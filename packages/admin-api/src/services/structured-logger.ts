@@ -69,7 +69,7 @@ export function createAvatarLogger(
         platform: context.platform,
       }).catch((err) => {
         // Don't let DynamoDB errors break the main flow
-        console.error('Failed to store log in DynamoDB:', err);
+        console.error('Failed to store log in DynamoDB:', err instanceof Error ? err.message : 'Unknown error');
       });
     }
   };

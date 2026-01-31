@@ -229,7 +229,7 @@ export async function getAndTouchSession(
 
   // Touch session in the background (don't wait)
   touchSession(sessionToken, deps).catch((err) => {
-    console.error('[SessionService] Failed to touch session:', err);
+    console.error('[SessionService] Failed to touch session:', err instanceof Error ? err.message : 'Unknown error');
   });
 
   return session;

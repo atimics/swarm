@@ -13,10 +13,7 @@ import {
  * Dependencies interface for logs service (for testing)
  */
 export interface LogsServiceDeps {
-  logsClient: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    send: (command: any) => Promise<any>;
-  };
+  logsClient: Pick<CloudWatchLogsClient, 'send'>;
   logGroupPrefix: string;
   adminLogGroups: string[];
   adminLogGroupPrefixes: string[];
