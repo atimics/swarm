@@ -168,6 +168,35 @@ function parseXmlToolCalls(content: string): {
   return { toolCalls, cleanedContent };
 }
 
+/**
+ * Strip avatar name prefix from response if the model accidentally included it.
+ * Models sometimes see `[Username]: message` in history and mimic the pattern.
+ * This removes prefixes like `[Rati]:`, `[Chamuel 😇]:`, `Rati:`, etc.
+ */
+function stripAvatarNamePrefix(content: string, avatarName: string): string {
+  if (!content || !avatarName) return content;
+  
+  // Try various prefix patterns the model might use
+  const patterns = [
+    // [Name]: format (with optional emoji/special chars)
+    new RegExp(`^\\[${escapeRegex(avatarName)}[^\\]]*\\]:\\s*`, 'i'),
+    // Name: format at start of message
+    new RegExp(`^${escapeRegex(avatarName)}:\\s*`, 'i'),
+  ];
+  
+  for (const pattern of patterns) {
+    if (pattern.test(content)) {
+      return content.replace(pattern, '').trim();
+    }
+  }
+  
+  return content;
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Environment variable validation helper
 function getRequiredEnv(name: string): string {
   const value = process.env[name];
@@ -1068,6 +1097,10 @@ async function generateResponse(
             avatarId: envelope.avatarId 
           });
         }
+        
+        // Strip avatar name prefix if the model accidentally added it
+        // (e.g., "[Chamuel 😇]: Hey!" becomes "Hey!")
+        cleanFinalContent = stripAvatarNamePrefix(cleanFinalContent, avatarRuntime.avatarConfig.name);
       }
       break;
     }
