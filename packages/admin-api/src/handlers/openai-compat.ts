@@ -373,13 +373,19 @@ async function handleListModels(
     }
 
     // For wildcard keys, list all public avatars
-    // Note: In a real implementation, you'd want pagination
+    // GSI1 uses sk as HASH key, pk as RANGE key - query for sk=CONFIG and filter for AVATAR# prefix
     const result = await docClient.send(new QueryCommand({
       TableName: ADMIN_TABLE,
       IndexName: 'GSI1',
-      KeyConditionExpression: 'gsi1pk = :pk',
+      KeyConditionExpression: 'sk = :sk AND begins_with(pk, :prefix)',
+      FilterExpression: '#status <> :deleted',
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
       ExpressionAttributeValues: {
-        ':pk': 'AVATARS',
+        ':sk': 'CONFIG',
+        ':prefix': 'AVATAR#',
+        ':deleted': 'deleted',
       },
       Limit: 100,
     }));
