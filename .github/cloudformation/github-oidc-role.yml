@@ -246,7 +246,7 @@ Resources:
                   - ecr:CompleteLayerUpload
                 Resource: !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/cdk-*'
         
-        # SSM Parameter Store (for CDK bootstrap version)
+        # SSM Parameter Store (for CDK bootstrap version and swarm cross-stack params)
         - PolicyName: SSMAccess
           PolicyDocument:
             Version: '2012-10-17'
@@ -258,6 +258,15 @@ Resources:
                   - ssm:GetParameters
                 Resource:
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cdk-bootstrap/*'
+              - Sid: SSMSwarmParams
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                Resource:
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/swarm/*'
         
         # CloudFront invalidation
         - PolicyName: CloudFrontAccess
