@@ -14,6 +14,7 @@ import { useAuth } from '../store/auth';
 import { ThemeToggle } from './ThemeToggle';
 import { WalletLogin } from './WalletLogin';
 import { AvatarReassignModal } from './AvatarReassignModal';
+import * as avatarApi from '../api/avatars';
 import type { Avatar } from '../types';
 
 interface AvatarDisplayProps {
@@ -128,6 +129,44 @@ function getStatusDescription(avatar: Avatar): string {
   return avatar.status;
 }
 
+/**
+ * Compact energy indicator that fetches energy lazily
+ */
+function CompactEnergyBar({ avatarId, show }: { avatarId: string; show: boolean }) {
+  const [energy, setEnergy] = React.useState<{ current: number; max: number } | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const hasFetched = React.useRef(false);
+
+  React.useEffect(() => {
+    if (show && !hasFetched.current) {
+      hasFetched.current = true;
+      setLoading(true);
+      avatarApi.getEnergyStatus(avatarId)
+        .then((status) => {
+          setEnergy({ current: status.currentEnergy, max: status.maxEnergy });
+        })
+        .catch(() => {
+          // Silently fail - energy display is optional
+        })
+        .finally(() => setLoading(false));
+    }
+  }, [avatarId, show]);
+
+  if (!show || loading || !energy) return null;
+
+  const percent = Math.round((energy.current / energy.max) * 100);
+  const color = percent > 60 ? 'bg-green-500' : percent > 25 ? 'bg-yellow-500' : 'bg-red-500';
+
+  return (
+    <div className="mt-1 flex items-center gap-1.5" title={`Energy: ${energy.current}/${energy.max}`}>
+      <div className="flex-1 h-1 bg-[var(--color-bg-tertiary)] rounded-full overflow-hidden">
+        <div className={`h-full ${color} transition-all`} style={{ width: `${percent}%` }} />
+      </div>
+      <span className="text-[10px] text-[var(--color-text-muted)] tabular-nums">{percent}%</span>
+    </div>
+  );
+}
+
 function AvatarListItem({ avatar, isActive, onClick, isAdmin, onReassign }: AvatarListItemProps) {
   const [showContextMenu, setShowContextMenu] = React.useState(false);
   const contextMenuRef = React.useRef<HTMLDivElement>(null);
@@ -169,6 +208,8 @@ function AvatarListItem({ avatar, isActive, onClick, isAdmin, onReassign }: Avat
           <div className="text-xs text-[var(--color-text-muted)] truncate">
             {getStatusDescription(avatar)}
           </div>
+          {/* Energy indicator for active avatar */}
+          <CompactEnergyBar avatarId={avatar.id} show={isActive} />
           {/* Admin: show owner wallet badge */}
           {isAdmin && avatar.creatorWallet && (
             <div className="text-xs text-[var(--color-text-muted)] truncate mt-0.5 flex items-center gap-1">
@@ -402,8 +443,8 @@ export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSide
 
       {/* Avatar List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {/* Slot Orbs (wallet gating) */}
-        {isAuthenticated && gateStatus && !bypassRestrictions && (
+        {/* Slot Orbs (wallet gating) - visible for all authenticated users including admins */}
+        {isAuthenticated && gateStatus && (
           <div className="px-2 py-2 mb-2 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]">
             <div className="flex items-center justify-between mb-2">
               <div className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wider">
@@ -469,7 +510,11 @@ export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSide
             </div>
 
             <div className="mt-2 text-xs text-[var(--color-text-muted)]">
-              1 free slot • +1 per Orb NFT
+              {bypassRestrictions ? (
+                <span className="text-brand-400">Admin access • unlimited slots</span>
+              ) : (
+                '1 free slot • +1 per Orb NFT'
+              )}
             </div>
           </div>
         )}
