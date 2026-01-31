@@ -75,6 +75,7 @@ const CATEGORY_TOOLSETS: Record<ToolCategory, ToolsetId[]> = {
   memory: ['memory'],
   nft: ['nft'],
   property: ['property'],
+  moltbook: ['moltbook'],
   diagnostics: ['diagnostics'],
 };
 

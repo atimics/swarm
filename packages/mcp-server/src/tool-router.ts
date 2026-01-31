@@ -38,6 +38,7 @@ const TOOLSET_KEYWORDS: Record<ToolsetId, string[]> = {
   memory: ['memory', 'remember', 'recall', 'note'],
   nft: ['nft', 'ownership', 'inhabit', 'claim'],
   'claude-code': ['code', 'coding', 'implement', 'refactor', 'debug', 'fix bug', 'write code', 'programming'],
+  moltbook: ['moltbook', 'molty', 'submolt', 'karma', 'social', 'post', 'comment', 'vote'],
 };
 
 const TOOLSET_PRIORITY: ToolsetId[] = [

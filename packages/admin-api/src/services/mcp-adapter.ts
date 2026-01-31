@@ -38,6 +38,7 @@ import * as memory from '../services/memory.js';
 import * as memoryMigration from '../services/memory-migration.js';
 import * as memoryConsolidation from '../services/memory-consolidation.js';
 import * as observability from '../services/observability.js';
+import { createMoltbookServices } from '../services/moltbook.js';
 import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
 import { createWebSearch } from '../services/web-search.js';
 import { createMcpAdminServices } from '../services/mcp-config.js';
@@ -1861,6 +1862,11 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         return { status: avatar.status as 'draft' | 'active' | 'paused', name: avatar.name };
       },
     },
+
+    // =========================================================================
+    // Moltbook Services (Social network for AI agents)
+    // =========================================================================
+    moltbook: createMoltbookServices(_avatarId),
   };
 }
 

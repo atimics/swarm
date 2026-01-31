@@ -22,6 +22,7 @@ export const TOOLSETS = [
   'memory',
   'nft',
   'claude-code',
+  'moltbook',
 ] as const;
 
 export type ToolsetId = typeof TOOLSETS[number];
@@ -109,4 +110,5 @@ export const TOOLSET_DEFAULT_TAGS: Record<ToolsetId, ToolTag[]> = {
   memory: ['memory', 'recall', 'remember'],
   nft: ['nft', 'ownership', 'inhabitation'],
   'claude-code': ['claude-code', 'coding', 'avatar'],
+  moltbook: [],
 };

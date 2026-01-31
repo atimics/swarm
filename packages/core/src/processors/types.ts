@@ -26,6 +26,7 @@ export type ToolCategory =
   | 'memory'       // Remember/recall facts
   | 'nft'          // NFT and ownership tools
   | 'property'     // Property research tools
+  | 'moltbook'     // Moltbook social network
   | 'diagnostics'; // Issue reporting
 
 /**
@@ -50,6 +51,7 @@ export type ToolsetId =
   | 'memory'
   | 'nft'
   | 'property'
+  | 'moltbook'
   | 'diagnostics'
   | 'reference'    // Reference images
   | 'claude-code'; // Claude Code automation

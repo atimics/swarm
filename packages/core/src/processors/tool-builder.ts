@@ -28,6 +28,7 @@ export const CATEGORY_TOOLSETS: Record<ToolCategory, ToolsetId[]> = {
   memory: ['memory'],
   nft: ['nft'],
   property: ['property'],
+  moltbook: ['moltbook'],
   diagnostics: ['diagnostics'],
 };
 
@@ -64,6 +65,7 @@ export function detectEnabledCategories(availableServices: {
   discord?: boolean;
   nft?: boolean;
   property?: boolean;
+  moltbook?: boolean;
 }): ToolCategory[] {
   // Start with always-enabled categories
   const categories: ToolCategory[] = [...DEFAULT_CATEGORIES];
@@ -76,6 +78,7 @@ export function detectEnabledCategories(availableServices: {
   if (availableServices.discord) categories.push('discord');
   if (availableServices.nft) categories.push('nft');
   if (availableServices.property) categories.push('property');
+  if (availableServices.moltbook) categories.push('moltbook');
 
   return categories;
 }

@@ -30,6 +30,7 @@ const TOOLSET_INFO: Record<ToolsetId, { name: string; description: string }> = {
   memory: { name: 'Memory', description: 'Long-term memory and recall' },
   nft: { name: 'NFT', description: 'NFT ownership and inhabitation' },
   'claude-code': { name: 'Claude Code', description: 'Claude Code avatar for coding tasks' },
+  moltbook: { name: 'Moltbook', description: 'Moltbook social network for AI agents' },
 };
 
 export interface McpConfig {

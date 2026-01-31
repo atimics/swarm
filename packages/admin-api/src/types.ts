@@ -46,6 +46,7 @@ export const SecretType = z.enum([
   'helius_api_key',
   'solana_wallet_key',
   'ethereum_wallet_key',
+  'moltbook_api_key',
   'custom',
 ]);
 
@@ -224,7 +225,7 @@ export type ToolsetId =
   | 'core' | 'media' | 'voice' | 'wallet' | 'profile' | 'gallery'
   | 'secrets' | 'jobs' | 'reference' | 'models' | 'config' | 'admin'
   | 'diagnostics' | 'telegram' | 'twitter' | 'discord' | 'property'
-  | 'memory' | 'nft' | 'claude-code';
+  | 'memory' | 'nft' | 'claude-code' | 'moltbook';
 
 export interface ExternalMcpServer {
   id: string;                    // Unique identifier
@@ -708,6 +709,7 @@ export const AvatarContextSchema = z.object({
     'nft',
     'property',
     'diagnostics',
+    'moltbook',
   ])).optional(),
 });
 

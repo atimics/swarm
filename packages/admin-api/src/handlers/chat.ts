@@ -2245,6 +2245,8 @@ export async function handler(
           nft: true,
           // Property requires explicit opt-in via mcpConfig
           property: enabledToolsets.includes('property'),
+          // Moltbook requires explicit opt-in via mcpConfig
+          moltbook: enabledToolsets.includes('moltbook'),
         })
       : undefined;
     const avatarContext = avatar ? {
@@ -2429,6 +2431,7 @@ export async function resumeChatAfterToolResult(params: {
         discord: Boolean(avatarRecord.platforms?.discord?.enabled),
         nft: true,
         property: enabledToolsets.includes('property'),
+        moltbook: enabledToolsets.includes('moltbook'),
       })
     : undefined;
   const avatarContext: AvatarContext | undefined = avatarRecord

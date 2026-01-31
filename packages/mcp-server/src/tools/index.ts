@@ -93,6 +93,16 @@ export {
   type SystemStatusResult,
   type AvatarActivityResult,
 } from './observability.js';
+export {
+  createMoltbookTools,
+  type MoltbookServices,
+  type MoltbookConnectionStatus,
+  type MoltbookAgent,
+  type MoltbookPost,
+  type MoltbookComment,
+  type MoltbookSubmolt,
+  type MoltbookSearchResult,
+} from './moltbook.js';
 
 import { createMediaTools, type CreditServices as MediaCreditServices } from './media.js';
 import { createGalleryTools } from './gallery.js';
@@ -116,6 +126,7 @@ import { createClaudeCodeTools } from './claude-code.js';
 import { createMcpAdminTools } from './mcp-admin.js';
 import { createPresenceTools } from './presence.js';
 import { createObservabilityTools } from './observability.js';
+import { createMoltbookTools } from './moltbook.js';
 import type { ToolRegistry } from '../registry.js';
 
 /**
@@ -150,6 +161,8 @@ export interface AllServices {
   // Cross-platform presence
   presence?: import('./presence.js').PresenceServices;
   observability?: import('./observability.js').ObservabilityServices;
+  // Moltbook - social network for AI agents
+  moltbook?: import('./moltbook.js').MoltbookServices;
 }
 
 /**
@@ -204,5 +217,8 @@ export function registerAllTools(
   }
   if (services.observability) {
     registry.registerAll(createObservabilityTools(services.observability));
+  }
+  if (services.moltbook) {
+    registry.registerAll(createMoltbookTools(services.moltbook));
   }
 }

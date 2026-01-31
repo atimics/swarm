@@ -137,6 +137,7 @@ async function loadAvatarConfig(avatarId: string): Promise<ProcessorAvatarConfig
     discord: Boolean(avatar.platforms?.discord?.enabled),
     nft: true,
     property: enabledToolsets.includes('property'),
+    moltbook: enabledToolsets.includes('moltbook'),
   });
 
   // Get wallets for context
