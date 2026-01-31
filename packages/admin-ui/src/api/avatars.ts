@@ -264,6 +264,112 @@ export async function reassignAvatar(
   return response.json();
 }
 
+// ============================================================================
+// Energy System API
+// ============================================================================
+
+export interface EnergyStatus {
+  avatarId: string;
+  currentEnergy: number;
+  maxEnergy: number;
+  lastUpdated: number;
+  refillPerHour: number;
+  baseRefillPerHour: number;
+  bonusRefillPerHour: number;
+  ownerTokenBalance: number;
+  timeToNextEnergy: number | null;
+  timeToFull: number | null;
+}
+
+export interface EnergyEvent {
+  eventId: string;
+  timestamp: number;
+  eventType: 'consume' | 'refill' | 'set' | 'add';
+  energyBefore: number;
+  energyAfter: number;
+  cost?: number;
+  operation?: string;
+  message?: string;
+}
+
+/**
+ * Get current energy status for an avatar
+ */
+export async function getEnergyStatus(avatarId: string): Promise<EnergyStatus> {
+  const response = await fetch(`${API_BASE}/avatars/${encodeURIComponent(avatarId)}/energy`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Set energy level for an avatar (admin only)
+ */
+export async function setEnergy(avatarId: string, energy: number): Promise<EnergyStatus> {
+  const response = await fetch(`${API_BASE}/avatars/${encodeURIComponent(avatarId)}/energy/set`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ energy }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Add energy to an avatar (admin only)
+ */
+export async function addEnergy(avatarId: string, amount: number): Promise<EnergyStatus> {
+  const response = await fetch(`${API_BASE}/avatars/${encodeURIComponent(avatarId)}/energy/add`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ amount }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get energy usage history for an avatar
+ */
+export async function getEnergyHistory(
+  avatarId: string,
+  limit = 20
+): Promise<{ events: EnergyEvent[] }> {
+  const response = await fetch(
+    `${API_BASE}/avatars/${encodeURIComponent(avatarId)}/energy/history?limit=${limit}`,
+    {
+      method: 'GET',
+      credentials: 'include',
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
 // Legacy aliases for backward compatibility (agent → avatar)
 export const createAgent = createAvatar;
 export const listAgents = listAvatars;

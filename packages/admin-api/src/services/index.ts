@@ -8,6 +8,9 @@ export * from './config-sync.js';
 export * from './gallery.js';
 export * from './media-jobs.js';
 export * from './credits.js';
+// Energy service types that don't conflict with credits.js wrappers
+export type { EnergyStatus, EnergyConfig, ConsumeEnergyResult, EnergyEvent, EnergyCostType, EnergyServiceDeps } from './energy.js';
+export { getOwnerWallet, getOwnerWallets, getTokenBalance, getOwnerTokenBalance, clearBalanceCache } from './wallet-balance.js';
 export * from './media.js';
 export * from './telegram-stickers.js';
 export * from './telegram.js';

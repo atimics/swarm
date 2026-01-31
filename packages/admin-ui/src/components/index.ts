@@ -3,6 +3,7 @@ export { ChatInput } from './ChatInput';
 export { Header } from './Header';
 export { AvatarSidebar, AvatarDisplay } from './AvatarSidebar';
 export { AvatarConfigModal } from './AvatarConfigModal';
+export { EnergyPanel } from './EnergyPanel';
 export { ChatPanel } from './ChatPanel';
 export { ToolPrompt, SecretPrompt, ConfirmPrompt } from './ToolPrompts';
 export { IssueCard, IssueNavigation } from './IssueCard';

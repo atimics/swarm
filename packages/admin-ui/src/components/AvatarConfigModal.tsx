@@ -6,6 +6,7 @@ import { useAvatarStore } from '../store/avatars';
 import { useAuth } from '../store/auth';
 import type { Avatar, AvatarSecret } from '../types';
 import { AvatarDisplay } from './AvatarSidebar';
+import { EnergyPanel } from './EnergyPanel';
 import * as avatarApi from '../api/avatars';
 
 interface AvatarConfigModalProps {
@@ -274,6 +275,9 @@ export function AvatarConfigModal({ avatar, isOpen, onClose }: AvatarConfigModal
                   <div className="mt-3 text-xs text-red-300">{orbError}</div>
                 )}
               </div>
+
+              {/* Energy Panel */}
+              <EnergyPanel avatarId={avatar.id} isAdmin={true} />
             </div>
           )}
 

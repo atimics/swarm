@@ -139,8 +139,12 @@ const calculatorTool = {
     }),
     execute: async (params: { expression: string }) => {
       log('calculate called', params);
-      // Simple safe eval for basic math
-      const result = Function(`"use strict"; return (${params.expression})`)();
+      // Safe math evaluation - only allow digits, operators, parentheses, and whitespace
+      const sanitized = params.expression.replace(/\s/g, '');
+      if (!/^[\d+\-*/().]+$/.test(sanitized)) {
+        throw new Error(`Invalid math expression: ${params.expression}`);
+      }
+      const result = Function(`"use strict"; return (${sanitized})`)();
       log('calculate result', { result });
       return { result };
     },

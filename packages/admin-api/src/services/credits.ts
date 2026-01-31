@@ -1,6 +1,9 @@
 /**
  * Credit System Service
  * Rate limiting via token bucket algorithm with hourly refill and daily limits
+ * 
+ * NOTE: Energy system has been moved to energy.ts with dynamic wallet-based refill rates.
+ * This file now re-exports the energy functions for backward compatibility.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
@@ -10,6 +13,48 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { CreditBucket } from '../types.js';
+
+// Re-export energy functions from the new energy service
+export {
+  ENERGY_MAX,
+  ENERGY_PER_HOUR,
+  ENERGY_COSTS,
+  getEnergyStatus,
+  setEnergy,
+  addEnergy,
+  getEnergyHistory,
+  type EnergyStatus,
+  type EnergyConfig,
+  type ConsumeEnergyResult,
+  type EnergyEvent,
+} from './energy.js';
+
+// Import for backward-compatible wrappers
+import {
+  canUseEnergy as canUseEnergyNew,
+  consumeEnergySimple,
+} from './energy.js';
+
+/**
+ * Check if avatar can use energy (backward compatible signature)
+ */
+export async function canUseEnergy(
+  avatarId: string,
+  cost: number
+): Promise<{ allowed: boolean; reason?: string; remaining?: number }> {
+  return canUseEnergyNew(avatarId, cost);
+}
+
+/**
+ * Consume energy for an operation (backward compatible signature returning boolean)
+ * For detailed result with logging, use consumeEnergyWithResult from energy.js
+ */
+export async function consumeEnergy(
+  avatarId: string,
+  cost: number
+): Promise<boolean> {
+  return consumeEnergySimple(avatarId, cost);
+}
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -67,22 +112,6 @@ export const TOOL_CREDITS: Record<string, {
 };
 
 /**
- * Energy system configuration
- * Avatars get 1 energy per hour, max 10
- */
-export const ENERGY_MAX = 10;
-export const ENERGY_PER_HOUR = 1;
-
-/**
- * Energy costs for expensive tools
- */
-export const ENERGY_COSTS = {
-  voice: 1,
-  image: 2,
-  video: 3,
-} as const;
-
-/**
  * Get or create a credit bucket for an avatar/tool
  */
 async function getOrCreateBucket(
@@ -127,52 +156,6 @@ async function getOrCreateBucket(
   }));
 
   return bucket;
-}
-
-async function getOrCreateEnergyBucket(avatarId: string): Promise<CreditBucket> {
-  const pk = `AVATAR#${avatarId}`;
-  const sk = 'CREDIT#energy';
-
-  const result = await dynamoClient.send(new GetCommand({
-    TableName: ADMIN_TABLE,
-    Key: { pk, sk },
-  }));
-
-  if (result.Item) {
-    return result.Item as CreditBucket;
-  }
-
-  const now = Date.now();
-  const bucket: CreditBucket = {
-    pk,
-    sk,
-    avatarId,
-    toolName: 'energy',
-    credits: ENERGY_MAX, // Start with full energy
-    maxCredits: ENERGY_MAX,
-    lastRefillAt: now,
-    dailyUsed: 0,
-    dailyLimit: 999999, // No daily limit for hourly system
-    dailyResetAt: getNextMidnightUTC(),
-  };
-
-  await dynamoClient.send(new PutCommand({
-    TableName: ADMIN_TABLE,
-    Item: bucket,
-  }));
-
-  return bucket;
-}
-
-/**
- * Calculate refilled energy based on time elapsed
- * +1 energy per hour, capped at ENERGY_MAX
- */
-function calculateEnergyRefill(bucket: CreditBucket): number {
-  const now = Date.now();
-  const hoursSinceRefill = (now - bucket.lastRefillAt) / (1000 * 60 * 60);
-  const energyToAdd = Math.floor(hoursSinceRefill * ENERGY_PER_HOUR);
-  return Math.min(bucket.credits + energyToAdd, ENERGY_MAX);
 }
 
 /**
@@ -290,84 +273,6 @@ export async function consumeCredit(
   }));
 
   return true;
-}
-
-export async function canUseEnergy(
-  avatarId: string,
-  cost: number
-): Promise<{ allowed: boolean; reason?: string; remaining?: number }> {
-  if (cost <= 0) {
-    return { allowed: true, remaining: ENERGY_MAX };
-  }
-
-  const bucket = await getOrCreateEnergyBucket(avatarId);
-
-  // Calculate current energy with hourly refill
-  const currentEnergy = calculateEnergyRefill(bucket);
-
-  if (currentEnergy < cost) {
-    const hoursUntilEnough = Math.ceil((cost - currentEnergy) / ENERGY_PER_HOUR);
-    return {
-      allowed: false,
-      reason: `Not enough energy (have ${currentEnergy}, need ${cost}). +1 energy per hour. ~${hoursUntilEnough}h until enough.`,
-      remaining: currentEnergy,
-    };
-  }
-
-  return { allowed: true, remaining: currentEnergy };
-}
-
-export async function consumeEnergy(
-  avatarId: string,
-  cost: number
-): Promise<boolean> {
-  if (cost <= 0) {
-    return true;
-  }
-
-  const bucket = await getOrCreateEnergyBucket(avatarId);
-  const now = Date.now();
-
-  // Calculate current energy with hourly refill
-  const currentEnergy = calculateEnergyRefill(bucket);
-
-  if (currentEnergy < cost) {
-    return false;
-  }
-
-  await dynamoClient.send(new UpdateCommand({
-    TableName: ADMIN_TABLE,
-    Key: { pk: bucket.pk, sk: bucket.sk },
-    UpdateExpression: 'SET credits = :credits, lastRefillAt = :now',
-    ExpressionAttributeValues: {
-      ':credits': currentEnergy - cost,
-      ':now': now,
-    },
-  }));
-
-  return true;
-}
-
-/**
- * Get current energy status for an avatar
- */
-export async function getEnergyStatus(
-  avatarId: string
-): Promise<{ current: number; max: number; nextRefillIn: number }> {
-  const bucket = await getOrCreateEnergyBucket(avatarId);
-  const now = Date.now();
-  const currentEnergy = calculateEnergyRefill(bucket);
-  
-  // Calculate minutes until next energy point
-  const msSinceRefill = now - bucket.lastRefillAt;
-  const msUntilNextRefill = (60 * 60 * 1000) - (msSinceRefill % (60 * 60 * 1000));
-  const minutesUntilNext = Math.ceil(msUntilNextRefill / (60 * 1000));
-
-  return {
-    current: currentEnergy,
-    max: ENERGY_MAX,
-    nextRefillIn: currentEnergy >= ENERGY_MAX ? 0 : minutesUntilNext,
-  };
 }
 
 /**

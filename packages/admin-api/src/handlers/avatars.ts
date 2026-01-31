@@ -19,6 +19,7 @@ import * as galleryService from '../services/gallery.js';
 import * as integrationsService from '../services/integrations.js';
 import * as twitterFeedService from '../services/twitter-feed.js';
 import * as observabilityService from '../services/observability.js';
+import * as energyService from '../services/energy.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
 import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
@@ -1022,6 +1023,112 @@ export async function handler(
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify(activity),
       };
+    }
+
+    // GET /avatars/{id}/energy - Get energy status with dynamic refill rate
+    const energyMatch = path.match(/^\/avatars\/([^/]+)\/energy$/);
+    if (method === 'GET' && energyMatch) {
+      const avatarId = energyMatch[1];
+      
+      // Allow owners to view their avatar's energy
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const status = await energyService.getEnergyStatus(avatarId);
+      
+      return jsonResponse(corsHeaders, 200, {
+        avatarId,
+        ...status,
+        costs: energyService.ENERGY_COSTS,
+      });
+    }
+
+    // POST /avatars/{id}/energy/set - Admin: Set energy level
+    const energySetMatch = path.match(/^\/avatars\/([^/]+)\/energy\/set$/);
+    if (method === 'POST' && energySetMatch) {
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+      }
+      const avatarId = energySetMatch[1];
+      const body = JSON.parse(event.body || '{}');
+      const { value } = body;
+
+      if (typeof value !== 'number' || value < 0) {
+        return jsonResponse(corsHeaders, 400, { error: 'value must be a non-negative number' });
+      }
+
+      const result = await energyService.setEnergy(avatarId, value);
+      
+      return jsonResponse(corsHeaders, 200, {
+        avatarId,
+        success: result.success,
+        newValue: result.newValue,
+      });
+    }
+
+    // POST /avatars/{id}/energy/add - Admin: Add energy
+    const energyAddMatch = path.match(/^\/avatars\/([^/]+)\/energy\/add$/);
+    if (method === 'POST' && energyAddMatch) {
+      if (!effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+      }
+      const avatarId = energyAddMatch[1];
+      const body = JSON.parse(event.body || '{}');
+      const { amount } = body;
+
+      if (typeof amount !== 'number') {
+        return jsonResponse(corsHeaders, 400, { error: 'amount must be a number' });
+      }
+
+      const result = await energyService.addEnergy(avatarId, amount);
+      
+      return jsonResponse(corsHeaders, 200, {
+        avatarId,
+        success: result.success,
+        newValue: result.newValue,
+      });
+    }
+
+    // GET /avatars/{id}/energy/history - Get energy usage history
+    const energyHistoryMatch = path.match(/^\/avatars\/([^/]+)\/energy\/history$/);
+    if (method === 'GET' && energyHistoryMatch) {
+      const avatarId = energyHistoryMatch[1];
+      
+      // Allow owners to view their avatar's energy history
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const params = event.queryStringParameters || {};
+      const limit = params.limit ? Number.parseInt(params.limit, 10) : 50;
+
+      const history = await energyService.getEnergyHistory(avatarId, limit);
+      
+      return jsonResponse(corsHeaders, 200, {
+        avatarId,
+        events: history.map(e => ({
+          operation: e.operation,
+          cost: e.cost,
+          energyBefore: e.energyBefore,
+          energyAfter: e.energyAfter,
+          refillRate: e.refillRate,
+          timestamp: new Date(e.timestamp).toISOString(),
+        })),
+        count: history.length,
+      });
     }
 
     // GET /avatars/{id}/issues - List issues for an avatar (from CloudWatch - legacy)

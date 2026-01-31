@@ -1,0 +1,559 @@
+/**
+ * Energy Service
+ * 
+ * Dynamic energy system for avatars with wallet-based refill rate bonuses.
+ * Base rate: 1 energy/hour, max 10 energy
+ * Bonus: +0.5 energy/hour per 1M tokens held by owner (capped at +2/hour)
+ */
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  UpdateCommand,
+  QueryCommand,
+} from '@aws-sdk/lib-dynamodb';
+import type { CreditBucket, AvatarRecord } from '../types.js';
+
+// Default DynamoDB clients
+const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
+const ADMIN_TABLE = process.env.ADMIN_TABLE!;
+
+// =============================================================================
+// ENERGY CONFIGURATION
+// =============================================================================
+
+/** Default energy configuration */
+export const DEFAULT_ENERGY_CONFIG = {
+  maxEnergy: 10,
+  baseRefillPerHour: 1,
+  // Wallet-based bonus config
+  bonusPerMillionTokens: 0.5,  // +0.5 energy/hour per 1M tokens
+  maxBonusPerHour: 2,          // Cap bonus at +2/hour (so max total = 3/hour)
+  tokenMint: 'RATixVzMQdWThJWTL7Y9sN7ypTGnBuwoUqTdmLCpump',  // $RATI token
+} as const;
+
+/** Energy costs for different operations */
+export const ENERGY_COSTS = {
+  voice: 1,
+  image: 2,
+  video: 3,
+} as const;
+
+export type EnergyCostType = keyof typeof ENERGY_COSTS;
+
+/** Energy configuration (can be per-avatar via config.yaml) */
+export interface EnergyConfig {
+  maxEnergy: number;
+  baseRefillPerHour: number;
+  bonusPerMillionTokens: number;
+  maxBonusPerHour: number;
+  tokenMint?: string;
+}
+
+/** Extended energy status with refill rate info */
+export interface EnergyStatus {
+  current: number;
+  max: number;
+  nextRefillIn: number;       // Minutes until next energy point
+  refillPerHour: number;      // Current refill rate (base + bonus)
+  baseRefillPerHour: number;  // Base rate
+  bonusRefillPerHour: number; // Wallet-based bonus
+  ownerTokenBalance?: number; // Owner's token balance (if available)
+}
+
+/** Energy consumption result */
+export interface ConsumeEnergyResult {
+  success: boolean;
+  energyBefore: number;
+  energyAfter: number;
+  error?: {
+    code: 'INSUFFICIENT_ENERGY';
+    current: number;
+    required: number;
+    waitMinutes: number;
+    alternatives: string[];
+  };
+}
+
+/** Energy event for logging */
+export interface EnergyEvent {
+  pk: string;                  // AVATAR#{avatarId}
+  sk: string;                  // ENERGY_EVENT#{timestamp}#{uuid}
+  avatarId: string;
+  operation: EnergyCostType;
+  cost: number;
+  energyBefore: number;
+  energyAfter: number;
+  refillRate: number;
+  timestamp: number;
+  requestId?: string;
+  metadata?: Record<string, unknown>;
+  ttl: number;                 // Auto-cleanup after 30 days
+}
+
+// =============================================================================
+// DEPENDENCY INJECTION
+// =============================================================================
+
+export interface EnergyServiceDeps {
+  dynamoClient: Pick<DynamoDBDocumentClient, 'send'>;
+  tableName: string;
+  getAvatar: (avatarId: string) => Promise<AvatarRecord | null>;
+  getOwnerTokenBalance: (avatarId: string, tokenMint: string) => Promise<number>;
+  now: () => number;
+  uuid: () => string;
+}
+
+let defaultDeps: EnergyServiceDeps | null = null;
+
+async function getDefaultDeps(): Promise<EnergyServiceDeps> {
+  if (!defaultDeps) {
+    // Lazy import to avoid circular dependencies
+    const { getAvatar } = await import('./avatars.js');
+    const { getOwnerTokenBalance } = await import('./wallet-balance.js');
+    const { randomUUID } = await import('crypto');
+    
+    defaultDeps = {
+      dynamoClient,
+      tableName: ADMIN_TABLE,
+      getAvatar,
+      getOwnerTokenBalance,
+      now: () => Date.now(),
+      uuid: () => randomUUID(),
+    };
+  }
+  return defaultDeps;
+}
+
+// =============================================================================
+// ENERGY BUCKET MANAGEMENT
+// =============================================================================
+
+/**
+ * Get or create energy bucket for an avatar
+ */
+async function getOrCreateEnergyBucket(
+  avatarId: string,
+  config: EnergyConfig,
+  deps: EnergyServiceDeps
+): Promise<CreditBucket> {
+  const pk = `AVATAR#${avatarId}`;
+  const sk = 'CREDIT#energy';
+
+  const result = await deps.dynamoClient.send(new GetCommand({
+    TableName: deps.tableName,
+    Key: { pk, sk },
+  }));
+
+  if (result.Item) {
+    return result.Item as CreditBucket;
+  }
+
+  const now = deps.now();
+  const bucket: CreditBucket = {
+    pk,
+    sk,
+    avatarId,
+    toolName: 'energy',
+    credits: config.maxEnergy,  // Start with full energy
+    maxCredits: config.maxEnergy,
+    lastRefillAt: now,
+    dailyUsed: 0,
+    dailyLimit: 999999,  // No daily limit for energy
+    dailyResetAt: getNextMidnightUTC(now),
+  };
+
+  await deps.dynamoClient.send(new PutCommand({
+    TableName: deps.tableName,
+    Item: bucket,
+  }));
+
+  return bucket;
+}
+
+function getNextMidnightUTC(now: number): number {
+  const date = new Date(now);
+  const tomorrow = new Date(Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate() + 1,
+    0, 0, 0, 0
+  ));
+  return tomorrow.getTime();
+}
+
+// =============================================================================
+// DYNAMIC REFILL RATE CALCULATION
+// =============================================================================
+
+/**
+ * Get energy configuration for an avatar
+ * Can be overridden in avatar config.yaml
+ */
+export async function getAvatarEnergyConfig(
+  avatarId: string,
+  deps?: EnergyServiceDeps
+): Promise<EnergyConfig> {
+  const d = deps ?? await getDefaultDeps();
+  
+  // TODO: Check avatar's config.yaml for energy overrides
+  // For now, return defaults
+  // const avatar = await d.getAvatar(avatarId);
+  // const avatarConfig = await getAvatarConfigYaml(avatarId);
+  // if (avatarConfig?.energy) { ... }
+  
+  // Ensure deps are initialized (side effect: validates avatarId exists)
+  void d;
+  void avatarId;
+  
+  return { ...DEFAULT_ENERGY_CONFIG };
+}
+
+/**
+ * Calculate dynamic refill rate based on owner's token balance
+ */
+export async function calculateRefillRate(
+  avatarId: string,
+  config: EnergyConfig,
+  deps: EnergyServiceDeps
+): Promise<{ refillPerHour: number; bonusPerHour: number; tokenBalance: number }> {
+  try {
+    // Get owner's token balance
+    const tokenMint = config.tokenMint || DEFAULT_ENERGY_CONFIG.tokenMint;
+    const tokenBalance = await deps.getOwnerTokenBalance(avatarId, tokenMint);
+    
+    // Calculate bonus: +0.5/hour per 1M tokens, capped
+    const millionTokens = tokenBalance / 1_000_000;
+    const rawBonus = millionTokens * config.bonusPerMillionTokens;
+    const bonusPerHour = Math.min(rawBonus, config.maxBonusPerHour);
+    
+    const refillPerHour = config.baseRefillPerHour + bonusPerHour;
+    
+    return { refillPerHour, bonusPerHour, tokenBalance };
+  } catch (error) {
+    // On error, fall back to base rate
+    console.warn(`[Energy] Failed to get token balance for ${avatarId}, using base rate:`, error);
+    return {
+      refillPerHour: config.baseRefillPerHour,
+      bonusPerHour: 0,
+      tokenBalance: 0,
+    };
+  }
+}
+
+/**
+ * Calculate current energy with refill
+ */
+function calculateCurrentEnergy(
+  bucket: CreditBucket,
+  refillPerHour: number,
+  maxEnergy: number,
+  now: number
+): number {
+  const hoursSinceRefill = (now - bucket.lastRefillAt) / (1000 * 60 * 60);
+  const energyToAdd = hoursSinceRefill * refillPerHour;
+  return Math.min(bucket.credits + energyToAdd, maxEnergy);
+}
+
+// =============================================================================
+// PUBLIC API
+// =============================================================================
+
+/**
+ * Get current energy status for an avatar (with dynamic refill rate)
+ */
+export async function getEnergyStatus(
+  avatarId: string,
+  deps?: EnergyServiceDeps
+): Promise<EnergyStatus> {
+  const d = deps ?? await getDefaultDeps();
+  const config = await getAvatarEnergyConfig(avatarId, d);
+  const bucket = await getOrCreateEnergyBucket(avatarId, config, d);
+  const now = d.now();
+  
+  // Calculate dynamic refill rate
+  const { refillPerHour, bonusPerHour, tokenBalance } = await calculateRefillRate(avatarId, config, d);
+  
+  // Calculate current energy
+  const currentEnergy = calculateCurrentEnergy(bucket, refillPerHour, config.maxEnergy, now);
+  const flooredEnergy = Math.floor(currentEnergy);
+  
+  // Calculate minutes until next energy point
+  const fractionalEnergy = currentEnergy - flooredEnergy;
+  const energyNeededForNext = 1 - fractionalEnergy;
+  const hoursUntilNext = energyNeededForNext / refillPerHour;
+  const minutesUntilNext = Math.ceil(hoursUntilNext * 60);
+
+  return {
+    current: flooredEnergy,
+    max: config.maxEnergy,
+    nextRefillIn: flooredEnergy >= config.maxEnergy ? 0 : minutesUntilNext,
+    refillPerHour: Math.round(refillPerHour * 100) / 100,  // Round to 2 decimals
+    baseRefillPerHour: config.baseRefillPerHour,
+    bonusRefillPerHour: Math.round(bonusPerHour * 100) / 100,
+    ownerTokenBalance: tokenBalance,
+  };
+}
+
+/**
+ * Check if avatar can use energy (pre-check before operation)
+ */
+export async function canUseEnergy(
+  avatarId: string,
+  cost: number,
+  deps?: EnergyServiceDeps
+): Promise<{ allowed: boolean; reason?: string; remaining?: number; refillPerHour?: number }> {
+  if (cost <= 0) {
+    return { allowed: true, remaining: DEFAULT_ENERGY_CONFIG.maxEnergy };
+  }
+
+  const d = deps ?? await getDefaultDeps();
+  const config = await getAvatarEnergyConfig(avatarId, d);
+  const bucket = await getOrCreateEnergyBucket(avatarId, config, d);
+  const now = d.now();
+  
+  // Calculate dynamic refill rate
+  const { refillPerHour } = await calculateRefillRate(avatarId, config, d);
+  
+  // Calculate current energy
+  const currentEnergy = Math.floor(calculateCurrentEnergy(bucket, refillPerHour, config.maxEnergy, now));
+
+  if (currentEnergy < cost) {
+    const hoursUntilEnough = (cost - currentEnergy) / refillPerHour;
+    const minutesUntilEnough = Math.ceil(hoursUntilEnough * 60);
+    
+    return {
+      allowed: false,
+      reason: `Not enough energy (have ${currentEnergy}⚡, need ${cost}⚡). ` +
+              `Regenerating at ${refillPerHour}/hour. ` +
+              `~${minutesUntilEnough}m until enough.`,
+      remaining: currentEnergy,
+      refillPerHour,
+    };
+  }
+
+  return { allowed: true, remaining: currentEnergy, refillPerHour };
+}
+
+/**
+ * Consume energy for an operation (with logging)
+ */
+export async function consumeEnergy(
+  avatarId: string,
+  cost: number,
+  operation: EnergyCostType,
+  options?: {
+    requestId?: string;
+    metadata?: Record<string, unknown>;
+  },
+  deps?: EnergyServiceDeps
+): Promise<ConsumeEnergyResult> {
+  if (cost <= 0) {
+    return { success: true, energyBefore: 0, energyAfter: 0 };
+  }
+
+  const d = deps ?? await getDefaultDeps();
+  const config = await getAvatarEnergyConfig(avatarId, d);
+  const bucket = await getOrCreateEnergyBucket(avatarId, config, d);
+  const now = d.now();
+  
+  // Calculate dynamic refill rate
+  const { refillPerHour } = await calculateRefillRate(avatarId, config, d);
+  
+  // Calculate current energy
+  const currentEnergy = calculateCurrentEnergy(bucket, refillPerHour, config.maxEnergy, now);
+  const flooredEnergy = Math.floor(currentEnergy);
+
+  if (flooredEnergy < cost) {
+    const hoursUntilEnough = (cost - flooredEnergy) / refillPerHour;
+    const minutesUntilEnough = Math.ceil(hoursUntilEnough * 60);
+    
+    return {
+      success: false,
+      energyBefore: flooredEnergy,
+      energyAfter: flooredEnergy,
+      error: {
+        code: 'INSUFFICIENT_ENERGY',
+        current: flooredEnergy,
+        required: cost,
+        waitMinutes: minutesUntilEnough,
+        alternatives: getSuggestedAlternatives(cost, operation),
+      },
+    };
+  }
+
+  // Consume energy atomically
+  const newEnergy = currentEnergy - cost;
+  
+  await d.dynamoClient.send(new UpdateCommand({
+    TableName: d.tableName,
+    Key: { pk: bucket.pk, sk: bucket.sk },
+    UpdateExpression: 'SET credits = :credits, lastRefillAt = :now',
+    ExpressionAttributeValues: {
+      ':credits': newEnergy,
+      ':now': now,
+    },
+  }));
+
+  // Log energy event
+  await logEnergyEvent({
+    avatarId,
+    operation,
+    cost,
+    energyBefore: flooredEnergy,
+    energyAfter: Math.floor(newEnergy),
+    refillRate: refillPerHour,
+    requestId: options?.requestId,
+    metadata: options?.metadata,
+  }, d);
+
+  return {
+    success: true,
+    energyBefore: flooredEnergy,
+    energyAfter: Math.floor(newEnergy),
+  };
+}
+
+/**
+ * Consume energy (simple version for backward compatibility)
+ */
+export async function consumeEnergySimple(
+  avatarId: string,
+  cost: number,
+  deps?: EnergyServiceDeps
+): Promise<boolean> {
+  const result = await consumeEnergy(avatarId, cost, 'image', undefined, deps);
+  return result.success;
+}
+
+/**
+ * Admin: Set energy level for an avatar
+ */
+export async function setEnergy(
+  avatarId: string,
+  value: number,
+  deps?: EnergyServiceDeps
+): Promise<{ success: boolean; newValue: number }> {
+  const d = deps ?? await getDefaultDeps();
+  const config = await getAvatarEnergyConfig(avatarId, d);
+  
+  // Clamp value to valid range
+  const clampedValue = Math.max(0, Math.min(value, config.maxEnergy));
+  
+  const pk = `AVATAR#${avatarId}`;
+  const sk = 'CREDIT#energy';
+  const now = d.now();
+
+  await d.dynamoClient.send(new UpdateCommand({
+    TableName: d.tableName,
+    Key: { pk, sk },
+    UpdateExpression: 'SET credits = :credits, lastRefillAt = :now',
+    ExpressionAttributeValues: {
+      ':credits': clampedValue,
+      ':now': now,
+    },
+  }));
+
+  return { success: true, newValue: clampedValue };
+}
+
+/**
+ * Admin: Add energy to an avatar
+ */
+export async function addEnergy(
+  avatarId: string,
+  amount: number,
+  deps?: EnergyServiceDeps
+): Promise<{ success: boolean; newValue: number }> {
+  const d = deps ?? await getDefaultDeps();
+  const status = await getEnergyStatus(avatarId, d);
+  const config = await getAvatarEnergyConfig(avatarId, d);
+  
+  const newValue = Math.min(status.current + amount, config.maxEnergy);
+  return setEnergy(avatarId, newValue, d);
+}
+
+// =============================================================================
+// ENERGY EVENT LOGGING
+// =============================================================================
+
+async function logEnergyEvent(
+  event: Omit<EnergyEvent, 'pk' | 'sk' | 'timestamp' | 'ttl'>,
+  deps: EnergyServiceDeps
+): Promise<void> {
+  const now = deps.now();
+  const ttl = Math.floor(now / 1000) + (30 * 24 * 60 * 60);  // 30 days
+  
+  const record: EnergyEvent = {
+    pk: `AVATAR#${event.avatarId}`,
+    sk: `ENERGY_EVENT#${now}#${deps.uuid()}`,
+    timestamp: now,
+    ttl,
+    ...event,
+  };
+
+  try {
+    await deps.dynamoClient.send(new PutCommand({
+      TableName: deps.tableName,
+      Item: record,
+    }));
+  } catch (error) {
+    // Don't fail the operation if logging fails
+    console.error('[Energy] Failed to log energy event:', error);
+  }
+}
+
+/**
+ * Get recent energy events for an avatar
+ */
+export async function getEnergyHistory(
+  avatarId: string,
+  limit: number = 50,
+  deps?: EnergyServiceDeps
+): Promise<EnergyEvent[]> {
+  const d = deps ?? await getDefaultDeps();
+  
+  const result = await d.dynamoClient.send(new QueryCommand({
+    TableName: d.tableName,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: {
+      ':pk': `AVATAR#${avatarId}`,
+      ':prefix': 'ENERGY_EVENT#',
+    },
+    ScanIndexForward: false,  // Most recent first
+    Limit: limit,
+  }));
+
+  return (result.Items || []) as EnergyEvent[];
+}
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+function getSuggestedAlternatives(cost: number, operation: EnergyCostType): string[] {
+  const alternatives: string[] = [];
+  
+  if (operation === 'video' || cost === ENERGY_COSTS.video) {
+    alternatives.push('Try generating an image instead (costs 2⚡ vs 3⚡)');
+  }
+  if (operation === 'image' || cost === ENERGY_COSTS.image) {
+    alternatives.push('Voice messages only cost 1⚡');
+  }
+  
+  alternatives.push('Hold more $RATI tokens to increase your energy regeneration rate');
+  alternatives.push('Wait for energy to regenerate (check your current rate with get_energy_status)');
+  
+  return alternatives;
+}
+
+// =============================================================================
+// BACKWARD COMPATIBILITY EXPORTS
+// =============================================================================
+
+// Re-export constants for backward compatibility
+export const ENERGY_MAX = DEFAULT_ENERGY_CONFIG.maxEnergy;
+export const ENERGY_PER_HOUR = DEFAULT_ENERGY_CONFIG.baseRefillPerHour;

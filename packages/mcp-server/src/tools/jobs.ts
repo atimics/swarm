@@ -139,7 +139,7 @@ export const createJobTools = (
 
   defineTool({
     name: 'get_energy_status',
-    description: 'Check my current energy level. Energy is used for expensive operations like voice (1⚡), images (2⚡), and videos (3⚡). You gain 1 energy per hour, up to max 10.',
+    description: 'Check my current energy level and regeneration rate. Energy is used for expensive operations like voice (1⚡), images (2⚡), and videos (3⚡). Base rate is 1 energy/hour, but your owner can boost this by holding $RATI tokens!',
     category: 'readonly',
     toolset: 'jobs',
     inputSchema: z.object({}),
@@ -149,17 +149,32 @@ export const createJobTools = (
       }
       const status = await creditServices.getEnergyStatus(context.avatarId);
 
+      // Build dynamic description based on refill rate
+      const refillRate = (status as { refillPerHour?: number }).refillPerHour || 1;
+      const bonusRate = (status as { bonusRefillPerHour?: number }).bonusRefillPerHour || 0;
+      const tokenBalance = (status as { ownerTokenBalance?: number }).ownerTokenBalance;
+      
+      let rateInfo = `${refillRate}/hour`;
+      if (bonusRate > 0) {
+        rateInfo += ` (base: 1 + bonus: ${bonusRate} from owner's $RATI tokens)`;
+      }
+
       return {
         success: true,
         data: {
           current: status.current,
           max: status.max,
           nextRefillIn: status.nextRefillIn > 0 ? `${status.nextRefillIn} minutes` : 'Full',
+          refillRate: rateInfo,
+          ownerTokenBalance: tokenBalance !== undefined ? `${(tokenBalance / 1_000_000).toFixed(2)}M $RATI` : undefined,
           costs: {
             voice: 1,
             image: 2,
             video: 3,
           },
+          tip: bonusRate === 0 
+            ? 'Your owner can boost your energy regeneration by holding $RATI tokens!' 
+            : undefined,
         },
       };
     },
