@@ -47,6 +47,18 @@ on:
         default: false
         type: boolean
 
+      use_hotswap:
+        description: 'Use CDK hotswap fallback (faster, less prod-like)'
+        required: false
+        default: false
+        type: boolean
+
+      run_prod_smoke:
+        description: 'Run lightweight production smoke checks after deploy'
+        required: false
+        default: false
+        type: boolean
+
 concurrency:
   group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.ref }}
   cancel-in-progress: false
@@ -167,20 +179,27 @@ jobs:
         run: |
           ROLE_ARN="${{ secrets.AWS_ROLE_ARN }}"
           EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          ADMIN_CERTIFICATE_ARN="${{ secrets.ADMIN_CERTIFICATE_ARN }}"
 
           if [ -z "$ROLE_ARN" ]; then
             echo "::error::Missing required environment secret AWS_ROLE_ARN"
             exit 1
           fi
 
-          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+          # Align staging with production: require account + cert secrets for both environments.
+          if [ "${{ needs.setup.outputs.environment }}" = "staging" ] || [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
             if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for production"
+              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for ${{ needs.setup.outputs.environment }}"
               exit 1
             fi
 
             if [[ "$ROLE_ARN" != arn:aws:iam::${EXPECTED_AWS_ACCOUNT_ID}:role/* ]]; then
               echo "::error::AWS_ROLE_ARN does not match AWS_ACCOUNT_ID (role='$ROLE_ARN', expected account='${EXPECTED_AWS_ACCOUNT_ID}')"
+              exit 1
+            fi
+
+            if [ -z "$ADMIN_CERTIFICATE_ARN" ]; then
+              echo "::error::Missing required environment secret ADMIN_CERTIFICATE_ARN for ${{ needs.setup.outputs.environment }}"
               exit 1
             fi
           fi
@@ -229,8 +248,8 @@ jobs:
           echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
 
           if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for production"
+            if [ "${{ needs.setup.outputs.environment }}" = "staging" ] || [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for ${{ needs.setup.outputs.environment }}"
               exit 1
             fi
             echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
@@ -322,7 +341,6 @@ jobs:
           # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
           SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && inputs.split_stacks || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
-          USE_EXISTING_BUCKETS: ${{ inputs.use_existing_buckets || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
           ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
         run: |
@@ -330,12 +348,6 @@ jobs:
           # Auto-enable adoption mode when deploying staging split stacks without a suffix.
           if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
             USE_EXISTING_SHARED_RESOURCES="true"
-          fi
-
-          # Prod uses existing buckets by default since they were created with RETAIN policy.
-          # This prevents "bucket already exists" errors when redeploying.
-          if [ "${{ needs.setup.outputs.cdk_env }}" = "prod" ]; then
-            USE_EXISTING_BUCKETS="true"
           fi
 
           IS_MIGRATION_STAGING_SPLIT="false"
@@ -368,7 +380,7 @@ jobs:
             DIFF_TARGETS="--all"
           fi
 
-          npx cdk diff $DIFF_TARGETS -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
+          npx cdk diff $DIFF_TARGETS -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
           DIFF_EXIT=$?
           set -e
           
@@ -398,8 +410,10 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Grant S3 cleanup permissions for production
-        if: steps.diff.outputs.skip != 'true' && needs.setup.outputs.cdk_env == 'prod'
+      # DISABLED: This cleanup flow previously deleted active S3 buckets, causing production outages.
+      # Do not re-enable without a dedicated, audited runbook + strict allowlists.
+      - name: Grant S3 cleanup permissions for production (DISABLED)
+        if: false
         run: |
           # Add temporary inline policy to allow S3 bucket deletion for orphaned resource cleanup
           # Get current role name from the session
@@ -437,13 +451,8 @@ jobs:
             --policy-name "SwarmS3CleanupPolicy" \
             --policy-document file:///tmp/s3-cleanup-policy.json || echo "Warning: Could not add S3 cleanup policy - continuing anyway"
 
-      # DISABLED: This cleanup step was deleting active S3 buckets, causing production outages.
-      # The resources are now managed by CloudFormation and should not be manually deleted.
-      # See incident on 2026-01-31: cleanup emptied swarm-admin-ui-prod bucket
-      # - name: Cleanup orphaned production resources
-      #   if: steps.diff.outputs.skip != 'true' && needs.setup.outputs.cdk_env == 'prod'
       - name: Cleanup orphaned production resources (DISABLED)
-        if: false  # DISABLED - was deleting active resources, see comment above
+        if: false
         run: |
           # Delete orphaned DynamoDB tables that were retained from previous stack deletions
           echo "Checking for orphaned DynamoDB tables..."
@@ -583,12 +592,6 @@ jobs:
             USE_EXISTING_SHARED_RESOURCES="true"
           fi
 
-          # Prod uses existing buckets by default since they were created with RETAIN policy.
-          # This prevents "bucket already exists" errors when redeploying.
-          if [ "${{ needs.setup.outputs.cdk_env }}" = "prod" ]; then
-            USE_EXISTING_BUCKETS="true"
-          fi
-
           IS_MIGRATION_STAGING_SPLIT="false"
           if [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
             IS_MIGRATION_STAGING_SPLIT="true"
@@ -607,7 +610,7 @@ jobs:
             EXTRA_CONTEXT_ARGS="${EXTRA_CONTEXT_ARGS} -c adminCertificateArn=${ADMIN_CERTIFICATE_ARN}"
           fi
 
-          HOTSWAP=${{ needs.setup.outputs.cdk_env == 'staging' && '--hotswap-fallback' || '' }}
+          HOTSWAP=${{ github.event_name == 'workflow_dispatch' && inputs.use_hotswap && '--hotswap-fallback' || '' }}
           STACK="${{ inputs.stack }}"
 
           if [ -n "$STACK" ]; then
@@ -757,8 +760,8 @@ jobs:
           echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
 
           if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for production"
+            if [ "${{ needs.setup.outputs.environment }}" = "staging" ] || [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for ${{ needs.setup.outputs.environment }}"
               exit 1
             fi
             echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
@@ -841,8 +844,8 @@ jobs:
           echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
 
           if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for production"
+            if [ "${{ needs.setup.outputs.environment }}" = "staging" ] || [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for ${{ needs.setup.outputs.environment }}"
               exit 1
             fi
             echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
@@ -985,8 +988,8 @@ jobs:
           echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
 
           if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
-            exit 0
+            echo "::error::Missing required environment secret AWS_ACCOUNT_ID for staging"
+            exit 1
           fi
 
           if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
@@ -1010,6 +1013,49 @@ jobs:
         # Note: Don't set SWARM_ADMIN_API_URL here - all API tests need raw API Gateway
         # to bypass Cloudflare Access (which protects the CloudFront domain)
         run: ./scripts/test-e2e.sh web "$E2E_WEB_AGENT_ID" "ci-web-${GITHUB_RUN_ID}" staging
+
+  prod-smoke:
+    name: Smoke (Production)
+    runs-on: ubuntu-latest
+    needs: [setup, admin-ui-deploy]
+    environment: ${{ needs.setup.outputs.environment }}
+    if: >-
+      needs.setup.outputs.environment == 'production' &&
+      (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.run_prod_smoke == true))
+    steps:
+      - name: Smoke check UI + API endpoints
+        env:
+          ADMIN_URL: ${{ needs.setup.outputs.admin_url }}
+          API_URL: ${{ needs.setup.outputs.api_url }}
+        run: |
+          set -euo pipefail
+
+          check_url() {
+            local url="$1"
+            local name="$2"
+
+            # Follow redirects; accept 200/301/302/401/403 as "healthy" for protected endpoints.
+            local code
+            code=$(curl -sS -L -o /dev/null -w "%{http_code}" --max-time 20 "$url" || echo "000")
+
+            case "$code" in
+              200|301|302|401|403)
+                echo "✅ $name: $code ($url)" >> "$GITHUB_STEP_SUMMARY"
+                ;;
+              *)
+                echo "::error::$name returned unexpected HTTP $code ($url)"
+                echo "❌ $name: $code ($url)" >> "$GITHUB_STEP_SUMMARY"
+                exit 1
+                ;;
+            esac
+          }
+
+          echo "## Production Smoke Checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "- UI: $ADMIN_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API: $API_URL" >> "$GITHUB_STEP_SUMMARY"
+
+          check_url "$ADMIN_URL" "Admin UI"
+          check_url "$API_URL" "Admin API (/api)"
 
   browser:
     name: Browser Visual Tests
@@ -1054,8 +1100,8 @@ jobs:
           echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
 
           if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
-            exit 0
+            echo "::error::Missing required environment secret AWS_ACCOUNT_ID for staging"
+            exit 1
           fi
 
           if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
