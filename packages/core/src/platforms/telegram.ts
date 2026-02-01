@@ -578,13 +578,17 @@ export class TelegramAdapter extends PlatformAdapter {
     this.botId = botId;
 
     if (this.isConfigured()) {
-      // Configure Bot to use native fetch to avoid node-fetch AbortSignal issues in Node.js 20+
+      // Configure Bot for Node.js 20+ compatibility:
+      // 1. Use native fetch instead of node-fetch to avoid AbortSignal issues
+      // 2. Include duplex: 'half' for streaming uploads (required for file uploads on Node.js 20+)
       this.bot = new Bot(botToken, {
         client: {
-          // Use native fetch instead of node-fetch
+          // Use native fetch
+          fetch: globalThis.fetch,
+          // Base config for all fetch calls - duplex is required for streaming request bodies
           baseFetchConfig: {
-            // @ts-expect-error grammy accepts a custom fetch function
-            fetch: globalThis.fetch,
+            // @ts-expect-error duplex is a valid fetch option for Node.js 20+ but not in grammy's types
+            duplex: 'half',
           },
         },
       });
