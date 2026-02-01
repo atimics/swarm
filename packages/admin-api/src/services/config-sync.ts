@@ -235,7 +235,7 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
       }
 
       if (defaultVoiceConfig.enabled) {
-        tools.push('generate_voice_message', 'transcribe_audio');
+        tools.push('send_voice_message', 'create_my_voice', 'transcribe_audio');
       }
 
       // De-dupe in case config-sync is called repeatedly.

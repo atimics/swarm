@@ -500,7 +500,7 @@ function buildToolGuidanceSection(categories: ToolCategory[], hasVoice: boolean)
 - Keep responses concise and natural.`;
 
   if (hasVoice) {
-    guidance += `\n- Use generate_voice_message to reply with voice when it fits.`;
+    guidance += `\n- Use send_voice_message to reply with voice when it fits.`;
   }
 
   guidance += `\n\nYou may use <thinking>...</thinking> for internal reasoning. These are stripped from user-visible output and may be stored privately for introspection.
@@ -662,7 +662,8 @@ export function toolsToCategories(tools: string[]): ToolCategory[] {
     list_gallery: 'gallery',
     search_gallery: 'gallery',
     // Voice
-    generate_voice_message: 'voice',
+    send_voice_message: 'voice',
+    create_my_voice: 'voice',
     transcribe_audio: 'voice',
     // Telegram
     send_message: 'telegram',

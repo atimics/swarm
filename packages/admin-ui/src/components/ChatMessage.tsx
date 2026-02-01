@@ -606,7 +606,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
   );
   
   // Filter out media generation tools for interactive display
-  const mediaToolNames = ['generate_image', 'generate_video', 'generate_sticker', 'get_my_gallery', 'generate_voice_message'];
+  const mediaToolNames = ['generate_image', 'generate_video', 'generate_sticker', 'get_my_gallery', 'send_voice_message', 'create_my_voice'];
   const interactiveToolCalls = message.toolCalls?.filter(tc => !mediaToolNames.includes(tc.name)) ?? [];
   
   // DEBUG: Log tool calls to diagnose missing tool prompts
