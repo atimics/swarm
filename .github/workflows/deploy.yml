@@ -331,6 +331,12 @@ jobs:
             USE_EXISTING_SHARED_RESOURCES="true"
           fi
 
+          # Prod uses existing buckets by default since they were created with RETAIN policy.
+          # This prevents "bucket already exists" errors when redeploying.
+          if [ "${{ needs.setup.outputs.cdk_env }}" = "prod" ]; then
+            USE_EXISTING_BUCKETS="true"
+          fi
+
           IS_MIGRATION_STAGING_SPLIT="false"
           if [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
             IS_MIGRATION_STAGING_SPLIT="true"
