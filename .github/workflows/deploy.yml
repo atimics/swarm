@@ -1184,3 +1184,39 @@ jobs:
           name: browser-screenshots
           path: test-screenshots/
           retention-days: 7
+
+  tag-production-deploy:
+    name: Tag Production Deploy
+    runs-on: ubuntu-latest
+    needs: [setup, cdk-deploy, admin-ui-deploy]
+    if: >-
+      needs.setup.outputs.environment == 'production' &&
+      needs.cdk-deploy.result == 'success' &&
+      needs.admin-ui-deploy.result == 'success'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push deploy tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          SHA_SHORT=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          TS=$(date -u +%Y%m%d-%H%M%S)
+          TAG="deploy-prod-${TS}-${SHA_SHORT}"
+
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "Tag already exists: ${TAG}"
+          else
+            git tag -a "${TAG}" -m "Production deploy ${TS} (run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            git push origin "${TAG}"
+            echo "✅ Pushed production deploy tag: ${TAG}" >> "$GITHUB_STEP_SUMMARY"
+          fi
