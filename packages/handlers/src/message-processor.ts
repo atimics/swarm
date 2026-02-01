@@ -945,6 +945,29 @@ function toolResultsToActions(
         actions.push({ type: 'ignore', reason: data?.reason || 'No response needed' });
         break;
       }
+
+      // Handle any tool that returns media (gallery, stickers, etc.)
+      default: {
+        if (result.media?.url && result.media?.type) {
+          // Map media types to valid SendMediaAction types
+          const typeMap: Record<string, 'image' | 'video' | 'animation'> = {
+            image: 'image',
+            video: 'video',
+            animation: 'animation',
+            sticker: 'image', // stickers are treated as images
+            gif: 'animation',
+          };
+          const mediaType = typeMap[result.media.type];
+          if (mediaType) {
+            actions.push({
+              type: 'send_media',
+              mediaType,
+              url: result.media.url,
+            });
+          }
+        }
+        break;
+      }
     }
   }
 
