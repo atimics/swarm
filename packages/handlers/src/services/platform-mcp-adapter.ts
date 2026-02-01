@@ -20,7 +20,7 @@ import type {
   ContentStoreService,
   PostMedia,
 } from '@swarm/core';
-import { TwitterAdapter, createContentStoreService, enqueuePost, isPostQueueConfigured, getPostQueueUrl } from '@swarm/core';
+import { TwitterAdapter, createContentStoreService, enqueuePost, isPostQueueConfigured, getPostQueueUrl, enqueueMediaJob, isMediaQueueConfigured, getMediaQueueUrl } from '@swarm/core';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
@@ -73,6 +73,10 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     : null;
   const postQueueUrl = getPostQueueUrl();
   const useDecoupledPosting = isPostQueueConfigured() && contentStoreService !== null;
+
+  // Initialize media queue for decoupled image generation
+  const mediaQueueUrl = getMediaQueueUrl();
+  const useDecoupledMedia = isMediaQueueConfigured();
 
   function normalizeCdnUrl(raw?: string): string | undefined {
     if (!raw) return undefined;
@@ -147,15 +151,31 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // Media Services
     // =========================================================================
     media: {
-      generateImage: async (params: { prompt: string; aspectRatio?: string; platform?: string; referenceImageUrls?: string[] }) => {
-        if (!mediaService) {
-          throw new Error('Media service not configured');
-        }
+      generateImage: async (params: { prompt: string; aspectRatio?: string; platform?: string; referenceImageUrls?: string[]; conversationId?: string; replyToMessageId?: string }) => {
         // Validate and default aspect ratio
         const validRatios = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'] as const;
         const aspectRatio = validRatios.includes(params.aspectRatio as typeof validRatios[number])
           ? params.aspectRatio as typeof validRatios[number]
           : '1:1';
+
+        // Decoupled path: enqueue to MEDIA_QUEUE and return immediately
+        if (useDecoupledMedia && mediaQueueUrl) {
+          const { jobId } = await enqueueMediaJob(mediaQueueUrl, {
+            avatarId,
+            conversationId: params.conversationId || 'unknown',
+            platform: params.platform || 'telegram',
+            replyToMessageId: params.replyToMessageId,
+            prompt: params.prompt,
+            aspectRatio,
+            referenceImageUrls: params.referenceImageUrls,
+          });
+          return { jobId, status: 'processing' };
+        }
+
+        // Fallback to synchronous generation if queue not configured
+        if (!mediaService) {
+          throw new Error('Media service not configured');
+        }
         const mediaConfig = {
           ...avatarConfig.media.image,
           aspectRatio,

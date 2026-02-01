@@ -282,6 +282,32 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
           caption: item.action.prompt,
           replyToMessageId: item.response.replyToMessageId,
         };
+      } else if (item.action.type === 'generate_image') {
+        // Handle generate_image action from decoupled queue
+        const action = item.action as { prompt: string; aspectRatio?: string; referenceImageUrls?: string[] };
+        const validRatios = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'] as const;
+        type AspectRatio = typeof validRatios[number];
+        const aspectRatio: AspectRatio = validRatios.includes(action.aspectRatio as AspectRatio)
+          ? action.aspectRatio as AspectRatio
+          : '1:1';
+        const mediaConfig = {
+          ...avatarConfig.media.image,
+          aspectRatio,
+        };
+        const media = await mediaService.generateImage(action.prompt, mediaConfig, {
+          avatarId: getAvatarId(),
+          platform: item.response.platform,
+          saveToGallery: true,
+          checkCredits: true,
+          referenceImageUrls: action.referenceImageUrls,
+        });
+        mediaAction = {
+          type: 'send_media',
+          mediaType: media.type === 'video' ? 'video' : 'image',
+          url: media.url,
+          caption: action.prompt,
+          replyToMessageId: item.response.replyToMessageId,
+        };
       } else if (item.action.type === 'generate_video') {
         if (!avatarConfig.media.video) {
           throw new Error('Video generation is not configured for this avatar');

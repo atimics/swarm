@@ -1152,6 +1152,13 @@ export const GenerateVideoActionSchema = z.object({
   duration: z.number().optional(),
 });
 
+export const GenerateImageActionSchema = z.object({
+  type: z.literal('generate_image'),
+  prompt: z.string(),
+  aspectRatio: z.string().optional(),
+  referenceImageUrls: z.array(z.string()).optional(),
+});
+
 export const WaitActionSchema = z.object({
   type: z.literal('wait'),
   durationMs: z.number(),
@@ -1177,6 +1184,7 @@ export const ResponseActionSchema = z.discriminatedUnion('type', [
   ReactActionSchema,
   TakeSelfieActionSchema,
   GenerateVideoActionSchema,
+  GenerateImageActionSchema,
   WaitActionSchema,
   IgnoreActionSchema,
   SolanaActionSchema,
@@ -1211,7 +1219,7 @@ export const ResponseQueueItemSchema = z.object({
 export const MediaQueueItemSchema = z.object({
   avatarId: z.string(),
   conversationId: z.string(),
-  action: z.union([TakeSelfieActionSchema, GenerateVideoActionSchema]),
+  action: z.union([TakeSelfieActionSchema, GenerateVideoActionSchema, GenerateImageActionSchema]),
   callbackUrl: z.string().optional(),
   enqueuedAt: z.number(),
 });

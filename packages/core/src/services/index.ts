@@ -61,3 +61,9 @@ export {
   isPostQueueConfigured,
   getPostQueueUrl,
 } from './post-queue.js';
+export {
+  enqueueMediaJob,
+  isMediaQueueConfigured,
+  getMediaQueueUrl,
+  type MediaQueueMessage,
+} from './media-queue.js';
