@@ -28,6 +28,7 @@ import { maxTwitterId } from './utils/twitter-id.js';
 import { loadAvatarSecrets, type LoadedAvatarSecrets } from './utils/load-avatar-secrets.js';
 import { isTwitterFeatureEnabled } from './utils/twitter-feature-flags.js';
 import { loadTwitterSecretsFallback, shouldProcessMention } from './utils/twitter-mention-poller-logic.js';
+import { triageMentions, isMentionTriageEnabled } from './utils/mention-triage.js';
 
 const sqsClient = new SQSClient({});
 
@@ -258,9 +259,15 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
       let newestMentionId = sinceId;
       let avatarQueued = 0;
       let avatarFiltered = 0;
+      let avatarTriaged = 0;
 
       // Cache to avoid refetching the same thread context within a poll run.
       const threadContextCache = new Map<string, string | undefined>();
+
+      // =========================================================================
+      // PHASE 1: Filter and prepare mentions (before triage)
+      // =========================================================================
+      const processableMentions: Array<{ envelope: typeof sortedMentions[0]; traceId: string }> = [];
 
       for (const envelope of sortedMentions) {
         const traceId = randomUUID();
@@ -354,6 +361,62 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
           });
         }
 
+        // Add to processable list
+        processableMentions.push({ envelope, traceId });
+        newestMentionId = maxTwitterId(newestMentionId, envelope.messageId);
+      }
+
+      // =========================================================================
+      // PHASE 2: Triage mentions (if enabled)
+      // =========================================================================
+      const twitterConfig = avatarConfig?.platforms?.twitter as { enabled?: boolean; features?: unknown; mentionTriage?: { enabled?: boolean } } | undefined;
+      const triageEnabled = isMentionTriageEnabled(twitterConfig);
+
+      // Map of mentionId -> should queue
+      const shouldQueue = new Map<string, boolean>();
+
+      if (triageEnabled && processableMentions.length > 0) {
+        logger.info('Running mention triage', {
+          event: 'triage_started',
+          subsystem: 'twitter',
+          avatarId,
+          mentionCount: processableMentions.length,
+        });
+
+        const triageResult = await triageMentions(
+          processableMentions.map(p => p.envelope),
+          avatarConfig!,
+          secrets
+        );
+
+        for (const [mentionId, decision] of triageResult.decisions) {
+          shouldQueue.set(mentionId, decision.action === 'reply');
+          if (decision.action === 'ignore') {
+            avatarTriaged++;
+            logger.info('Mention triaged as ignore', {
+              event: 'mention_triage_ignore',
+              subsystem: 'twitter',
+              avatarId,
+              tweetId: mentionId,
+              reason: decision.reason,
+            });
+          }
+        }
+      } else {
+        // No triage - queue all processable mentions
+        for (const { envelope } of processableMentions) {
+          shouldQueue.set(envelope.messageId, true);
+        }
+      }
+
+      // =========================================================================
+      // PHASE 3: Queue mentions that passed triage
+      // =========================================================================
+      for (const { envelope, traceId } of processableMentions) {
+        if (!shouldQueue.get(envelope.messageId)) {
+          continue; // Triaged as ignore
+        }
+
         await activityService.logMessageReceived(
           avatarId,
           'twitter',
@@ -394,9 +457,6 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
 
         totalQueued++;
         avatarQueued++;
-
-        // Update cursor using numeric comparison for Twitter snowflake IDs
-        newestMentionId = maxTwitterId(newestMentionId, envelope.messageId);
       }
 
       if (newestMentionId && newestMentionId !== sinceId) {
@@ -413,6 +473,8 @@ export const handler: ScheduledHandler = async (_event, context: Context) => {
         mentionsRead: sortedMentions.length,
         mentionsQueued: avatarQueued,
         mentionsFiltered: avatarFiltered,
+        mentionsTriaged: avatarTriaged,
+        triageEnabled,
       });
     } catch (error) {
       const errorMessage = (error as any)?.message || String(error);

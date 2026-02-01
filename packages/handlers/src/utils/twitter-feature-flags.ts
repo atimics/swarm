@@ -1,6 +1,7 @@
 export type TwitterFeature =
   | 'scheduled_tweets'
   | 'mention_replies'
+  | 'mention_triage'
   | 'dm_responses'
   | 'autonomous_posts'
   | 'community_posts';
