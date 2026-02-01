@@ -169,6 +169,56 @@ trap 'cleanup; exit 143' TERM
 
 echo -e "${YELLOW}Searching for issues...${NC}"
 
+# Paginated wrapper around filter-log-events.
+# Collects all pages into a single JSON array written to $output_file.
+paginated_filter_log_events() {
+  local log_group="$1"
+  local filter_pattern="$2"
+  local output_file="$3"
+  local tag="$4"  # tag added to each event (e.g., logGroupName)
+
+  local token=""
+  local page_dir
+  page_dir=$(mktemp -d)
+  local page_idx=0
+
+  while true; do
+    local token_arg=()
+    if [[ -n "${token}" ]]; then
+      token_arg=(--next-token "${token}")
+    fi
+
+    local raw_output
+    raw_output=$(aws logs filter-log-events \
+      --log-group-name "${log_group}" \
+      --start-time "${LAST_DOWNLOAD}" \
+      --filter-pattern "${filter_pattern}" \
+      --region "${REGION}" \
+      "${token_arg[@]}" \
+      --output json 2>/dev/null) || break
+
+    echo "${raw_output}" \
+      | jq --arg lg "${tag}" '.events // [] | map(. + {logGroupName: $lg})' \
+      > "${page_dir}/page_${page_idx}.json" 2>/dev/null || true
+
+    # Extract nextToken for pagination
+    token=$(echo "${raw_output}" | jq -r '.nextToken // empty' 2>/dev/null || true)
+    page_idx=$((page_idx + 1))
+
+    if [[ -z "${token}" ]]; then
+      break
+    fi
+  done
+
+  # Merge all pages into a single array
+  if [[ ${page_idx} -eq 0 ]]; then
+    echo "[]" > "${output_file}"
+  else
+    jq -s 'add // []' "${page_dir}"/*.json > "${output_file}" 2>/dev/null || echo "[]" > "${output_file}"
+  fi
+  rm -rf "${page_dir}"
+}
+
 run_search_for_group() {
   local idx="$1"
   local log_group="$2"
@@ -180,25 +230,17 @@ run_search_for_group() {
   # - avatar_reported_issue
   # - avatar_reported_feedback
 
-  aws logs filter-log-events \
-    --log-group-name "${log_group}" \
-    --start-time "${LAST_DOWNLOAD}" \
-    --filter-pattern '"avatar_reported_issue"' \
-    --region "${REGION}" \
-    --query 'events[*]' \
-    --output json 2>/dev/null \
-    | jq --arg lg "${log_group}" 'map(. + {logGroupName: $lg})' \
-    > "${ISSUES_DIR}/group_${idx}_issues.json" || echo "[]" > "${ISSUES_DIR}/group_${idx}_issues.json"
+  paginated_filter_log_events \
+    "${log_group}" \
+    '"avatar_reported_issue"' \
+    "${ISSUES_DIR}/group_${idx}_issues.json" \
+    "${log_group}"
 
-  aws logs filter-log-events \
-    --log-group-name "${log_group}" \
-    --start-time "${LAST_DOWNLOAD}" \
-    --filter-pattern '"avatar_reported_feedback"' \
-    --region "${REGION}" \
-    --query 'events[*]' \
-    --output json 2>/dev/null \
-    | jq --arg lg "${log_group}" 'map(. + {logGroupName: $lg})' \
-    > "${ISSUES_DIR}/group_${idx}_feedback.json" || echo "[]" > "${ISSUES_DIR}/group_${idx}_feedback.json"
+  paginated_filter_log_events \
+    "${log_group}" \
+    '"avatar_reported_feedback"' \
+    "${ISSUES_DIR}/group_${idx}_feedback.json" \
+    "${log_group}"
 }
 
 # Search each log group in parallel (bounded; bash 3.x compatible)
