@@ -112,8 +112,8 @@
       "crossmintApiKeyArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/crossmint-api-key-XF3XuF"
     }
   },
-  "adminDomain": "admin-staging.rati.chat",
-  "adminCertificateArn": "arn:aws:acm:us-east-1:022118847419:certificate/650197e7-b727-4f82-b892-35110c6484cc",
+  "adminDomain": "staging-swarm.rati.chat",
+  "adminCertificateArn": "arn:aws:acm:us-east-1:022118847419:certificate/b7d8f8c6-c042-45d0-88fa-4893e1e3cfea",
   "cloudflareTeamDomain": "ratimics.cloudflareaccess.com",
   "adminEmails": "hello@ratimics.com",
   "privyAppId": "cmk602g84025hjp0cr6w0f6ef",
