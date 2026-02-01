@@ -9,6 +9,7 @@ import {
   PutCommand,
   GetCommand,
   ScanCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS } from '@swarm/core';
 import type { AvatarRecord, UserSession } from '../types.js';
@@ -1033,4 +1034,113 @@ export async function updateAvatarFromTelegram(
   };
 
   return updateAvatar(avatarId, updates, session);
+}
+
+// ============================================================================
+// Avatar Activation (M1 Deploy/Activate Flow)
+// ============================================================================
+
+export interface ActivationResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Activate an avatar for production use
+ * Changes status from 'draft' or 'paused' to 'active'
+ */
+export async function activateAvatar(
+  avatarId: string,
+  actorId: string
+): Promise<ActivationResult> {
+  try {
+    const now = Date.now();
+
+    await dynamoClient.send(new UpdateCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: `AVATAR#${avatarId}`,
+        sk: 'CONFIG',
+      },
+      UpdateExpression: `
+        SET #status = :active,
+            activatedAt = :now,
+            activatedBy = :actor,
+            updatedAt = :now,
+            updatedBy = :actor
+      `,
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
+      ExpressionAttributeValues: {
+        ':active': 'active',
+        ':now': now,
+        ':actor': actorId,
+      },
+      ConditionExpression: 'attribute_exists(pk)',
+    }));
+
+    // Sync to state table
+    const updated = await getAvatar(avatarId);
+    if (updated) {
+      await syncAvatarConfig(updated);
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[Avatars] Failed to activate avatar:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Deactivate an avatar (pause it)
+ * Changes status from 'active' to 'paused'
+ */
+export async function deactivateAvatar(
+  avatarId: string,
+  actorId: string
+): Promise<ActivationResult> {
+  try {
+    const now = Date.now();
+
+    await dynamoClient.send(new UpdateCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: `AVATAR#${avatarId}`,
+        sk: 'CONFIG',
+      },
+      UpdateExpression: `
+        SET #status = :paused,
+            updatedAt = :now,
+            updatedBy = :actor
+      `,
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
+      ExpressionAttributeValues: {
+        ':paused': 'paused',
+        ':now': now,
+        ':actor': actorId,
+      },
+      ConditionExpression: 'attribute_exists(pk)',
+    }));
+
+    // Sync to state table
+    const updated = await getAvatar(avatarId);
+    if (updated) {
+      await syncAvatarConfig(updated);
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[Avatars] Failed to deactivate avatar:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
 }

@@ -312,6 +312,110 @@ export async function handler(
       return jsonResponse(corsHeaders, 200, { success: true, avatarId });
     }
 
+    // =========================================================================
+    // Avatar Activation (M1 Deploy/Activate Flow)
+    // =========================================================================
+
+    // POST /avatars/{id}/activate - Activate an avatar for production use
+    const activateMatch = path.match(/^\/avatars\/([^/]+)\/activate$/);
+    if (method === 'POST' && activateMatch) {
+      const avatarId = activateMatch[1];
+
+      const avatar = await avatarService.getAvatar(avatarId);
+      if (!avatar) {
+        return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+      }
+
+      // Check permissions
+      const canActivate =
+        effectiveIsAdmin ||
+        avatar.creatorWallet === walletAddress ||
+        avatar.inhabitantWallet === walletAddress;
+
+      if (!canActivate) {
+        return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
+      }
+
+      // Validate prerequisites
+      const issues: string[] = [];
+      if (!avatar.platforms?.telegram?.enabled && !avatar.platforms?.twitter?.enabled && !avatar.platforms?.discord?.enabled) {
+        issues.push('At least one platform must be enabled');
+      }
+      if (avatar.platforms?.telegram?.enabled && !avatar.platforms?.telegram?.botUsername) {
+        issues.push('Telegram bot username is required');
+      }
+
+      if (issues.length > 0) {
+        return jsonResponse(corsHeaders, 400, {
+          error: 'Cannot activate avatar',
+          issues,
+        });
+      }
+
+      // Update status to active
+      const actorId = walletAddress || session.email || 'unknown';
+      const result = await avatarService.activateAvatar(avatarId, actorId);
+
+      if (!result.success) {
+        return jsonResponse(corsHeaders, 500, { error: result.error || 'Failed to activate avatar' });
+      }
+
+      logger.info('Avatar activated', {
+        event: 'avatar_activated',
+        avatarId,
+        actor: actorId,
+        previousStatus: avatar.status,
+      });
+
+      return jsonResponse(corsHeaders, 200, {
+        success: true,
+        avatarId,
+        status: 'active',
+        activatedAt: Date.now(),
+        activatedBy: actorId,
+      });
+    }
+
+    // POST /avatars/{id}/deactivate - Deactivate an avatar (pause it)
+    const deactivateMatch = path.match(/^\/avatars\/([^/]+)\/deactivate$/);
+    if (method === 'POST' && deactivateMatch) {
+      const avatarId = deactivateMatch[1];
+
+      const avatar = await avatarService.getAvatar(avatarId);
+      if (!avatar) {
+        return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+      }
+
+      // Check permissions
+      const canDeactivate =
+        effectiveIsAdmin ||
+        avatar.creatorWallet === walletAddress ||
+        avatar.inhabitantWallet === walletAddress;
+
+      if (!canDeactivate) {
+        return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
+      }
+
+      const actorId = walletAddress || session.email || 'unknown';
+      const result = await avatarService.deactivateAvatar(avatarId, actorId);
+
+      if (!result.success) {
+        return jsonResponse(corsHeaders, 500, { error: result.error || 'Failed to deactivate avatar' });
+      }
+
+      logger.info('Avatar deactivated', {
+        event: 'avatar_deactivated',
+        avatarId,
+        actor: actorId,
+      });
+
+      return jsonResponse(corsHeaders, 200, {
+        success: true,
+        avatarId,
+        status: 'paused',
+      });
+    }
+
     // GET /avatars/{id} - Get single avatar
     const avatardMatch = path.match(/^\/avatars\/([^/]+)$/);
     if (method === 'GET' && avatardMatch) {

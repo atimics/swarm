@@ -232,6 +232,31 @@ export class DynamoDBStateService implements StateService {
     return result.Item.config as AvatarConfig;
   }
 
+  /**
+   * Get avatar config with status for activation checks
+   */
+  async getAvatarConfigWithStatus(avatarId: string): Promise<{
+    config: AvatarConfig;
+    status: 'draft' | 'active' | 'paused' | 'deleted';
+  } | null> {
+    const result = await this.docClient.send(new GetCommand({
+      TableName: this.tableName,
+      Key: {
+        pk: `AVATAR#${avatarId}`,
+        sk: 'CONFIG',
+      },
+    }));
+
+    if (!result.Item || !result.Item.config) {
+      return null;
+    }
+
+    return {
+      config: result.Item.config as AvatarConfig,
+      status: (result.Item.status as 'draft' | 'active' | 'paused' | 'deleted') || 'draft',
+    };
+  }
+
   async saveAvatarConfig(config: AvatarConfig): Promise<void> {
     await this.docClient.send(new PutCommand({
       TableName: this.tableName,

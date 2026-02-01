@@ -816,6 +816,21 @@ async function getAvatarConfig(avatarId: string): Promise<AvatarConfig | null> {
   return config;
 }
 
+type AvatarStatus = 'draft' | 'active' | 'paused' | 'deleted';
+const avatarStatusCache = new Map<string, { value: AvatarStatus; expiresAt: number }>();
+
+async function getAvatarStatus(avatarId: string): Promise<AvatarStatus> {
+  const now = Date.now();
+  const cached = avatarStatusCache.get(avatarId);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  const result = await stateService.getAvatarConfigWithStatus(avatarId);
+  const status = result?.status || 'draft';
+
+  avatarStatusCache.set(avatarId, { value: status, expiresAt: now + CONFIG_TTL_MS });
+  return status;
+}
+
 async function getBotToken(avatarId: string): Promise<string | null> {
   const now = Date.now();
   const cached = botTokenCache.get(avatarId);
@@ -963,6 +978,16 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     const avatarConfig = await getAvatarConfig(avatarId);
     if (!avatarConfig?.platforms.telegram?.enabled) {
       logger.info('Telegram disabled or config missing');
+      return ok();
+    }
+
+    // Check avatar status - only active avatars should process messages
+    const avatarStatus = await getAvatarStatus(avatarId);
+    if (avatarStatus !== 'active') {
+      logger.info('Avatar not active, skipping message processing', {
+        event: 'avatar_inactive',
+        status: avatarStatus,
+      });
       return ok();
     }
 

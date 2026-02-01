@@ -48,6 +48,11 @@ import {
   type ToolContext,
 } from '@swarm/mcp-server';
 import { createPlatformMCPServices } from './services/platform-mcp-adapter.js';
+import {
+  checkAndIncrementMessageUsage,
+  checkToolCallLimit,
+  isMemoryWriteAllowed,
+} from './services/entitlement-enforcement.js';
 import { ensureReplicateKey } from './utils/system-replicate-key.js';
 
 const sqs = new SQSClient({});
@@ -1117,22 +1122,30 @@ async function generateResponse(
         cleanFinalContent = cleanContent;
         
         if (hasThinking && thinkingBlocks.length > 0) {
-          // Save thinking to avatar's memory
-          for (const thinking of thinkingBlocks) {
-            try {
-              await stateService.saveFact(envelope.avatarId, {
-                fact: `[Internal thought in ${envelope.conversationId}]: ${thinking}`,
-                about: 'thinking',
-                timestamp: Date.now(),
-              });
-            } catch (err) {
-              logger.error('Failed to save thinking to memory', { error: err });
+          // Save thinking to avatar's memory (if memory is enabled)
+          const memoryAllowed = await isMemoryWriteAllowed(envelope.avatarId);
+          if (memoryAllowed) {
+            for (const thinking of thinkingBlocks) {
+              try {
+                await stateService.saveFact(envelope.avatarId, {
+                  fact: `[Internal thought in ${envelope.conversationId}]: ${thinking}`,
+                  about: 'thinking',
+                  timestamp: Date.now(),
+                });
+              } catch (err) {
+                logger.error('Failed to save thinking to memory', { error: err });
+              }
             }
+            logger.info('Saved thinking blocks to memory', { 
+              count: thinkingBlocks.length, 
+              avatarId: envelope.avatarId 
+            });
+          } else {
+            logger.debug('Memory writes disabled, skipping thinking storage', {
+              avatarId: envelope.avatarId,
+              thinkingCount: thinkingBlocks.length,
+            });
           }
-          logger.info('Saved thinking blocks to memory', { 
-            count: thinkingBlocks.length, 
-            avatarId: envelope.avatarId 
-          });
         }
         
         // Strip avatar name prefix if the model accidentally added it
@@ -1158,6 +1171,28 @@ async function generateResponse(
 
     // Execute tool calls
     for (const toolCall of llmResponse.toolCalls) {
+      const toolLimit = await checkToolCallLimit(envelope.avatarId, allToolResults.length);
+      if (!toolLimit.allowed) {
+        logger.warn('Tool call blocked by entitlement limits', {
+          event: 'limit_exceeded',
+          subsystem: 'entitlements',
+          tool: toolCall.name,
+          reason: toolLimit.reason,
+          limit: toolLimit.limit,
+          current: toolLimit.current,
+        });
+
+        // Tell the model the tool call failed due to policy and stop executing further tools.
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({
+            error: toolLimit.reason || 'Tool calls are limited by your current plan',
+          }),
+        });
+        break;
+      }
+
       logger.info('Executing tool', { tool: toolCall.name, args: toolCall.arguments });
 
       const result = await toolClient.execute(toolCall.name, toolCall.arguments, toolContext);
@@ -1286,6 +1321,22 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
         isMention: envelope.metadata.isMention,
         isReplyToBot: envelope.metadata.isReplyToBot,
       });
+
+      // =========================================================
+      // ENTITLEMENT ENFORCEMENT
+      // =========================================================
+      const usageCheck = await checkAndIncrementMessageUsage(avatarId);
+      if (!usageCheck.allowed) {
+        logger.warn('Message rejected due to limit', {
+          event: 'limit_exceeded',
+          subsystem: 'entitlements',
+          reason: usageCheck.reason,
+          limit: usageCheck.limit,
+          current: usageCheck.current,
+        });
+        // Don't retry - this is a policy rejection, not an error
+        continue;
+      }
 
       // =========================================================
       // KYRO-STYLE CHANNEL STATE MANAGEMENT

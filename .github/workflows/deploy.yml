@@ -599,6 +599,29 @@ jobs:
             IS_MIGRATION_STAGING_SPLIT="true"
           fi
 
+          # Monolithic stacks create fixed-name S3 buckets. If the stack was previously deleted with
+          # RETAIN policy, those buckets still exist and CloudFormation will fail early validation
+          # when we try to recreate them. Detect this case and automatically enable bucket import.
+          if [ "$SPLIT_STACKS" != "true" ] && [ "$USE_EXISTING_BUCKETS" != "true" ]; then
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+            BUCKET_SUFFIX=""
+            if [ -n "$STACK_HASH" ]; then
+              BUCKET_SUFFIX="-$STACK_HASH"
+            fi
+
+            ENV_NAME="${{ needs.setup.outputs.cdk_env }}"
+            MEDIA_BUCKET="swarm-media-${ENV_NAME}${BUCKET_SUFFIX}-${ACCOUNT_ID}"
+            ADMIN_UI_BUCKET="swarm-admin-ui-${ENV_NAME}${BUCKET_SUFFIX}-${ACCOUNT_ID}"
+
+            if aws s3api head-bucket --bucket "$MEDIA_BUCKET" 2>/dev/null && aws s3api head-bucket --bucket "$ADMIN_UI_BUCKET" 2>/dev/null; then
+              echo "Detected existing S3 buckets (MEDIA_BUCKET=$MEDIA_BUCKET, ADMIN_UI_BUCKET=$ADMIN_UI_BUCKET); enabling useExistingBuckets=true"
+              USE_EXISTING_BUCKETS="true"
+            else
+              echo "S3 buckets not detected (or insufficient permissions); leaving useExistingBuckets=$USE_EXISTING_BUCKETS"
+            fi
+          fi
+
           # Ensure we always use the correct admin domain + cert per environment.
           ADMIN_DOMAIN=$(echo "${{ needs.setup.outputs.admin_url }}" | sed -E 's|^https?://||' | cut -d/ -f1)
           EXTRA_CONTEXT_ARGS="-c adminDomain=${ADMIN_DOMAIN}"

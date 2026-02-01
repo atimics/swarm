@@ -1,0 +1,447 @@
+/**
+ * Entitlements Service
+ * 
+ * Manages plan-based entitlements for avatars including:
+ * - Plan assignment and limits
+ * - Usage tracking and enforcement
+ * - Memory configuration based on plan
+ * 
+ * M1 Implementation: Manual entitlements first, Stripe integration later.
+ */
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  UpdateCommand,
+  QueryCommand,
+} from '@aws-sdk/lib-dynamodb';
+import {
+  type PlanType,
+  type PlanLimits,
+  type EntitlementRecord,
+  type UsageRecord,
+  type MemoryConfig,
+  PLAN_DEFAULTS,
+} from '../types.js';
+
+const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
+const ADMIN_TABLE = process.env.ADMIN_TABLE!;
+
+// ============================================================================
+// Entitlement Management
+// ============================================================================
+
+/**
+ * Get entitlement for an avatar
+ * Returns null if no entitlement exists (avatar uses free tier)
+ */
+export async function getEntitlement(avatarId: string): Promise<EntitlementRecord | null> {
+  // First, try to find by avatar GSI
+  const result = await dynamoClient.send(new QueryCommand({
+    TableName: ADMIN_TABLE,
+    IndexName: 'gsi1',
+    KeyConditionExpression: 'gsi1pk = :pk AND gsi1sk = :sk',
+    ExpressionAttributeValues: {
+      ':pk': `AVATAR#${avatarId}`,
+      ':sk': 'ENTITLEMENT',
+    },
+    Limit: 1,
+  }));
+
+  if (result.Items && result.Items.length > 0) {
+    return result.Items[0] as EntitlementRecord;
+  }
+
+  return null;
+}
+
+/**
+ * Get entitlement by account and avatar
+ */
+export async function getEntitlementByAccount(
+  accountId: string,
+  avatarId: string
+): Promise<EntitlementRecord | null> {
+  const result = await dynamoClient.send(new GetCommand({
+    TableName: ADMIN_TABLE,
+    Key: {
+      pk: `ENTITLEMENT#${accountId}`,
+      sk: `AVATAR#${avatarId}`,
+    },
+  }));
+
+  return (result.Item as EntitlementRecord) || null;
+}
+
+/**
+ * Get all entitlements for an account
+ */
+export async function getAccountEntitlements(accountId: string): Promise<EntitlementRecord[]> {
+  const result = await dynamoClient.send(new QueryCommand({
+    TableName: ADMIN_TABLE,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk)',
+    ExpressionAttributeValues: {
+      ':pk': `ENTITLEMENT#${accountId}`,
+      ':sk': 'AVATAR#',
+    },
+  }));
+
+  return (result.Items || []) as EntitlementRecord[];
+}
+
+/**
+ * Compute effective limits by merging plan defaults with overrides
+ */
+export function computeEffectiveLimits(
+  plan: PlanType,
+  overrides?: Partial<PlanLimits>
+): PlanLimits {
+  const defaults = PLAN_DEFAULTS[plan];
+  if (!overrides) return { ...defaults };
+
+  return {
+    ...defaults,
+    ...overrides,
+  };
+}
+
+/**
+ * Create or update entitlement for an avatar
+ */
+export async function setEntitlement(params: {
+  accountId: string;
+  avatarId: string;
+  plan: PlanType;
+  overrides?: Partial<PlanLimits>;
+  stripeSubscriptionId?: string;
+  stripeCustomerId?: string;
+  status?: EntitlementRecord['status'];
+  trialEndsAt?: number;
+  actorId: string;
+}): Promise<EntitlementRecord> {
+  const {
+    accountId,
+    avatarId,
+    plan,
+    overrides,
+    stripeSubscriptionId,
+    stripeCustomerId,
+    status = 'active',
+    trialEndsAt,
+    actorId,
+  } = params;
+
+  const now = Date.now();
+  const limits = computeEffectiveLimits(plan, overrides);
+
+  const entitlement: EntitlementRecord = {
+    pk: `ENTITLEMENT#${accountId}`,
+    sk: `AVATAR#${avatarId}`,
+    accountId,
+    avatarId,
+    plan,
+    limits,
+    overrides,
+    stripeSubscriptionId,
+    stripeCustomerId,
+    status,
+    trialEndsAt,
+    createdAt: now,
+    createdBy: actorId,
+    updatedAt: now,
+    updatedBy: actorId,
+    // GSI for looking up by avatar
+    gsi1pk: `AVATAR#${avatarId}`,
+    gsi1sk: 'ENTITLEMENT',
+  };
+
+  await dynamoClient.send(new PutCommand({
+    TableName: ADMIN_TABLE,
+    Item: entitlement,
+  }));
+
+  return entitlement;
+}
+
+/**
+ * Update entitlement plan
+ */
+export async function updateEntitlementPlan(
+  accountId: string,
+  avatarId: string,
+  plan: PlanType,
+  actorId: string
+): Promise<EntitlementRecord | null> {
+  const existing = await getEntitlementByAccount(accountId, avatarId);
+  if (!existing) return null;
+
+  const limits = computeEffectiveLimits(plan, existing.overrides);
+
+  await dynamoClient.send(new UpdateCommand({
+    TableName: ADMIN_TABLE,
+    Key: {
+      pk: `ENTITLEMENT#${accountId}`,
+      sk: `AVATAR#${avatarId}`,
+    },
+    UpdateExpression: 'SET #plan = :plan, #limits = :limits, updatedAt = :now, updatedBy = :actor',
+    ExpressionAttributeNames: {
+      '#plan': 'plan',
+      '#limits': 'limits',
+    },
+    ExpressionAttributeValues: {
+      ':plan': plan,
+      ':limits': limits,
+      ':now': Date.now(),
+      ':actor': actorId,
+    },
+  }));
+
+  return { ...existing, plan, limits, updatedAt: Date.now(), updatedBy: actorId };
+}
+
+/**
+ * Suspend an entitlement
+ */
+export async function suspendEntitlement(
+  accountId: string,
+  avatarId: string,
+  reason: string,
+  actorId: string
+): Promise<void> {
+  await dynamoClient.send(new UpdateCommand({
+    TableName: ADMIN_TABLE,
+    Key: {
+      pk: `ENTITLEMENT#${accountId}`,
+      sk: `AVATAR#${avatarId}`,
+    },
+    UpdateExpression: 'SET #status = :status, suspendedAt = :now, suspendedReason = :reason, updatedAt = :now, updatedBy = :actor',
+    ExpressionAttributeNames: {
+      '#status': 'status',
+    },
+    ExpressionAttributeValues: {
+      ':status': 'suspended',
+      ':now': Date.now(),
+      ':reason': reason,
+      ':actor': actorId,
+    },
+  }));
+}
+
+// ============================================================================
+// Usage Tracking
+// ============================================================================
+
+/**
+ * Get today's date string in YYYY-MM-DD format
+ */
+function getTodayString(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+/**
+ * Get usage record for an avatar on a specific day
+ */
+export async function getUsage(avatarId: string, date?: string): Promise<UsageRecord | null> {
+  const dateStr = date || getTodayString();
+
+  const result = await dynamoClient.send(new GetCommand({
+    TableName: ADMIN_TABLE,
+    Key: {
+      pk: `USAGE#${avatarId}`,
+      sk: `DAY#${dateStr}`,
+    },
+  }));
+
+  return (result.Item as UsageRecord) || null;
+}
+
+/**
+ * Increment a usage counter
+ */
+export async function incrementUsage(
+  avatarId: string,
+  field: keyof Pick<UsageRecord, 'messagesProcessed' | 'mediaCreditsUsed' | 'voiceMinutesUsed' | 'toolCallsMade' | 'imageGenerations' | 'videoGenerations' | 'stickerGenerations'>,
+  amount = 1
+): Promise<UsageRecord> {
+  const dateStr = getTodayString();
+  // TTL: 35 days from today (covers billing cycle + buffer)
+  const ttl = Math.floor(Date.now() / 1000) + (35 * 24 * 60 * 60);
+
+  const result = await dynamoClient.send(new UpdateCommand({
+    TableName: ADMIN_TABLE,
+    Key: {
+      pk: `USAGE#${avatarId}`,
+      sk: `DAY#${dateStr}`,
+    },
+    UpdateExpression: `
+      SET avatarId = :avatarId,
+          #date = :date,
+          #field = if_not_exists(#field, :zero) + :amount,
+          #ttl = :ttl,
+          updatedAt = :now
+    `,
+    ExpressionAttributeNames: {
+      '#date': 'date',
+      '#field': field,
+      '#ttl': 'ttl',
+    },
+    ExpressionAttributeValues: {
+      ':avatarId': avatarId,
+      ':date': dateStr,
+      ':amount': amount,
+      ':zero': 0,
+      ':ttl': ttl,
+      ':now': Date.now(),
+    },
+    ReturnValues: 'ALL_NEW',
+  }));
+
+  return result.Attributes as UsageRecord;
+}
+
+// ============================================================================
+// Limit Enforcement
+// ============================================================================
+
+export interface LimitCheckResult {
+  allowed: boolean;
+  reason?: string;
+  current?: number;
+  limit?: number;
+  remaining?: number;
+}
+
+/**
+ * Check if an action is allowed based on entitlements and usage
+ */
+export async function checkLimit(
+  avatarId: string,
+  limitType: 'messages' | 'media' | 'voice' | 'tools'
+): Promise<LimitCheckResult> {
+  // Get entitlement (or use free tier defaults)
+  const entitlement = await getEntitlement(avatarId);
+  const limits = entitlement?.limits || PLAN_DEFAULTS.free;
+
+  // Check if entitlement is active
+  if (entitlement && entitlement.status !== 'active' && entitlement.status !== 'trial') {
+    return {
+      allowed: false,
+      reason: `Entitlement is ${entitlement.status}`,
+    };
+  }
+
+  // Get today's usage
+  const usage = await getUsage(avatarId);
+  const current = usage ? getUsageForType(usage, limitType) : 0;
+  const limit = getLimitForType(limits, limitType);
+
+  // -1 means unlimited
+  if (limit === -1) {
+    return { allowed: true, current, limit, remaining: -1 };
+  }
+
+  const remaining = limit - current;
+  const allowed = remaining > 0;
+
+  return {
+    allowed,
+    reason: allowed ? undefined : `Daily ${limitType} limit reached`,
+    current,
+    limit,
+    remaining: Math.max(0, remaining),
+  };
+}
+
+function getUsageForType(usage: UsageRecord, type: 'messages' | 'media' | 'voice' | 'tools'): number {
+  switch (type) {
+    case 'messages': return usage.messagesProcessed || 0;
+    case 'media': return usage.mediaCreditsUsed || 0;
+    case 'voice': return usage.voiceMinutesUsed || 0;
+    case 'tools': return usage.toolCallsMade || 0;
+    default: return 0;
+  }
+}
+
+function getLimitForType(limits: PlanLimits, type: 'messages' | 'media' | 'voice' | 'tools'): number {
+  switch (type) {
+    case 'messages': return limits.dailyMessageLimit;
+    case 'media': return limits.dailyMediaCredits;
+    case 'voice': return limits.dailyVoiceMinutes;
+    case 'tools': return limits.maxToolCallsPerMessage;
+    default: return 0;
+  }
+}
+
+/**
+ * Check if memory is enabled for an avatar based on entitlement
+ */
+export async function isMemoryEnabled(avatarId: string): Promise<boolean> {
+  const entitlement = await getEntitlement(avatarId);
+  if (!entitlement) return false;
+  if (entitlement.status !== 'active' && entitlement.status !== 'trial') return false;
+  return entitlement.limits.memoryEnabled;
+}
+
+/**
+ * Get memory configuration for an avatar based on entitlement
+ */
+export async function getMemoryConfig(avatarId: string): Promise<MemoryConfig> {
+  const entitlement = await getEntitlement(avatarId);
+
+  if (!entitlement || (entitlement.status !== 'active' && entitlement.status !== 'trial')) {
+    return {
+      enabled: false,
+      retentionDays: 0,
+      consolidationEnabled: false,
+      semanticSearchEnabled: false,
+    };
+  }
+
+  return {
+    enabled: entitlement.limits.memoryEnabled,
+    retentionDays: entitlement.limits.memoryRetentionDays,
+    consolidationEnabled: entitlement.limits.memoryEnabled,
+    semanticSearchEnabled: entitlement.limits.memoryEnabled,
+  };
+}
+
+// ============================================================================
+// Convenience Functions
+// ============================================================================
+
+/**
+ * Get effective limits for an avatar (entitlement or free tier)
+ */
+export async function getEffectiveLimits(avatarId: string): Promise<PlanLimits> {
+  const entitlement = await getEntitlement(avatarId);
+  return entitlement?.limits || PLAN_DEFAULTS.free;
+}
+
+/**
+ * Check if avatar has a paid plan
+ */
+export async function hasPaidPlan(avatarId: string): Promise<boolean> {
+  const entitlement = await getEntitlement(avatarId);
+  if (!entitlement) return false;
+  return entitlement.plan !== 'free' && entitlement.status === 'active';
+}
+
+/**
+ * Apply free tier entitlement to an avatar (for new avatars)
+ */
+export async function applyFreeTier(
+  accountId: string,
+  avatarId: string,
+  actorId: string
+): Promise<EntitlementRecord> {
+  return setEntitlement({
+    accountId,
+    avatarId,
+    plan: 'free',
+    status: 'active',
+    actorId,
+  });
+}
