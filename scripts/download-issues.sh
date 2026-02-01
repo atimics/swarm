@@ -62,13 +62,27 @@ if [[ -n "${ALL_CONTEXT}" ]]; then
 fi
 
 # Log groups to search
-# NOTE: Lambda log group names include generated suffixes, so we discover them by prefix.
-# Defaults are intentionally broad to catch diagnostics emitted from any handler.
+# NOTE: Lambda log groups use several naming schemes:
+#   - CDK default:     /aws/lambda/SwarmStack-{env}-...     (AdminApi construct)
+#   - Shared handlers: /aws/lambda/swarm-{env}-...          (SharedHandlers construct)
+#   - Avatar handlers: /aws/lambda/{avatarId}-...            (AvatarConstruct)
+#   - ECS gateways:    /aws/ecs/{avatarId}-discord-gateway   (AvatarConstruct)
+#   - Claude Code:     /ecs/swarm-claude-code-worker-{env}   (ClaudeCodeWorker)
+#                      /aws/lambda/swarm-claude-code-callback-{env}
+#
+# We discover broadly to avoid missing any handlers.
 LOG_GROUP_PREFIXES=(
-  "/aws/lambda/SwarmStack-${ENV}-AdminApi"
-  "/aws/lambda/SwarmStack-${ENV}-Shared"
   "/aws/lambda/SwarmStack-${ENV}-"
+  "/aws/lambda/swarm-${ENV}"
+  "/aws/lambda/swarm-claude-code-callback-${ENV}"
+  "/aws/ecs/"
+  "/ecs/swarm-"
 )
+
+# Avatar-specific log groups don't have a predictable prefix (they use the avatar ID).
+# Discover all /aws/lambda/ log groups and keep ones that look swarm-related by checking
+# for handler suffixes used in constructs: *-message-processor, *-discord-webhook, etc.
+AVATAR_HANDLER_SUFFIXES="message-processor|discord-webhook|web-chat|response-sender|media-processor|tweet-poster|telegram-webhook"
 
 LOG_GROUPS=()
 for PREFIX in "${LOG_GROUP_PREFIXES[@]}"; do
@@ -81,6 +95,20 @@ for PREFIX in "${LOG_GROUP_PREFIXES[@]}"; do
   for G in "${FOUND[@]}"; do
     LOG_GROUPS+=("${G}")
   done
+done
+
+# Discover avatar-specific Lambda log groups by scanning all /aws/lambda/ groups
+# and matching known handler suffixes.
+# shellcheck disable=SC2207
+ALL_LAMBDA_GROUPS=( $(aws logs describe-log-groups \
+  --log-group-name-prefix "/aws/lambda/" \
+  --region "${REGION}" \
+  --query 'logGroups[].logGroupName' \
+  --output text 2>/dev/null || true) )
+for G in "${ALL_LAMBDA_GROUPS[@]}"; do
+  if echo "${G}" | grep -qE "(${AVATAR_HANDLER_SUFFIXES})$"; then
+    LOG_GROUPS+=("${G}")
+  fi
 done
 
 # Dedupe log groups
