@@ -403,6 +403,19 @@ async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
     ].forEach(t => effectiveTools.add(t));
   }
 
+  // Enable gallery and core media tools for Telegram avatars
+  if (avatarConfig.platforms?.telegram?.enabled) {
+    [
+      'get_my_gallery',
+      'search_gallery',
+      'send_gallery_image',
+      'generate_image',
+      'generate_video',
+      'get_job_status',
+      'list_jobs',
+    ].forEach(t => effectiveTools.add(t));
+  }
+
   if (effectiveTools.size !== (avatarConfig.tools || []).length) {
     avatarConfig.tools = Array.from(effectiveTools);
   }
