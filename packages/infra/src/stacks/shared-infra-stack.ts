@@ -103,10 +103,13 @@ export class SharedInfraStack extends cdk.Stack {
     this.dependencyLayerArnParamName = `/swarm/${environment}${suffix}/dependency-layer-arn`;
 
     if (useExistingResources) {
-      // Import/export compatibility: legacy monolithic stack exports these names.
-      this.stateTableName = cdk.Fn.importValue(`swarm-state-table-${environment}${suffix}`);
-      this.activityTableName = cdk.Fn.importValue(`swarm-activity-table-${environment}${suffix}`);
-      this.mediaBucketName = cdk.Fn.importValue(`swarm-media-bucket-${environment}${suffix}`);
+      // IMPORTANT: when adopting existing shared resources, do NOT depend on CloudFormation exports.
+      // Exports cannot be updated/removed while imported by another stack, which causes deployment
+      // deadlocks during migrations and prevents safely deleting the legacy monolithic stack.
+      // These shared resource names are stable and deterministic (see SharedInfrastructure).
+      this.stateTableName = `swarm-state-${environment}${suffix}`;
+      this.activityTableName = `swarm-activity-${environment}${suffix}`;
+      this.mediaBucketName = `swarm-media-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`;
 
       // Derive ARNs from imported names.
       this.stateTableArn = cdk.Stack.of(this).formatArn({
@@ -137,8 +140,9 @@ export class SharedInfraStack extends cdk.Stack {
         resourceName: this.discordClusterName,
       });
 
-      // Prefer importing CDN URL from legacy exports.
-      this.cdnUrl = enableCdn ? cdk.Fn.importValue(`swarm-cdn-url-${environment}${suffix}`) : undefined;
+      // CDN URL is derived from the configured galleryDomain when present.
+      // (Avoid importing legacy exports; distributionId can be provided explicitly if needed.)
+      this.cdnUrl = enableCdn && galleryDomain ? `https://${galleryDomain}` : undefined;
       this.cdnDistributionId = existingCdnDistributionId;
 
       // Dependency layer: either import an explicit version ARN or create a new layer with a unique name.
