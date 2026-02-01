@@ -322,6 +322,7 @@ jobs:
           # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
           SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && inputs.split_stacks || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
           USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
+          USE_EXISTING_BUCKETS: ${{ inputs.use_existing_buckets || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash || '' }}
           ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
         run: |
@@ -367,7 +368,7 @@ jobs:
             DIFF_TARGETS="--all"
           fi
 
-          npx cdk diff $DIFF_TARGETS -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
+          npx cdk diff $DIFF_TARGETS -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
           DIFF_EXIT=$?
           set -e
           
@@ -580,6 +581,12 @@ jobs:
           # Auto-enable adoption mode when deploying staging split stacks without a suffix.
           if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
             USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
+          # Prod uses existing buckets by default since they were created with RETAIN policy.
+          # This prevents "bucket already exists" errors when redeploying.
+          if [ "${{ needs.setup.outputs.cdk_env }}" = "prod" ]; then
+            USE_EXISTING_BUCKETS="true"
           fi
 
           IS_MIGRATION_STAGING_SPLIT="false"
