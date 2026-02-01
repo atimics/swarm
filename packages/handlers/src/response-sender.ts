@@ -26,6 +26,7 @@ import {
   type SwarmResponse,
   type ResponseAction,
 } from '@swarm/core';
+import { isAllowedDmUserById } from './telegram-webhook-shared.js';
 
 const sqs = new SQSClient({});
 const secretsClient = new SecretsManagerClient({});
@@ -47,23 +48,6 @@ function isTelegramDirectMessageChatId(conversationId: string): boolean {
   const chatId = Number(conversationId);
   // Telegram private chats use positive IDs. Groups/supergroups/channels are negative.
   return Number.isFinite(chatId) && chatId > 0;
-}
-
-function isAllowedDmUser(conversationId: string, telegramCfg: { allowedDmUserIds?: string[]; allowedDmUsers?: Array<{ userId: string | number }> } | undefined): boolean {
-  if (!telegramCfg) return false;
-  
-  // New format takes precedence
-  if ('allowedDmUsers' in telegramCfg && telegramCfg.allowedDmUsers) {
-    const allowedIds = telegramCfg.allowedDmUsers.map((u) => String(u.userId));
-    return allowedIds.includes(conversationId);
-  }
-  
-  // Fall back to old format
-  if (telegramCfg.allowedDmUserIds) {
-    return telegramCfg.allowedDmUserIds.includes(conversationId);
-  }
-  
-  return false;
 }
 
 function buildTelegramDmRedirect(params?: { ratichatUrl?: string }): {
@@ -365,7 +349,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
       if (
         response.platform === 'telegram' &&
         isTelegramDirectMessageChatId(response.conversationId) &&
-        !isAllowedDmUser(response.conversationId, telegramCfg)
+        !(await isAllowedDmUserById(response.conversationId, telegramCfg))
       ) {
         const adapter = outboundRuntime.platformRegistry.get('telegram');
         if (!adapter || !(adapter instanceof TelegramAdapter)) {

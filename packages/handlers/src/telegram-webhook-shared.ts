@@ -75,7 +75,7 @@ function isTelegramSuperadmin(username?: string): boolean {
   return getSuperadminTelegramUsernames().includes(u);
 }
 
-function getAllowedDmUserIdsForAdmin(telegramCfg: {
+export function getAllowedDmUserIdsForAdmin(telegramCfg: {
   allowedDmUserIds?: string[];
   allowedDmUsers?: Array<{ userId: string | number }>;
 } | undefined): string[] {
@@ -87,6 +87,40 @@ function getAllowedDmUserIdsForAdmin(telegramCfg: {
   }
 
   return telegramCfg.allowedDmUserIds || [];
+}
+
+/**
+ * Check if a user ID is in the allowed DM users list.
+ * Used by response-sender for defense-in-depth when we don't have the sender's username.
+ * Handles both numeric user IDs and usernames in the allowlist by resolving usernames to IDs.
+ */
+export async function isAllowedDmUserById(
+  userId: string,
+  telegramCfg: {
+    allowedDmUserIds?: string[];
+    allowedDmUsers?: Array<{ userId: string | number }>;
+  } | undefined
+): Promise<boolean> {
+  const allowedDmUserIds = getAllowedDmUserIdsForAdmin(telegramCfg);
+  
+  // Fast path: check if user ID is directly in the list
+  if (allowedDmUserIds.includes(userId)) {
+    return true;
+  }
+
+  // Slow path: resolve non-numeric entries (usernames) to user IDs
+  for (const entry of allowedDmUserIds) {
+    // Skip numeric entries (already checked above)
+    if (/^\d+$/.test(entry)) continue;
+
+    // Try to resolve username to user ID
+    const resolvedUserId = await resolveTelegramUsername(entry);
+    if (resolvedUserId && resolvedUserId === userId) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function isTelegramUserOwnerOfAvatar(telegramUserId: string, avatarId: string): Promise<boolean> {
@@ -164,7 +198,7 @@ async function upsertTelegramUserMapping(userId: string, username?: string, disp
  * Resolve a Telegram username to a user ID.
  * Returns the user ID if found, or null if not found.
  */
-async function resolveTelegramUsername(username: string): Promise<string | null> {
+export async function resolveTelegramUsername(username: string): Promise<string | null> {
   if (!ADMIN_TABLE) return null;
 
   const normalizedUsername = username.replace(/^@/, '').toLowerCase();
