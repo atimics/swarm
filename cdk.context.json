@@ -101,6 +101,7 @@
   },
   "environments": {
     "prod": {
+      "privyAppId": "cmk602g84025hjp0cr6w0f6ef",
       "privyAppSecretArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/privy-app-secret-nGyYwB",
       "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/privy-jwt-verification-key-ebLxf6",
       "heliusApiKeyArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/helius-api-key-0N6fbn",
