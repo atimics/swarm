@@ -92,9 +92,14 @@ export interface TwitterServices {
    * @param text Tweet text
    * @param mediaUrls Optional URLs to attach (legacy, prefer mediaIds)
    * @param mediaIds Optional gallery item IDs to attach (preferred)
-   * @returns Success: { tweetId, url }, Error: { error }, or null if unavailable
+   * @returns Success: { tweetId, url }, Queued: { queued, postId }, Error: { error }, or null if unavailable
    */
-  postTweet?: (text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<{ tweetId: string; url: string } | { error: string } | null>;
+  postTweet?: (text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<
+    | { tweetId: string; url: string }
+    | { queued: true; postId: string; message?: string; url?: string }
+    | { error: string }
+    | null
+  >;
 
   /**
    * Get home timeline tweets
@@ -110,8 +115,13 @@ export interface TwitterServices {
    * Reply to a tweet
    * @param mediaIds Optional gallery item IDs to attach (preferred)
    * @param mediaUrls Optional URLs to attach (legacy)
+   * @returns Success: { tweetId, url }, Queued: { queued, postId }, or null if unavailable/error
    */
-  reply?: (tweetId: string, text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<{ tweetId: string; url: string } | null>;
+  reply?: (tweetId: string, text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<
+    | { tweetId: string; url: string }
+    | { queued: true; postId: string; message?: string; url?: string }
+    | null
+  >;
 
   /**
    * Like a tweet
@@ -343,13 +353,35 @@ export function createTwitterTools(services: TwitterServices) {
           };
         }
 
+        // Check if result is queued (async posting)
+        if ('queued' in result && result.queued) {
+          return {
+            success: true,
+            data: {
+              queued: true,
+              postId: result.postId,
+              message: result.message || 'Tweet queued for posting',
+              url: result.url,
+            },
+          };
+        }
+
+        // Result has tweetId (synchronous posting)
+        if ('tweetId' in result && result.tweetId) {
+          return {
+            success: true,
+            data: {
+              tweetId: result.tweetId,
+              url: result.url,
+              message: `Tweet posted successfully! ${result.url}`,
+            },
+          };
+        }
+
+        // Fallback - shouldn't happen but satisfies TypeScript
         return {
-          success: true,
-          data: {
-            tweetId: result.tweetId,
-            url: result.url,
-            message: `Tweet posted successfully! ${result.url}`,
-          },
+          success: false,
+          error: 'Unexpected response from Twitter service',
         };
       },
     }),
@@ -501,13 +533,35 @@ export function createTwitterTools(services: TwitterServices) {
           return { success: false, error: 'Failed to post reply.' };
         }
 
+        // Check if result is queued (async posting)
+        if ('queued' in result && result.queued) {
+          return {
+            success: true,
+            data: {
+              queued: true,
+              postId: result.postId,
+              message: result.message || 'Reply queued for posting',
+              url: result.url,
+            },
+          };
+        }
+
+        // Result has tweetId (synchronous posting)
+        if ('tweetId' in result && result.tweetId) {
+          return {
+            success: true,
+            data: {
+              tweetId: result.tweetId,
+              url: result.url,
+              message: `Reply posted! ${result.url}`,
+            },
+          };
+        }
+
+        // Fallback - shouldn't happen but satisfies TypeScript
         return {
-          success: true,
-          data: {
-            tweetId: result.tweetId,
-            url: result.url,
-            message: `Reply posted! ${result.url}`,
-          },
+          success: false,
+          error: 'Unexpected response from Twitter service',
         };
       },
     }),

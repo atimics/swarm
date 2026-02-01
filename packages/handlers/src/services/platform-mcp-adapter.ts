@@ -4,14 +4,23 @@
  * Bridges core services to MCP tool interfaces for platform handlers.
  * This is the production equivalent of admin-api's mcp-adapter.ts,
  * designed for use in Lambda handlers processing Telegram/Discord/Twitter messages.
+ * 
+ * Async Twitter Posting:
+ * When POST_QUEUE_URL is configured, postTweet and reply operations are decoupled:
+ * 1. Create a post in content store with status='queued'
+ * 2. Enqueue to POST_QUEUE for tweet-sender to process
+ * 3. Return immediately with { queued: true, postId }
+ * This avoids Lambda timeout issues when image generation + Twitter posting exceed 120s.
  */
 import type { AllServices } from '@swarm/mcp-server';
 import type {
   AvatarConfig,
   StateService,
   MediaService,
+  ContentStoreService,
+  PostMedia,
 } from '@swarm/core';
-import { TwitterAdapter } from '@swarm/core';
+import { TwitterAdapter, createContentStoreService, enqueuePost, isPostQueueConfigured, getPostQueueUrl } from '@swarm/core';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
@@ -56,6 +65,14 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     })
     : null;
   let cachedTwitterUsername: string | undefined;
+
+  // Initialize content store for decoupled Twitter posting
+  const stateTable = process.env.STATE_TABLE;
+  const contentStoreService: ContentStoreService | null = stateTable
+    ? createContentStoreService(stateTable)
+    : null;
+  const postQueueUrl = getPostQueueUrl();
+  const useDecoupledPosting = isPostQueueConfigured() && contentStoreService !== null;
 
   function normalizeCdnUrl(raw?: string): string | undefined {
     if (!raw) return undefined;
@@ -497,6 +514,50 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
               return { error: 'Twitter is not configured. Please connect Twitter first.' };
             }
             const resolvedMediaUrls = resolveMediaUrls(mediaUrls, mediaIds);
+
+            // Use decoupled posting via content store + POST_QUEUE when available
+            // This prevents Lambda timeouts when image generation + Twitter posting exceed 120s
+            if (useDecoupledPosting && contentStoreService && postQueueUrl) {
+              try {
+                const media: PostMedia[] = resolvedMediaUrls.map(url => ({
+                  type: inferMediaType(url),
+                  url,
+                }));
+
+                // Create post in content store with 'queued' status
+                const post = await contentStoreService.createPost({
+                  avatarId,
+                  text,
+                  media: media.length > 0 ? media : undefined,
+                  source: 'generated',
+                  status: 'queued',
+                });
+
+                // Enqueue for tweet-sender to process
+                await enqueuePost(postQueueUrl, avatarId, post.postId);
+
+                console.log('[Twitter] Tweet queued for async posting:', {
+                  postId: post.postId,
+                  avatarId,
+                  textLength: text.length,
+                  hasMedia: media.length > 0,
+                });
+
+                const username = await getTwitterUsername();
+                return {
+                  queued: true,
+                  postId: post.postId,
+                  message: 'Tweet queued for posting',
+                  // Provide a placeholder URL - will be updated by tweet-sender when posted
+                  url: username ? `https://x.com/${username}` : undefined,
+                };
+              } catch (queueError) {
+                // Fall through to synchronous posting if queue fails
+                console.warn('[Twitter] Decoupled posting failed, falling back to sync:', queueError);
+              }
+            }
+
+            // Synchronous fallback (or when decoupled posting not configured)
             const media = resolvedMediaUrls.map(url => ({ type: inferMediaType(url), url }));
             const tweetId = await twitterAdapter.postTweet(text, media.length > 0 ? media : undefined);
             const username = await getTwitterUsername();
@@ -625,6 +686,49 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
             }
             
             const resolvedMediaUrls = resolveMediaUrls(mediaUrls, mediaIds);
+
+            // Use decoupled posting via content store + POST_QUEUE when available
+            if (useDecoupledPosting && contentStoreService && postQueueUrl) {
+              try {
+                const media: PostMedia[] = resolvedMediaUrls.map(url => ({
+                  type: inferMediaType(url),
+                  url,
+                }));
+
+                // Create post in content store with 'queued' status and inReplyToId
+                const post = await contentStoreService.createPost({
+                  avatarId,
+                  text,
+                  media: media.length > 0 ? media : undefined,
+                  source: 'generated',
+                  status: 'queued',
+                  inReplyToId: tweetId,
+                });
+
+                // Enqueue for tweet-sender to process
+                await enqueuePost(postQueueUrl, avatarId, post.postId);
+
+                console.log('[Twitter] Reply queued for async posting:', {
+                  postId: post.postId,
+                  avatarId,
+                  inReplyToId: tweetId,
+                  textLength: text.length,
+                  hasMedia: media.length > 0,
+                });
+
+                const username = await getTwitterUsername();
+                return {
+                  queued: true,
+                  postId: post.postId,
+                  message: 'Reply queued for posting',
+                  url: username ? `https://x.com/${username}` : undefined,
+                };
+              } catch (queueError) {
+                console.warn('[Twitter] Decoupled reply failed, falling back to sync:', queueError);
+              }
+            }
+
+            // Synchronous fallback
             const media = resolvedMediaUrls.map(url => ({ type: inferMediaType(url), url }));
             const replyId = await twitterAdapter.postTweet(text, media.length > 0 ? media : undefined, tweetId);
             const username = await getTwitterUsername();
