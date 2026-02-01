@@ -58,14 +58,14 @@ is_documented() {
     echo "$review_log_content" | grep -q "$prefix"
 }
 
-# Scan issue files
-for issue_file in "$ISSUES_DIR"/issue-*.json; do
+# Scan issue and error files
+for issue_file in "$ISSUES_DIR"/issue-*.json "$ISSUES_DIR"/error-*.json; do
     # Skip if no files match
     [ -e "$issue_file" ] || continue
 
     filename=$(basename "$issue_file")
 
-    # Extract severity from filename (e.g., issue-xxx-high.json)
+    # Extract severity from filename (e.g., issue-xxx-high.json or error-xxx-high.json)
     if [[ "$filename" == *"-critical.json" ]]; then
         ((critical_count++))
         # Check if documented in review log

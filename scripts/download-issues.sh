@@ -8,12 +8,13 @@
 # issues have been downloaded.
 #
 # Usage:
-#   ./scripts/download-issues.sh [staging|prod] [--all] [--all-context]
+#   ./scripts/download-issues.sh [staging|prod] [--all] [--all-context] [--profile PROFILE]
 #
 # Options:
-#   staging|prod  Environment to query (default: staging)
-#   --all         Download all issues, not just new ones
-#   --all-context  Include context from all log groups (slower)
+#   staging|prod    Environment to query (default: staging)
+#   --all           Download all issues, not just new ones
+#   --all-context   Include context from all log groups (slower)
+#   --profile NAME  AWS CLI profile to use (useful when staging/prod are in different accounts)
 #
 
 set -e
@@ -21,6 +22,7 @@ set -e
 ENV="${1:-staging}"
 DOWNLOAD_ALL=""
 ALL_CONTEXT=""
+AWS_PROFILE_ARG=""
 
 shift 0 || true
 
@@ -33,9 +35,17 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --all) DOWNLOAD_ALL="--all" ;;
     --all-context) ALL_CONTEXT="--all-context" ;;
+    --profile)
+      shift
+      if [[ -z "${1:-}" ]]; then
+        echo "Error: --profile requires a value" >&2
+        exit 2
+      fi
+      AWS_PROFILE_ARG="--profile $1"
+      ;;
     *)
       echo "Unknown arg: $1" >&2
-      echo "Usage: ./scripts/download-issues.sh [staging|prod] [--all] [--all-context]" >&2
+      echo "Usage: ./scripts/download-issues.sh [staging|prod] [--all] [--all-context] [--profile PROFILE]" >&2
       exit 2
       ;;
   esac
@@ -44,6 +54,12 @@ done
 
 # Configuration
 REGION="us-east-1"
+# Build common AWS CLI args (region + optional profile)
+AWS_COMMON_ARGS=(--region "${REGION}")
+if [[ -n "${AWS_PROFILE_ARG}" ]]; then
+  # shellcheck disable=SC2206
+  AWS_COMMON_ARGS+=(${AWS_PROFILE_ARG})
+fi
 STATE_FILE=".issues-downloaded-${ENV}.json"
 OUTPUT_DIR="issues/${ENV}"
 CONTEXT_MINUTES=2  # Minutes of logs to include before/after each issue
@@ -89,7 +105,7 @@ for PREFIX in "${LOG_GROUP_PREFIXES[@]}"; do
   # shellcheck disable=SC2207
   FOUND=( $(aws logs describe-log-groups \
     --log-group-name-prefix "${PREFIX}" \
-    --region "${REGION}" \
+    "${AWS_COMMON_ARGS[@]}" \
     --query 'logGroups[].logGroupName' \
     --output text 2>/dev/null || true) )
   for G in "${FOUND[@]}"; do
@@ -193,7 +209,7 @@ paginated_filter_log_events() {
       --log-group-name "${log_group}" \
       --start-time "${LAST_DOWNLOAD}" \
       --filter-pattern "${filter_pattern}" \
-      --region "${REGION}" \
+      "${AWS_COMMON_ARGS[@]}" \
       "${token_arg[@]}" \
       --output json 2>/dev/null) || break
 
@@ -241,6 +257,24 @@ run_search_for_group() {
     '"avatar_reported_feedback"' \
     "${ISSUES_DIR}/group_${idx}_feedback.json" \
     "${log_group}"
+
+  # Also scan for Lambda runtime errors: unhandled exceptions, timeouts, OOM kills.
+  # These use CloudWatch's built-in error messages that aren't structured JSON.
+  for PATTERN in \
+    '"Task timed out"' \
+    '"Runtime.ExitError"' \
+    '"Runtime.UnhandledPromiseRejection"' \
+    '"Runtime.HandlerNotFound"' \
+    '"errorType"' \
+    '?"level":"error"'; do
+    local SAFE_PATTERN
+    SAFE_PATTERN=$(echo "${PATTERN}" | tr -d '"? ' | tr ':' '_')
+    paginated_filter_log_events \
+      "${log_group}" \
+      "${PATTERN}" \
+      "${ISSUES_DIR}/group_${idx}_error_${SAFE_PATTERN}.json" \
+      "${log_group}"
+  done
 }
 
 # Search each log group in parallel (bounded; bash 3.x compatible)
@@ -272,7 +306,7 @@ fetch_context_logs_for_groups() {
       --log-group-name "${lg}" \
       --start-time "${start_time}" \
       --end-time "${end_time}" \
-      --region "${REGION}" \
+      "${AWS_COMMON_ARGS[@]}" \
       --query 'events[*].{timestamp: timestamp, message: message, logStream: logStreamName}' \
       --output json 2>/dev/null > "${context_dir}/ctx_${idx}.json" || echo "[]" > "${context_dir}/ctx_${idx}.json" &
     idx=$((idx + 1))
@@ -289,19 +323,24 @@ MERGED_ISSUES=$(jq -s 'add // []' "${ISSUES_DIR}"/*.json 2>/dev/null || echo "[]
 
 ISSUE_COUNT=$(echo "${MERGED_ISSUES}" | jq 'map(select(.message | contains("avatar_reported_issue"))) | length // 0' 2>/dev/null || echo "0")
 FEEDBACK_COUNT=$(echo "${MERGED_ISSUES}" | jq 'map(select(.message | contains("avatar_reported_feedback"))) | length // 0' 2>/dev/null || echo "0")
+# Runtime errors: everything that isn't an agent-reported issue/feedback.
+# Deduplicate by eventId since multiple error patterns can match the same log line.
+RUNTIME_ERRORS=$(echo "${MERGED_ISSUES}" | jq '
+  map(select(.message |
+    (contains("avatar_reported_issue") or contains("avatar_reported_feedback")) | not
+  ))
+  | unique_by(.eventId)
+' 2>/dev/null || echo "[]")
+ERROR_COUNT=$(echo "${RUNTIME_ERRORS}" | jq 'length // 0' 2>/dev/null || echo "0")
 
-if [[ "${ISSUE_COUNT}" -eq 0 && "${FEEDBACK_COUNT}" -eq 0 ]]; then
-  echo -e "${GREEN}No new issues/feedback found.${NC}"
+if [[ "${ISSUE_COUNT}" -eq 0 && "${FEEDBACK_COUNT}" -eq 0 && "${ERROR_COUNT}" -eq 0 ]]; then
+  echo -e "${GREEN}No new issues/feedback/errors found.${NC}"
   # Update state file
-  echo "{\"lastDownload\": ${NOW}, \"issuesDownloaded\": 0, \"feedbackDownloaded\": 0}" > "${STATE_FILE}"
+  echo "{\"lastDownload\": ${NOW}, \"issuesDownloaded\": 0, \"feedbackDownloaded\": 0, \"errorsDownloaded\": 0}" > "${STATE_FILE}"
   exit 0
 fi
 
-echo -e "${YELLOW}Found ${ISSUE_COUNT} issue(s) and ${FEEDBACK_COUNT} feedback event(s). Downloading with context...${NC}"
-
-# Process each issue - filter to only actual issue events
-ISSUES_DOWNLOADED=0
-FEEDBACK_DOWNLOADED=0
+echo -e "${YELLOW}Found ${ISSUE_COUNT} issue(s), ${FEEDBACK_COUNT} feedback event(s), and ${ERROR_COUNT} runtime error(s). Downloading with context...${NC}"
 
 process_event() {
   local EVENT="$1"
@@ -378,7 +417,6 @@ process_event() {
         }
       }' > "${ISSUE_FILE}"
 
-    ISSUES_DOWNLOADED=$((ISSUES_DOWNLOADED + 1))
     return
   fi
 
@@ -432,11 +470,96 @@ process_event() {
         }
       }' > "${FEEDBACK_FILE}"
 
-    FEEDBACK_DOWNLOADED=$((FEEDBACK_DOWNLOADED + 1))
     return
   fi
 }
 
+# Process a runtime error event (not agent-reported, but a Lambda crash/timeout/exception)
+process_runtime_error() {
+  local EVENT="$1"
+
+  local TIMESTAMP MESSAGE LOG_STREAM EVENT_ID EVENT_LOG_GROUP
+  TIMESTAMP=$(echo "${EVENT}" | jq -r '.timestamp')
+  MESSAGE=$(echo "${EVENT}" | jq -r '.message')
+  LOG_STREAM=$(echo "${EVENT}" | jq -r '.logStreamName')
+  EVENT_ID=$(echo "${EVENT}" | jq -r '.eventId // ""')
+  EVENT_LOG_GROUP=$(echo "${EVENT}" | jq -r '.logGroupName // ""')
+
+  # Classify the error severity based on the message content
+  local SEVERITY="high"
+  local ERROR_TYPE="runtime_error"
+  if echo "${MESSAGE}" | grep -q "Task timed out"; then
+    ERROR_TYPE="timeout"
+    SEVERITY="high"
+  elif echo "${MESSAGE}" | grep -q "Runtime.ExitError"; then
+    ERROR_TYPE="crash"
+    SEVERITY="critical"
+  elif echo "${MESSAGE}" | grep -q "Runtime.UnhandledPromiseRejection"; then
+    ERROR_TYPE="unhandled_rejection"
+    SEVERITY="critical"
+  elif echo "${MESSAGE}" | grep -q "Runtime.HandlerNotFound"; then
+    ERROR_TYPE="handler_not_found"
+    SEVERITY="critical"
+  fi
+
+  # Derive a short label from the log group name
+  local SOURCE
+  SOURCE=$(echo "${EVENT_LOG_GROUP}" | sed 's|.*/||')
+
+  # Truncate message for display
+  local SHORT_MSG
+  SHORT_MSG=$(echo "${MESSAGE}" | head -c 120 | tr '\n' ' ')
+
+  local SEVERITY_UPPER
+  SEVERITY_UPPER=$(echo "${SEVERITY}" | tr '[:lower:]' '[:upper:]')
+  echo -e "  ${RED}[${SEVERITY_UPPER}:${ERROR_TYPE}]${NC} ${SHORT_MSG} (${SOURCE})"
+
+  local ERROR_FILE
+  ERROR_FILE="${OUTPUT_DIR}/error-${TIMESTAMP}-${SOURCE}-${EVENT_ID}-${SEVERITY}.json"
+
+  local CONTEXT_MS START_TIME END_TIME
+  CONTEXT_MS=$((CONTEXT_MINUTES * 60 * 1000))
+  START_TIME=$((TIMESTAMP - CONTEXT_MS))
+  END_TIME=$((TIMESTAMP + CONTEXT_MS))
+
+  local CONTEXT
+  if [[ "${CONTEXT_SCOPE}" == "all" || -z "${EVENT_LOG_GROUP}" ]]; then
+    CONTEXT=$(fetch_context_logs_for_groups "${START_TIME}" "${END_TIME}" "${LOG_GROUPS[@]}")
+  else
+    CONTEXT=$(fetch_context_logs_for_groups "${START_TIME}" "${END_TIME}" "${EVENT_LOG_GROUP}")
+  fi
+
+  jq -n \
+    --arg message "${MESSAGE}" \
+    --arg errorType "${ERROR_TYPE}" \
+    --arg severity "${SEVERITY}" \
+    --argjson context "${CONTEXT}" \
+    --arg timestamp "$(date -r $((TIMESTAMP / 1000)) '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "${TIMESTAMP}")" \
+    --arg logStream "${LOG_STREAM}" \
+    --arg logGroup "${EVENT_LOG_GROUP}" \
+    --arg eventId "${EVENT_ID}" \
+    --arg source "${SOURCE}" \
+    '{
+      downloadedAt: (now | todate),
+      originalTimestamp: $timestamp,
+      logStream: $logStream,
+      logGroup: $logGroup,
+      eventId: $eventId,
+      source: $source,
+      error: {
+        type: $errorType,
+        severity: $severity,
+        message: $message
+      },
+      contextLogs: $context,
+      contextWindow: {
+        before: "'${CONTEXT_MINUTES}' minutes",
+        after: "'${CONTEXT_MINUTES}' minutes"
+      }
+    }' > "${ERROR_FILE}"
+}
+
+# Process agent-reported issues and feedback
 while read -r EVENT; do
   while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${MAX_PARALLEL_EVENTS}" ]]; do
     sleep 0.1
@@ -444,19 +567,41 @@ while read -r EVENT; do
   process_event "${EVENT}" &
 done < <(echo "${MERGED_ISSUES}" | jq -c 'map(select(.message | (contains("avatar_reported_issue") or contains("avatar_reported_feedback")))) | .[]' 2>/dev/null)
 
+# Process runtime errors (deduped)
+while read -r EVENT; do
+  while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${MAX_PARALLEL_EVENTS}" ]]; do
+    sleep 0.1
+  done
+  process_runtime_error "${EVENT}" &
+done < <(echo "${RUNTIME_ERRORS}" | jq -c '.[]' 2>/dev/null)
+
 wait || true
 
 # Update state file
-echo "{\"lastDownload\": ${NOW}, \"issuesDownloaded\": ${ISSUE_COUNT}, \"feedbackDownloaded\": ${FEEDBACK_COUNT}}" > "${STATE_FILE}"
+echo "{\"lastDownload\": ${NOW}, \"issuesDownloaded\": ${ISSUE_COUNT}, \"feedbackDownloaded\": ${FEEDBACK_COUNT}, \"errorsDownloaded\": ${ERROR_COUNT}}" > "${STATE_FILE}"
 
 echo ""
-echo -e "${GREEN}Downloaded ${ISSUE_COUNT} issue(s) and ${FEEDBACK_COUNT} feedback event(s) to ${OUTPUT_DIR}/${NC}"
+echo -e "${GREEN}Downloaded ${ISSUE_COUNT} issue(s), ${FEEDBACK_COUNT} feedback event(s), and ${ERROR_COUNT} runtime error(s) to ${OUTPUT_DIR}/${NC}"
 echo ""
 
-# Summary by severity
-echo -e "${BLUE}Summary by severity:${NC}"
+# Summary by severity (agent-reported issues)
+echo -e "${BLUE}Summary by severity (issues):${NC}"
 for SEV in critical high medium low; do
   COUNT=$(ls -1 "${OUTPUT_DIR}"/issue-*-${SEV}.json 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "${COUNT}" -gt 0 ]]; then
+    case "${SEV}" in
+      critical) echo -e "  ${RED}CRITICAL: ${COUNT}${NC}" ;;
+      high) echo -e "  ${YELLOW}HIGH: ${COUNT}${NC}" ;;
+      medium) echo -e "  ${BLUE}MEDIUM: ${COUNT}${NC}" ;;
+      low) echo -e "  ${GREEN}LOW: ${COUNT}${NC}" ;;
+    esac
+  fi
+done
+
+echo ""
+echo -e "${BLUE}Summary by severity (runtime errors):${NC}"
+for SEV in critical high medium low; do
+  COUNT=$(ls -1 "${OUTPUT_DIR}"/error-*-${SEV}.json 2>/dev/null | wc -l | tr -d ' ')
   if [[ "${COUNT}" -gt 0 ]]; then
     case "${SEV}" in
       critical) echo -e "  ${RED}CRITICAL: ${COUNT}${NC}" ;;
@@ -477,5 +622,6 @@ for S in positive negative neutral unknown; do
 done
 
 echo ""
-echo "Issues saved to: ${OUTPUT_DIR}/"
-echo "To view an issue: cat ${OUTPUT_DIR}/issue-*.json | jq"
+echo "Results saved to: ${OUTPUT_DIR}/"
+echo "To view an issue:  cat ${OUTPUT_DIR}/issue-*.json | jq"
+echo "To view an error:  cat ${OUTPUT_DIR}/error-*.json | jq"

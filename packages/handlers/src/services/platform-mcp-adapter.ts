@@ -505,7 +505,13 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
               url: username ? `https://x.com/${username}/status/${tweetId}` : `https://x.com/i/web/status/${tweetId}`,
             };
           } catch (error) {
-            return { error: error instanceof Error ? error.message : 'Failed to post tweet' };
+            const errorMessage = error instanceof Error ? error.message : 'Failed to post tweet';
+            console.error('[TwitterAdapter.postTweet] Failed to post tweet:', {
+              error: errorMessage,
+              textLength: text.length,
+              hasMedia: (mediaUrls?.length ?? 0) > 0 || (mediaIds?.length ?? 0) > 0,
+            });
+            return { error: errorMessage };
           }
         },
 

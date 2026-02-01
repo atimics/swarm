@@ -252,8 +252,8 @@ export class SharedHandlers extends Construct {
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
       role: lambdaRole,
-      // LLM calls and tool loops can exceed 60s in multi-agent channels.
-      timeout: cdk.Duration.seconds(120),
+      // LLM calls, image generation, and Twitter posting can exceed 120s.
+      timeout: cdk.Duration.seconds(180),
       memorySize: 1024,
       reservedConcurrentExecutions: 20,
       environment: commonEnv,
