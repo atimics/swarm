@@ -39,7 +39,7 @@ export function getEffectiveLimitsForAvatar(
   avatarId: string,
   entitlement: EntitlementRecord | null
 ): EffectiveLimitsResult {
-  if (!entitlement || entitlement.status !== 'active') {
+  if (!entitlement || (entitlement.status !== 'active' && entitlement.status !== 'trial')) {
     return {
       avatarId,
       plan: 'free',

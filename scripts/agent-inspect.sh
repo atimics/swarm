@@ -112,10 +112,12 @@ gather_static_json() {
 }
 
 gather_dynamic_json() {
-  local events_json fast_logs_json cloudwatch_logs_json
+  local events_json fast_logs_json cloudwatch_logs_json energy_json
 
   events_json=$(call_api "avatars/${AVATAR_ID}/events?limit=${EVENTS_LIMIT}")
   fast_logs_json=$(call_api "avatars/${AVATAR_ID}/logs?fast=true&since=${FAST_SINCE}&limit=${LOGS_LIMIT}")
+  # Energy endpoint may not exist in older deployments; fail open.
+  energy_json=$(call_api "avatars/${AVATAR_ID}/energy" || echo 'null')
 
   local cloudwatch_endpoint
   cloudwatch_endpoint="avatars/${AVATAR_ID}/logs?since=${CLOUDWATCH_SINCE}&limit=${LOGS_LIMIT}&compact=true"
@@ -134,8 +136,10 @@ PY
     --argjson events "$events_json" \
     --argjson logsFast "$fast_logs_json" \
     --argjson logsCloudwatch "$cloudwatch_logs_json" \
+    --argjson energy "$energy_json" \
     '{
       events: $events,
+      energy: $energy,
       logs: {
         fast: $logsFast,
         cloudwatch: $logsCloudwatch
@@ -188,6 +192,10 @@ render_live() {
 
   echo "Events"
   echo "$json" | jq '{count: (.events.count // (.events.events|length) // 0), sample: ((.events.events // .events)|if type=="array" then .[0:5] else [] end)}'
+  echo ""
+
+  echo "Energy"
+  echo "$json" | jq '.energy | {current, max, refillPerHour, nextRefillIn, refillCap}'
   echo ""
 
   echo "Logs (fast/DynamoDB)"

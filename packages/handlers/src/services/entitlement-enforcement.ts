@@ -120,25 +120,69 @@ export async function checkAndIncrementMessageUsage(avatarId: string): Promise<E
     return { allowed: true };
   }
 
+  // Atomic check-and-increment to avoid race conditions under concurrency.
+  // We only do a read if the conditional update fails (limit exceeded).
   const dateStr = getTodayString();
-  const current = await getUsageCounter(avatarId, 'messages', dateStr);
+  const ttl = Math.floor(Date.now() / 1000) + (35 * 24 * 60 * 60);
 
-  if (current >= limits.dailyMessageLimit) {
-    logger.warn('Message limit reached', {
+  try {
+    const result = await dynamoClient.send(new UpdateCommand({
+      TableName: stateTable,
+      Key: {
+        pk: `USAGE#${avatarId}`,
+        sk: `MESSAGES#${dateStr}`,
+      },
+      ConditionExpression: 'attribute_not_exists(#count) OR #count < :limit',
+      UpdateExpression: `
+        SET #count = if_not_exists(#count, :zero) + :one,
+            avatarId = :avatarId,
+            #date = :date,
+            #ttl = :ttl,
+            updatedAt = :now
+      `,
+      ExpressionAttributeNames: {
+        '#count': 'count',
+        '#date': 'date',
+        '#ttl': 'ttl',
+      },
+      ExpressionAttributeValues: {
+        ':zero': 0,
+        ':one': 1,
+        ':limit': limits.dailyMessageLimit,
+        ':avatarId': avatarId,
+        ':date': dateStr,
+        ':ttl': ttl,
+        ':now': Date.now(),
+      },
+      ReturnValues: 'ALL_NEW',
+    }));
+
+    const current = (result.Attributes?.count as number | undefined) ?? 1;
+    return { allowed: true, limit: limits.dailyMessageLimit, current };
+  } catch (err) {
+    const name = (err as { name?: string }).name;
+    if (name === 'ConditionalCheckFailedException') {
+      const current = await getUsageCounter(avatarId, 'messages', dateStr);
+      logger.warn('Message limit reached', {
+        avatarId,
+        current,
+        limit: limits.dailyMessageLimit,
+      });
+      return {
+        allowed: false,
+        reason: 'Daily message limit reached',
+        limit: limits.dailyMessageLimit,
+        current,
+      };
+    }
+
+    logger.warn('Failed to enforce message limit; allowing message', {
       avatarId,
-      current,
-      limit: limits.dailyMessageLimit,
+      error: err instanceof Error ? err.message : String(err),
     });
-    return {
-      allowed: false,
-      reason: 'Daily message limit reached',
-      limit: limits.dailyMessageLimit,
-      current,
-    };
+    // Fail open on unexpected Dynamo issues (keeps runtime resilient).
+    return { allowed: true };
   }
-
-  await incrementUsageCounter(avatarId, 'messages');
-  return { allowed: true, limit: limits.dailyMessageLimit, current: current + 1 };
 }
 
 /**
