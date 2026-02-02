@@ -12,6 +12,7 @@ import {
   PutCommand,
   UpdateCommand,
   QueryCommand,
+  TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { CreditBucket, AvatarRecord } from '../types.js';
 
@@ -145,6 +146,15 @@ type EnergyBucket = CreditBucket & {
   refillCap?: number;
 };
 
+type EnergyBankBucket = {
+  pk: string;
+  sk: 'CREDIT#energy_bank';
+  avatarId: string;
+  toolName: 'energy_bank';
+  credits: number;
+  updatedAt: number;
+};
+
 async function getOrCreateEnergyBucket(
   avatarId: string,
   config: EnergyConfig,
@@ -174,6 +184,40 @@ async function getOrCreateEnergyBucket(
     dailyUsed: 0,
     dailyLimit: 999999,  // No daily limit for energy
     dailyResetAt: getNextMidnightUTC(now),
+  };
+
+  await deps.dynamoClient.send(new PutCommand({
+    TableName: deps.tableName,
+    Item: bucket,
+  }));
+
+  return bucket;
+}
+
+async function getOrCreateEnergyBankBucket(
+  avatarId: string,
+  deps: EnergyServiceDeps
+): Promise<EnergyBankBucket> {
+  const pk = `AVATAR#${avatarId}`;
+  const sk = 'CREDIT#energy_bank' as const;
+
+  const result = await deps.dynamoClient.send(new GetCommand({
+    TableName: deps.tableName,
+    Key: { pk, sk },
+  }));
+
+  if (result.Item) {
+    return result.Item as EnergyBankBucket;
+  }
+
+  const now = deps.now();
+  const bucket: EnergyBankBucket = {
+    pk,
+    sk,
+    avatarId,
+    toolName: 'energy_bank',
+    credits: 0,
+    updatedAt: now,
   };
 
   await deps.dynamoClient.send(new PutCommand({
@@ -414,6 +458,69 @@ export async function consumeEnergy(
   const flooredEnergy = Math.floor(currentEnergy);
 
   if (flooredEnergy < cost) {
+    // If the avatar has purchased energy credits (bank), auto-spend them to cover the deficit.
+    const deficit = cost - flooredEnergy;
+    if (deficit > 0) {
+      try {
+        const bank = await getOrCreateEnergyBankBucket(avatarId, d);
+        const bankCredits = bank.credits ?? 0;
+
+        if (bankCredits >= deficit) {
+          const newEnergy = currentEnergy + deficit - cost;
+
+          await d.dynamoClient.send(new TransactWriteCommand({
+            TransactItems: [
+              {
+                Update: {
+                  TableName: d.tableName,
+                  Key: { pk: bucket.pk, sk: bucket.sk },
+                  UpdateExpression: 'SET credits = :credits, lastRefillAt = :now',
+                  ExpressionAttributeValues: {
+                    ':credits': newEnergy,
+                    ':now': now,
+                  },
+                },
+              },
+              {
+                Update: {
+                  TableName: d.tableName,
+                  Key: { pk: bank.pk, sk: bank.sk },
+                  ConditionExpression: 'credits >= :deficit',
+                  UpdateExpression: 'SET credits = credits - :deficit, updatedAt = :now',
+                  ExpressionAttributeValues: {
+                    ':deficit': deficit,
+                    ':now': now,
+                  },
+                },
+              },
+            ],
+          }));
+
+          await logEnergyEvent({
+            avatarId,
+            operation,
+            cost,
+            energyBefore: flooredEnergy,
+            energyAfter: Math.floor(newEnergy),
+            refillRate: refillPerHour,
+            requestId: options?.requestId,
+            metadata: {
+              ...options?.metadata,
+              bankCreditsUsed: deficit,
+            },
+          }, d);
+
+          return {
+            success: true,
+            energyBefore: flooredEnergy,
+            energyAfter: Math.floor(newEnergy),
+          };
+        }
+      } catch {
+        // Fall through to insufficient-energy response below.
+      }
+    }
+
     const hoursUntilEnough = (cost - flooredEnergy) / refillPerHour;
     const minutesUntilEnough = Math.ceil(hoursUntilEnough * 60);
     
@@ -461,6 +568,60 @@ export async function consumeEnergy(
     energyBefore: flooredEnergy,
     energyAfter: Math.floor(newEnergy),
   };
+}
+
+// =============================================================================
+// ENERGY BANK (PURCHASED CREDITS)
+// =============================================================================
+
+/**
+ * Get purchased energy credits (bank) for an avatar.
+ * These credits can be auto-spent to cover energy deficits.
+ */
+export async function getEnergyBankBalance(
+  avatarId: string,
+  deps?: EnergyServiceDeps
+): Promise<{ credits: number }> {
+  const d = deps ?? await getDefaultDeps();
+  const bank = await getOrCreateEnergyBankBucket(avatarId, d);
+  return { credits: bank.credits ?? 0 };
+}
+
+/**
+ * Add purchased energy credits (bank) for an avatar.
+ */
+export async function addEnergyBankCredits(
+  avatarId: string,
+  amount: number,
+  deps?: EnergyServiceDeps
+): Promise<{ success: boolean; newCredits: number }> {
+  const d = deps ?? await getDefaultDeps();
+  const now = d.now();
+  const safeAmount = Number.isFinite(amount) ? Math.floor(amount) : 0;
+  if (safeAmount <= 0) {
+    const bank = await getOrCreateEnergyBankBucket(avatarId, d);
+    return { success: true, newCredits: bank.credits ?? 0 };
+  }
+
+  const pk = `AVATAR#${avatarId}`;
+  const sk = 'CREDIT#energy_bank' as const;
+
+  const result = await d.dynamoClient.send(new UpdateCommand({
+    TableName: d.tableName,
+    Key: { pk, sk },
+    UpdateExpression: 'SET toolName = :toolName, avatarId = :avatarId, credits = if_not_exists(credits, :zero) + :amount, updatedAt = :now',
+    ExpressionAttributeValues: {
+      ':toolName': 'energy_bank',
+      ':avatarId': avatarId,
+      ':zero': 0,
+      ':amount': safeAmount,
+      ':now': now,
+    },
+    ReturnValues: 'ALL_NEW',
+  }));
+
+  const newCredits = (result.Attributes?.credits as number | undefined) ?? safeAmount;
+  return { success: true, newCredits };
 }
 
 /**

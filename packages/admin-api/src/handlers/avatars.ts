@@ -20,6 +20,7 @@ import * as integrationsService from '../services/integrations.js';
 import * as twitterFeedService from '../services/twitter-feed.js';
 import * as observabilityService from '../services/observability.js';
 import * as energyService from '../services/energy.js';
+import * as energyBurnService from '../services/energy-burn.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
 import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
@@ -1274,11 +1275,60 @@ export async function handler(
       }
 
       const status = await energyService.getEnergyStatus(avatarId);
+      const bank = await energyService.getEnergyBankBalance(avatarId);
       
       return jsonResponse(corsHeaders, 200, {
         avatarId,
         ...status,
+        bankCredits: bank.credits,
         costs: energyService.ENERGY_COSTS,
+      });
+    }
+
+    // POST /avatars/{id}/energy/burn - Owner: burn deposited memecoin for energy credits
+    const energyBurnMatch = path.match(/^\/avatars\/([^/]+)\/energy\/burn$/);
+    if (method === 'POST' && energyBurnMatch) {
+      const avatarId = energyBurnMatch[1];
+
+      if (!walletAddress && !effectiveIsAdmin) {
+        return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+      }
+
+      if (!effectiveIsAdmin) {
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const body = JSON.parse(event.body || '{}');
+      const mint = typeof body?.mint === 'string' ? body.mint : undefined;
+      const actorId = walletAddress || session.email || 'unknown';
+
+      const result = await energyBurnService.burnDepositedTokensForEnergy({
+        avatarId,
+        mint,
+        actorId,
+      });
+
+      if (!result.success) {
+        return jsonResponse(corsHeaders, 400, {
+          error: result.error || 'Failed to burn tokens for energy',
+          signature: result.signature,
+          mint: result.mint,
+        });
+      }
+
+      const status = await energyService.getEnergyStatus(avatarId);
+      const bank = await energyService.getEnergyBankBalance(avatarId);
+
+      return jsonResponse(corsHeaders, 200, {
+        ...result,
+        energy: {
+          ...status,
+          bankCredits: bank.credits,
+          costs: energyService.ENERGY_COSTS,
+        },
       });
     }
 
