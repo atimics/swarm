@@ -272,13 +272,13 @@ export interface EnergyStatus {
   avatarId: string;
   currentEnergy: number;
   maxEnergy: number;
-  lastUpdated: number;
   refillPerHour: number;
   baseRefillPerHour: number;
   bonusRefillPerHour: number;
   ownerTokenBalance: number;
   timeToNextEnergy: number | null;
   timeToFull: number | null;
+  bankCredits?: number;
 }
 
 export interface EnergyEvent {
@@ -290,6 +290,46 @@ export interface EnergyEvent {
   cost?: number;
   operation?: string;
   message?: string;
+}
+
+type ApiEnergyStatus = {
+  avatarId: string;
+  current: number;
+  max: number;
+  nextRefillIn: number; // minutes
+  refillPerHour: number;
+  baseRefillPerHour: number;
+  bonusRefillPerHour: number;
+  ownerTokenBalance?: number;
+  refillCap?: number;
+  bankCredits?: number;
+};
+
+function toUiEnergyStatus(raw: ApiEnergyStatus): EnergyStatus {
+  const currentEnergy = Number(raw.current ?? 0);
+  const maxEnergy = Number(raw.max ?? 0);
+  const refillPerHour = Number(raw.refillPerHour ?? 0);
+
+  const timeToNextEnergy = typeof raw.nextRefillIn === 'number'
+    ? raw.nextRefillIn * 60_000
+    : null;
+
+  const timeToFull = (maxEnergy > currentEnergy && refillPerHour > 0)
+    ? Math.ceil(((maxEnergy - currentEnergy) / refillPerHour) * 3_600_000)
+    : null;
+
+  return {
+    avatarId: raw.avatarId,
+    currentEnergy,
+    maxEnergy,
+    refillPerHour,
+    baseRefillPerHour: Number(raw.baseRefillPerHour ?? 0),
+    bonusRefillPerHour: Number(raw.bonusRefillPerHour ?? 0),
+    ownerTokenBalance: Number(raw.ownerTokenBalance ?? 0),
+    timeToNextEnergy,
+    timeToFull,
+    bankCredits: raw.bankCredits,
+  };
 }
 
 /**
@@ -306,18 +346,22 @@ export async function getEnergyStatus(avatarId: string): Promise<EnergyStatus> {
     throw new Error(error.error || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  const raw = (await response.json()) as ApiEnergyStatus;
+  return toUiEnergyStatus(raw);
 }
 
 /**
  * Set energy level for an avatar (admin only)
  */
-export async function setEnergy(avatarId: string, energy: number): Promise<EnergyStatus> {
+export async function setEnergy(
+  avatarId: string,
+  value: number
+): Promise<{ avatarId: string; success: boolean; newValue: number }> {
   const response = await fetch(`${API_BASE}/avatars/${encodeURIComponent(avatarId)}/energy/set`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ energy }),
+    body: JSON.stringify({ value }),
   });
 
   if (!response.ok) {
@@ -331,7 +375,10 @@ export async function setEnergy(avatarId: string, energy: number): Promise<Energ
 /**
  * Add energy to an avatar (admin only)
  */
-export async function addEnergy(avatarId: string, amount: number): Promise<EnergyStatus> {
+export async function addEnergy(
+  avatarId: string,
+  amount: number
+): Promise<{ avatarId: string; success: boolean; newValue: number }> {
   const response = await fetch(`${API_BASE}/avatars/${encodeURIComponent(avatarId)}/energy/add`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -367,7 +414,31 @@ export async function getEnergyHistory(
     throw new Error(error.error || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  const raw = (await response.json()) as {
+    avatarId: string;
+    events: Array<{
+      operation?: string;
+      cost?: number;
+      energyBefore: number;
+      energyAfter: number;
+      refillRate?: number;
+      timestamp: string;
+    }>;
+    count?: number;
+  };
+
+  const events: EnergyEvent[] = (raw.events || []).map((e, idx) => ({
+    eventId: `${raw.avatarId || avatarId}-${idx}-${e.timestamp}`,
+    timestamp: Number.isFinite(Date.parse(e.timestamp)) ? Date.parse(e.timestamp) : Date.now(),
+    eventType: 'consume',
+    energyBefore: e.energyBefore,
+    energyAfter: e.energyAfter,
+    cost: e.cost,
+    operation: e.operation,
+    message: undefined,
+  }));
+
+  return { events };
 }
 
 /**
