@@ -53,6 +53,11 @@ export function getBurnToEnergyConfig(): BurnToEnergyConfig {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 
+  const defaultMint = (process.env.ENERGY_BURN_DEFAULT_MINT || '').trim();
+  if (defaultMint && !allowedMints.includes(defaultMint)) {
+    allowedMints.unshift(defaultMint);
+  }
+
   const tokensPerEnergyCredit = Number.parseInt(process.env.ENERGY_BURN_RATE || '100', 10);
 
   return {

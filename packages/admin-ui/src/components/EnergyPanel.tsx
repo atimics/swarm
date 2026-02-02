@@ -56,6 +56,8 @@ export function EnergyPanel({ avatarId, isAdmin = false, compact = false }: Ener
   const [history, setHistory] = useState<EnergyEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [burnBusy, setBurnBusy] = useState(false);
+  const [burnMessage, setBurnMessage] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [adminAction, setAdminAction] = useState<'set' | 'add' | null>(null);
   const [adminValue, setAdminValue] = useState('');
@@ -81,6 +83,23 @@ export function EnergyPanel({ avatarId, isAdmin = false, compact = false }: Ener
       console.error('Failed to load energy history:', e);
     }
   }, [avatarId]);
+
+  const handleBurn = useCallback(async () => {
+    setBurnBusy(true);
+    setBurnMessage(null);
+    try {
+      await avatarApi.burnDepositedTokensForEnergy(avatarId);
+      setBurnMessage('Burn completed. Credits added to bank.');
+      await fetchStatus();
+      if (showHistory) {
+        await fetchHistory();
+      }
+    } catch (e) {
+      setBurnMessage(e instanceof Error ? e.message : 'Burn failed');
+    } finally {
+      setBurnBusy(false);
+    }
+  }, [avatarId, fetchHistory, fetchStatus, showHistory]);
 
   useEffect(() => {
     fetchStatus();
@@ -183,30 +202,41 @@ export function EnergyPanel({ avatarId, isAdmin = false, compact = false }: Ener
           <span className="text-xl">⚡</span>
           <span className="text-sm font-medium text-[var(--color-text-secondary)]">Energy</span>
         </div>
-        {isAdmin && (
-          <div className="flex gap-1">
-            <button
-              onClick={() => setAdminAction(adminAction === 'set' ? null : 'set')}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                adminAction === 'set' 
-                  ? 'bg-brand-500 text-white' 
-                  : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text)]'
-              }`}
-            >
-              Set
-            </button>
-            <button
-              onClick={() => setAdminAction(adminAction === 'add' ? null : 'add')}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                adminAction === 'add' 
-                  ? 'bg-brand-500 text-white' 
-                  : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text)]'
-              }`}
-            >
-              Add
-            </button>
-          </div>
-        )}
+        <div className="flex gap-1">
+          <button
+            onClick={handleBurn}
+            disabled={burnBusy}
+            className="px-2 py-1 text-xs rounded transition-colors bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] disabled:opacity-50"
+            title="Burn deposited memecoins in this avatar wallet into energy bank credits"
+          >
+            {burnBusy ? 'Burning…' : 'Burn deposits'}
+          </button>
+
+          {isAdmin && (
+            <>
+              <button
+                onClick={() => setAdminAction(adminAction === 'set' ? null : 'set')}
+                className={`px-2 py-1 text-xs rounded transition-colors ${
+                  adminAction === 'set'
+                    ? 'bg-brand-500 text-white'
+                    : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text)]'
+                }`}
+              >
+                Set
+              </button>
+              <button
+                onClick={() => setAdminAction(adminAction === 'add' ? null : 'add')}
+                className={`px-2 py-1 text-xs rounded transition-colors ${
+                  adminAction === 'add'
+                    ? 'bg-brand-500 text-white'
+                    : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text)]'
+                }`}
+              >
+                Add
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Admin Action Input */}
@@ -276,6 +306,15 @@ export function EnergyPanel({ avatarId, isAdmin = false, compact = false }: Ener
         </div>
       )}
 
+      {typeof status.bankCredits === 'number' && (
+        <div className="flex items-center gap-2 text-xs bg-blue-900/20 text-blue-300 px-2 py-1 rounded-lg mb-2">
+          <span>🏦</span>
+          <span>
+            Bank credits: {status.bankCredits}
+          </span>
+        </div>
+      )}
+
       {/* Time Estimates */}
       <div className="flex justify-between text-xs text-[var(--color-text-muted)]">
         {status.currentEnergy < status.maxEnergy ? (
@@ -295,6 +334,10 @@ export function EnergyPanel({ avatarId, isAdmin = false, compact = false }: Ener
       {/* Error Display */}
       {error && (
         <div className="mt-2 text-xs text-red-400">{error}</div>
+      )}
+
+      {burnMessage && (
+        <div className="mt-2 text-xs text-[var(--color-text-tertiary)]">{burnMessage}</div>
       )}
 
       {/* History Toggle */}

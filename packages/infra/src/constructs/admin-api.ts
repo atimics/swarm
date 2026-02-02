@@ -854,6 +854,13 @@ export class AdminApiConstruct extends Construct {
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         SECRET_PREFIX: secretPrefix,
+        // Burn-to-energy configuration
+        ENERGY_BURN_RATE: process.env.ENERGY_BURN_RATE || '100',
+        ENERGY_BURN_DEFAULT_MINT: process.env.ENERGY_BURN_DEFAULT_MINT || 'Ci6Y1UX8bY4jxn6YiogJmdCxFEu2jmZhCcG65PStpump',
+        ENERGY_BURN_ALLOWED_MINTS:
+          process.env.ENERGY_BURN_ALLOWED_MINTS ||
+          process.env.ENERGY_BURN_DEFAULT_MINT ||
+          'Ci6Y1UX8bY4jxn6YiogJmdCxFEu2jmZhCcG65PStpump',
         REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
         // POST_QUEUE for decoupled Twitter posting
         POST_QUEUE_URL: props.postQueue?.queueUrl || '',
