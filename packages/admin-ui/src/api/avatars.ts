@@ -370,6 +370,28 @@ export async function getEnergyHistory(
   return response.json();
 }
 
+/**
+ * Burn deposited SPL tokens (allowed mint) from the avatar's Solana wallet into energy bank credits.
+ */
+export async function burnDepositedTokensForEnergy(
+  avatarId: string,
+  params?: { mint?: string }
+): Promise<unknown> {
+  const response = await fetch(`${API_BASE}/avatars/${encodeURIComponent(avatarId)}/energy/burn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ mint: params?.mint }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
 // Legacy aliases for backward compatibility (agent → avatar)
 export const createAgent = createAvatar;
 export const listAgents = listAvatars;

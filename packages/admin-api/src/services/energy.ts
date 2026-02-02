@@ -412,6 +412,20 @@ export async function canUseEnergy(
   const currentEnergy = Math.floor(calculateCurrentEnergy(bucket, refillPerHour, config.maxEnergy, now));
 
   if (currentEnergy < cost) {
+    // Consider purchased energy credits (bank) as an instant top-up source.
+    const deficit = cost - currentEnergy;
+    if (deficit > 0) {
+      try {
+        const bank = await getOrCreateEnergyBankBucket(avatarId, d);
+        const bankCredits = bank.credits ?? 0;
+        if (bankCredits >= deficit) {
+          return { allowed: true, remaining: currentEnergy, refillPerHour };
+        }
+      } catch {
+        // Ignore bank errors and fall back to normal insufficient response.
+      }
+    }
+
     const hoursUntilEnough = (cost - currentEnergy) / refillPerHour;
     const minutesUntilEnough = Math.ceil(hoursUntilEnough * 60);
     
