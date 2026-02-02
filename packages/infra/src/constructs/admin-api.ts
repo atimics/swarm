@@ -1048,6 +1048,50 @@ export class AdminApiConstruct extends Construct {
       integration: avatarsIntegration,
     });
 
+    // Plan/entitlements routes
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/entitlement',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.PUT],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/effective-limits',
+      methods: [apigateway.HttpMethod.GET],
+      integration: avatarsIntegration,
+    });
+
+    // Energy routes
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/energy',
+      methods: [apigateway.HttpMethod.GET],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/energy/history',
+      methods: [apigateway.HttpMethod.GET],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/energy/set',
+      methods: [apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/energy/add',
+      methods: [apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/energy/burn',
+      methods: [apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
     // Telegram diagnostics and repair routes
     this.api.addRoutes({
       path: '/avatars/{avatarId}/telegram/diagnostics',
