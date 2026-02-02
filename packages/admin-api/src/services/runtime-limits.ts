@@ -1,0 +1,118 @@
+/**
+ * Runtime Limits Sync
+ *
+ * Admin API writes a compact, runtime-friendly copy of an avatar's effective limits
+ * into STATE_TABLE so Lambda handlers can enforce limits without needing ADMIN_TABLE.
+ */
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  type EntitlementRecord,
+  type PlanLimits,
+  type PlanType,
+  PLAN_DEFAULTS,
+} from '../types.js';
+
+const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
+
+export interface RuntimeLimits {
+  memoryEnabled: boolean;
+  dailyMessageLimit: number;
+  dailyMediaCredits: number;
+  dailyVoiceMinutes: number;
+  maxToolCallsPerMessage: number;
+  autonomousPostsEnabled: boolean;
+  priorityProcessing: boolean;
+}
+
+export interface EffectiveLimitsResult {
+  avatarId: string;
+  plan: PlanType;
+  limits: PlanLimits;
+  source: 'entitlement' | 'default';
+  entitlementStatus?: EntitlementRecord['status'];
+}
+
+export function getEffectiveLimitsForAvatar(
+  avatarId: string,
+  entitlement: EntitlementRecord | null
+): EffectiveLimitsResult {
+  if (!entitlement || entitlement.status !== 'active') {
+    return {
+      avatarId,
+      plan: 'free',
+      limits: PLAN_DEFAULTS.free,
+      source: 'default',
+      entitlementStatus: entitlement?.status,
+    };
+  }
+
+  return {
+    avatarId,
+    plan: entitlement.plan,
+    limits: entitlement.limits ?? PLAN_DEFAULTS[entitlement.plan],
+    source: 'entitlement',
+    entitlementStatus: entitlement.status,
+  };
+}
+
+export function toRuntimeLimits(limits: PlanLimits): RuntimeLimits {
+  return {
+    memoryEnabled: Boolean(limits.memoryEnabled),
+    dailyMessageLimit: limits.dailyMessageLimit ?? PLAN_DEFAULTS.free.dailyMessageLimit,
+    dailyMediaCredits: limits.dailyMediaCredits ?? PLAN_DEFAULTS.free.dailyMediaCredits,
+    dailyVoiceMinutes: limits.dailyVoiceMinutes ?? PLAN_DEFAULTS.free.dailyVoiceMinutes,
+    maxToolCallsPerMessage: limits.maxToolCallsPerMessage ?? PLAN_DEFAULTS.free.maxToolCallsPerMessage,
+    autonomousPostsEnabled: Boolean(limits.autonomousPostsEnabled),
+    priorityProcessing: Boolean(limits.priorityProcessing),
+  };
+}
+
+export async function syncRuntimeLimitsToState(params: {
+  avatarId: string;
+  runtimeLimits: RuntimeLimits;
+  plan: PlanType;
+  source: EffectiveLimitsResult['source'];
+  entitlementStatus?: EffectiveLimitsResult['entitlementStatus'];
+}): Promise<void> {
+  const stateTable = process.env.STATE_TABLE;
+  if (!stateTable) return;
+
+  const { avatarId, runtimeLimits, plan, source, entitlementStatus } = params;
+
+  await dynamoClient.send(new UpdateCommand({
+    TableName: stateTable,
+    Key: {
+      pk: `LIMITS#${avatarId}`,
+      sk: 'RUNTIME',
+    },
+    UpdateExpression: `
+      SET memoryEnabled = :memoryEnabled,
+          dailyMessageLimit = :dailyMessageLimit,
+          dailyMediaCredits = :dailyMediaCredits,
+          dailyVoiceMinutes = :dailyVoiceMinutes,
+          maxToolCallsPerMessage = :maxToolCallsPerMessage,
+          autonomousPostsEnabled = :autonomousPostsEnabled,
+          priorityProcessing = :priorityProcessing,
+          plan = :plan,
+          source = :source,
+          entitlementStatus = :entitlementStatus,
+          updatedAt = :now
+    `,
+    ExpressionAttributeValues: {
+      ':memoryEnabled': runtimeLimits.memoryEnabled,
+      ':dailyMessageLimit': runtimeLimits.dailyMessageLimit,
+      ':dailyMediaCredits': runtimeLimits.dailyMediaCredits,
+      ':dailyVoiceMinutes': runtimeLimits.dailyVoiceMinutes,
+      ':maxToolCallsPerMessage': runtimeLimits.maxToolCallsPerMessage,
+      ':autonomousPostsEnabled': runtimeLimits.autonomousPostsEnabled,
+      ':priorityProcessing': runtimeLimits.priorityProcessing,
+      ':plan': plan,
+      ':source': source,
+      ':entitlementStatus': entitlementStatus ?? 'none',
+      ':now': Date.now(),
+    },
+  }));
+}

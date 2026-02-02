@@ -14,6 +14,7 @@ import { ChatMessage as ChatMessageComponent } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { AvatarDisplay } from './AvatarSidebar';
 import { PromptPreviewPanel } from './PromptPreviewPanel';
+import { PlanModal } from './PlanModal';
 
 // Track active polling jobs to avoid duplicate polling
 const activePollers = new Map<string, { controller: AbortController; avatarId: string }>();
@@ -26,10 +27,11 @@ export function ChatPanel({ onMenuClick }: ChatPanelProps) {
   const activeAvatar = useActiveAvatar();
   const messages = useActiveChat();
   const { addMessage, updateMessage, removeMessage, clearChat, updateAvatar, setLoading, setError, createAvatar } = useAvatarStore();
-  const { user: user, isAuthenticated, gateStatus } = useAuth();
+  const { user: user, isAuthenticated, gateStatus, account } = useAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
+  const [planModalOpen, setPlanModalOpen] = useState(false);
   const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
   const [showHint, setShowHint] = useState(true);
 
@@ -937,6 +939,13 @@ export function ChatPanel({ onMenuClick }: ChatPanelProps) {
             {accessMode === 'admin' && (
               <>
                 <button
+                  onClick={() => setPlanModalOpen(true)}
+                  className="px-2 lg:px-3 py-1.5 text-xs lg:text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors"
+                  title="View and set plan limits"
+                >
+                  Plan
+                </button>
+                <button
                   onClick={() => setPromptPreviewOpen(true)}
                   className="px-2 lg:px-3 py-1.5 text-xs lg:text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors"
                   title="Preview prompt sent to LLM"
@@ -1011,6 +1020,16 @@ export function ChatPanel({ onMenuClick }: ChatPanelProps) {
         isOpen={promptPreviewOpen}
         onClose={() => setPromptPreviewOpen(false)}
       />
+
+      {activeAvatar && (
+        <PlanModal
+          avatarId={activeAvatar.id}
+          avatarName={activeAvatar.name}
+          isOpen={planModalOpen}
+          canEdit={account?.role === 'admin'}
+          onClose={() => setPlanModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
