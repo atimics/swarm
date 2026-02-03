@@ -5,9 +5,13 @@ import { getClearSessionCookies, getSessionFromCookie, getSetSessionCookies } fr
 
 describe('session-cookie', () => {
   const prevAuthDomain = process.env.AUTH_DOMAIN;
+  const prevEnvironment = process.env.ENVIRONMENT;
+  const prevSessionCookieName = process.env.SESSION_COOKIE_NAME;
 
   beforeEach(() => {
     delete process.env.AUTH_DOMAIN;
+    delete process.env.ENVIRONMENT;
+    delete process.env.SESSION_COOKIE_NAME;
   });
 
   afterEach(() => {
@@ -15,6 +19,18 @@ describe('session-cookie', () => {
       delete process.env.AUTH_DOMAIN;
     } else {
       process.env.AUTH_DOMAIN = prevAuthDomain;
+    }
+
+    if (prevEnvironment === undefined) {
+      delete process.env.ENVIRONMENT;
+    } else {
+      process.env.ENVIRONMENT = prevEnvironment;
+    }
+
+    if (prevSessionCookieName === undefined) {
+      delete process.env.SESSION_COOKIE_NAME;
+    } else {
+      process.env.SESSION_COOKIE_NAME = prevSessionCookieName;
     }
   });
 
@@ -90,5 +106,22 @@ describe('session-cookie', () => {
     expect(cookies[1]).toContain('swarm_session=');
     expect(cookies[1]).toContain('Domain=.rati.chat');
     expect(cookies[1]).toContain('Max-Age=0');
+  });
+
+  it('uses an environment-scoped cookie name outside prod', () => {
+    process.env.ENVIRONMENT = 'staging';
+
+    const cookies = getSetSessionCookies('abc');
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toContain('swarm_session_staging=abc');
+  });
+
+  it('getSessionFromCookie reads the environment-scoped cookie name', () => {
+    process.env.ENVIRONMENT = 'staging';
+    const event = {
+      cookies: ['swarm_session=prod-token', 'swarm_session_staging=staging-token'],
+    } as unknown as APIGatewayProxyEventV2;
+
+    expect(getSessionFromCookie(event)).toBe('staging-token');
   });
 });

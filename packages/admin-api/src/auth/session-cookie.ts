@@ -1,6 +1,19 @@
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
-const COOKIE_NAME = 'swarm_session';
+const DEFAULT_COOKIE_NAME = 'swarm_session';
+
+function getCookieName(): string {
+  const explicit = process.env.SESSION_COOKIE_NAME;
+  if (explicit) return explicit;
+
+  const environment = (process.env.ENVIRONMENT || '').trim().toLowerCase();
+  if (!environment || environment === 'prod' || environment === 'production') {
+    return DEFAULT_COOKIE_NAME;
+  }
+
+  const safe = environment.replace(/[^a-z0-9]/g, '_');
+  return `${DEFAULT_COOKIE_NAME}_${safe}`;
+}
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -23,12 +36,13 @@ function getCookieDomain(): string | undefined {
 }
 
 function buildCookie(params: {
+  cookieName: string;
   value: string;
   maxAgeSeconds: number;
   domain?: string;
 }): string {
   const parts = [
-    `${COOKIE_NAME}=${params.value}`,
+    `${params.cookieName}=${params.value}`,
     'HttpOnly',
     'Secure',
     `SameSite=${COOKIE_OPTIONS.sameSite}`,
@@ -51,10 +65,11 @@ function buildCookie(params: {
  * should avoid duplicates by clearing the alternate scope when setting.
  */
 export function getSessionFromCookie(event: APIGatewayProxyEventV2): string | null {
+  const cookieName = getCookieName();
   const cookies = event.cookies || [];
   for (const cookie of cookies) {
     const [name, value] = cookie.split('=');
-    if (name === COOKIE_NAME && value) return value;
+    if (name === cookieName && value) return value;
   }
 
   // Some proxies/environments may not populate event.cookies; fall back to Cookie header.
@@ -65,7 +80,7 @@ export function getSessionFromCookie(event: APIGatewayProxyEventV2): string | nu
     const trimmed = part.trim();
     if (!trimmed) continue;
     const [name, ...rest] = trimmed.split('=');
-    if (name !== COOKIE_NAME) continue;
+    if (name !== cookieName) continue;
     const value = rest.join('=');
     if (value) return value;
   }
@@ -80,17 +95,29 @@ export function getSessionFromCookie(event: APIGatewayProxyEventV2): string | nu
  * host-only cookie to avoid duplicate swarm_session values being sent.
  */
 export function getSetSessionCookies(sessionToken: string): string[] {
+  const cookieName = getCookieName();
   const domain = getCookieDomain();
 
   if (!domain) {
-    return [buildCookie({ value: sessionToken, maxAgeSeconds: COOKIE_OPTIONS.maxAgeSeconds })];
+    return [
+      buildCookie({
+        cookieName,
+        value: sessionToken,
+        maxAgeSeconds: COOKIE_OPTIONS.maxAgeSeconds,
+      }),
+    ];
   }
 
   return [
     // Preferred: parent-domain cookie shared across subdomains.
-    buildCookie({ value: sessionToken, maxAgeSeconds: COOKIE_OPTIONS.maxAgeSeconds, domain }),
+    buildCookie({
+      cookieName,
+      value: sessionToken,
+      maxAgeSeconds: COOKIE_OPTIONS.maxAgeSeconds,
+      domain,
+    }),
     // Cleanup: clear host-only cookie to prevent duplicates.
-    buildCookie({ value: '', maxAgeSeconds: 0 }),
+    buildCookie({ cookieName, value: '', maxAgeSeconds: 0 }),
   ];
 }
 
@@ -100,14 +127,15 @@ export function getSetSessionCookies(sessionToken: string): string[] {
  * Clears both host-only and parent-domain variants (if applicable).
  */
 export function getClearSessionCookies(): string[] {
+  const cookieName = getCookieName();
   const domain = getCookieDomain();
 
   if (!domain) {
-    return [buildCookie({ value: '', maxAgeSeconds: 0 })];
+    return [buildCookie({ cookieName, value: '', maxAgeSeconds: 0 })];
   }
 
   return [
-    buildCookie({ value: '', maxAgeSeconds: 0 }),
-    buildCookie({ value: '', maxAgeSeconds: 0, domain }),
+    buildCookie({ cookieName, value: '', maxAgeSeconds: 0 }),
+    buildCookie({ cookieName, value: '', maxAgeSeconds: 0, domain }),
   ];
 }

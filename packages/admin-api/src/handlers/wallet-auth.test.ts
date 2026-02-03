@@ -12,6 +12,9 @@ const mockGetGateStatus = mock();
 
 const { handleWalletAuth } = await import('./wallet-auth.js');
 
+const prevSessionCookieName = process.env.SESSION_COOKIE_NAME;
+process.env.SESSION_COOKIE_NAME = 'swarm_session';
+
 function createEvent(overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 {
   return {
     version: '2.0',
@@ -44,6 +47,15 @@ function createEvent(overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewa
     ...overrides,
   } as APIGatewayProxyEventV2;
 }
+
+// Restore for other tests (best-effort)
+process.on('exit', () => {
+  if (prevSessionCookieName === undefined) {
+    delete process.env.SESSION_COOKIE_NAME;
+  } else {
+    process.env.SESSION_COOKIE_NAME = prevSessionCookieName;
+  }
+});
 
 describe('Wallet Auth Handler', () => {
   beforeEach(() => {
