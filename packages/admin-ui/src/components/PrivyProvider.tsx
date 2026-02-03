@@ -7,6 +7,7 @@ import { type ReactNode } from 'react';
 import { PrivyProvider as PrivyReactProvider, type PrivyClientConfig } from '@privy-io/react-auth';
 
 const PRIVY_APP_ID = import.meta.env.VITE_PRIVY_APP_ID || '';
+const PRIVY_ENABLE_EMBEDDED_WALLETS_RAW = import.meta.env.VITE_PRIVY_ENABLE_EMBEDDED_WALLETS;
 
 interface PrivyProviderProps {
   children: ReactNode;
@@ -42,13 +43,39 @@ VITE_PRIVY_APP_ID=your_privy_app_id
   );
 }
 
+function parseBool(value: unknown): boolean | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return null;
+}
+
+function shouldEnableEmbeddedWallets(): boolean {
+  // Allow explicit override for debugging / rollout.
+  const override = parseBool(PRIVY_ENABLE_EMBEDDED_WALLETS_RAW);
+  if (override !== null) return override;
+
+  // Default: enable embedded wallets on known admin domains.
+  // If Privy hasn't been configured to allow the origin for embedded wallets, the iframe will be
+  // blocked by Privy's CSP (frame-ancestors) and login will fail.
+  const host = window.location.hostname.toLowerCase();
+  return host === 'swarm.rati.chat' || host === 'staging-swarm.rati.chat';
+}
+
 export function buildPrivyConfig(): PrivyClientConfig {
+  const enableEmbeddedWallets = shouldEnableEmbeddedWallets();
+
   return {
     loginMethods: ['email', 'google', 'twitter'],
-    embeddedWallets: {
-      solana: {
-        createOnLogin: 'users-without-wallets',
-      },
-    },
+    ...(enableEmbeddedWallets
+      ? {
+          embeddedWallets: {
+            solana: {
+              createOnLogin: 'users-without-wallets',
+            },
+          },
+        }
+      : {}),
   };
 }

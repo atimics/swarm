@@ -2,7 +2,7 @@
  * Login Options Component
  * Provides both Privy (email/social) and native wallet login options
  */
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useUnifiedWalletContext } from '@jup-ag/wallet-adapter';
 import { useWalletAuth } from '../store/walletAuth';
@@ -32,6 +32,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
 
   // If Privy is authenticated but we don't yet have an embedded wallet address, don't block the UI.
   const isWaitingForWallet = authenticated && !!privyUser && !walletAddress;
+  const [walletWaitTimedOut, setWalletWaitTimedOut] = useState(false);
 
   const isLoading = walletAuth.isLoading || privyAuth.isLoading;
 
@@ -142,6 +143,40 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
     void doSync();
   }, [ready, authenticated, privyUser, getAccessToken, walletAddress, privyAuth]);
 
+  // Surface common Privy integration failures (domain allowlist / iframe CSP) as UI errors.
+  useEffect(() => {
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const raw = (event.reason instanceof Error ? event.reason.message : String(event.reason || '')).toLowerCase();
+      if (!raw) return;
+
+      const isPrivyOriginError = raw.includes('origin not allowed') || raw.includes('not allowed');
+      const isPrivyIframeError = raw.includes('frame-ancestors') || raw.includes('recipient has origin null');
+
+      if (!isPrivyOriginError && !isPrivyIframeError) return;
+
+      const origin = window.location.origin;
+      const hint = isPrivyOriginError
+        ? `Privy rejected this origin (${origin}). Add it to your Privy app's allowed domains.`
+        : `Privy embedded wallet iframe was blocked (CSP/frame-ancestors). Ensure ${origin} is allowed for embedded wallets in Privy.`;
+
+      privyAuth.setError(hint);
+    };
+
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+    return () => window.removeEventListener('unhandledrejection', onUnhandledRejection);
+  }, [privyAuth]);
+
+  // If we're waiting on Privy to create/link a wallet for too long, show a more actionable message.
+  useEffect(() => {
+    if (!isWaitingForWallet) {
+      setWalletWaitTimedOut(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setWalletWaitTimedOut(true), 12_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [isWaitingForWallet]);
+
   const handleWalletConnect = useCallback(() => {
     solanaLoginAttemptedRef.current = null; // Allow fresh attempt
     walletAuth.clearError();
@@ -245,9 +280,11 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
       </button>
 
       {isWaitingForWallet && !isLoading && (
-        <p className="text-xs text-[var(--color-text-muted)] text-center">
-          Privy is finishing wallet setup in the background.
-        </p>
+            <p className="text-xs text-[var(--color-text-muted)] text-center">
+              {walletWaitTimedOut
+                ? `Privy sign-in succeeded, but wallet setup is taking too long. If you see “Origin not allowed” or CSP/frame-ancestors errors in console, add ${window.location.origin} to your Privy allowlists (or sign in with a Solana wallet instead).`
+                : 'Privy is finishing wallet setup in the background.'}
+            </p>
       )}
 
       {/* Divider */}

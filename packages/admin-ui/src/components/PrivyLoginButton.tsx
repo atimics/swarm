@@ -2,7 +2,7 @@
  * Simple Privy Login Button
  * For use in public pages like shared chat where we only want Privy auth
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useAuth } from '../store/auth';
 import { usePrivyAuth } from '../store/privyAuth';
@@ -94,6 +94,7 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
   const { login, logout: privyLogout, ready, authenticated, user: privyUser, getAccessToken } = usePrivy();
   const { isAuthenticated, isLoading, user, logout: authLogout } = useAuth();
   const privyAuth = usePrivyAuth();
+  const [walletWaitTimedOut, setWalletWaitTimedOut] = useState(false);
 
   // Track sync attempts to prevent infinite loops
   const syncAttemptedRef = useRef(false);
@@ -109,6 +110,29 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
 
   // Track if we're waiting for wallet creation
   const isWaitingForWalletCreation = ready && authenticated && privyUser && !walletAddress;
+
+  // Surface common Privy integration failures as a store error.
+  useEffect(() => {
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const raw = (event.reason instanceof Error ? event.reason.message : String(event.reason || '')).toLowerCase();
+      if (!raw) return;
+
+      const isPrivyOriginError = raw.includes('origin not allowed') || raw.includes('not allowed');
+      const isPrivyIframeError = raw.includes('frame-ancestors') || raw.includes('recipient has origin null');
+
+      if (!isPrivyOriginError && !isPrivyIframeError) return;
+
+      const origin = window.location.origin;
+      const hint = isPrivyOriginError
+        ? `Privy rejected this origin (${origin}). Add it to your Privy app's allowed domains.`
+        : `Privy embedded wallet iframe was blocked (CSP/frame-ancestors). Ensure ${origin} is allowed for embedded wallets in Privy.`;
+
+      privyAuth.setError(hint);
+    };
+
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+    return () => window.removeEventListener('unhandledrejection', onUnhandledRejection);
+  }, [privyAuth]);
 
   // Sync Privy auth state with backend when Privy is authenticated and wallet is ready
   useEffect(() => {
@@ -152,19 +176,22 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
     if (!isWaitingForWalletCreation) return;
     if (privyAuth.isAuthenticated) return;
 
+    setWalletWaitTimedOut(false);
+
     // The wallet should appear in privyUser when Privy finishes creating it
     // The walletAddress variable will update, triggering the sync effect above
     // This effect just logs the waiting state for debugging
     console.log('[PrivyLoginButton] Waiting for embedded wallet creation...');
 
-    // Set a timeout to warn if wallet creation takes too long
-    const timeoutId = setTimeout(() => {
+    // If wallet creation/linking never completes, show a more actionable hint.
+    const timeoutId = window.setTimeout(() => {
       if (!getSolanaWalletAddressFromPrivyUser(privyUser)) {
         console.warn('[PrivyLoginButton] Embedded wallet creation is taking longer than expected');
+        setWalletWaitTimedOut(true);
       }
-    }, 10000);
+    }, 12_000);
 
-    return () => clearTimeout(timeoutId);
+    return () => window.clearTimeout(timeoutId);
   }, [isWaitingForWalletCreation, privyUser, privyAuth.isAuthenticated]);
 
   const handleLogin = useCallback(async () => {
@@ -210,7 +237,9 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
   // Loading state - show when auth is loading OR when Privy is authenticated but backend sync pending
   if (isLoading || privyAuth.isLoading || isWaitingForSync) {
     const loadingMessage = isWaitingForWallet
-      ? 'Creating wallet...'
+      ? walletWaitTimedOut
+        ? 'Wallet setup blocked'
+        : 'Creating wallet...'
       : isWaitingForSync
       ? 'Syncing...'
       : 'Connecting...';
