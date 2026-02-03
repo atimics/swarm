@@ -382,28 +382,52 @@ jobs:
             DIFF_TARGETS="--all"
           fi
 
-          npx cdk diff $DIFF_TARGETS -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
+          # NOTE: `cdk diff` prints "There were no differences" once per stack.
+          # When diffing multiple stacks, grepping for that string is not reliable.
+          # Use `--fail` so we can safely rely on exit codes:
+          #   0 = no diffs, 1 = diffs present, >1 = error.
+          npx cdk diff --fail $DIFF_TARGETS -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
           DIFF_EXIT=$?
           set -e
           
-          # Check if there are no differences (exit 0 and contains "no differences")
-          if [ $DIFF_EXIT -eq 0 ] && grep -q "There were no differences" diff-output.txt; then
+          if [ $DIFF_EXIT -gt 1 ]; then
+            echo "::error::cdk diff failed (exit $DIFF_EXIT)"
+            cat diff-output.txt
+            exit $DIFF_EXIT
+          fi
+
+          # Check if there are no differences (exit 0)
+          if [ $DIFF_EXIT -eq 0 ]; then
             # Don't skip deploy if the target stack does not exist (common after manual cleanup).
-            STACK_SUFFIX=""
-            if [ -n "$STACK_HASH" ]; then
-              STACK_SUFFIX="-$STACK_HASH"
-            fi
-            if [ "$SPLIT_STACKS" = "true" ]; then
-              TARGET_STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
+            if [ -n "$STACK" ]; then
+              TARGET_STACKS="$STACK"
+            elif [ "$IS_MIGRATION_STAGING_SPLIT" = "true" ]; then
+              TARGET_STACKS="SwarmApi-${{ needs.setup.outputs.cdk_env }} SwarmUi-${{ needs.setup.outputs.cdk_env }} SwarmAvatars-${{ needs.setup.outputs.cdk_env }}"
             else
-              TARGET_STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
+              STACK_SUFFIX=""
+              if [ -n "$STACK_HASH" ]; then
+                STACK_SUFFIX="-$STACK_HASH"
+              fi
+              if [ "$SPLIT_STACKS" = "true" ]; then
+                TARGET_STACKS="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
+              else
+                TARGET_STACKS="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
+              fi
             fi
 
-            if aws cloudformation describe-stacks --stack-name "$TARGET_STACK" >/dev/null 2>&1; then
+            MISSING_STACK="false"
+            for TARGET_STACK in $TARGET_STACKS; do
+              if ! aws cloudformation describe-stacks --stack-name "$TARGET_STACK" >/dev/null 2>&1; then
+                echo "Target stack '$TARGET_STACK' is missing - forcing deploy"
+                MISSING_STACK="true"
+                break
+              fi
+            done
+
+            if [ "$MISSING_STACK" = "false" ]; then
               echo "No infrastructure changes detected - skipping deploy"
               echo "skip=true" >> $GITHUB_OUTPUT
             else
-              echo "Target stack '$TARGET_STACK' is missing - forcing deploy"
               echo "skip=false" >> $GITHUB_OUTPUT
             fi
           else
