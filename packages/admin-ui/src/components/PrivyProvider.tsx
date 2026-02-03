@@ -51,7 +51,7 @@ function parseBool(value: unknown): boolean | null {
   return null;
 }
 
-function shouldEnableEmbeddedWallets(): boolean {
+function shouldEnableEmbeddedWallets(hostnameOverride?: string): boolean {
   // Allow explicit override for debugging / rollout.
   const override = parseBool(PRIVY_ENABLE_EMBEDDED_WALLETS_RAW);
   if (override !== null) return override;
@@ -59,12 +59,12 @@ function shouldEnableEmbeddedWallets(): boolean {
   // Default: enable embedded wallets on known admin domains.
   // If Privy hasn't been configured to allow the origin for embedded wallets, the iframe will be
   // blocked by Privy's CSP (frame-ancestors) and login will fail.
-  const host = window.location.hostname.toLowerCase();
+  const host = (hostnameOverride ?? window.location.hostname).toLowerCase();
   return host === 'swarm.rati.chat' || host === 'staging-swarm.rati.chat';
 }
 
-export function buildPrivyConfig(): PrivyClientConfig {
-  const enableEmbeddedWallets = shouldEnableEmbeddedWallets();
+export function buildPrivyConfig(options?: { hostname?: string }): PrivyClientConfig {
+  const enableEmbeddedWallets = shouldEnableEmbeddedWallets(options?.hostname);
 
   return {
     loginMethods: ['email', 'google', 'twitter'],
