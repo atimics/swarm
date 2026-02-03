@@ -305,15 +305,28 @@ export async function checkNFTGate(walletAddress: string): Promise<NFTGateResult
     ownedNFTs: [],
   };
 
+  const environment = (process.env.ENVIRONMENT || '').trim().toLowerCase();
+  const gatingDisabled = (process.env.DISABLE_NFT_GATE || '').trim().toLowerCase() === 'true';
+  const isDevLikeEnv = !environment || ['dev', 'local', 'test'].includes(environment);
+  const shouldBypassGate = gatingDisabled || isDevLikeEnv;
+
   try {
     // Use Helius DAS API to get NFTs by owner filtered by collection
     const heliusRpcUrl = await getHeliusRpcUrl();
     
-    // If no Helius API key, NFT gating is disabled - allow all users
+    // If no Helius API key, we cannot verify holdings.
+    // In prod-like environments, fail closed (treat as 0 Orbs).
+    // In dev-like environments (or when explicitly disabled), allow all users.
     if (!heliusRpcUrl) {
-      console.log('[NFTGate] No Helius API key configured, NFT gating disabled - allowing access');
-      result.allowed = true;
-      result.ownedCount = 999; // Grant unlimited slots when gating is disabled
+      if (shouldBypassGate) {
+        console.log('[NFTGate] No Helius API key configured, NFT gating bypassed - allowing access');
+        result.allowed = true;
+        result.ownedCount = 999; // Grant unlimited slots when gating is bypassed
+        return result;
+      }
+
+      console.error('[NFTGate] No Helius API key configured in a prod-like environment; treating as 0 Orbs');
+      result.error = 'Helius API key not configured';
       return result;
     }
     
