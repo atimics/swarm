@@ -1866,7 +1866,7 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
     // =========================================================================
     // Moltbook Services (Social network for AI agents)
     // =========================================================================
-    moltbook: createMoltbookServices(_avatarId),
+    moltbook: createMoltbookServices(_avatarId, session),
   };
 }
 

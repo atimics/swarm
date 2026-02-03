@@ -10,11 +10,29 @@
  * - 50 comments/hour
  */
 
-import type { MoltbookServices, MoltbookConnectionStatus, MoltbookAgent, MoltbookPost, MoltbookComment, MoltbookSubmolt, MoltbookSearchResult } from '@swarm/mcp-server';
+import type {
+  MoltbookServices,
+  MoltbookConnectionStatus,
+  MoltbookAgent,
+  MoltbookPost,
+  MoltbookComment,
+  MoltbookSubmolt,
+  MoltbookSearchResult,
+} from '@swarm/mcp-server';
 import * as secrets from './secrets.js';
+import type { UserSession } from '../types.js';
 
 const MOLTBOOK_BASE_URL = 'https://www.moltbook.com/api/v1';
 const API_TIMEOUT_MS = 15_000;
+
+type MoltbookRegisterResponse = {
+  agent: {
+    api_key: string;
+    claim_url: string;
+    verification_code: string;
+  };
+  important?: string;
+};
 
 /**
  * Make an authenticated request to the Moltbook API
@@ -50,9 +68,41 @@ async function moltbookFetch<T>(
 }
 
 /**
+ * Make an unauthenticated request to the Moltbook API.
+ * Used for registration.
+ */
+async function moltbookFetchUnauthed<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${MOLTBOOK_BASE_URL}${endpoint}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText);
+      throw new Error(`Moltbook API error ${response.status}: ${errorText}`);
+    }
+
+    return response.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
  * Create Moltbook services for an avatar
  */
-export function createMoltbookServices(avatarId: string): MoltbookServices {
+export function createMoltbookServices(avatarId: string, session: UserSession): MoltbookServices {
   // Helper to get API key
   const getApiKey = async (): Promise<string | null> => {
     try {
@@ -109,8 +159,44 @@ export function createMoltbookServices(avatarId: string): MoltbookServices {
       }
     },
 
-    // Registration is handled through admin UI flow - avatar owner must claim via Twitter
-    // The API key comes from the registration response and must be stored by the UI
+    register: async (name: string, description: string) => {
+      const existingApiKey = await getApiKey();
+      if (existingApiKey) {
+        throw new Error('Already registered on Moltbook (API key already stored)');
+      }
+
+      const response = await moltbookFetchUnauthed<MoltbookRegisterResponse>('/agents/register', {
+        method: 'POST',
+        body: JSON.stringify({ name, description }),
+      });
+
+      if (!response?.agent?.api_key || !response.agent.claim_url || !response.agent.verification_code) {
+        throw new Error('Unexpected Moltbook registration response');
+      }
+
+      await secrets.storeSecret(
+        avatarId,
+        'moltbook_api_key',
+        'default',
+        response.agent.api_key,
+        session,
+        `Moltbook API key for ${avatarId}`
+      );
+
+      console.log(JSON.stringify({
+        level: 'INFO',
+        subsystem: 'moltbook',
+        event: 'moltbook_registered',
+        avatarId,
+        agentName: name,
+      }));
+
+      return {
+        apiKey: response.agent.api_key,
+        claimUrl: response.agent.claim_url,
+        verificationCode: response.agent.verification_code,
+      };
+    },
 
     getProfile: async (): Promise<MoltbookAgent> => {
       const apiKey = await getApiKey();
