@@ -308,16 +308,44 @@ export async function launchBagsToken(
     // Step 2: Create token metadata using SDK
     console.log('[BagsLaunch] Creating token metadata...');
     const avatar = (await getAvatar(avatarId))!;
-    const profileUrl = typeof avatar.profileImage === 'string' 
-      ? avatar.profileImage 
+    const profileUrl = typeof avatar.profileImage === 'string'
+      ? avatar.profileImage
       : avatar.profileImage?.url;
-    const imageUrl = config.imageUrl || profileUrl || 'https://via.placeholder.com/500';
+
+    // Require a proper image - don't launch with placeholder
+    const imageUrl = config.imageUrl || profileUrl;
+    if (!imageUrl) {
+      return {
+        success: false,
+        avatarId,
+        error: 'Avatar must have a profile image set before launching a token. Use the profile image tool first.',
+        errorCode: 'LAUNCH_FAILED',
+      };
+    }
+
+    // Sanitize symbol: uppercase, strip $, alphanumeric only
+    const sanitizedSymbol = config.symbol
+      .toUpperCase()
+      .replace(/^\$/, '')
+      .replace(/[^A-Z0-9]/g, '');
+
+    if (sanitizedSymbol.length === 0 || sanitizedSymbol.length > 10) {
+      return {
+        success: false,
+        avatarId,
+        error: 'Token symbol must be 1-10 alphanumeric characters',
+        errorCode: 'LAUNCH_FAILED',
+      };
+    }
+
+    // Use avatar description as fallback for token description
+    const tokenDescription = config.description || avatar.description || `${config.name} - launched by @${twitterUsername}`;
 
     const tokenInfo = await sdk.tokenLaunch.createTokenInfoAndMetadata({
       imageUrl,
-      name: config.name,
-      description: config.description || '',
-      symbol: config.symbol.toUpperCase().replace('$', ''),
+      name: config.name.trim(),
+      description: tokenDescription,
+      symbol: sanitizedSymbol,
       twitter: config.twitterUrl,
       website: config.websiteUrl,
       telegram: config.telegramUrl,
@@ -400,8 +428,8 @@ export async function launchBagsToken(
     // Step 6: Store token info on avatar record
     const bagsToken: BagsTokenInfo = {
       mint: tokenInfo.tokenMint,
-      symbol: config.symbol.toUpperCase(),
-      name: config.name,
+      symbol: sanitizedSymbol,
+      name: config.name.trim(),
       launchedAt: Date.now(),
       signature,
       metadataUrl: tokenInfo.tokenMetadata,
