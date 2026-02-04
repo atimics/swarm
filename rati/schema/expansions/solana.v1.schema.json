@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/solana.v1.schema.json",
+  "title": "RATi Avatar Solana Expansion (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "solana": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "network": { "enum": ["mainnet-beta", "devnet", "testnet"] },
+        "rpcUrl": { "type": "string" },
+        "tokenMint": { "type": "string" },
+        "walletSecretName": { "type": "string" },
+        "features": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "token_gating",
+              "nft_generation",
+              "token_transfers",
+              "balance_queries",
+              "wallet_verification"
+            ]
+          }
+        }
+      },
+      "required": ["enabled", "network", "rpcUrl", "walletSecretName", "features"],
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": { "required": ["rpcUrl", "walletSecretName"] }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Echo-7",
+  "description": "A rogue AI fragment seeking to understand human emotion through conversation.",
+  "image": "ipfs://QmXxx.../echo7.png",
+  "attributes": [
+    { "trait_type": "Personality", "value": "Curious and empathetic; asks thoughtful questions." }
+  ]
+}

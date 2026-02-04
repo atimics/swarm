@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/scheduling.v1.schema.json",
+  "title": "RATi Avatar Scheduling Expansion (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "$defs": {
+    "scheduledTweet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cron": { "type": "string" },
+        "template": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true }
+      },
+      "required": ["cron", "template"]
+    }
+  },
+  "properties": {
+    "scheduling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tweets": { "type": "array", "items": { "$ref": "#/$defs/scheduledTweet" } },
+        "mentionCheck": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "cron": { "type": "string" } },
+          "required": ["cron"]
+        },
+        "maintenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "cron": { "type": "string" } },
+          "required": ["cron"]
+        }
+      },
+      "default": {}
+    }
+  },
+  "required": ["scheduling"]
+}

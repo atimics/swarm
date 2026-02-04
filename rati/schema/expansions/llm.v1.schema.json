@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/llm.v1.schema.json",
+  "title": "RATi Avatar LLM Expansion (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "llm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "enum": ["bedrock", "openrouter", "anthropic"],
+          "description": "LLM provider used by the runtime config loader."
+        },
+        "model": { "type": "string" },
+        "fallbackModel": { "type": "string" },
+        "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+        "maxTokens": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["provider", "model", "temperature", "maxTokens"]
+    }
+  },
+  "required": ["llm"]
+}

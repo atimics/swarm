@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/avatar-config-file.v1.schema.json",
+  "title": "RATi Avatar Config File (YAML/JSON, v1)",
+  "description": "Config file schema aligned with packages/core/src/utils/config.ts (AvatarConfigFileSchema).",
+  "oneOf": [
+    {
+      "$ref": "./avatar-config.v1.schema.json",
+      "description": "Already-normalized runtime config."
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "avatar": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$" },
+            "name": { "type": "string" },
+            "version": { "type": "string" },
+            "persona": { "type": "string" }
+          },
+          "required": ["id"]
+        },
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$" },
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "persona": { "type": "string" },
+        "platforms": { "$ref": "./expansions/platforms.v1.schema.json#/properties/platforms" },
+        "llm": { "$ref": "./expansions/llm.v1.schema.json#/properties/llm" },
+        "media": { "$ref": "./expansions/media.v1.schema.json#/properties/media" },
+        "scheduling": { "$ref": "./expansions/scheduling.v1.schema.json#/properties/scheduling" },
+        "behavior": { "$ref": "./expansions/behavior.v1.schema.json#/properties/behavior" },
+        "voice": { "$ref": "./expansions/voice.v1.schema.json#/properties/voice" },
+        "solana": { "$ref": "./expansions/solana.v1.schema.json#/properties/solana" },
+        "tools": { "$ref": "./expansions/tools-secrets.v1.schema.json#/properties/tools" },
+        "secrets": { "$ref": "./expansions/tools-secrets.v1.schema.json#/properties/secrets" },
+        "energy": { "$ref": "./expansions/energy.v1.schema.json#/properties/energy" },
+        "dnd": { "$ref": "./expansions/dnd.v1.schema.json#/properties/dnd" },
+        "nft": { "$ref": "./expansions/nft-avatar.v1.schema.json#/properties/nft" },
+        "extensions": { "$ref": "./base/avatar-base.v1.schema.json#/properties/extensions" }
+      },
+      "required": ["platforms", "llm", "media", "scheduling", "behavior"],
+      "allOf": [
+        {
+          "anyOf": [
+            { "required": ["id"] },
+            { "required": ["avatar"] }
+          ]
+        },
+        {
+          "if": { "required": ["avatar"] },
+          "then": {
+            "properties": {
+              "avatar": {
+                "required": ["id"]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/energy.v1.schema.json",
+  "title": "RATi Avatar Energy Expansion (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "energy": {
+      "type": "object",
+      "description": "Optional per-avatar energy configuration. This is used by the admin-api energy service (dynamic refill + optional token bonus).",
+      "additionalProperties": false,
+      "properties": {
+        "maxEnergy": { "type": "integer", "minimum": 1, "default": 10 },
+        "baseRefillPerHour": { "type": "number", "minimum": 0, "default": 1 },
+        "bonusPerMillionTokens": { "type": "number", "minimum": 0, "default": 0.5 },
+        "maxBonusPerHour": { "type": "number", "minimum": 0, "default": 2 },
+        "tokenMint": { "type": "string", "description": "Token mint used to compute wallet-based bonus refill." },
+        "refillCap": { "type": "integer", "minimum": 0, "description": "Stop auto-refill when current energy reaches this value." },
+        "costs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": { "type": "integer", "minimum": 0 },
+            "audio": { "type": "integer", "minimum": 0 },
+            "voice": { "type": "integer", "minimum": 0 },
+            "image": { "type": "integer", "minimum": 0 },
+            "video": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 1,
+          "deprecated": true,
+          "description": "Legacy alias for maxEnergy (from early energy config docs)."
+        },
+        "refillPerHour": {
+          "type": "number",
+          "minimum": 0,
+          "deprecated": true,
+          "description": "Legacy alias for baseRefillPerHour (from early energy config docs)."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["max"] },
+          "then": { "not": { "required": ["maxEnergy"] } }
+        },
+        {
+          "if": { "required": ["refillPerHour"] },
+          "then": { "not": { "required": ["baseRefillPerHour"] } }
+        }
+      ]
+    }
+  }
+}

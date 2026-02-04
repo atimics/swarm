@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/platforms.v1.schema.json",
+  "title": "RATi Avatar Platforms Expansion (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "$defs": {
+    "telegramUserRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "displayName": { "type": "string" }
+      },
+      "required": ["userId"]
+    },
+    "telegramChatRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "chatId": { "type": "string" },
+        "username": { "type": "string" },
+        "title": { "type": "string" }
+      },
+      "required": ["chatId"]
+    },
+    "twitterCommunity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "postFrequency": { "type": "number", "minimum": 0 }
+      },
+      "required": ["id", "name"]
+    },
+    "autonomousPosts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minIntervalHours": { "type": "number", "minimum": 0 },
+        "maxIntervalHours": { "type": "number", "minimum": 0 },
+        "imageChance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "useMemories": { "type": "boolean" },
+        "topics": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["enabled", "minIntervalHours", "maxIntervalHours", "imageChance", "useMemories"]
+    }
+  },
+  "properties": {
+    "platforms": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "telegram": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "botUsername": { "type": "string" },
+            "botId": { "type": "integer" },
+            "webhookPath": { "type": "string" },
+            "allowedChatTypes": {
+              "type": "array",
+              "items": { "enum": ["private", "group", "supergroup", "channel"] }
+            },
+            "allowedChatIds": { "type": "array", "items": { "type": "string" } },
+            "allowedDmUserIds": { "type": "array", "items": { "type": "string" } },
+            "allowedDmUsers": { "type": "array", "items": { "$ref": "#/$defs/telegramUserRef" } },
+            "allowedChats": { "type": "array", "items": { "$ref": "#/$defs/telegramChatRef" } },
+            "homeChannelId": { "type": "string" },
+            "homeChannelUsername": { "type": "string" },
+            "homeChannelUrl": { "type": "string", "format": "uri" },
+            "coinSymbol": { "type": "string" },
+            "coinAddress": { "type": "string" },
+            "isAdminBot": { "type": "boolean" },
+            "allowAllDms": { "type": "boolean" }
+          },
+          "required": ["enabled", "botUsername", "webhookPath"]
+        },
+        "twitter": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "username": { "type": "string" },
+            "features": {
+              "type": "array",
+              "description": "Feature flags. Prefer the canonical names; legacy values are accepted but deprecated.",
+              "items": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "scheduled_tweets",
+                      "mention_replies",
+                      "mention_triage",
+                      "dm_responses",
+                      "autonomous_posts",
+                      "community_posts"
+                    ]
+                  },
+                  {
+                    "enum": ["replies", "mentions"],
+                    "deprecated": true
+                  }
+                ]
+              }
+            },
+            "charLimit": { "type": "integer", "minimum": 1 },
+            "verifiedType": { "type": "string" },
+            "communities": { "type": "array", "items": { "$ref": "#/$defs/twitterCommunity" } },
+            "autonomousPosts": { "$ref": "#/$defs/autonomousPosts" },
+            "mentionTriage": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" }
+              },
+              "required": ["enabled"]
+            },
+            "simulation": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "feedVisibility": { "enum": ["self", "linked"] },
+                "autoApprove": { "type": "boolean" }
+              },
+              "required": ["enabled", "feedVisibility", "autoApprove"]
+            }
+          },
+          "required": ["enabled", "username"]
+        },
+        "discord": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "mode": { "enum": ["webhook", "bot", "hybrid"] },
+            "webhookUrl": { "type": "string", "format": "uri" },
+            "webhookId": { "type": "string" },
+            "webhookToken": { "type": "string" },
+            "applicationId": { "type": "string" },
+            "publicKey": { "type": "string" },
+            "useGateway": { "type": "boolean" },
+            "intents": { "type": "integer", "minimum": 0 },
+            "respondToMentions": { "type": "boolean" },
+            "respondInDMs": { "type": "boolean" },
+            "allowedChannels": { "type": "array", "items": { "type": "string" } },
+            "allowedGuilds": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["enabled", "mode"]
+        },
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "corsOrigins": { "type": "array", "items": { "type": "string" } },
+            "rateLimit": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "windowMs": { "type": "integer", "minimum": 1 },
+                "maxRequests": { "type": "integer", "minimum": 1 }
+              },
+              "required": ["windowMs", "maxRequests"]
+            },
+            "tokenGated": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "tokenMint": { "type": "string" },
+                "minBalance": { "type": "number", "minimum": 0 }
+              },
+              "required": ["enabled", "tokenMint", "minBalance"]
+            }
+          },
+          "required": ["enabled", "corsOrigins", "rateLimit"]
+        }
+      }
+    }
+  },
+  "required": ["platforms"]
+}

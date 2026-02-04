@@ -1,0 +1,61 @@
+# Example avatar config file (YAML)
+# This matches rati/schema/avatar-config-file.v1.schema.json
+
+id: my-agent
+name: My Agent
+version: 1.0.0
+persona: |
+  You are My Agent.
+  Be concise and helpful.
+
+platforms:
+  telegram:
+    enabled: true
+    botUsername: my_agent_bot
+    webhookPath: /webhook/telegram/my-agent
+  twitter:
+    enabled: false
+    username: my_agent
+    features:
+      - mention_replies
+      - scheduled_tweets
+
+llm:
+  provider: openrouter
+  model: anthropic/claude-haiku-4.5
+  temperature: 0.8
+  maxTokens: 1024
+
+media:
+  image:
+    provider: openrouter
+    model: openai/dall-e-3
+
+scheduling: {}
+
+behavior:
+  responseDelayMs: [1000, 3000]
+  typingIndicator: true
+  ignoreBots: true
+  cooldownMinutes: 5
+  maxContextMessages: 20
+
+tools:
+  - send_message
+  - react
+  - ignore
+  - wait
+
+secrets:
+  - TELEGRAM_BOT_TOKEN
+  - OPENROUTER_API_KEY
+
+# Optional expansions
+energy:
+  maxEnergy: 10
+  baseRefillPerHour: 1
+  costs:
+    text: 1
+    audio: 2
+    image: 2
+    video: 3

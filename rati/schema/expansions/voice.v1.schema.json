@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/voice.v1.schema.json",
+  "title": "RATi Avatar Voice Expansion (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "voice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "defaultVoiceId": { "type": "string" },
+        "ttsProvider": { "enum": ["voice-clone"] },
+        "speed": { "type": "number" },
+        "pitch": { "type": "number" },
+        "format": { "enum": ["ogg", "mp3", "wav"] },
+        "referenceUrl": { "type": "string", "format": "uri" }
+      },
+      "required": ["enabled"]
+    }
+  }
+}

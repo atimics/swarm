@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/avatar-config.v1.schema.json",
+  "title": "RATi Avatar Config (Runtime, v1)",
+  "description": "Canonical normalized runtime avatar config. Matches @swarm/core AvatarConfig, with optional RATi expansions.",
+  "allOf": [
+    { "$ref": "./base/avatar-base.v1.schema.json" },
+    { "$ref": "./expansions/platforms.v1.schema.json" },
+    { "$ref": "./expansions/llm.v1.schema.json" },
+    { "$ref": "./expansions/media.v1.schema.json" },
+    { "$ref": "./expansions/scheduling.v1.schema.json" },
+    { "$ref": "./expansions/behavior.v1.schema.json" },
+    { "$ref": "./expansions/tools-secrets.v1.schema.json" },
+    { "$ref": "./expansions/voice.v1.schema.json" },
+    { "$ref": "./expansions/solana.v1.schema.json" },
+    { "$ref": "./expansions/energy.v1.schema.json" },
+    { "$ref": "./expansions/dnd.v1.schema.json" },
+    { "$ref": "./expansions/nft-avatar.v1.schema.json" }
+  ],
+  "properties": {
+    "schema": { "const": "rati.avatar-config/v1" }
+  }
+}

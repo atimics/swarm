@@ -1,0 +1,61 @@
+{
+  "schema": "rati.avatar-config/v1",
+  "id": "rati",
+  "name": "Rati",
+  "version": "1.0.0",
+  "description": "A helpful AI assistant",
+  "persona": "You are Rati, a helpful AI assistant.",
+  "platforms": {
+    "telegram": {
+      "enabled": true,
+      "botUsername": "ratibot",
+      "webhookPath": "/webhook/telegram/rati",
+      "homeChannelUrl": "https://t.me/ratichat"
+    },
+    "twitter": {
+      "enabled": true,
+      "username": "rati_ai",
+      "features": ["mention_replies", "autonomous_posts"],
+      "autonomousPosts": {
+        "enabled": true,
+        "minIntervalHours": 4,
+        "maxIntervalHours": 6,
+        "imageChance": 0.3,
+        "useMemories": true
+      }
+    }
+  },
+  "llm": {
+    "provider": "openrouter",
+    "model": "anthropic/claude-sonnet-4",
+    "temperature": 0.8,
+    "maxTokens": 1024
+  },
+  "media": {
+    "image": { "provider": "replicate", "model": "google/nano-banana-pro" }
+  },
+  "scheduling": {},
+  "behavior": {
+    "responseDelayMs": [1000, 3000],
+    "typingIndicator": true,
+    "ignoreBots": true,
+    "cooldownMinutes": 5,
+    "maxContextMessages": 20
+  },
+  "tools": ["send_message", "react", "ignore", "wait", "generate_image"],
+  "secrets": ["TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY"],
+  "energy": {
+    "maxEnergy": 10,
+    "baseRefillPerHour": 1,
+    "costs": { "text": 1, "audio": 2, "image": 2, "video": 3 }
+  },
+  "dnd": {
+    "enabled": false,
+    "system": "dnd5e",
+    "role": "assistant"
+  },
+  "nft": {
+    "enabled": false,
+    "origin": { "chain": "solana", "mint": "So11111111111111111111111111111111111111112" }
+  }
+}

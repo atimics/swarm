@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/nft-avatar.v1.schema.json",
+  "title": "RATi Avatar NFT Expansion (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "nft": {
+      "type": "object",
+      "description": "Optional NFT backing and attribute surface for an avatar.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "chain": { "enum": ["solana", "evm", "other"] },
+            "mint": { "type": "string", "description": "NFT mint / token id." },
+            "collection": { "type": "string", "description": "Collection address/id." },
+            "metadataUri": { "type": "string" },
+            "image": { "type": "string" }
+          },
+          "required": ["chain", "mint"]
+        },
+        "metadata": {
+          "$ref": "../nft/metadata.v1.schema.json",
+          "description": "Optional cached copy of off-chain metadata JSON."
+        },
+        "attributes": {
+          "type": "array",
+          "description": "Raw traits (if not included in metadata).",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "trait_type": { "type": "string" },
+              "value": { "type": ["string", "number", "integer", "boolean"] }
+            },
+            "required": ["trait_type", "value"]
+          }
+        },
+        "lineage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "nftCollectionMint": { "type": "string" },
+            "currentEra": { "type": "integer", "minimum": 0 },
+            "lastBurnTx": { "type": "string" },
+            "lastBurnMint": { "type": "string" }
+          }
+        },
+        "inhabitation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "creatorWallet": { "type": "string" },
+            "inhabitantWallet": { "type": "string" },
+            "inhabitedAt": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "traitMapping": {
+          "type": "object",
+          "description": "Optional mapping rules for converting NFT traits into persona/system context.",
+          "additionalProperties": true
+        }
+      },
+      "required": ["enabled"]
+    }
+  }
+}

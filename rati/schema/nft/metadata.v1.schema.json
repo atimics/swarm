@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/nft/metadata.v1.schema.json",
+  "title": "RATi Avatar NFT Metadata (v1)",
+  "description": "Compatible with Metaplex Token Metadata and OpenSea attributes. Aligned with docs/RATI_AVATAR_NFT_SPEC.md.",
+  "type": "object",
+  "additionalProperties": true,
+  "$defs": {
+    "attribute": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "trait_type": { "type": "string" },
+        "value": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "integer" },
+            { "type": "boolean" }
+          ]
+        },
+        "display_type": { "type": "string" }
+      },
+      "required": ["trait_type", "value"]
+    }
+  },
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "image": { "type": "string" },
+    "external_url": { "type": "string" },
+    "animation_url": { "type": "string" },
+    "attributes": { "type": "array", "items": { "$ref": "#/$defs/attribute" } },
+    "symbol": { "type": "string" },
+    "seller_fee_basis_points": { "type": "integer", "minimum": 0 },
+    "background_color": { "type": "string" },
+    "collection": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string" },
+        "family": { "type": "string" }
+      }
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "category": { "enum": ["image", "video", "audio", "vr", "html"] },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "uri": { "type": "string" },
+              "type": { "type": "string" },
+              "cdn": { "type": "boolean" }
+            },
+            "required": ["uri", "type"]
+          }
+        },
+        "creators": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "address": { "type": "string" },
+              "share": { "type": "integer", "minimum": 0, "maximum": 100 }
+            },
+            "required": ["address", "share"]
+          }
+        }
+      }
+    }
+  },
+  "required": ["name", "description", "image"]
+}

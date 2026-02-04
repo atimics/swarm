@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/media.v1.schema.json",
+  "title": "RATi Avatar Media Expansion (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": { "enum": ["openrouter", "replicate", "dalle"] },
+            "model": { "type": "string" },
+            "aspectRatio": { "enum": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"] }
+          },
+          "required": ["provider", "model"]
+        },
+        "video": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": { "const": "replicate" },
+            "model": { "type": "string" }
+          },
+          "required": ["provider", "model"]
+        }
+      },
+      "required": ["image"]
+    }
+  },
+  "required": ["media"]
+}

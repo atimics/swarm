@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/behavior.v1.schema.json",
+  "title": "RATi Avatar Behavior Expansion (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "responseDelayMs": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Tuple: [minMs, maxMs]"
+        },
+        "typingIndicator": { "type": "boolean" },
+        "ignoreBots": { "type": "boolean" },
+        "cooldownMinutes": { "type": "number", "minimum": 0 },
+        "maxContextMessages": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["responseDelayMs", "typingIndicator", "ignoreBots", "cooldownMinutes", "maxContextMessages"]
+    }
+  },
+  "required": ["behavior"]
+}

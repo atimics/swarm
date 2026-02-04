@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/dnd.v1.schema.json",
+  "title": "RATi Avatar DnD Expansion (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "dnd": {
+      "type": "object",
+      "description": "Optional tabletop RPG (DnD-like) configuration. This is a forward-compatible structure for campaign + character context.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "system": {
+          "type": "string",
+          "description": "Rules system identifier.",
+          "examples": ["dnd5e", "pf2e", "osr", "homebrew"]
+        },
+        "role": {
+          "enum": ["pc", "npc", "dm", "assistant"],
+          "description": "How the avatar participates in the game context."
+        },
+        "campaign": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "setting": { "type": "string" },
+            "tone": { "type": "string" },
+            "safety": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "contentWarnings": { "type": "array", "items": { "type": "string" } },
+                "hardLimits": { "type": "array", "items": { "type": "string" } },
+                "softLimits": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "character": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "name": { "type": "string" },
+            "level": { "type": "integer", "minimum": 0 },
+            "species": { "type": "string" },
+            "class": { "type": "string" },
+            "background": { "type": "string" },
+            "alignment": { "type": "string" },
+            "stats": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "str": { "type": "integer" },
+                "dex": { "type": "integer" },
+                "con": { "type": "integer" },
+                "int": { "type": "integer" },
+                "wis": { "type": "integer" },
+                "cha": { "type": "integer" }
+              }
+            },
+            "inventory": { "type": "array", "items": { "type": "string" } },
+            "notes": { "type": "string" }
+          }
+        },
+        "memoryHooks": {
+          "type": "object",
+          "description": "Optional hooks for how game state influences memory/recall.",
+          "additionalProperties": true
+        }
+      },
+      "required": ["enabled"]
+    }
+  }
+}

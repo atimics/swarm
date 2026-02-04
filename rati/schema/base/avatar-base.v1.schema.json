@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/base/avatar-base.v1.schema.json",
+  "title": "RATi Avatar Base (v1)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "description": "Optional schema identifier for embedding.",
+      "examples": ["rati.avatar-config/v1"]
+    },
+    "id": {
+      "type": "string",
+      "description": "Stable avatar id (kebab-case recommended; must match runtime avatar id).",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+      "examples": ["rati", "my-agent", "echo-7"]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable display name.",
+      "examples": ["Rati", "My Agent"]
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version of this avatar config.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$",
+      "examples": ["1.0.0"]
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional short description / bio."
+    },
+    "persona": {
+      "type": "string",
+      "description": "Persona instructions (inline markdown/text) OR a path reference depending on deployment tooling.",
+      "examples": ["You are Rati, a helpful AI assistant."]
+    },
+    "profileImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "s3Key": { "type": "string" },
+        "updatedAt": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["url"]
+    },
+    "characterReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "s3Key": { "type": "string" },
+        "description": { "type": "string" },
+        "generatedPrompt": { "type": "string" },
+        "updatedAt": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["url"]
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional tags for discovery/categorization."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Free-form metadata for UI/ops (non-runtime-critical).",
+      "additionalProperties": true
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Future-facing extension point for custom/experimental modules.",
+      "additionalProperties": { "type": "object" }
+    }
+  },
+  "required": ["id", "name", "version", "persona"]
+}
