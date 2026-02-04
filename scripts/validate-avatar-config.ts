@@ -1,4 +1,3 @@
-#!/usr/bin/env npx tsx
 /**
  * Validate avatar config files against the RATi schema.
  *
@@ -13,11 +12,13 @@
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve, extname, basename, dirname } from 'node:path';
+import { resolve, extname } from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { fileURLToPath } from 'node:url';
 
 // Schema paths (relative to repo root)
-const SCHEMA_DIR = resolve(import.meta.dirname, '../rati/schema');
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const SCHEMA_DIR = resolve(__dirname, '../rati/schema');
 const FILE_SCHEMA_PATH = resolve(SCHEMA_DIR, 'avatar-config-file.v1.schema.json');
 
 // Load all schemas for $ref resolution
