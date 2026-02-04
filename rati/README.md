@@ -60,6 +60,8 @@ npx tsx scripts/validate-avatar-config.ts avatars/*/config.yaml
 npx tsx scripts/validate-avatar-config.ts rati/examples/*.json rati/examples/*.yaml
 ```
 
+**Note:** The schema validates the *complete* runtime config. Avatar directories that load `persona` from a separate `persona.md` file will fail validation since the config file itself doesn't contain the persona. Use `bun run` or `npx tsx` to run the script.
+
 ## Compatibility notes
 
 - The canonical runtime shape matches `packages/core/src/types/index.ts` (`AvatarConfig`).
