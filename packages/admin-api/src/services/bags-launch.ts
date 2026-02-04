@@ -19,6 +19,7 @@ import {
   BagsSDK,
   signAndSendTransaction,
 } from '@bagsfm/bags-sdk';
+import { deriveBagsFeeShareV2PartnerConfigPda } from '@bagsfm/bags-sdk/dist/utils/fee-share-v2/partner-config.js';
 import bs58 from 'bs58';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
@@ -132,6 +133,11 @@ async function getBagsApiKey(avatarId: string): Promise<string | null> {
     apiKey = await _getSecretValueInternal(null, 'bags_api_key', 'default');
   }
   return apiKey;
+}
+
+async function getBagsPartnerKey(): Promise<string | null> {
+  // Partner key is global only (platform-level)
+  return _getSecretValueInternal(null, 'bags_partner_key', 'default');
 }
 
 function getTwitterUsername(avatar: AvatarRecord): string | null {
@@ -324,6 +330,7 @@ export async function launchBagsToken(
     // Step 3: Create fee share config with proper distribution
     // - Platform wallet: 2000 bps (20%)
     // - Avatar's Twitter Bags wallet: 8000 bps (80%)
+    // - Partner receives additional fees from Bags (separate from above)
     console.log('[BagsLaunch] Creating fee share configuration...');
     console.log(`  - Platform (${PLATFORM_WALLET}): ${PLATFORM_FEE_BPS / 100}%`);
     console.log(`  - Avatar @${twitterUsername} (${avatarBagsWallet.toBase58()}): ${AVATAR_FEE_BPS / 100}%`);
@@ -334,10 +341,24 @@ export async function launchBagsToken(
       { user: platformWallet, userBps: PLATFORM_FEE_BPS },   // 20% to platform
     ];
 
+    // Get partner key if configured (for platform-level partner fees)
+    const partnerKeyStr = await getBagsPartnerKey();
+    let partner: PublicKey | undefined;
+    let partnerConfig: PublicKey | undefined;
+    
+    if (partnerKeyStr) {
+      partner = new PublicKey(partnerKeyStr);
+      partnerConfig = deriveBagsFeeShareV2PartnerConfigPda(partner);
+      console.log(`[BagsLaunch] Using partner key: ${partner.toBase58()}`);
+      console.log(`[BagsLaunch] Partner config PDA: ${partnerConfig.toBase58()}`);
+    }
+
     const configResult = await sdk.config.createBagsFeeShareConfig({
       payer: keypair.publicKey,
       baseMint: tokenMint,
       feeClaimers,
+      partner,
+      partnerConfig,
     });
 
     // Sign and send config creation transactions
