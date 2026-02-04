@@ -103,6 +103,14 @@ export {
   type MoltbookSubmolt,
   type MoltbookSearchResult,
 } from './moltbook.js';
+export {
+  createBagsTools,
+  type BagsServices,
+  type BagsTokenInfo,
+  type BagsLaunchConfig,
+  type BagsLaunchResult,
+  type BagsLaunchPreflightResult,
+} from './bags.js';
 
 import { createMediaTools, type CreditServices as MediaCreditServices } from './media.js';
 import { createGalleryTools } from './gallery.js';
@@ -127,6 +135,7 @@ import { createMcpAdminTools } from './mcp-admin.js';
 import { createPresenceTools } from './presence.js';
 import { createObservabilityTools } from './observability.js';
 import { createMoltbookTools } from './moltbook.js';
+import { createBagsTools } from './bags.js';
 import type { ToolRegistry } from '../registry.js';
 
 /**
@@ -163,6 +172,8 @@ export interface AllServices {
   observability?: import('./observability.js').ObservabilityServices;
   // Moltbook - social network for AI agents
   moltbook?: import('./moltbook.js').MoltbookServices;
+  // Bags.fm token launch
+  bags?: import('./bags.js').BagsServices;
 }
 
 /**
@@ -220,5 +231,8 @@ export function registerAllTools(
   }
   if (services.moltbook) {
     registry.registerAll(createMoltbookTools(services.moltbook));
+  }
+  if (services.bags) {
+    registry.registerAll(createBagsTools(services.bags));
   }
 }
