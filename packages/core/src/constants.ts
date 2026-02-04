@@ -7,7 +7,7 @@
  * Default LLM model for new avatars and fallback scenarios.
  * Each avatar stores their own model in llmConfig.model - this is just the default.
  */
-export const DEFAULT_LLM_MODEL = 'anthropic/claude-haiku-4.5';
+export const DEFAULT_LLM_MODEL = 'google/gemini-3-flash-preview';
 
 /**
  * Default LLM provider

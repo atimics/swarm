@@ -1,14 +1,13 @@
-/**
- * Validate avatar config files against the RATi schema.
- *
- * Usage:
- *   npx tsx scripts/validate-avatar-config.ts [path...]
- *
- * Examples:
- *   npx tsx scripts/validate-avatar-config.ts avatars/my-agent/config.yaml
- *   npx tsx scripts/validate-avatar-config.ts avatars/*/config.yaml
- *   npx tsx scripts/validate-avatar-config.ts rati/examples/avatar-config.base+extensions.json
- */
+// Validate avatar config files against the RATi schema.
+//
+// Usage:
+//   npx tsx scripts/validate-avatar-config.ts [path...]
+//
+// Examples:
+//   npx tsx scripts/validate-avatar-config.ts avatars/my-agent/config.yaml
+//   npx tsx scripts/validate-avatar-config.ts avatars/*/config.yaml
+//   npx tsx scripts/validate-avatar-config.ts rati/examples/avatar-config.base+extensions.json
+
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { readFileSync, existsSync } from 'node:fs';

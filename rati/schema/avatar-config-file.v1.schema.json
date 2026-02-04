@@ -3,7 +3,7 @@
   "$id": "https://schemas.rati.chat/rati/schema/avatar-config-file.v1.schema.json",
   "title": "RATi Avatar Config File (YAML/JSON, v1)",
   "description": "Config file schema aligned with packages/core/src/utils/config.ts (AvatarConfigFileSchema).",
-  "oneOf": [
+  "anyOf": [
     {
       "$ref": "./avatar-config.v1.schema.json",
       "description": "Already-normalized runtime config."
