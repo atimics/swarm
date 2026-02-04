@@ -47,6 +47,7 @@ import { validateReplicateApiKey } from '../services/replicate.js';
 import * as integrations from '../services/integrations.js';
 import type { IntegrationType, AICapability } from '../services/integrations.js';
 import { getModelsForCapability, AVAILABLE_MODELS } from '../services/models-registry.js';
+import * as bagsLaunch from '../services/bags-launch.js';
 
 // Timeout for external API calls
 const API_TIMEOUT_MS = 10_000;
@@ -1867,6 +1868,21 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
     // Moltbook Services (Social network for AI agents)
     // =========================================================================
     moltbook: createMoltbookServices(_avatarId, session),
+
+    // =========================================================================
+    // Bags Token Launch Services
+    // =========================================================================
+    bags: {
+      preflightLaunch: async (avatarId: string) => {
+        return bagsLaunch.preflightBagsLaunch(avatarId);
+      },
+      launchToken: async (avatarId: string, config: bagsLaunch.BagsLaunchConfig) => {
+        return bagsLaunch.launchBagsToken(avatarId, config);
+      },
+      getTokenStatus: async (avatarId: string) => {
+        return bagsLaunch.getBagsTokenStatus(avatarId);
+      },
+    },
   };
 }
 

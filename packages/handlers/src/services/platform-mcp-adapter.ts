@@ -24,6 +24,7 @@ import { TwitterAdapter, createContentStoreService, enqueuePost, isPostQueueConf
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
+import { bagsLaunch } from '@swarm/admin-api';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const ADMIN_TABLE = process.env.ADMIN_TABLE || 'SwarmAdmin-prod';
@@ -845,5 +846,20 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
         },
       },
     } : {}),
+
+    // =========================================================================
+    // Bags Token Launch Services
+    // =========================================================================
+    bags: {
+      preflightLaunch: async (targetAvatarId: string) => {
+        return bagsLaunch.preflightBagsLaunch(targetAvatarId);
+      },
+      launchToken: async (targetAvatarId: string, launchConfig: bagsLaunch.BagsLaunchConfig) => {
+        return bagsLaunch.launchBagsToken(targetAvatarId, launchConfig);
+      },
+      getTokenStatus: async (targetAvatarId: string) => {
+        return bagsLaunch.getBagsTokenStatus(targetAvatarId);
+      },
+    },
   };
 }

@@ -11,9 +11,14 @@
  */
 import {
   Keypair,
-  VersionedTransaction,
+  Connection,
+  PublicKey,
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
+import {
+  BagsSDK,
+  signAndSendTransaction,
+} from '@bagsfm/bags-sdk';
 import bs58 from 'bs58';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
@@ -134,157 +139,18 @@ function getTwitterUsername(avatar: AvatarRecord): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Bags API Client (using REST endpoints directly)
+// SDK Initialization
 // ---------------------------------------------------------------------------
 
-const BAGS_API_BASE = 'https://public-api-v2.bags.fm/api/v1';
+/** Default Solana RPC URL (can be overridden via env) */
+const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
-interface BagsApiResponse<T> {
-  success: boolean;
-  response?: T;
-  error?: string;
-}
-
-async function bagsApiRequest<T>(
-  endpoint: string,
-  apiKey: string,
-  options: {
-    method?: 'GET' | 'POST';
-    body?: object;
-    query?: Record<string, string>;
-  } = {}
-): Promise<T> {
-  const { method = 'GET', body, query } = options;
-
-  let url = `${BAGS_API_BASE}${endpoint}`;
-  if (query) {
-    const params = new URLSearchParams(query);
-    url += `?${params.toString()}`;
-  }
-
-  const headers: Record<string, string> = {
-    'x-api-key': apiKey,
-    'Content-Type': 'application/json',
-  };
-
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  const data = (await response.json()) as BagsApiResponse<T>;
-
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || `Bags API error: ${response.status}`);
-  }
-
-  return data.response!;
-}
-
-interface FeeShareWalletResponse {
-  provider: string;
-  platformData: {
-    id: string;
-    username: string;
-    display_name: string;
-    avatar_url: string;
-  };
-  wallet: string;
-}
-
-async function getFeeShareWallet(
-  apiKey: string,
-  provider: 'twitter',
-  username: string
-): Promise<FeeShareWalletResponse> {
-  return bagsApiRequest<FeeShareWalletResponse>(
-    '/token-launch/fee-share/wallet/v2',
-    apiKey,
-    { query: { provider, username } }
-  );
-}
-
-interface TokenInfoResponse {
-  tokenMint: string;
-  tokenMetadata: string;
-}
-
-async function createTokenInfoAndMetadata(
-  apiKey: string,
-  params: {
-    name: string;
-    symbol: string;
-    description?: string;
-    imageUrl: string;
-    twitter?: string;
-    website?: string;
-    telegram?: string;
-  }
-): Promise<TokenInfoResponse> {
-  // Use multipart/form-data for image URL
-  const formData = new FormData();
-  formData.append('name', params.name);
-  formData.append('symbol', params.symbol.toUpperCase().replace('$', ''));
-  if (params.description) formData.append('description', params.description);
-  if (params.twitter) formData.append('twitter', params.twitter);
-  if (params.website) formData.append('website', params.website);
-  if (params.telegram) formData.append('telegram', params.telegram);
-
-  // Fetch the image and include it
-  const imageResponse = await fetch(params.imageUrl);
-  if (!imageResponse.ok) {
-    throw new Error(`Failed to fetch image: ${imageResponse.status}`);
-  }
-  const imageBlob = await imageResponse.blob();
-  formData.append('image', imageBlob, 'token-image.png');
-
-  const response = await fetch(`${BAGS_API_BASE}/token-launch/create-token-info`, {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey },
-    body: formData,
-  });
-
-  const data = (await response.json()) as BagsApiResponse<TokenInfoResponse>;
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || `Failed to create token metadata: ${response.status}`);
-  }
-
-  return data.response!;
-}
-
-async function createLaunchTransaction(
-  apiKey: string,
-  params: {
-    ipfs: string;
-    tokenMint: string;
-    wallet: string;
-    initialBuyLamports: number;
-    configKey: string;
-  }
-): Promise<string> {
-  const response = await bagsApiRequest<string>(
-    '/token-launch/create-launch-transaction',
-    apiKey,
-    {
-      method: 'POST',
-      body: {
-        ipfs: params.ipfs,
-        tokenMint: params.tokenMint,
-        wallet: params.wallet,
-        initialBuyLamports: params.initialBuyLamports,
-        configKey: params.configKey,
-      },
-    }
-  );
-  return response;
-}
-
-async function sendTransaction(apiKey: string, signedTx: string): Promise<string> {
-  return bagsApiRequest<string>('/solana/send-transaction', apiKey, {
-    method: 'POST',
-    body: { transaction: signedTx },
-  });
+/**
+ * Create a configured BagsSDK instance
+ */
+function createBagsSDK(apiKey: string): BagsSDK {
+  const connection = new Connection(SOLANA_RPC_URL);
+  return new BagsSDK(apiKey, connection, 'processed');
 }
 
 // ---------------------------------------------------------------------------
@@ -410,16 +276,19 @@ export async function launchBagsToken(
     // Get credentials
     const apiKey = (await getBagsApiKey(avatarId))!;
     const keypair = await getAvatarSolanaKeypair(avatarId);
+    const sdk = createBagsSDK(apiKey);
+    const commitment = sdk.state.getCommitment();
+    const connection = new Connection(SOLANA_RPC_URL);
 
     console.log(`[BagsLaunch] Avatar wallet: ${keypair.publicKey.toBase58()}`);
 
-    // Step 1: Look up avatar's Twitter account wallet on Bags
+    // Step 1: Look up avatar's Twitter account wallet on Bags using SDK
     console.log(`[BagsLaunch] Looking up Bags wallet for @${twitterUsername}...`);
-    let avatarBagsWallet: string;
+    let avatarBagsWallet: PublicKey;
     try {
-      const feeShareWallet = await getFeeShareWallet(apiKey, 'twitter', twitterUsername);
+      const feeShareWallet = await sdk.state.getLaunchWalletV2(twitterUsername, 'twitter');
       avatarBagsWallet = feeShareWallet.wallet;
-      console.log(`[BagsLaunch] Found Bags wallet: ${avatarBagsWallet}`);
+      console.log(`[BagsLaunch] Found Bags wallet: ${avatarBagsWallet.toBase58()}`);
     } catch (err) {
       console.error(`[BagsLaunch] Failed to find Bags wallet for @${twitterUsername}:`, err);
       return {
@@ -430,7 +299,7 @@ export async function launchBagsToken(
       };
     }
 
-    // Step 2: Create token metadata
+    // Step 2: Create token metadata using SDK
     console.log('[BagsLaunch] Creating token metadata...');
     const avatar = (await getAvatar(avatarId))!;
     const profileUrl = typeof avatar.profileImage === 'string' 
@@ -438,66 +307,73 @@ export async function launchBagsToken(
       : avatar.profileImage?.url;
     const imageUrl = config.imageUrl || profileUrl || 'https://via.placeholder.com/500';
 
-    const tokenInfo = await createTokenInfoAndMetadata(apiKey, {
-      name: config.name,
-      symbol: config.symbol,
-      description: config.description,
+    const tokenInfo = await sdk.tokenLaunch.createTokenInfoAndMetadata({
       imageUrl,
+      name: config.name,
+      description: config.description || '',
+      symbol: config.symbol.toUpperCase().replace('$', ''),
       twitter: config.twitterUrl,
       website: config.websiteUrl,
       telegram: config.telegramUrl,
     });
 
-    console.log(`[BagsLaunch] Token mint: ${tokenInfo.tokenMint}`);
+    const tokenMint = new PublicKey(tokenInfo.tokenMint);
+    console.log(`[BagsLaunch] Token mint: ${tokenMint.toBase58()}`);
     console.log(`[BagsLaunch] Metadata URL: ${tokenInfo.tokenMetadata}`);
 
-    // Step 3: Create fee share config
-    // For now, we'll use the simple approach - the Bags SDK createBagsFeeShareConfig
-    // handles the on-chain config creation. Since we're using REST API, we need to
-    // use the configKey returned from the launch transaction endpoint.
-    // 
-    // The fee claimers are specified when creating the config:
+    // Step 3: Create fee share config with proper distribution
     // - Platform wallet: 2000 bps (20%)
     // - Avatar's Twitter Bags wallet: 8000 bps (80%)
-    //
-    // Note: The Bags API handles config creation automatically when launching.
-    // The configKey in create-launch-transaction is optional for simple cases.
-
-    console.log('[BagsLaunch] Fee distribution:');
+    console.log('[BagsLaunch] Creating fee share configuration...');
     console.log(`  - Platform (${PLATFORM_WALLET}): ${PLATFORM_FEE_BPS / 100}%`);
-    console.log(`  - Avatar @${twitterUsername} (${avatarBagsWallet}): ${AVATAR_FEE_BPS / 100}%`);
+    console.log(`  - Avatar @${twitterUsername} (${avatarBagsWallet.toBase58()}): ${AVATAR_FEE_BPS / 100}%`);
 
-    // Step 4: Create and sign launch transaction
+    const platformWallet = new PublicKey(PLATFORM_WALLET);
+    const feeClaimers = [
+      { user: avatarBagsWallet, userBps: AVATAR_FEE_BPS },   // 80% to avatar's Twitter wallet
+      { user: platformWallet, userBps: PLATFORM_FEE_BPS },   // 20% to platform
+    ];
+
+    const configResult = await sdk.config.createBagsFeeShareConfig({
+      payer: keypair.publicKey,
+      baseMint: tokenMint,
+      feeClaimers,
+    });
+
+    // Sign and send config creation transactions
+    for (const tx of configResult.transactions || []) {
+      await signAndSendTransaction(connection, commitment, tx, keypair);
+    }
+
+    // Handle bundles if present (for large fee claimer sets)
+    if (configResult.bundles && configResult.bundles.length > 0) {
+      console.log(`[BagsLaunch] Sending ${configResult.bundles.length} bundle(s)...`);
+      for (const bundle of configResult.bundles) {
+        for (const tx of bundle) {
+          tx.sign([keypair]);
+          // Send via SDK's Jito integration if available
+          await signAndSendTransaction(connection, commitment, tx, keypair);
+        }
+      }
+    }
+
+    console.log(`[BagsLaunch] Config key: ${configResult.meteoraConfigKey.toBase58()}`);
+
+    // Step 4: Create and sign launch transaction using SDK
     console.log('[BagsLaunch] Creating launch transaction...');
     const initialBuyLamports = Math.floor((config.initialBuySol || 0.01) * LAMPORTS_PER_SOL);
 
-    // Note: For the MVP, we'll let Bags handle the fee config automatically
-    // The more complex fee share setup with explicit configs requires using the SDK
-    // or additional API calls to create the config first.
-    //
-    // TODO: Implement full fee share config creation when Bags provides REST endpoints
-    // For now, the creator (avatar wallet) will be the sole fee claimer, and we can
-    // set up a secondary claim mechanism or use the SDK in a future iteration.
-
-    const launchTx = await createLaunchTransaction(apiKey, {
-      ipfs: tokenInfo.tokenMetadata,
-      tokenMint: tokenInfo.tokenMint,
-      wallet: keypair.publicKey.toBase58(),
+    const launchTx = await sdk.tokenLaunch.createLaunchTransaction({
+      metadataUrl: tokenInfo.tokenMetadata,
+      tokenMint,
+      launchWallet: keypair.publicKey,
       initialBuyLamports,
-      configKey: '', // Let Bags create default config
+      configKey: configResult.meteoraConfigKey,
     });
 
-    // Deserialize and sign transaction
-    console.log('[BagsLaunch] Signing transaction...');
-    const txBuffer = Buffer.from(launchTx, 'base64');
-    const tx = VersionedTransaction.deserialize(txBuffer);
-    tx.sign([keypair]);
-
-    const signedTx = Buffer.from(tx.serialize()).toString('base64');
-
-    // Step 5: Send transaction
-    console.log('[BagsLaunch] Broadcasting transaction...');
-    const signature = await sendTransaction(apiKey, signedTx);
+    // Step 5: Sign and send launch transaction
+    console.log('[BagsLaunch] Signing and broadcasting transaction...');
+    const signature = await signAndSendTransaction(connection, commitment, launchTx, keypair);
     console.log(`[BagsLaunch] Transaction confirmed: ${signature}`);
 
     // Step 6: Store token info on avatar record
