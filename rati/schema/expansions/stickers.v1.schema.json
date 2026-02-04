@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/stickers.v1.schema.json",
+  "title": "RATi Avatar Stickers Expansion (v1)",
+  "description": "Telegram sticker pack configuration for avatars. Managed by admin API sticker service.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "stickerPack": {
+      "type": "object",
+      "description": "Telegram sticker pack info (created via sticker service).",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Telegram sticker set name (e.g., 'agent_name_by_botusername').",
+          "examples": ["rati_stickers_by_ratibot"]
+        },
+        "title": {
+          "type": "string",
+          "description": "Display title for the sticker pack.",
+          "examples": ["Rati Stickers"]
+        },
+        "stickerCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of stickers in the pack."
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix timestamp (ms) when the pack was created."
+        },
+        "telegramUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to add the sticker pack (e.g., 'https://t.me/addstickers/...')."
+        }
+      },
+      "required": ["name", "title", "stickerCount", "createdAt"]
+    }
+  }
+}

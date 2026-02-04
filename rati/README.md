@@ -23,7 +23,42 @@ The schema set is organized as:
 - **Base**: `rati/schema/base/avatar-base.v1.schema.json`
 - **Expansions** (composable partials): `rati/schema/expansions/*.v1.schema.json`
 
+Available expansions:
+| Expansion | Description |
+|-----------|-------------|
+| `platforms` | Telegram, Twitter, Discord, Web platform configs |
+| `llm` | LLM provider/model configuration |
+| `media` | Image/video generation settings |
+| `scheduling` | Cron-based scheduled tasks |
+| `behavior` | Response delays, cooldowns, context limits |
+| `tools-secrets` | Enabled tools and required secrets |
+| `voice` | TTS/voice clone configuration |
+| `solana` | Solana wallet and token features |
+| `energy` | Energy system (refill rates, costs) |
+| `dnd` | Tabletop RPG/DnD character context |
+| `nft-avatar` | NFT backing and trait mapping |
+| `integrations` | AI provider and platform integration configs |
+| `stickers` | Telegram sticker pack info |
+
 The canonical runtime schema composes these via `allOf`.
+
+## Validation
+
+Validate avatar config files against the schema:
+
+```bash
+# Install dependencies (if needed)
+pnpm add -D ajv ajv-formats yaml
+
+# Validate a single file
+npx tsx scripts/validate-avatar-config.ts avatars/my-agent/config.yaml
+
+# Validate multiple files
+npx tsx scripts/validate-avatar-config.ts avatars/*/config.yaml
+
+# Validate examples
+npx tsx scripts/validate-avatar-config.ts rati/examples/*.json rati/examples/*.yaml
+```
 
 ## Compatibility notes
 

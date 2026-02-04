@@ -15,7 +15,9 @@
     { "$ref": "./expansions/solana.v1.schema.json" },
     { "$ref": "./expansions/energy.v1.schema.json" },
     { "$ref": "./expansions/dnd.v1.schema.json" },
-    { "$ref": "./expansions/nft-avatar.v1.schema.json" }
+    { "$ref": "./expansions/nft-avatar.v1.schema.json" },
+    { "$ref": "./expansions/integrations.v1.schema.json" },
+    { "$ref": "./expansions/stickers.v1.schema.json" }
   ],
   "properties": {
     "schema": { "const": "rati.avatar-config/v1" }

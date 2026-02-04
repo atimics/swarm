@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rati.chat/rati/schema/expansions/integrations.v1.schema.json",
+  "title": "RATi Avatar Integrations Expansion (v1)",
+  "description": "Unified integrations configuration for AI providers, platforms, and blockchain. Stored in AvatarRecord, not YAML config files.",
+  "type": "object",
+  "additionalProperties": true,
+  "$defs": {
+    "aiCapability": {
+      "enum": [
+        "image_generation",
+        "video_generation",
+        "audio_generation",
+        "voice_clone",
+        "text_to_speech",
+        "transcription",
+        "llm"
+      ]
+    },
+    "aiProviderConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "useGlobalKey": {
+          "type": "boolean",
+          "description": "Whether to use global (system-wide) API key or avatar-specific."
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image_generation": { "type": "string", "examples": ["google/nano-banana-pro"] },
+            "video_generation": { "type": "string", "examples": ["minimax/video-01"] },
+            "audio_generation": { "type": "string", "examples": ["stability-ai/stable-audio-2.5"] },
+            "voice_clone": { "type": "string", "examples": ["lucataco/xtts-v2"] },
+            "text_to_speech": { "type": "string", "examples": ["gpt-4o-mini-tts"] },
+            "transcription": { "type": "string", "examples": ["openai/whisper"] },
+            "llm": { "type": "string", "examples": ["anthropic/claude-sonnet-4"] }
+          }
+        },
+        "webhookUrl": { "type": "string", "format": "uri", "description": "For async predictions (Replicate)." },
+        "pollIntervalMs": { "type": "integer", "minimum": 0, "description": "For sync prediction polling." }
+      },
+      "required": ["enabled", "useGlobalKey"]
+    },
+    "platformIntegrationStatus": {
+      "enum": ["not_configured", "configured", "connected", "error"]
+    },
+    "platformIntegrationConfig": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "settings": { "type": "object", "additionalProperties": true },
+        "status": { "$ref": "#/$defs/platformIntegrationStatus" },
+        "statusMessage": { "type": "string" },
+        "lastCheckedAt": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["enabled"]
+    },
+    "telegramIntegrationConfig": {
+      "allOf": [{ "$ref": "#/$defs/platformIntegrationConfig" }],
+      "properties": {
+        "botUsername": { "type": "string" },
+        "botId": { "type": "integer" },
+        "webhookConfigured": { "type": "boolean" }
+      }
+    },
+    "twitterIntegrationConfig": {
+      "allOf": [{ "$ref": "#/$defs/platformIntegrationConfig" }],
+      "properties": {
+        "username": { "type": "string" },
+        "userId": { "type": "string" }
+      }
+    },
+    "discordIntegrationConfig": {
+      "allOf": [{ "$ref": "#/$defs/platformIntegrationConfig" }],
+      "properties": {
+        "guildId": { "type": "string" },
+        "mode": { "enum": ["webhook", "bot", "hybrid"] },
+        "useGateway": { "type": "boolean" },
+        "intents": { "type": "integer", "minimum": 0 },
+        "respondToMentions": { "type": "boolean" },
+        "respondInDMs": { "type": "boolean" },
+        "allowedChannels": { "type": "array", "items": { "type": "string" } },
+        "allowedGuilds": { "type": "array", "items": { "type": "string" } },
+        "applicationId": { "type": "string" },
+        "publicKey": { "type": "string" }
+      }
+    }
+  },
+  "properties": {
+    "integrations": {
+      "type": "object",
+      "description": "Unified integrations configuration. Typically managed via admin UI, not YAML.",
+      "additionalProperties": false,
+      "properties": {
+        "replicate": { "$ref": "#/$defs/aiProviderConfig" },
+        "openai": { "$ref": "#/$defs/aiProviderConfig" },
+        "anthropic": { "$ref": "#/$defs/aiProviderConfig" },
+        "openrouter": { "$ref": "#/$defs/aiProviderConfig" },
+        "telegram": { "$ref": "#/$defs/telegramIntegrationConfig" },
+        "twitter": { "$ref": "#/$defs/twitterIntegrationConfig" },
+        "discord": { "$ref": "#/$defs/discordIntegrationConfig" },
+        "web": { "$ref": "#/$defs/platformIntegrationConfig" },
+        "solana": { "$ref": "#/$defs/platformIntegrationConfig" },
+        "ethereum": { "$ref": "#/$defs/platformIntegrationConfig" }
+      }
+    }
+  }
+}

@@ -39,6 +39,8 @@
         "energy": { "$ref": "./expansions/energy.v1.schema.json#/properties/energy" },
         "dnd": { "$ref": "./expansions/dnd.v1.schema.json#/properties/dnd" },
         "nft": { "$ref": "./expansions/nft-avatar.v1.schema.json#/properties/nft" },
+        "integrations": { "$ref": "./expansions/integrations.v1.schema.json#/properties/integrations" },
+        "stickerPack": { "$ref": "./expansions/stickers.v1.schema.json#/properties/stickerPack" },
         "extensions": { "$ref": "./base/avatar-base.v1.schema.json#/properties/extensions" }
       },
       "required": ["platforms", "llm", "media", "scheduling", "behavior"],
