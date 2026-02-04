@@ -103,6 +103,13 @@ export async function isAllowedDmUserById(
 ): Promise<boolean> {
   const allowedDmUserIds = getAllowedDmUserIdsForAdmin(telegramCfg);
   
+  logger.info('DM allowlist check (response-sender)', {
+    event: 'dm_allowlist_check_response_sender',
+    userId,
+    allowedDmUserIds,
+    hasAdminTable: !!process.env.ADMIN_TABLE,
+  });
+  
   // Fast path: check if user ID is directly in the list
   if (allowedDmUserIds.includes(userId)) {
     return true;
@@ -115,6 +122,13 @@ export async function isAllowedDmUserById(
 
     // Try to resolve username to user ID
     const resolvedUserId = await resolveTelegramUsername(entry);
+    logger.info('Username resolution attempt', {
+      event: 'username_resolution',
+      username: entry,
+      resolvedUserId,
+      targetUserId: userId,
+      matched: resolvedUserId === userId,
+    });
     if (resolvedUserId && resolvedUserId === userId) {
       return true;
     }
@@ -124,14 +138,16 @@ export async function isAllowedDmUserById(
 }
 
 async function isTelegramUserOwnerOfAvatar(telegramUserId: string, avatarId: string): Promise<boolean> {
-  if (!ADMIN_TABLE) return false;
+  // Read at runtime to support response-sender
+  const adminTable = process.env.ADMIN_TABLE;
+  if (!adminTable) return false;
 
   // New format: one record per avatar.
   // Key: pk=TELEGRAM_USER#{telegramUserId}, sk=CREATED_BOT#{avatarId}
   // Legacy format (back-compat): pk=TELEGRAM_USER#{telegramUserId}, sk=CREATED_BOT
   const newKeyResult = await dynamoClient.send(
     new GetCommand({
-      TableName: ADMIN_TABLE,
+      TableName: adminTable,
       Key: {
         pk: `TELEGRAM_USER#${telegramUserId}`,
         sk: `CREATED_BOT#${avatarId}`,
@@ -144,7 +160,7 @@ async function isTelegramUserOwnerOfAvatar(telegramUserId: string, avatarId: str
 
   const legacyResult = await dynamoClient.send(
     new GetCommand({
-      TableName: ADMIN_TABLE,
+      TableName: adminTable,
       Key: {
         pk: `TELEGRAM_USER#${telegramUserId}`,
         sk: 'CREATED_BOT',
@@ -199,14 +215,19 @@ async function upsertTelegramUserMapping(userId: string, username?: string, disp
  * Returns the user ID if found, or null if not found.
  */
 export async function resolveTelegramUsername(username: string): Promise<string | null> {
-  if (!ADMIN_TABLE) return null;
+  // Read at runtime to support response-sender which may set ADMIN_TABLE after module load
+  const adminTable = process.env.ADMIN_TABLE;
+  if (!adminTable) {
+    logger.warn('ADMIN_TABLE not set, cannot resolve username', { username });
+    return null;
+  }
 
   const normalizedUsername = username.replace(/^@/, '').toLowerCase();
   if (!normalizedUsername) return null;
 
   try {
     const result = await dynamoClient.send(new GetCommand({
-      TableName: ADMIN_TABLE,
+      TableName: adminTable,
       Key: {
         pk: `TELEGRAM_USERNAME#${normalizedUsername}`,
         sk: 'IDENTITY',
@@ -218,6 +239,7 @@ export async function resolveTelegramUsername(username: string): Promise<string 
   } catch (err) {
     logger.warn('Failed to resolve Telegram username', {
       username,
+      adminTable,
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
