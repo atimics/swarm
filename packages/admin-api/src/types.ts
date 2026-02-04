@@ -48,6 +48,8 @@ export const SecretType = z.enum([
   'ethereum_wallet_key',
   'moltbook_api_key',
   'bags_api_key',
+  'bags_partner_key',
+  'bags_referral_code',
   'custom',
 ]);
 
