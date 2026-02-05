@@ -89,7 +89,7 @@ export interface BagsLaunchResult {
   metadataUrl?: string;
   bagsUrl?: string;
   error?: string;
-  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'LAUNCH_FAILED' | 'TWITTER_NOT_ON_BAGS';
+  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE' | 'LAUNCH_FAILED' | 'TWITTER_NOT_ON_BAGS';
 }
 
 export interface BagsTokenInfo {
@@ -106,11 +106,12 @@ export interface BagsLaunchPreflightResult {
   canLaunch: boolean;
   avatarId: string;
   twitterUsername?: string;
+  hasProfileImage: boolean;
   hasWallet: boolean;
   hasApiKey: boolean;
   existingToken?: BagsTokenInfo;
   error?: string;
-  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY';
+  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE';
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +173,7 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
     return {
       canLaunch: false,
       avatarId,
+      hasProfileImage: false,
       hasWallet: false,
       hasApiKey: false,
       error: 'Avatar not found',
@@ -183,6 +185,7 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
     return {
       canLaunch: false,
       avatarId,
+      hasProfileImage: true,
       hasWallet: true,
       hasApiKey: true,
       existingToken: avatar.bagsToken as BagsTokenInfo,
@@ -197,10 +200,28 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
     return {
       canLaunch: false,
       avatarId,
+      hasProfileImage: false,
       hasWallet: false,
       hasApiKey: false,
       error: 'Avatar must have a Twitter account configured to launch on Bags',
       errorCode: 'NO_TWITTER',
+    };
+  }
+
+  // Check profile image
+  const profileUrl = typeof avatar.profileImage === 'string'
+    ? avatar.profileImage
+    : avatar.profileImage?.url;
+  if (!profileUrl) {
+    return {
+      canLaunch: false,
+      avatarId,
+      twitterUsername,
+      hasProfileImage: false,
+      hasWallet: false,
+      hasApiKey: false,
+      error: 'Avatar must have a profile image set before launching a token',
+      errorCode: 'NO_PROFILE_IMAGE',
     };
   }
 
@@ -216,6 +237,7 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
       canLaunch: false,
       avatarId,
       twitterUsername,
+      hasProfileImage: true,
       hasWallet: false,
       hasApiKey,
       error: 'Avatar must have a Solana wallet configured',
@@ -228,6 +250,7 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
       canLaunch: false,
       avatarId,
       twitterUsername,
+      hasProfileImage: true,
       hasWallet: true,
       hasApiKey: false,
       error: 'Bags API key not configured',
@@ -239,6 +262,7 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
     canLaunch: true,
     avatarId,
     twitterUsername,
+    hasProfileImage: true,
     hasWallet: true,
     hasApiKey: true,
   };

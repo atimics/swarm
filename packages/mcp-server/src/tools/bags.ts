@@ -30,6 +30,7 @@ export interface BagsLaunchPreflightResult {
   twitterUsername?: string;
   hasWallet: boolean;
   hasApiKey: boolean;
+  hasProfileImage?: boolean;
   existingToken?: BagsTokenInfo;
   error?: string;
   errorCode?: string;
@@ -268,6 +269,9 @@ export const createBagsTools = (services: BagsServices) => [
             twitterAccount: {
               configured: !!preflight.twitterUsername,
               username: preflight.twitterUsername,
+            },
+            profileImage: {
+              configured: preflight.hasProfileImage !== false,
             },
             solanaWallet: {
               configured: preflight.hasWallet,
