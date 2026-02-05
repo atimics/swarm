@@ -34,6 +34,12 @@ export interface BagsLaunchPreflightResult {
   existingToken?: BagsTokenInfo;
   error?: string;
   errorCode?: string;
+  /** Current burn tier (0-5) */
+  tier?: number;
+  /** Tier name (e.g., 'Spark', 'Ember', 'Inferno') */
+  tierName?: string;
+  /** RATI needed to burn to unlock token launch (0 if already unlocked) */
+  burnNeeded?: number;
 }
 
 export interface BagsLaunchConfig {
@@ -58,6 +64,10 @@ export interface BagsLaunchResult {
   bagsUrl?: string;
   error?: string;
   errorCode?: string;
+  /** Current burn tier (0-5) */
+  tier?: number;
+  /** RATI needed to burn to unlock token launch */
+  burnNeeded?: number;
 }
 
 export interface BagsServices {
@@ -136,7 +146,11 @@ export const createBagsTools = (services: BagsServices) => [
           twitterUsername: preflight.twitterUsername,
           hasWallet: preflight.hasWallet,
           hasApiKey: preflight.hasApiKey,
+          tier: preflight.tier,
+          tierName: preflight.tierName,
+          burnNeeded: preflight.burnNeeded,
           error: preflight.error,
+          errorCode: preflight.errorCode,
         },
       };
     },
@@ -202,6 +216,9 @@ export const createBagsTools = (services: BagsServices) => [
           error: preflight.error,
           data: {
             errorCode: preflight.errorCode,
+            tier: preflight.tier,
+            tierName: preflight.tierName,
+            burnNeeded: preflight.burnNeeded,
             existingToken: preflight.existingToken
               ? {
                   mint: preflight.existingToken.mint,
@@ -255,7 +272,7 @@ export const createBagsTools = (services: BagsServices) => [
     name: 'bags_preflight',
     description:
       'Check if I can launch a token on Bags.fm without actually launching. ' +
-      'Shows requirements status: Twitter account, Solana wallet, API key.',
+      'Shows requirements status: Twitter account, Solana wallet, API key, and burn tier.',
     category: 'bags',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
@@ -279,6 +296,14 @@ export const createBagsTools = (services: BagsServices) => [
             bagsApiKey: {
               configured: preflight.hasApiKey,
             },
+            burnTier: {
+              tier: preflight.tier,
+              tierName: preflight.tierName,
+              requiredTier: 3,
+              requiredTierName: 'Inferno',
+              unlocked: preflight.tier !== undefined && preflight.tier >= 3,
+              burnNeeded: preflight.burnNeeded ?? 0,
+            },
           },
           existingToken: preflight.existingToken
             ? {
@@ -288,6 +313,7 @@ export const createBagsTools = (services: BagsServices) => [
               }
             : null,
           error: preflight.error,
+          errorCode: preflight.errorCode,
         },
       };
     },

@@ -1,8 +1,8 @@
 /**
  * Energy Service
- * 
- * Dynamic energy system for avatars with wallet-based refill rate bonuses.
- * Base rate: 1 energy/hour, max 10 energy
+ *
+ * Dynamic energy system for avatars with burn tier-based max energy and regen rates.
+ * Base values come from the avatar's burn tier (more RATI burned = higher tier).
  * Bonus: +0.5 energy/hour per 1M tokens held by owner (capped at +2/hour)
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -14,6 +14,7 @@ import {
   QueryCommand,
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { BURN_TIERS } from '@swarm/core';
 import type { CreditBucket, AvatarRecord } from '../types.js';
 
 // Default DynamoDB clients
@@ -26,13 +27,16 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 // ENERGY CONFIGURATION
 // =============================================================================
 
-/** Default energy configuration */
+/** Tier 0 defaults (used when burn stats unavailable) */
+const TIER_0_DEFAULTS = BURN_TIERS[0];
+
+/** Default energy configuration (uses tier 0 values) */
 export const DEFAULT_ENERGY_CONFIG = {
-  maxEnergy: 10,
-  baseRefillPerHour: 1,
+  maxEnergy: TIER_0_DEFAULTS.maxEnergy,
+  baseRefillPerHour: TIER_0_DEFAULTS.regenPerHour,
   // Wallet-based bonus config
   bonusPerMillionTokens: 0.5,  // +0.5 energy/hour per 1M tokens
-  maxBonusPerHour: 2,          // Cap bonus at +2/hour (so max total = 3/hour)
+  maxBonusPerHour: 2,          // Cap bonus at +2/hour
   tokenMint: 'RATixVzMQdWThJWTL7Y9sN7ypTGnBuwoUqTdmLCpump',  // $RATI token
 } as const;
 
@@ -102,11 +106,18 @@ export interface EnergyEvent {
 // DEPENDENCY INJECTION
 // =============================================================================
 
+/** Burn stats subset needed for energy calculations */
+export interface BurnStatsForEnergy {
+  maxEnergy: number;
+  regenPerHour: number;
+}
+
 export interface EnergyServiceDeps {
   dynamoClient: Pick<DynamoDBDocumentClient, 'send'>;
   tableName: string;
   getAvatar: (avatarId: string) => Promise<AvatarRecord | null>;
   getOwnerTokenBalance: (avatarId: string, tokenMint: string) => Promise<number>;
+  getBurnStatsForEnergy: (avatarId: string) => Promise<BurnStatsForEnergy>;
   now: () => number;
   uuid: () => string;
 }
@@ -118,13 +129,21 @@ async function getDefaultDeps(): Promise<EnergyServiceDeps> {
     // Lazy import to avoid circular dependencies
     const { getAvatar } = await import('./avatars.js');
     const { getOwnerTokenBalance } = await import('./wallet-balance.js');
+    const { getBurnStats } = await import('./burn-stats.js');
     const { randomUUID } = await import('crypto');
-    
+
     defaultDeps = {
       dynamoClient,
       tableName: ADMIN_TABLE,
       getAvatar,
       getOwnerTokenBalance,
+      getBurnStatsForEnergy: async (avatarId: string) => {
+        const stats = await getBurnStats(avatarId);
+        return {
+          maxEnergy: stats.maxEnergy,
+          regenPerHour: stats.regenPerHour,
+        };
+      },
       now: () => Date.now(),
       uuid: () => randomUUID(),
     };
@@ -246,7 +265,8 @@ function getNextMidnightUTC(now: number): number {
 
 /**
  * Get energy configuration for an avatar
- * Reads from the energy bucket if custom config exists, otherwise uses defaults
+ * Uses burn tier-based values for maxEnergy and baseRefillPerHour,
+ * with optional bucket overrides for advanced configurations.
  */
 export async function getAvatarEnergyConfig(
   avatarId: string,
@@ -256,7 +276,19 @@ export async function getAvatarEnergyConfig(
   const pk = `AVATAR#${avatarId}`;
   const sk = 'CREDIT#energy';
 
-  // Check if bucket has custom config
+  // Fetch burn stats for tier-based values (with fallback to tier 0)
+  let burnStats: BurnStatsForEnergy;
+  try {
+    burnStats = await d.getBurnStatsForEnergy(avatarId);
+  } catch (error) {
+    console.warn(`[Energy] Failed to get burn stats for ${avatarId}, using tier 0 defaults:`, error);
+    burnStats = {
+      maxEnergy: TIER_0_DEFAULTS.maxEnergy,
+      regenPerHour: TIER_0_DEFAULTS.regenPerHour,
+    };
+  }
+
+  // Check if bucket has custom config overrides
   const result = await d.dynamoClient.send(new GetCommand({
     TableName: d.tableName,
     Key: { pk, sk },
@@ -269,16 +301,16 @@ export async function getAvatarEnergyConfig(
     refillCap?: number;
   } | undefined;
 
-  // Calculate baseRefillPerHour from bucket config if present
-  let baseRefillPerHour = DEFAULT_ENERGY_CONFIG.baseRefillPerHour;
+  // Use tier-based values as defaults, allow bucket overrides for special cases
+  let baseRefillPerHour = burnStats.regenPerHour;
   if (bucket?.refillRate && bucket?.refillIntervalMinutes) {
-    // Convert refillRate per interval to per hour
+    // Convert refillRate per interval to per hour (legacy override)
     // e.g., 1 per 15 min = 4 per hour
     baseRefillPerHour = (bucket.refillRate * 60) / bucket.refillIntervalMinutes;
   }
 
   return {
-    maxEnergy: bucket?.max ?? DEFAULT_ENERGY_CONFIG.maxEnergy,
+    maxEnergy: bucket?.max ?? burnStats.maxEnergy,
     baseRefillPerHour,
     bonusPerMillionTokens: DEFAULT_ENERGY_CONFIG.bonusPerMillionTokens,
     maxBonusPerHour: DEFAULT_ENERGY_CONFIG.maxBonusPerHour,
@@ -758,17 +790,18 @@ export async function getEnergyHistory(
 
 function getSuggestedAlternatives(cost: number, operation: EnergyCostType): string[] {
   const alternatives: string[] = [];
-  
+
   if (operation === 'video' || cost === ENERGY_COSTS.video) {
     alternatives.push('Try generating an image instead (costs 2⚡ vs 3⚡)');
   }
   if (operation === 'image' || cost === ENERGY_COSTS.image) {
     alternatives.push('Voice messages only cost 1⚡');
   }
-  
-  alternatives.push('Hold more $RATI tokens to increase your energy regeneration rate');
+
+  alternatives.push('Burn RATI to increase your tier for higher max energy and faster regen');
+  alternatives.push('Hold more $RATI tokens to get a bonus to your energy regeneration rate');
   alternatives.push('Wait for energy to regenerate (check your current rate with get_energy_status)');
-  
+
   return alternatives;
 }
 

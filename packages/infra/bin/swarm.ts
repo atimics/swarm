@@ -19,6 +19,7 @@ import { SharedInfraStack } from '../src/stacks/shared-infra-stack.js';
 import { AdminApiStack } from '../src/stacks/admin-api-stack.js';
 import { AdminUiStack } from '../src/stacks/admin-ui-stack.js';
 import { AvatarsStack } from '../src/stacks/avatars-stack.js';
+import { ProfilePageStack } from '../src/stacks/profile-page-stack.js';
 
 // ESM equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -107,6 +108,9 @@ const privyAppSecretArn = getContextValue<string>('privyAppSecretArn', envConfig
 const privyJwtVerificationKeyArn = getContextValue<string>('privyJwtVerificationKeyArn', envConfig);
 const galleryDomain = getContextValue<string>('galleryDomain', envConfig);
 const galleryCertificateArn = getContextValue<string>('galleryCertificateArn', envConfig);
+const profileDomain = getContextValue<string>('profileDomain', envConfig);
+const profileCertificateArn = getContextValue<string>('profileCertificateArn', envConfig);
+const profileApiUrl = getContextValue<string>('profileApiUrl', envConfig);
 const enableClaudeCode = parseBoolean(getContextValue<unknown>('enableClaudeCode', envConfig)) ?? false;
 const claudeCodeUseOpenRouter = parseBoolean(getContextValue<unknown>('claudeCodeUseOpenRouter', envConfig)) ?? false;
 const anthropicApiKeyArn = getContextValue<string>('anthropicApiKeyArn', envConfig);
@@ -282,6 +286,21 @@ if (useSplitStacks) {
   avatarsStack.addDependency(sharedInfraStack);
   avatarsStack.addDependency(adminApiStack);
 
+  // 5. Profile Page Stack (independent, changes with profile page updates)
+  // Hosts public avatar profile pages at *.rati.chat subdomains
+  if (profileDomain || app.node.tryGetContext('deployProfilePage')) {
+    new ProfilePageStack(app, `SwarmProfilePage-${environment}${stackIdSuffix}`, {
+      environment,
+      nameSuffix: nonSharedResourceSuffix,
+      profileDomain,
+      profileCertificateArn,
+      includeWildcardAliases: environment === 'prod',
+      apiUrl: profileApiUrl,
+      env: stackEnv,
+      description: `Swarm Profile Page (${environment})`,
+    });
+  }
+
 } else {
   // ============================================
   // LEGACY: Monolithic Stack (default for now)
@@ -318,6 +337,21 @@ if (useSplitStacks) {
     env: stackEnv,
     description: `Swarm AI Avatar Framework (${environment})`,
   });
+
+  // Profile Page Stack (independent from legacy monolithic stack)
+  // Hosts public avatar profile pages at *.rati.chat subdomains
+  if (profileDomain || app.node.tryGetContext('deployProfilePage')) {
+    new ProfilePageStack(app, `SwarmProfilePage-${environment}${nameSuffix}`, {
+      environment,
+      nameSuffix,
+      profileDomain,
+      profileCertificateArn,
+      includeWildcardAliases: environment === 'prod',
+      apiUrl: profileApiUrl,
+      env: stackEnv,
+      description: `Swarm Profile Page (${environment})`,
+    });
+  }
 }
 
 app.synth();

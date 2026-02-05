@@ -1171,6 +1171,76 @@ export class AdminApiConstruct extends Construct {
     });
 
     // ==========================================================================
+    // Public Profile API (No auth required)
+    // ==========================================================================
+    // Public endpoints for avatar profile pages and leaderboard.
+    // CORS is handled in the handler itself with Access-Control-Allow-Origin: *
+    const publicProfileHandler = new nodejs.NodejsFunction(this, 'PublicProfileHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/public-profile.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 256,
+      environment: {
+        ADMIN_TABLE: this.table.tableName,
+        NODE_ENV: environment,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Grant read access to admin table for profile data
+    this.table.grantReadData(publicProfileHandler);
+
+    const publicProfileIntegration = new integrations.HttpLambdaIntegration(
+      'PublicProfileIntegration',
+      publicProfileHandler
+    );
+
+    // Public profile route: GET /api/profile/{avatarId}
+    this.api.addRoutes({
+      path: '/api/profile/{avatarId}',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
+      integration: publicProfileIntegration,
+    });
+
+    // Leaderboard handler - separate for potential different scaling needs
+    const leaderboardHandler = new nodejs.NodejsFunction(this, 'LeaderboardHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/public-profile.ts'),
+      handler: 'leaderboardHandler',
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 256,
+      environment: {
+        ADMIN_TABLE: this.table.tableName,
+        NODE_ENV: environment,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Grant read access to admin table for leaderboard data
+    this.table.grantReadData(leaderboardHandler);
+
+    const leaderboardIntegration = new integrations.HttpLambdaIntegration(
+      'LeaderboardIntegration',
+      leaderboardHandler
+    );
+
+    // Leaderboard route: GET /api/leaderboard
+    this.api.addRoutes({
+      path: '/api/leaderboard',
+      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
+      integration: leaderboardIntegration,
+    });
+
+    // ==========================================================================
     // OpenAI-Compatible API (Public with API Key auth)
     // ==========================================================================
     // This provides a /v1/chat/completions endpoint that external applications

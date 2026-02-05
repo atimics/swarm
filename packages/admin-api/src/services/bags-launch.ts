@@ -29,7 +29,21 @@ import {
 
 import { _getSecretValueInternal, secretExists } from './secrets.js';
 import { getAvatar } from './avatars.js';
+import { canLaunchToken } from './burn-stats.js';
+import { BURN_TIERS } from '@swarm/core';
 import type { AvatarRecord } from '../types.js';
+
+// ---------------------------------------------------------------------------
+// Tier Helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Get tier name by tier number
+ */
+function getTierName(tier: number): string {
+  const burnTier = BURN_TIERS.find(t => t.tier === tier);
+  return burnTier?.name ?? 'Unknown';
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -89,7 +103,11 @@ export interface BagsLaunchResult {
   metadataUrl?: string;
   bagsUrl?: string;
   error?: string;
-  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE' | 'LAUNCH_FAILED' | 'TWITTER_NOT_ON_BAGS';
+  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE' | 'LAUNCH_FAILED' | 'TWITTER_NOT_ON_BAGS' | 'INSUFFICIENT_TIER';
+  /** Current burn tier (0-5) */
+  tier?: number;
+  /** RATI needed to burn to unlock token launch */
+  burnNeeded?: number;
 }
 
 export interface BagsTokenInfo {
@@ -111,7 +129,13 @@ export interface BagsLaunchPreflightResult {
   hasApiKey: boolean;
   existingToken?: BagsTokenInfo;
   error?: string;
-  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE';
+  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE' | 'INSUFFICIENT_TIER';
+  /** Current burn tier (0-5) */
+  tier?: number;
+  /** Tier name (e.g., 'Spark', 'Ember', 'Inferno') */
+  tierName?: string;
+  /** RATI needed to burn to unlock token launch (0 if already unlocked) */
+  burnNeeded?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +282,24 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
     };
   }
 
+  // Check burn tier requirement (Tier 3 / Inferno required for token launch)
+  const tierCheck = await canLaunchToken(avatarId);
+  if (!tierCheck.allowed) {
+    return {
+      canLaunch: false,
+      avatarId,
+      twitterUsername,
+      hasProfileImage: true,
+      hasWallet: true,
+      hasApiKey: true,
+      error: tierCheck.error,
+      errorCode: 'INSUFFICIENT_TIER',
+      tier: tierCheck.tier,
+      tierName: getTierName(tierCheck.tier),
+      burnNeeded: tierCheck.burnNeeded,
+    };
+  }
+
   return {
     canLaunch: true,
     avatarId,
@@ -265,6 +307,9 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
     hasProfileImage: true,
     hasWallet: true,
     hasApiKey: true,
+    tier: tierCheck.tier,
+    tierName: getTierName(tierCheck.tier),
+    burnNeeded: 0,
   };
 }
 
@@ -287,7 +332,7 @@ export async function launchBagsToken(
 ): Promise<BagsLaunchResult> {
   console.log(`[BagsLaunch] Starting token launch for avatar=${avatarId}`);
 
-  // Run preflight checks
+  // Run preflight checks (includes tier requirement check)
   const preflight = await preflightBagsLaunch(avatarId);
   if (!preflight.canLaunch) {
     console.log(`[BagsLaunch] Preflight failed: ${preflight.error}`);
@@ -296,6 +341,8 @@ export async function launchBagsToken(
       avatarId,
       error: preflight.error,
       errorCode: preflight.errorCode,
+      tier: preflight.tier,
+      burnNeeded: preflight.burnNeeded,
     };
   }
 

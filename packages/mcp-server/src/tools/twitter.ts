@@ -115,11 +115,12 @@ export interface TwitterServices {
    * Reply to a tweet
    * @param mediaIds Optional gallery item IDs to attach (preferred)
    * @param mediaUrls Optional URLs to attach (legacy)
-   * @returns Success: { tweetId, url }, Queued: { queued, postId }, or null if unavailable/error
+   * @returns Success: { tweetId, url }, Queued: { queued, postId }, Error: { error }, or null if unavailable
    */
   reply?: (tweetId: string, text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<
     | { tweetId: string; url: string }
     | { queued: true; postId: string; message?: string; url?: string }
+    | { error: string }
     | null
   >;
 
@@ -147,8 +148,9 @@ export interface TwitterServices {
    * Quote tweet
    * @param mediaIds Optional gallery item IDs to attach (preferred)
    * @param mediaUrls Optional URLs to attach (legacy)
+   * @returns Success: { tweetId, url }, Error: { error }, or null if unavailable
    */
-  quoteTweet?: (tweetId: string, text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<{ tweetId: string; url: string } | null>;
+  quoteTweet?: (tweetId: string, text: string, mediaUrls?: string[], mediaIds?: string[]) => Promise<{ tweetId: string; url: string } | { error: string } | null>;
 
   /**
    * Get a specific tweet by ID
@@ -308,13 +310,13 @@ export function createTwitterTools(services: TwitterServices) {
 
     defineTool({
       name: 'twitter_post',
-      description: 'Post a tweet to Twitter/X. Twitter must be connected first (check with twitter_status to see your character limit). Standard accounts: 280 chars, Premium/Blue accounts: 10,000 chars. You can attach images using either gallery IDs (preferred) or URLs.',
+      description: 'Post a tweet to Twitter/X. Twitter must be connected first (check with twitter_status to see your character limit). Standard accounts: 280 chars, Premium/Blue accounts: 10,000 chars. You can attach images using gallery IDs from generate_image or list_gallery.',
       category: 'media',
       toolset: 'twitter',
       inputSchema: z.object({
         text: z.string().max(10000).describe('The tweet text (280 chars for standard accounts, 10,000 for Premium)'),
-        mediaIds: z.array(z.string()).max(4).optional().describe('Optional array of gallery item IDs to attach (up to 4 images). Preferred over mediaUrls.'),
-        mediaUrls: z.array(z.string()).max(4).optional().describe('Optional array of media URLs to attach (up to 4 images). Use mediaIds instead when possible.'),
+        mediaIds: z.array(z.string()).max(4).optional().describe('Gallery item IDs to attach (up to 4). Use the exact "id" value from generate_image response or list_gallery. Format: "1234567890123_abc123xyz" (timestamp_randomId). Do NOT use URLs, UUIDs, or Twitter media IDs.'),
+        mediaUrls: z.array(z.string().url()).max(4).optional().describe('DEPRECATED: Use mediaIds instead. Raw URLs may fail to upload.'),
       }),
       execute: async (input, _context): Promise<ToolResult> => {
         // Check connection first
@@ -515,8 +517,8 @@ export function createTwitterTools(services: TwitterServices) {
       inputSchema: z.object({
         tweetId: z.string().describe('The ID of the tweet to reply to'),
         text: z.string().max(10000).describe('The reply text (280 chars for standard, 10,000 for Premium)'),
-        mediaIds: z.array(z.string()).max(4).optional().describe('Optional gallery item IDs to attach (preferred)'),
-        mediaUrls: z.array(z.string()).max(4).optional().describe('Optional media URLs to attach (use mediaIds instead)'),
+        mediaIds: z.array(z.string()).max(4).optional().describe('Gallery item IDs to attach. Use exact "id" from generate_image or list_gallery. Format: "timestamp_randomId" (e.g., "1770228770932_abc123")'),
+        mediaUrls: z.array(z.string().url()).max(4).optional().describe('DEPRECATED: Use mediaIds instead'),
       }),
       execute: async (input, _context): Promise<ToolResult> => {
         const status = await services.getConnectionStatus();
@@ -531,6 +533,11 @@ export function createTwitterTools(services: TwitterServices) {
         const result = await services.reply(input.tweetId, input.text, input.mediaUrls, input.mediaIds);
         if (!result) {
           return { success: false, error: 'Failed to post reply.' };
+        }
+
+        // Check if result is an error
+        if ('error' in result) {
+          return { success: false, error: result.error };
         }
 
         // Check if result is queued (async posting)
@@ -694,8 +701,8 @@ export function createTwitterTools(services: TwitterServices) {
       inputSchema: z.object({
         tweetId: z.string().describe('The ID of the tweet to quote'),
         text: z.string().max(10000).describe('Your commentary (280 chars for standard, 10,000 for Premium)'),
-        mediaIds: z.array(z.string()).max(4).optional().describe('Optional gallery item IDs to attach (preferred)'),
-        mediaUrls: z.array(z.string()).max(4).optional().describe('Optional media URLs to attach (use mediaIds instead)'),
+        mediaIds: z.array(z.string()).max(4).optional().describe('Gallery item IDs to attach. Use exact "id" from generate_image or list_gallery. Format: "timestamp_randomId" (e.g., "1770228770932_abc123")'),
+        mediaUrls: z.array(z.string().url()).max(4).optional().describe('DEPRECATED: Use mediaIds instead'),
       }),
       execute: async (input, _context): Promise<ToolResult> => {
         const status = await services.getConnectionStatus();
@@ -710,6 +717,11 @@ export function createTwitterTools(services: TwitterServices) {
         const result = await services.quoteTweet(input.tweetId, input.text, input.mediaUrls, input.mediaIds);
         if (!result) {
           return { success: false, error: 'Failed to post quote tweet.' };
+        }
+
+        // Check if result is an error
+        if ('error' in result) {
+          return { success: false, error: result.error };
         }
 
         return {

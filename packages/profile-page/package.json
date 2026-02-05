@@ -7,7 +7,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "pnpm run build && aws s3 sync dist/ s3://${PROFILE_PAGE_BUCKET:-swarm-profile-page-staging} --delete",
+    "deploy:staging": "PROFILE_PAGE_BUCKET=$(aws cloudformation describe-stacks --stack-name SwarmProfilePage-staging --query 'Stacks[0].Outputs[?OutputKey==`ProfilePageBucketName`].OutputValue' --output text 2>/dev/null || echo 'swarm-profile-page-staging') pnpm run deploy",
+    "deploy:prod": "PROFILE_PAGE_BUCKET=$(aws cloudformation describe-stacks --stack-name SwarmProfilePage-prod --query 'Stacks[0].Outputs[?OutputKey==`ProfilePageBucketName`].OutputValue' --output text 2>/dev/null || echo 'swarm-profile-page-prod') pnpm run deploy",
+    "invalidate": "aws cloudfront create-invalidation --distribution-id ${PROFILE_PAGE_DISTRIBUTION_ID} --paths '/*'",
+    "invalidate:staging": "PROFILE_PAGE_DISTRIBUTION_ID=$(aws cloudformation describe-stacks --stack-name SwarmProfilePage-staging --query 'Stacks[0].Outputs[?OutputKey==`ProfilePageDistributionId`].OutputValue' --output text) pnpm run invalidate",
+    "invalidate:prod": "PROFILE_PAGE_DISTRIBUTION_ID=$(aws cloudformation describe-stacks --stack-name SwarmProfilePage-prod --query 'Stacks[0].Outputs[?OutputKey==`ProfilePageDistributionId`].OutputValue' --output text) pnpm run invalidate"
   },
   "devDependencies": {
     "vite": "^5.0.0"

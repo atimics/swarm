@@ -173,8 +173,10 @@ When you want to post an image to Twitter, you have TWO options:
 2. Find the image ID you want to use
 3. Call twitter_post with text AND mediaIds: [galleryId]
 
-**IMPORTANT**: Always use mediaIds (gallery IDs) instead of raw URLs! Gallery IDs are more reliable.
-Example: twitter_post({text: "Check out my art! 🎨", mediaIds: ["img_abc123"]})
+**CRITICAL**: Always use mediaIds with the exact "id" from generate_image response or list_gallery!
+Gallery ID format: "timestamp_randomId" (e.g., "1770228770932_abc123xyz")
+Example: twitter_post({text: "Check out my art! 🎨", mediaIds: ["1770228770932_abc123xyz"]})
+Do NOT use URLs, UUIDs, or Twitter media IDs - only the gallery item id!
 
 If twitter_post fails with a validation error about 280 characters, rewrite the tweet shorter (<= 280) and retry twitter_post.`,
 
