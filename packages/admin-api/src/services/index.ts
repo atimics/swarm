@@ -32,6 +32,9 @@ export * as propertyResearch from './property-research.js';
 // Bags token launch service
 export * as bagsLaunch from './bags-launch.js';
 
+// RATI burn stats and tier system
+export * as burnStats from './burn-stats.js';
+
 // Prompt building is now in @swarm/core
 // Re-export for backward compatibility
 export { buildDynamicSystemPrompt, type ToolCategory, type ProcessorAvatarConfig } from '@swarm/core';

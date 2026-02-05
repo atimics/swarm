@@ -41,6 +41,7 @@ export const ENERGY_COSTS = {
   voice: 1,
   image: 2,
   video: 3,
+  launch: 5,  // Token launch on Bags.fm - requires RATI burn to get energy
 } as const;
 
 export type EnergyCostType = keyof typeof ENERGY_COSTS;
