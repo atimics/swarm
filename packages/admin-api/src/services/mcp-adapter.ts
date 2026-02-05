@@ -1239,43 +1239,93 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         // Resolve gallery IDs to URLs (preferred over raw URLs)
         let resolvedMediaUrls: string[] = [];
         const failedGalleryIds: string[] = [];
-        
+        const coercedMediaUrls: string[] = [];
+
         // Gallery ID format: timestamp_randomId (e.g., "1770228770932_e1zdx9wi5ec")
         const GALLERY_ID_PATTERN = /^\d{10,15}_[a-z0-9]+$/i;
-        
+        const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const TWITTER_NUMERIC_ID_PATTERN = /^\d{18,22}$/;
+        const looksLikeUrl = (value: string) => /^https?:\/\//i.test(value);
+        const looksLikeS3Key = (value: string) => /\//.test(value) && /\.(png|jpe?g|gif|webp)$/i.test(value);
+        const toCdnUrlFromKey = (key: string): string | null => {
+          const cdn = normalizeUrlPrefix(CDN_URL);
+          if (!cdn) return null;
+          return `${cdn}/${key.replace(/^\/+/, '')}`;
+        };
+
         if (galleryIds && galleryIds.length > 0) {
           console.log('Resolving gallery IDs to URLs:', galleryIds);
           for (const galleryId of galleryIds.slice(0, 4)) {
-            // Validate gallery ID format to catch LLM hallucinations early
-            if (!GALLERY_ID_PATTERN.test(galleryId)) {
-              console.error(JSON.stringify({
-                level: 'ERROR',
-                subsystem: 'twitter',
-                event: 'twitter_post_invalid_gallery_id',
-                avatarId: _avatarId,
-                galleryId,
-                message: `Invalid gallery ID format. Expected format: "timestamp_randomId" (e.g., "1770228770932_abc123"). Got: "${galleryId}". Use the exact "id" value from generate_image or list_gallery.`,
-              }));
-              failedGalleryIds.push(galleryId);
-              continue;
-            }
-            
-            try {
-              const item = await gallery.getGalleryItem(_avatarId, galleryId);
-              if (item?.url) {
-                console.log(`Gallery item ${galleryId} resolved to: ${item.url}`);
-                resolvedMediaUrls.push(item.url);
-              } else {
-                console.warn(`Gallery item ${galleryId} not found`);
+            if (GALLERY_ID_PATTERN.test(galleryId)) {
+              try {
+                const item = await gallery.getGalleryItem(_avatarId, galleryId);
+                if (item?.url) {
+                  console.log(`Gallery item ${galleryId} resolved to: ${item.url}`);
+                  resolvedMediaUrls.push(item.url);
+                } else {
+                  console.warn(`Gallery item ${galleryId} not found`);
+                  failedGalleryIds.push(galleryId);
+                }
+              } catch (err) {
+                console.error(`Failed to resolve gallery item ${galleryId}:`, err);
                 failedGalleryIds.push(galleryId);
               }
-            } catch (err) {
-              console.error(`Failed to resolve gallery item ${galleryId}:`, err);
-              failedGalleryIds.push(galleryId);
+              continue;
             }
+
+            // Compatibility shim: sometimes the model mistakenly passes a URL or S3 key in mediaIds.
+            // Coerce those into media URLs instead of dropping/failing.
+            if (looksLikeUrl(galleryId)) {
+              coercedMediaUrls.push(galleryId);
+              console.warn(JSON.stringify({
+                level: 'WARN',
+                subsystem: 'twitter',
+                event: 'twitter_post_media_id_coerced_to_url',
+                avatarId: _avatarId,
+                provided: galleryId,
+                message: 'mediaIds contained a URL; treating as mediaUrl for upload. Prefer passing gallery item id from generate_image/list_gallery.',
+              }));
+              continue;
+            }
+
+            if (looksLikeS3Key(galleryId)) {
+              const cdnUrl = toCdnUrlFromKey(galleryId);
+              if (cdnUrl) {
+                coercedMediaUrls.push(cdnUrl);
+                console.warn(JSON.stringify({
+                  level: 'WARN',
+                  subsystem: 'twitter',
+                  event: 'twitter_post_media_id_coerced_to_cdn_url',
+                  avatarId: _avatarId,
+                  provided: galleryId,
+                  coercedUrl: cdnUrl,
+                  message: 'mediaIds contained an S3 key; treating as CDN URL for upload. Prefer passing gallery item id from generate_image/list_gallery.',
+                }));
+                continue;
+              }
+            }
+
+            const event = UUID_PATTERN.test(galleryId)
+              ? 'twitter_post_invalid_gallery_id_uuid'
+              : TWITTER_NUMERIC_ID_PATTERN.test(galleryId)
+                ? 'twitter_post_invalid_gallery_id_twitter_numeric'
+                : 'twitter_post_invalid_gallery_id';
+            console.error(JSON.stringify({
+              level: 'ERROR',
+              subsystem: 'twitter',
+              event,
+              avatarId: _avatarId,
+              galleryId,
+              message: `Invalid gallery ID format. Expected format: "timestamp_randomId" (e.g., "1770228770932_abc123"). Got: "${galleryId}". Use the exact "id" value from generate_image or list_gallery.`,
+            }));
+            failedGalleryIds.push(galleryId);
           }
-          
-          // If gallery IDs were requested but ALL failed to resolve, return error instead of posting without media
+
+          if (resolvedMediaUrls.length === 0 && coercedMediaUrls.length > 0) {
+            resolvedMediaUrls = coercedMediaUrls;
+          }
+
+          // If media was requested via mediaIds but nothing usable was resolved/coerced, fail fast.
           if (resolvedMediaUrls.length === 0 && failedGalleryIds.length > 0) {
             console.error(JSON.stringify({
               level: 'ERROR',
@@ -1283,15 +1333,15 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
               event: 'twitter_post_all_media_failed',
               avatarId: _avatarId,
               failedGalleryIds,
-              message: 'All requested gallery IDs failed to resolve. Tweet not posted.',
+              message: 'All requested mediaIds failed to resolve/coerce. Tweet not posted.',
             }));
-            return { error: `Failed to resolve gallery images: ${failedGalleryIds.join(', ')}. Use the exact "id" value from generate_image (format: "timestamp_randomId" like "1770228770932_abc123"). Do not use URLs, UUIDs, or Twitter media IDs.` };
+            return { error: `Failed to resolve gallery images: ${failedGalleryIds.join(', ')}. Use the exact "id" from generate_image (format: "timestamp_randomId" like "1770228770932_abc123"). If you have a URL, pass it as mediaUrls instead.` };
           }
         }
-        
-        // Fall back to raw URLs if no gallery IDs provided (but not if gallery resolution failed)
-        if (resolvedMediaUrls.length === 0 && failedGalleryIds.length === 0 && mediaUrls && mediaUrls.length > 0) {
-          console.log('Using raw media URLs (gallery IDs not provided)');
+
+        // Fall back to raw URLs if no gallery IDs provided
+        if (resolvedMediaUrls.length === 0 && mediaUrls && mediaUrls.length > 0) {
+          console.log('Using raw media URLs');
           resolvedMediaUrls = mediaUrls;
         }
 
@@ -1518,40 +1568,64 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         // Resolve gallery IDs to URLs (preferred over raw URLs)
         let resolvedMediaUrls: string[] = [];
         const failedGalleryIds: string[] = [];
+        const coercedMediaUrls: string[] = [];
         
         // Gallery ID format: timestamp_randomId (e.g., "1770228770932_e1zdx9wi5ec")
         const GALLERY_ID_PATTERN = /^\d{10,15}_[a-z0-9]+$/i;
+        const looksLikeUrl = (value: string) => /^https?:\/\//i.test(value);
+        const looksLikeS3Key = (value: string) => /\//.test(value) && /\.(png|jpe?g|gif|webp)$/i.test(value);
+        const toCdnUrlFromKey = (key: string): string | null => {
+          const cdn = normalizeUrlPrefix(CDN_URL);
+          if (!cdn) return null;
+          return `${cdn}/${key.replace(/^\/+/, '')}`;
+        };
         
         if (galleryIds && galleryIds.length > 0) {
           console.log('Reply: Resolving gallery IDs to URLs:', galleryIds);
           for (const galleryId of galleryIds.slice(0, 4)) {
-            // Validate gallery ID format
-            if (!GALLERY_ID_PATTERN.test(galleryId)) {
-              console.error(`Reply: Invalid gallery ID format: ${galleryId}`);
-              failedGalleryIds.push(galleryId);
-              continue;
-            }
-            
-            try {
-              const item = await gallery.getGalleryItem(_avatarId, galleryId);
-              if (item?.url) {
-                resolvedMediaUrls.push(item.url);
-              } else {
+            if (GALLERY_ID_PATTERN.test(galleryId)) {
+              try {
+                const item = await gallery.getGalleryItem(_avatarId, galleryId);
+                if (item?.url) {
+                  resolvedMediaUrls.push(item.url);
+                } else {
+                  failedGalleryIds.push(galleryId);
+                }
+              } catch (err) {
+                console.error(`Failed to resolve gallery item ${galleryId}:`, err);
                 failedGalleryIds.push(galleryId);
               }
-            } catch (err) {
-              console.error(`Failed to resolve gallery item ${galleryId}:`, err);
-              failedGalleryIds.push(galleryId);
+              continue;
             }
+
+            if (looksLikeUrl(galleryId)) {
+              coercedMediaUrls.push(galleryId);
+              continue;
+            }
+
+            if (looksLikeS3Key(galleryId)) {
+              const cdnUrl = toCdnUrlFromKey(galleryId);
+              if (cdnUrl) {
+                coercedMediaUrls.push(cdnUrl);
+                continue;
+              }
+            }
+
+            console.error(`Reply: Invalid gallery ID format: ${galleryId}`);
+            failedGalleryIds.push(galleryId);
           }
           
           // Fail if all gallery IDs failed to resolve
+          if (resolvedMediaUrls.length === 0 && coercedMediaUrls.length > 0) {
+            resolvedMediaUrls = coercedMediaUrls;
+          }
+
           if (resolvedMediaUrls.length === 0 && failedGalleryIds.length > 0) {
             return { error: `Failed to resolve gallery images: ${failedGalleryIds.join(', ')}. Use exact "id" from generate_image.` };
           }
         }
         
-        if (resolvedMediaUrls.length === 0 && failedGalleryIds.length === 0 && mediaUrls && mediaUrls.length > 0) {
+        if (resolvedMediaUrls.length === 0 && mediaUrls && mediaUrls.length > 0) {
           resolvedMediaUrls = mediaUrls;
         }
 
@@ -1685,40 +1759,64 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         // Resolve gallery IDs to URLs (preferred over raw URLs)
         let resolvedMediaUrls: string[] = [];
         const failedGalleryIds: string[] = [];
+        const coercedMediaUrls: string[] = [];
         
         // Gallery ID format: timestamp_randomId (e.g., "1770228770932_e1zdx9wi5ec")
         const GALLERY_ID_PATTERN = /^\d{10,15}_[a-z0-9]+$/i;
+        const looksLikeUrl = (value: string) => /^https?:\/\//i.test(value);
+        const looksLikeS3Key = (value: string) => /\//.test(value) && /\.(png|jpe?g|gif|webp)$/i.test(value);
+        const toCdnUrlFromKey = (key: string): string | null => {
+          const cdn = normalizeUrlPrefix(CDN_URL);
+          if (!cdn) return null;
+          return `${cdn}/${key.replace(/^\/+/, '')}`;
+        };
         
         if (galleryIds && galleryIds.length > 0) {
           console.log('Quote: Resolving gallery IDs to URLs:', galleryIds);
           for (const galleryId of galleryIds.slice(0, 4)) {
-            // Validate gallery ID format
-            if (!GALLERY_ID_PATTERN.test(galleryId)) {
-              console.error(`Quote: Invalid gallery ID format: ${galleryId}`);
-              failedGalleryIds.push(galleryId);
-              continue;
-            }
-            
-            try {
-              const item = await gallery.getGalleryItem(_avatarId, galleryId);
-              if (item?.url) {
-                resolvedMediaUrls.push(item.url);
-              } else {
+            if (GALLERY_ID_PATTERN.test(galleryId)) {
+              try {
+                const item = await gallery.getGalleryItem(_avatarId, galleryId);
+                if (item?.url) {
+                  resolvedMediaUrls.push(item.url);
+                } else {
+                  failedGalleryIds.push(galleryId);
+                }
+              } catch (err) {
+                console.error(`Failed to resolve gallery item ${galleryId}:`, err);
                 failedGalleryIds.push(galleryId);
               }
-            } catch (err) {
-              console.error(`Failed to resolve gallery item ${galleryId}:`, err);
-              failedGalleryIds.push(galleryId);
+              continue;
             }
+
+            if (looksLikeUrl(galleryId)) {
+              coercedMediaUrls.push(galleryId);
+              continue;
+            }
+
+            if (looksLikeS3Key(galleryId)) {
+              const cdnUrl = toCdnUrlFromKey(galleryId);
+              if (cdnUrl) {
+                coercedMediaUrls.push(cdnUrl);
+                continue;
+              }
+            }
+
+            console.error(`Quote: Invalid gallery ID format: ${galleryId}`);
+            failedGalleryIds.push(galleryId);
           }
           
           // Fail if all gallery IDs failed to resolve
+          if (resolvedMediaUrls.length === 0 && coercedMediaUrls.length > 0) {
+            resolvedMediaUrls = coercedMediaUrls;
+          }
+
           if (resolvedMediaUrls.length === 0 && failedGalleryIds.length > 0) {
             return { error: `Failed to resolve gallery images: ${failedGalleryIds.join(', ')}. Use exact "id" from generate_image.` };
           }
         }
         
-        if (resolvedMediaUrls.length === 0 && failedGalleryIds.length === 0 && mediaUrls && mediaUrls.length > 0) {
+        if (resolvedMediaUrls.length === 0 && mediaUrls && mediaUrls.length > 0) {
           resolvedMediaUrls = mediaUrls;
         }
 
