@@ -28,6 +28,7 @@ import {
   type PostMedia,
 } from '@swarm/core';
 import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
+import { checkAndIncrementMediaUsage } from './services/entitlement-enforcement.js';
 import {
   generateAutonomousContent,
   generateImagePrompt,
@@ -195,6 +196,17 @@ async function processAvatar(
 
   if (Math.random() < imageChance) {
     try {
+      const usageCheck = await checkAndIncrementMediaUsage(avatarId);
+      if (!usageCheck.allowed) {
+        logger.info('Skipping autonomous image generation due entitlement limits', {
+          avatarId,
+          reason: usageCheck.reason,
+          limit: usageCheck.limit,
+          current: usageCheck.current,
+        });
+        throw new Error(usageCheck.reason || 'Daily media generation limit reached');
+      }
+
       const mediaDeps = createMediaDependencies({ tableName: STATE_TABLE });
       const mediaService = createMediaServiceWithDeps(secrets, MEDIA_BUCKET, CDN_URL, mediaDeps);
 
@@ -203,7 +215,7 @@ async function processAvatar(
       const generatedMedia = await mediaService.generateImage(
         imagePrompt,
         avatarConfig.media.image,
-        { avatarId, platform: 'twitter', saveToGallery: true, checkCredits: true }
+        { avatarId, platform: 'twitter', saveToGallery: true, checkCredits: false }
       );
       mediaUrl = generatedMedia.url;
       media = [{ type: 'image', url: generatedMedia.url, s3Key: generatedMedia.s3Key }];

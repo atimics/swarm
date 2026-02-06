@@ -23,12 +23,14 @@ import {
   type SwarmResponse,
 } from '@swarm/core/types';
 import { ensureReplicateKey } from './utils/system-replicate-key.js';
+import { checkAndIncrementMediaUsage } from './services/entitlement-enforcement.js';
 
 // Schema for media queue items
 const MediaQueueItemSchema = z.object({
   jobId: z.string(),
   avatarId: z.string(),
   traceId: z.string().optional(),
+  usageAccounted: z.boolean().optional(),
   conversationId: z.string(),
   action: ResponseActionSchema,
   response: SwarmResponseSchema,
@@ -266,14 +268,33 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       }
 
       let mediaAction: ResponseAction | null = null;
+      if (!item.usageAccounted) {
+        const usageCheck = await checkAndIncrementMediaUsage(getAvatarId());
+        if (!usageCheck.allowed) {
+          logger.warn('Media generation blocked by entitlement limits', {
+            event: 'limit_exceeded',
+            subsystem: 'entitlements',
+            avatarId: getAvatarId(),
+            jobId: item.jobId,
+            reason: usageCheck.reason,
+            limit: usageCheck.limit,
+            current: usageCheck.current,
+          });
+          mediaAction = {
+            type: 'send_message',
+            text: usageCheck.reason || 'Daily media generation limit reached',
+            replyToMessageId: item.response.replyToMessageId,
+          };
+        }
+      }
 
-      if (item.action.type === 'take_selfie') {
+      if (!mediaAction && item.action.type === 'take_selfie') {
         const prompt = buildImagePrompt(item.action, avatarConfig);
         const media = await mediaService.generateImage(prompt, avatarConfig.media.image, {
           avatarId: getAvatarId(),
           platform: item.response.platform,
           saveToGallery: true,
-          checkCredits: true,
+          checkCredits: false,
         });
         mediaAction = {
           type: 'send_media',
@@ -282,7 +303,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
           caption: item.action.prompt,
           replyToMessageId: item.response.replyToMessageId,
         };
-      } else if (item.action.type === 'generate_image') {
+      } else if (!mediaAction && item.action.type === 'generate_image') {
         // Handle generate_image action from decoupled queue
         const action = item.action as { prompt: string; aspectRatio?: string; referenceImageUrls?: string[] };
         const validRatios = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'] as const;
@@ -298,7 +319,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
           avatarId: getAvatarId(),
           platform: item.response.platform,
           saveToGallery: true,
-          checkCredits: true,
+          checkCredits: false,
           referenceImageUrls: action.referenceImageUrls,
         });
         mediaAction = {
@@ -308,7 +329,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
           caption: action.prompt,
           replyToMessageId: item.response.replyToMessageId,
         };
-      } else if (item.action.type === 'generate_video') {
+      } else if (!mediaAction && item.action.type === 'generate_video') {
         if (!avatarConfig.media.video) {
           throw new Error('Video generation is not configured for this avatar');
         }

@@ -24,6 +24,13 @@ import { TwitterAdapter, createContentStoreService, enqueuePost, isPostQueueConf
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
+import {
+  checkAndIncrementMediaUsage,
+  checkAndIncrementVoiceUsage,
+  checkMediaLimit,
+  getRuntimeContract,
+  getRuntimeUsageSnapshot,
+} from './entitlement-enforcement.js';
 import { bagsLaunch } from '@swarm/admin-api';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -49,7 +56,7 @@ export interface PlatformServicesConfig {
  */
 export function createPlatformMCPServices(config: PlatformServicesConfig): AllServices {
   const { avatarId, avatarConfig, stateService, mediaService, wallets } = config;
-  const voiceServices = createVoiceServices({
+  const rawVoiceServices = createVoiceServices({
     avatarId,
     secrets: config.secrets,
     voiceConfig: avatarConfig.voice,
@@ -78,6 +85,45 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
   // Initialize media queue for decoupled image generation
   const mediaQueueUrl = getMediaQueueUrl();
   const useDecoupledMedia = isMediaQueueConfigured();
+
+  const MEDIA_TOOLS = new Set(['generate_image', 'generate_video', 'generate_sticker']);
+
+  function buildLimitError(reason?: string): string {
+    return reason || 'Daily media generation limit reached';
+  }
+
+  const voiceServices = {
+    ...rawVoiceServices,
+    generateVoiceMessage: async (params: {
+      avatarId: string;
+      text: string;
+      voiceId?: string;
+      format?: 'ogg' | 'mp3' | 'wav';
+      speed?: number;
+    }) => {
+      const gate = await checkAndIncrementVoiceUsage(avatarId, 1);
+      if (!gate.allowed) {
+        throw new Error(gate.reason || 'Daily voice generation limit reached');
+      }
+      return rawVoiceServices.generateVoiceMessage(params);
+    },
+    sendVoiceMessage: async (params: {
+      avatarId: string;
+      platform: string;
+      text: string;
+      conversationId?: string;
+      voiceId?: string;
+      format?: 'ogg' | 'mp3' | 'wav';
+      speed?: number;
+      replyToMessageId?: string;
+    }) => {
+      const gate = await checkAndIncrementVoiceUsage(avatarId, 1);
+      if (!gate.allowed) {
+        throw new Error(gate.reason || 'Daily voice generation limit reached');
+      }
+      return rawVoiceServices.sendVoiceMessage(params);
+    },
+  };
 
   function normalizeCdnUrl(raw?: string): string | undefined {
     if (!raw) return undefined;
@@ -153,6 +199,11 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // =========================================================================
     media: {
       generateImage: async (params: { prompt: string; aspectRatio?: string; platform?: string; referenceImageUrls?: string[]; conversationId?: string; replyToMessageId?: string }) => {
+        const usageCheck = await checkAndIncrementMediaUsage(avatarId);
+        if (!usageCheck.allowed) {
+          throw new Error(buildLimitError(usageCheck.reason));
+        }
+
         // Validate and default aspect ratio
         const validRatios = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'] as const;
         const aspectRatio = validRatios.includes(params.aspectRatio as typeof validRatios[number])
@@ -169,6 +220,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
             prompt: params.prompt,
             aspectRatio,
             referenceImageUrls: params.referenceImageUrls,
+            usageAccounted: true,
           });
           return { jobId, status: 'processing' };
         }
@@ -185,13 +237,17 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
           avatarId,
           platform: params.platform,
           saveToGallery: true,
-          checkCredits: true,
+          checkCredits: false,
           referenceImageUrls: params.referenceImageUrls,
         });
         return { id: result.s3Key || 'generated', url: result.url };
       },
 
       generateVideo: async (params: { prompt: string }) => {
+        const usageCheck = await checkAndIncrementMediaUsage(avatarId);
+        if (!usageCheck.allowed) {
+          throw new Error(buildLimitError(usageCheck.reason));
+        }
         if (!mediaService || !avatarConfig.media.video) {
           throw new Error('Video generation not configured');
         }
@@ -200,6 +256,10 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
       },
 
       generateSticker: async (params: { prompt?: string; platform?: string }) => {
+        const usageCheck = await checkAndIncrementMediaUsage(avatarId);
+        if (!usageCheck.allowed) {
+          throw new Error(buildLimitError(usageCheck.reason));
+        }
         if (!mediaService) {
           throw new Error('Media service not configured');
         }
@@ -208,7 +268,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
           avatarId,
           platform: params.platform,
           saveToGallery: true,
-          checkCredits: true,
+          checkCredits: false,
         });
         return { id: result.s3Key || 'sticker', url: result.url };
       },
@@ -238,27 +298,53 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     },
 
     // =========================================================================
-    // Media Credits (no-op for platform - credits managed separately)
+    // Media Credits (preflight checks against runtime entitlement contract)
     // =========================================================================
     mediaCredits: {
-      canUseTool: async () => ({ allowed: true }),
+      canUseTool: async (_avatarId: string, toolName: string) => {
+        if (!MEDIA_TOOLS.has(toolName)) {
+          return { allowed: true };
+        }
+        const check = await checkMediaLimit(avatarId);
+        return check.allowed
+          ? { allowed: true }
+          : { allowed: false, reason: check.reason || 'Daily media generation limit reached' };
+      },
       consumeCredit: async () => true,
     },
 
     // =========================================================================
-    // Job Credits (no-op for platform)
+    // Job Credits (derived from runtime entitlement contract)
     // =========================================================================
     jobCredits: {
-      getToolStatus: async () => ({
-        generate_image: { used: 0, limit: 100, remaining: 100 },
-        generate_video: { used: 0, limit: 10, remaining: 10 },
-        generate_sticker: { used: 0, limit: 50, remaining: 50 },
-      }),
-      getEnergyStatus: async () => ({
-        current: 10,
-        max: 10,
-        nextRefillIn: 0,
-      }),
+      getToolStatus: async () => {
+        const [contract, usage] = await Promise.all([
+          getRuntimeContract(avatarId),
+          getRuntimeUsageSnapshot(avatarId),
+        ]);
+        const limit = contract.dailyMediaCredits;
+        const used = usage.media;
+        const remaining = limit === -1 ? -1 : Math.max(0, limit - used);
+        return {
+          generate_image: { used, limit, remaining },
+          generate_video: { used, limit, remaining },
+          generate_sticker: { used, limit, remaining },
+        };
+      },
+      getEnergyStatus: async () => {
+        const contract = await getRuntimeContract(avatarId);
+        const energy = contract.augmentations?.energy;
+        const burn = contract.augmentations?.burn;
+        const maxEnergy = energy?.max ?? burn?.maxEnergy ?? 0;
+        const refillPerHour = energy?.refillPerHour ?? burn?.regenPerHour;
+        return {
+          current: energy?.current ?? maxEnergy,
+          max: maxEnergy,
+          nextRefillIn: energy?.nextRefillIn ?? 0,
+          refillPerHour,
+          bankCredits: energy?.bankCredits,
+        };
+      },
     },
 
     // =========================================================================

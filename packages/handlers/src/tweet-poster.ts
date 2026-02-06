@@ -18,6 +18,7 @@ import {
 } from '@swarm/core';
 import { ensureReplicateKey } from './utils/system-replicate-key.js';
 import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
+import { checkAndIncrementMediaUsage } from './services/entitlement-enforcement.js';
 
 // Environment variables
 const STATE_TABLE = process.env.STATE_TABLE!;
@@ -164,6 +165,11 @@ Respond with ONLY the tweet text, nothing else.`;
     // 30% chance to include an image
     if (Math.random() < 0.3) {
       try {
+        const usageCheck = await checkAndIncrementMediaUsage(AVATAR_ID);
+        if (!usageCheck.allowed) {
+          throw new Error(usageCheck.reason || 'Daily media generation limit reached');
+        }
+
         const mediaDeps = createMediaDependencies({ tableName: STATE_TABLE });
         const mediaService = createMediaServiceWithDeps(secrets, MEDIA_BUCKET, CDN_URL, mediaDeps);
 
@@ -188,7 +194,7 @@ Respond with ONLY the image prompt, nothing else.`,
           avatarId: AVATAR_ID,
           platform: 'twitter',
           saveToGallery: true,
-          checkCredits: true,
+          checkCredits: false,
         });
         mediaUrl = media.url;
         

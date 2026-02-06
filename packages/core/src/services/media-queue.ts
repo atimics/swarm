@@ -24,6 +24,7 @@ export interface MediaQueueMessage {
   jobId: string;
   avatarId: string;
   traceId?: string;
+  usageAccounted?: boolean;
   conversationId: string;
   action: {
     type: 'generate_image' | 'take_selfie' | 'generate_video';
@@ -49,6 +50,7 @@ export async function enqueueMediaJob(
     aspectRatio?: string;
     referenceImageUrls?: string[];
     traceId?: string;
+    usageAccounted?: boolean;
   }
 ): Promise<{ jobId: string }> {
   const jobId = randomUUID();
@@ -58,6 +60,7 @@ export async function enqueueMediaJob(
     jobId,
     avatarId: params.avatarId,
     traceId: params.traceId,
+    usageAccounted: params.usageAccounted === true,
     conversationId: params.conversationId,
     action: {
       type: 'generate_image',
