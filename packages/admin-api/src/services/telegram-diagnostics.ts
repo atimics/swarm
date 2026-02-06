@@ -1,5 +1,3 @@
-import { getAvatar } from './avatars.js';
-import { _getSecretValueInternal } from './secrets.js';
 import type { SecretType } from '../types.js';
 import {
   getTelegramWebhookInfoDetailed,
@@ -7,8 +5,10 @@ import {
   validateTelegramToken,
   type TelegramWebhookInfoDetailed,
 } from './telegram.js';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  deriveTelegramOnboardingStepStatus,
+  type TelegramOnboardingStepStatus,
+} from './telegram-onboarding.js';
 
 export type TelegramDiagnosticsIssueCode =
   | 'missing_bot_token'
@@ -35,6 +35,7 @@ export interface TelegramDiagnosis {
   platformEnabled: boolean;
   tokenPresent: boolean;
   webhookSecretPresent: boolean;
+  onboardingStep?: TelegramOnboardingStepStatus;
   bot?: {
     id?: number;
     username?: string;
@@ -61,7 +62,13 @@ export interface TelegramDiagnosis {
 
 export interface TelegramDiagnosticsDeps {
   now?: () => number;
-  getAvatar?: typeof getAvatar;
+  getAvatar?: (avatarId: string) => Promise<{
+    platforms?: {
+      telegram?: {
+        enabled?: boolean;
+      };
+    };
+  } | null>;
   getSecretValueForAvatar?: (avatarId: string, secretType: SecretType) => Promise<string | null>;
   validateTelegramToken?: typeof validateTelegramToken;
   getTelegramWebhookInfoDetailed?: typeof getTelegramWebhookInfoDetailed;
@@ -76,6 +83,11 @@ async function defaultGetLastTelegramUpdateSnapshot(
 ): Promise<TelegramLastUpdateSnapshot | undefined> {
   const tableName = process.env.ADMIN_TABLE;
   if (!tableName) return undefined;
+
+  const [{ DynamoDBClient }, { DynamoDBDocumentClient, GetCommand }] = await Promise.all([
+    import('@aws-sdk/client-dynamodb'),
+    import('@aws-sdk/lib-dynamodb'),
+  ]);
 
   const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
     marshallOptions: { removeUndefinedValues: true },
@@ -131,15 +143,29 @@ function deriveWebhookIssues(
   }
 }
 
+function finalizeDiagnosis(diagnosis: TelegramDiagnosis): TelegramDiagnosis {
+  diagnosis.onboardingStep = deriveTelegramOnboardingStepStatus({
+    platformEnabled: diagnosis.platformEnabled,
+    tokenPresent: diagnosis.tokenPresent,
+    webhookSecretPresent: diagnosis.webhookSecretPresent,
+    issues: diagnosis.issues,
+  });
+  return diagnosis;
+}
+
 export async function diagnoseTelegram(
   avatarId: string,
   deps: TelegramDiagnosticsDeps = {}
 ): Promise<TelegramDiagnosis> {
   const now = deps.now ?? (() => Date.now());
-  const getAvatarImpl = deps.getAvatar ?? getAvatar;
+  const getAvatarImpl = deps.getAvatar ?? (async (id: string) => {
+    const { getAvatar } = await import('./avatars.js');
+    return getAvatar(id);
+  });
   const getSecretValueForAvatarImpl =
     deps.getSecretValueForAvatar
     ?? (async (id: string, secretType: SecretType) => {
+      const { _getSecretValueInternal } = await import('./secrets.js');
       return _getSecretValueInternal(id, secretType, 'default');
     });
   const validateTelegramTokenImpl = deps.validateTelegramToken ?? validateTelegramToken;
@@ -176,7 +202,7 @@ export async function diagnoseTelegram(
 
   if (!botToken) {
     addIssue(issues, 'missing_bot_token', 'Missing Telegram bot token secret');
-    return diagnosis;
+    return finalizeDiagnosis(diagnosis);
   }
 
   if (!webhookSecret) {
@@ -186,7 +212,7 @@ export async function diagnoseTelegram(
   const validation = await validateTelegramTokenImpl(botToken);
   if (!validation.valid) {
     addIssue(issues, 'invalid_bot_token', 'Telegram bot token failed validation (getMe)');
-    return diagnosis;
+    return finalizeDiagnosis(diagnosis);
   }
   diagnosis.bot = {
     id: validation.botInfo?.id,
@@ -221,5 +247,5 @@ export async function diagnoseTelegram(
     // best-effort
   }
 
-  return diagnosis;
+  return finalizeDiagnosis(diagnosis);
 }

@@ -1,4 +1,11 @@
 import type { TelegramDiagnosis } from './telegram-diagnostics.js';
+import {
+  computeTelegramOnboardingExecution,
+  deriveTelegramOnboardingStepStatus,
+  type TelegramOnboardingExecution,
+  type TelegramOnboardingExecuteAction,
+  type TelegramOnboardingStepStatus,
+} from './telegram-onboarding.js';
 
 export interface TelegramRepairOptions {
   /**
@@ -29,6 +36,26 @@ export type TelegramRepairPlan =
   | { action: 'skip'; reason: string }
   | { action: 'repair'; reason: string };
 
+export interface TelegramOnboardingRepairPlan {
+  step: TelegramOnboardingStepStatus;
+  execution: TelegramOnboardingExecution;
+}
+
+export function computeTelegramOnboardingRepairPlan(
+  diagnosis: TelegramDiagnosis,
+  requestedAction: TelegramOnboardingExecuteAction = 'repair'
+): TelegramOnboardingRepairPlan {
+  const step = diagnosis.onboardingStep ?? deriveTelegramOnboardingStepStatus({
+    platformEnabled: diagnosis.platformEnabled,
+    tokenPresent: diagnosis.tokenPresent,
+    webhookSecretPresent: diagnosis.webhookSecretPresent,
+    issues: diagnosis.issues,
+  });
+
+  const execution = computeTelegramOnboardingExecution(step, requestedAction);
+  return { step, execution };
+}
+
 export function computeTelegramRepairPlan(
   diagnosis: TelegramDiagnosis,
   options: TelegramRepairOptions = {}
@@ -51,6 +78,10 @@ export function computeTelegramRepairPlan(
   }
 
   const issueCodes = new Set(diagnosis.issues.map(i => i.code));
+
+  if (issueCodes.has('missing_webhook_secret')) {
+    return { action: 'repair', reason: 'Telegram webhook secret is missing' };
+  }
 
   if (issueCodes.has('webhook_url_mismatch')) {
     return { action: 'repair', reason: 'Telegram webhook URL mismatch' };
