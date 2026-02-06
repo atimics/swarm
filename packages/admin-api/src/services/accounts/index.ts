@@ -18,6 +18,20 @@ export {
   type UnlinkIdentityResult,
 } from './identity-service.js';
 
+// Onboarding auth/account resolution
+export {
+  resolveOnboardingAuthAccount,
+  onboardingAuthErrorStatusCode,
+  type OnboardingAuthOutcome,
+  type OnboardingAuthErrorCode,
+  type OnboardingAuthIntent,
+  type OnboardingAuthResult,
+  type OnboardingAuthSuccessResult,
+  type OnboardingAuthFailureResult,
+  type ResolveOnboardingAuthAccountParams,
+  type OnboardingAuthResolverDeps,
+} from './onboarding-auth-resolver.js';
+
 // Challenge management
 export {
   createAuthChallenge,
@@ -64,4 +78,6 @@ export {
   type AuthenticateResult,
   type LinkWalletParams,
   type LinkWalletResult,
+  type OnboardingOrchestrationContext,
+  type OnboardingResponseMetadata,
 } from './auth-orchestrator.js';

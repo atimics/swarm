@@ -7,11 +7,12 @@ import { z } from 'zod';
 
 import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 import { getClearSessionCookies, getSessionFromCookie, getSetSessionCookies } from '../auth/session-cookie.js';
-import { getAccountSummary, getOrCreateAccountForWallet, linkPrivyIdentityToAccount } from '../services/accounts.js';
+import { getAccountSummary, linkPrivyIdentityToAccount } from '../services/accounts.js';
 import { getAccountGateStatus } from '../services/account-gate.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getCorsHeaders } from '../http/cors.js';
 import { verifyPrivyAccessTokenForLink, verifyPrivyAuth } from '../services/privy-auth.js';
+import { onboardingAuthErrorStatusCode, resolveOnboardingAuthAccount } from '../services/accounts/onboarding-auth-resolver.js';
 
 const PrivyVerifySchema = z.object({
   accessToken: z.string().min(1),
@@ -20,7 +21,9 @@ const PrivyVerifySchema = z.object({
   walletAddress: z.string().min(32).max(44).optional(),
 });
 
-const PrivyLinkVerifySchema = PrivyVerifySchema;
+const PrivyLinkVerifySchema = PrivyVerifySchema.extend({
+  intent: z.enum(['link', 'switch']).optional(),
+});
 
 function jsonResponse(
   statusCode: number,
@@ -64,11 +67,15 @@ export async function handlePrivyVerify(event: APIGatewayProxyEventV2): Promise<
     const result = await verifyPrivyAuth(parsed.data, userAgent, ipAddress);
 
     if (!result.success || !result.session || !result.user) {
-      const statusCode = result.conflict ? 409 : 401;
+      const statusCode = result.code ? onboardingAuthErrorStatusCode(result.code) : (result.conflict ? 409 : 401);
       return jsonResponse(
         statusCode,
         {
           error: result.error || 'Authentication failed',
+          code: result.code,
+          outcome: result.outcome,
+          switchAccountId: result.switchAccountId,
+          requiredIntent: result.requiredIntent,
           conflict: result.conflict,
         },
         cors
@@ -77,7 +84,15 @@ export async function handlePrivyVerify(event: APIGatewayProxyEventV2): Promise<
 
     const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
 
-    const accountId = result.session.accountId || (await getOrCreateAccountForWallet(result.user.walletAddress));
+    const accountId = result.session.accountId;
+    if (!accountId) {
+      return jsonResponse(
+        401,
+        { error: 'Session expired', code: 'session_expired' },
+        cors,
+        getClearSessionCookies()
+      );
+    }
     const account = await getAccountSummary(accountId);
 
     const gate = await getAccountGateStatus(accountId);
@@ -101,6 +116,9 @@ export async function handlePrivyVerify(event: APIGatewayProxyEventV2): Promise<
           inhabitedAvatarId: inhabitedAvatar?.avatarId,
         },
         nftGate: result.nftGate,
+        authResolution: {
+          outcome: result.outcome || 'allow_continue',
+        },
         gateStatus: gate.gateStatus,
         gateWallet: gate.gateWallet,
         gateStatusByWallet: gate.gateStatusByWallet,
@@ -129,12 +147,22 @@ export async function handleLinkPrivyVerify(event: APIGatewayProxyEventV2): Prom
   try {
     const sessionToken = getSessionFromCookie(event);
     if (!sessionToken) {
-      return jsonResponse(401, { error: 'Not authenticated' }, cors, getClearSessionCookies());
+      return jsonResponse(
+        401,
+        { error: 'Session expired', code: 'session_expired' },
+        cors,
+        getClearSessionCookies()
+      );
     }
 
     const session = await getSessionWithUser(sessionToken);
     if (!session) {
-      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
+      return jsonResponse(
+        401,
+        { error: 'Session expired', code: 'session_expired' },
+        cors,
+        getClearSessionCookies()
+      );
     }
 
     const body = JSON.parse(event.body || '{}');
@@ -152,7 +180,53 @@ export async function handleLinkPrivyVerify(event: APIGatewayProxyEventV2): Prom
       return jsonResponse(401, { error: 'Token user mismatch' }, cors);
     }
 
-    const accountId = session.accountId || (await getOrCreateAccountForWallet(session.user.walletAddress));
+    const accountId = session.accountId;
+    if (!accountId) {
+      return jsonResponse(
+        401,
+        { error: 'Session expired', code: 'session_expired' },
+        cors,
+        getClearSessionCookies()
+      );
+    }
+
+    const authResolution = await resolveOnboardingAuthAccount({
+      mode: 'session',
+      sessionAccountId: accountId,
+      avatarOwnerAccountId: accountId,
+      targetIdentities: [
+        { type: 'privy', providerId: verified.privyUserId },
+        ...(verified.walletAddress ? [{ type: 'wallet' as const, providerId: verified.walletAddress }] : []),
+      ],
+      intent: parsed.data.intent ?? 'link',
+      requireExplicitLinkIntent: true,
+    });
+
+    if (!authResolution.success) {
+      const conflictType = authResolution.identity?.type === 'wallet' ? 'wallet' : 'privy';
+      const conflictProviderId = authResolution.identity?.providerId ?? verified.privyUserId;
+
+      return jsonResponse(
+        onboardingAuthErrorStatusCode(authResolution.code),
+        {
+          error: authResolution.error,
+          code: authResolution.code,
+          outcome: authResolution.outcome,
+          switchAccountId: authResolution.switchAccountId,
+          requiredIntent: authResolution.requiredIntent,
+          providedIntent: authResolution.providedIntent,
+          identity: authResolution.identity,
+          conflict: authResolution.switchAccountId
+            ? {
+                type: conflictType,
+                providerId: conflictProviderId,
+                existingAccountId: authResolution.switchAccountId,
+              }
+            : undefined,
+        },
+        cors
+      );
+    }
 
     const linkResult = await linkPrivyIdentityToAccount({
       accountId,
@@ -172,6 +246,9 @@ export async function handleLinkPrivyVerify(event: APIGatewayProxyEventV2): Prom
       {
         success: true,
         account,
+        authResolution: {
+          outcome: authResolution.outcome,
+        },
         gateStatus: gate.gateStatus,
         gateWallet: gate.gateWallet,
         gateStatusByWallet: gate.gateStatusByWallet,

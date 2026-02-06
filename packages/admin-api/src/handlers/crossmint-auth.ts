@@ -7,10 +7,11 @@ import { z } from 'zod';
 import { resolveCrossmintWalletAddress, verifyCrossmintAuth, verifyCrossmintJwtForLink } from '../services/crossmint-auth.js';
 import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 import { getClearSessionCookies, getSessionFromCookie, getSetSessionCookies } from '../auth/session-cookie.js';
-import { getAccountSummary, getOrCreateAccountForWallet, linkCrossmintIdentityToAccount } from '../services/accounts.js';
+import { getAccountSummary, linkCrossmintIdentityToAccount } from '../services/accounts.js';
 import { getAccountGateStatus } from '../services/account-gate.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { onboardingAuthErrorStatusCode, resolveOnboardingAuthAccount } from '../services/accounts/onboarding-auth-resolver.js';
 
 // ============================================================================
 // Request Schemas
@@ -23,7 +24,9 @@ const CrossmintVerifySchema = z.object({
   walletAddress: z.string().min(32).max(44).optional(), // Solana address
 });
 
-const CrossmintLinkVerifySchema = CrossmintVerifySchema;
+const CrossmintLinkVerifySchema = CrossmintVerifySchema.extend({
+  intent: z.enum(['link', 'switch']).optional(),
+});
 
 // Cookie helpers live in ../auth/session-cookie.ts
 
@@ -94,15 +97,32 @@ export async function handleCrossmintVerify(
     );
 
     if (!result.success || !result.session || !result.user) {
-      return jsonResponse(401, {
+      const statusCode = result.code ? onboardingAuthErrorStatusCode(result.code) : 401;
+      return jsonResponse(statusCode, {
         error: result.error || 'Authentication failed',
+        code: result.code,
+        outcome: result.outcome,
+        switchAccountId: result.switchAccountId,
+        requiredIntent: result.requiredIntent,
+        conflict: result.conflict,
       }, cors);
     }
 
     // Inhabitation is stored in the avatar ownership mapping; don't rely on user profile fields.
     const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
 
-    const accountId = result.session.accountId || (await getOrCreateAccountForWallet(result.user.walletAddress));
+    const accountId = result.session.accountId;
+    if (!accountId) {
+      return jsonResponse(
+        401,
+        {
+          error: 'Session expired',
+          code: 'session_expired',
+        },
+        cors,
+        getClearSessionCookies()
+      );
+    }
     const account = await getAccountSummary(accountId);
 
     const gate = await getAccountGateStatus(accountId);
@@ -125,6 +145,9 @@ export async function handleCrossmintVerify(
         inhabitedAvatarId: inhabitedAvatar?.avatarId,
       },
       nftGate: result.nftGate,
+      authResolution: {
+        outcome: result.outcome || 'allow_continue',
+      },
       gateStatus: gate.gateStatus,
       gateWallet: gate.gateWallet,
       gateStatusByWallet: gate.gateStatusByWallet,
@@ -152,12 +175,22 @@ export async function handleLinkCrossmintVerify(
   try {
     const sessionToken = getSessionFromCookie(event);
     if (!sessionToken) {
-      return jsonResponse(401, { error: 'Not authenticated' }, cors, getClearSessionCookies());
+      return jsonResponse(
+        401,
+        { error: 'Session expired', code: 'session_expired' },
+        cors,
+        getClearSessionCookies()
+      );
     }
 
     const session = await getSessionWithUser(sessionToken);
     if (!session) {
-      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
+      return jsonResponse(
+        401,
+        { error: 'Session expired', code: 'session_expired' },
+        cors,
+        getClearSessionCookies()
+      );
     }
 
     const body = JSON.parse(event.body || '{}');
@@ -176,7 +209,53 @@ export async function handleLinkCrossmintVerify(
       walletAddress: parsed.data.walletAddress,
     });
 
-    const accountId = session.accountId || (await getOrCreateAccountForWallet(session.user.walletAddress));
+    const accountId = session.accountId;
+    if (!accountId) {
+      return jsonResponse(
+        401,
+        { error: 'Session expired', code: 'session_expired' },
+        cors,
+        getClearSessionCookies()
+      );
+    }
+
+    const authResolution = await resolveOnboardingAuthAccount({
+      mode: 'session',
+      sessionAccountId: accountId,
+      avatarOwnerAccountId: accountId,
+      targetIdentities: [
+        { type: 'crossmint', providerId: parsed.data.userId },
+        ...(crossmintWallet ? [{ type: 'wallet' as const, providerId: crossmintWallet }] : []),
+      ],
+      intent: parsed.data.intent ?? 'link',
+      requireExplicitLinkIntent: true,
+    });
+
+    if (!authResolution.success) {
+      const conflictType = authResolution.identity?.type === 'wallet' ? 'wallet' : 'crossmint';
+      const conflictProviderId = authResolution.identity?.providerId ?? parsed.data.userId;
+
+      return jsonResponse(
+        onboardingAuthErrorStatusCode(authResolution.code),
+        {
+          error: authResolution.error,
+          code: authResolution.code,
+          outcome: authResolution.outcome,
+          switchAccountId: authResolution.switchAccountId,
+          requiredIntent: authResolution.requiredIntent,
+          providedIntent: authResolution.providedIntent,
+          identity: authResolution.identity,
+          conflict: authResolution.switchAccountId
+            ? {
+                type: conflictType,
+                providerId: conflictProviderId,
+                existingAccountId: authResolution.switchAccountId,
+              }
+            : undefined,
+        },
+        cors
+      );
+    }
 
     const linkResult = await linkCrossmintIdentityToAccount({
       accountId,
@@ -194,6 +273,9 @@ export async function handleLinkCrossmintVerify(
     return jsonResponse(200, {
       success: true,
       account,
+      authResolution: {
+        outcome: authResolution.outcome,
+      },
       gateStatus: gate.gateStatus,
       gateWallet: gate.gateWallet,
       gateStatusByWallet: gate.gateStatusByWallet,

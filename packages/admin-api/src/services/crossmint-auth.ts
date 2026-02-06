@@ -12,7 +12,12 @@ import {
 import { randomBytes } from 'crypto';
 import { checkNFTGate, type NFTGateResult } from './nft-gate.js';
 import type { UserRecord, SessionRecord } from './wallet-auth.js';
-import { getOrCreateAccountForCrossmint, recordAccountSession } from './accounts.js';
+import { recordAccountSession } from './accounts.js';
+import {
+  resolveOnboardingAuthAccount,
+  type OnboardingAuthFailureResult,
+  type OnboardingAuthOutcome,
+} from './accounts/onboarding-auth-resolver.js';
 import { upsertActiveUserSlotOnLogin } from './active-user-limit.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -41,6 +46,11 @@ export interface CrossmintAuthResult {
   user?: UserRecord & { email?: string };
   nftGate?: NFTGateResult;
   error?: string;
+  code?: OnboardingAuthFailureResult['code'];
+  outcome?: OnboardingAuthOutcome;
+  switchAccountId?: string;
+  requiredIntent?: OnboardingAuthFailureResult['requiredIntent'];
+  conflict?: { type: 'wallet' | 'crossmint'; providerId: string; existingAccountId: string };
 }
 
 // ============================================================================
@@ -302,11 +312,38 @@ export async function verifyCrossmintAuth(
   // 4. Get or create user (keyed by wallet address)
   const user = await getOrCreateUser(walletAddress, email, userId);
 
-  // 4b. Resolve/create account for this Crossmint user and its wallet
-  const accountId = await getOrCreateAccountForCrossmint({
-    crossmintUserId: userId,
-    walletAddress,
+  // 4b. Resolve/create account for this Crossmint user and wallet.
+  // This canonical resolution path prevents implicit account switching.
+  const accountResolution = await resolveOnboardingAuthAccount({
+    mode: 'identity',
+    primaryIdentity: { type: 'crossmint', providerId: userId },
+    additionalIdentities: [{ type: 'wallet', providerId: walletAddress }],
+    createIfNotFound: true,
   });
+
+  if (!accountResolution.success) {
+    const conflictIdentity = accountResolution.identity;
+    const conflictType = conflictIdentity?.type === 'wallet' ? 'wallet' : 'crossmint';
+    const conflictProviderId = conflictIdentity?.providerId ?? userId;
+
+    return {
+      success: false,
+      error: accountResolution.error,
+      code: accountResolution.code,
+      outcome: accountResolution.outcome,
+      switchAccountId: accountResolution.switchAccountId,
+      requiredIntent: accountResolution.requiredIntent,
+      conflict: accountResolution.switchAccountId
+        ? {
+            type: conflictType,
+            providerId: conflictProviderId,
+            existingAccountId: accountResolution.switchAccountId,
+          }
+        : undefined,
+    };
+  }
+
+  const accountId = accountResolution.accountId;
 
   // Track unified account activity + refresh active-user slot (if enabled)
   await recordAccountSession(accountId);
@@ -317,5 +354,11 @@ export async function verifyCrossmintAuth(
 
   console.log(`[CrossmintAuth] Auth successful for user=${userId}, wallet=${walletAddress.slice(0, 8)}...`);
 
-  return { success: true, session, user, nftGate };
+  return {
+    success: true,
+    session,
+    user,
+    nftGate,
+    outcome: accountResolution.outcome,
+  };
 }

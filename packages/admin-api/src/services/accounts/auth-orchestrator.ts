@@ -5,6 +5,7 @@
  * session creation, and challenge verification. Replaces the scattered auth logic
  * across wallet-auth, crossmint-auth, and privy-auth handlers.
  */
+import { randomUUID } from 'crypto';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import {
@@ -24,10 +25,37 @@ import {
 } from './challenge-service.js';
 import { recordAccountSession, getAccountSummary, type AccountSummary } from '../accounts.js';
 import { checkNFTGate, type NFTGateResult } from '../nft-gate.js';
+import {
+  buildOnboardingErrorEnvelope,
+  type OnboardingErrorEnvelope,
+} from '../onboarding/errors.js';
+import type {
+  OnboardingErrorCode,
+} from '../onboarding/error-types.js';
 
 // ============================================================================
 // Types
 // ============================================================================
+
+export interface OnboardingOrchestrationContext {
+  runId: string;
+  state: string;
+  step?: string;
+  failureSeq?: number;
+  resumeToken?: string;
+  correlationId?: string;
+  attempt?: number;
+  maxAttempts?: number;
+}
+
+export interface OnboardingResponseMetadata {
+  runId: string;
+  state: string;
+  step?: string;
+  failureSeq?: number;
+  resumeToken?: string;
+  correlationId: string;
+}
 
 export interface AuthenticateWalletParams {
   signature: string;
@@ -35,6 +63,7 @@ export interface AuthenticateWalletParams {
   nonce: string;
   userAgent?: string;
   ipAddress?: string;
+  onboarding?: OnboardingOrchestrationContext;
 }
 
 export interface AuthenticateCrossmintParams {
@@ -43,6 +72,7 @@ export interface AuthenticateCrossmintParams {
   email?: string;
   userAgent?: string;
   ipAddress?: string;
+  onboarding?: OnboardingOrchestrationContext;
 }
 
 export interface AuthenticatePrivyParams {
@@ -51,6 +81,7 @@ export interface AuthenticatePrivyParams {
   email?: string;
   userAgent?: string;
   ipAddress?: string;
+  onboarding?: OnboardingOrchestrationContext;
 }
 
 export interface AuthenticateResult {
@@ -59,6 +90,8 @@ export interface AuthenticateResult {
   account?: AccountSummary;
   nftGate?: NFTGateResult;
   error?: string;
+  onboarding?: OnboardingResponseMetadata;
+  onboardingError?: OnboardingErrorEnvelope;
   conflict?: {
     identity: Identity;
     existingAccountId: string;
@@ -70,16 +103,121 @@ export interface LinkWalletParams {
   walletAddress: string;
   signature: string;
   nonce: string;
+  onboarding?: OnboardingOrchestrationContext;
 }
 
 export interface LinkWalletResult {
   success: boolean;
   account?: AccountSummary;
   error?: string;
+  onboarding?: OnboardingResponseMetadata;
+  onboardingError?: OnboardingErrorEnvelope;
   conflict?: {
     identity: Identity;
     existingAccountId: string;
   };
+}
+
+interface OnboardingStepContext {
+  state: string;
+  step: string;
+}
+
+function mapAuthOrchestratorErrorCode(errorMessage: string): OnboardingErrorCode {
+  const lower = errorMessage.toLowerCase();
+
+  if (lower.includes('already consumed') || lower.includes('idempotency')) {
+    return 'idempotency_key_conflict';
+  }
+  if (
+    lower.includes('does not match')
+    || lower.includes('mismatch')
+    || lower.includes('not found')
+    || lower.includes('expired')
+  ) {
+    return 'step_payload_invalid';
+  }
+  if (
+    lower.includes('invalid signature')
+    || lower.includes('not authorized')
+    || lower.includes('already linked to another account')
+  ) {
+    return 'actor_not_authorized';
+  }
+  if (lower.includes('rate limit')) {
+    return 'step_rate_limited';
+  }
+  if (lower.includes('timeout') || lower.includes('timed out')) {
+    return 'step_dependency_timeout';
+  }
+  if (lower.includes('missing') || lower.includes('not configured')) {
+    return 'configuration_missing';
+  }
+  if (lower.includes('conflict') || lower.includes('conditionalcheckfailed')) {
+    return 'transition_write_conflict';
+  }
+
+  return 'step_dependency_unavailable';
+}
+
+function buildOnboardingMetadata(
+  context: OnboardingOrchestrationContext | undefined,
+  stepContext: OnboardingStepContext
+): OnboardingResponseMetadata | undefined {
+  if (!context) {
+    return undefined;
+  }
+
+  return {
+    runId: context.runId,
+    state: context.state || stepContext.state,
+    step: context.step || stepContext.step,
+    failureSeq: context.failureSeq,
+    resumeToken: context.resumeToken,
+    correlationId: context.correlationId || randomUUID(),
+  };
+}
+
+function buildFailureResponse(
+  message: string,
+  context: OnboardingOrchestrationContext | undefined,
+  stepContext: OnboardingStepContext,
+  errorCode = mapAuthOrchestratorErrorCode(message)
+): {
+  error: string;
+  onboarding?: OnboardingResponseMetadata;
+  onboardingError?: OnboardingErrorEnvelope;
+} {
+  const onboarding = buildOnboardingMetadata(context, stepContext);
+  if (!onboarding) {
+    return { error: message };
+  }
+
+  const onboardingError = buildOnboardingErrorEnvelope({
+    errorCode,
+    message,
+    runId: onboarding.runId,
+    state: onboarding.state,
+    step: onboarding.step,
+    resumeToken: onboarding.resumeToken,
+    correlationId: onboarding.correlationId,
+    attempt: context?.attempt,
+    maxAttempts: context?.maxAttempts,
+  });
+
+  return {
+    error: message,
+    onboarding,
+    onboardingError,
+  };
+}
+
+function buildSuccessResponse(
+  context: OnboardingOrchestrationContext | undefined,
+  stepContext: OnboardingStepContext
+): Pick<AuthenticateResult, 'onboarding'> {
+  const onboarding = buildOnboardingMetadata(context, stepContext);
+  return onboarding ? { onboarding } : {};
 }
 
 // ============================================================================
@@ -140,28 +278,41 @@ export async function createWalletChallenge(
 export async function authenticateWallet(
   params: AuthenticateWalletParams
 ): Promise<AuthenticateResult> {
-  const { signature, publicKey, nonce, userAgent, ipAddress } = params;
+  const { signature, publicKey, nonce, userAgent, ipAddress, onboarding } = params;
+  const stepContext: OnboardingStepContext = {
+    state: 'authenticating',
+    step: 'wallet_verify',
+  };
 
   // 1. Consume the challenge (retry-safe)
   const requestId = `${publicKey}:${nonce}:${Date.now()}`;
   const challengeResult = await consumeChallenge('auth', nonce, requestId);
 
   if (!challengeResult.success) {
-    return { success: false, error: challengeResult.error };
+    return {
+      success: false,
+      ...buildFailureResponse(challengeResult.error, onboarding, stepContext),
+    };
   }
 
   const challenge = challengeResult.challenge;
 
   // Verify the wallet matches the challenge
   if (challenge.walletAddress !== publicKey) {
-    return { success: false, error: 'Wallet address does not match challenge' };
+    return {
+      success: false,
+      ...buildFailureResponse('Wallet address does not match challenge', onboarding, stepContext, 'step_payload_invalid'),
+    };
   }
 
   // 2. Verify the signature
   const isValid = verifyWalletSignature(challenge.message, signature, publicKey);
   if (!isValid) {
     console.log(`[AuthOrchestrator] Invalid signature for wallet=${publicKey.slice(0, 8)}...`);
-    return { success: false, error: 'Invalid signature' };
+    return {
+      success: false,
+      ...buildFailureResponse('Invalid signature', onboarding, stepContext, 'actor_not_authorized'),
+    };
   }
 
   // 3. Check NFT gate (non-blocking)
@@ -179,7 +330,7 @@ export async function authenticateWallet(
   if (!accountResult.success) {
     return {
       success: false,
-      error: accountResult.error,
+      ...buildFailureResponse(accountResult.error, onboarding, stepContext),
       conflict: accountResult.conflict,
     };
   }
@@ -207,6 +358,7 @@ export async function authenticateWallet(
     session,
     account: account ?? undefined,
     nftGate,
+    ...buildSuccessResponse(onboarding, stepContext),
   };
 }
 
@@ -221,7 +373,17 @@ export async function authenticateWallet(
 export async function authenticateCrossmint(
   params: AuthenticateCrossmintParams
 ): Promise<AuthenticateResult> {
-  const { crossmintUserId, walletAddress, userAgent, ipAddress } = params;
+  const {
+    crossmintUserId,
+    walletAddress,
+    userAgent,
+    ipAddress,
+    onboarding,
+  } = params;
+  const stepContext: OnboardingStepContext = {
+    state: 'authenticating',
+    step: 'crossmint_verify',
+  };
 
   // Build identities to link
   const primaryIdentity: Identity = { type: 'crossmint', providerId: crossmintUserId };
@@ -250,7 +412,7 @@ export async function authenticateCrossmint(
   if (!accountResult.success) {
     return {
       success: false,
-      error: accountResult.error,
+      ...buildFailureResponse(accountResult.error, onboarding, stepContext),
       conflict: accountResult.conflict,
     };
   }
@@ -278,6 +440,7 @@ export async function authenticateCrossmint(
     session,
     account: account ?? undefined,
     nftGate,
+    ...buildSuccessResponse(onboarding, stepContext),
   };
 }
 
@@ -292,7 +455,17 @@ export async function authenticateCrossmint(
 export async function authenticatePrivy(
   params: AuthenticatePrivyParams
 ): Promise<AuthenticateResult> {
-  const { privyUserId, walletAddress, userAgent, ipAddress } = params;
+  const {
+    privyUserId,
+    walletAddress,
+    userAgent,
+    ipAddress,
+    onboarding,
+  } = params;
+  const stepContext: OnboardingStepContext = {
+    state: 'authenticating',
+    step: 'privy_verify',
+  };
 
   // Build identities to link
   const primaryIdentity: Identity = { type: 'privy', providerId: privyUserId };
@@ -321,7 +494,7 @@ export async function authenticatePrivy(
   if (!accountResult.success) {
     return {
       success: false,
-      error: accountResult.error,
+      ...buildFailureResponse(accountResult.error, onboarding, stepContext),
       conflict: accountResult.conflict,
     };
   }
@@ -349,6 +522,7 @@ export async function authenticatePrivy(
     session,
     account: account ?? undefined,
     nftGate,
+    ...buildSuccessResponse(onboarding, stepContext),
   };
 }
 
@@ -362,42 +536,79 @@ export async function authenticatePrivy(
 export async function createWalletLinkChallenge(
   accountId: string,
   walletAddress: string,
-  idempotencyKey?: string
-): Promise<{ nonce: string; message: string; expiresAt: number } | { error: string }> {
+  idempotencyKey?: string,
+  onboarding?: OnboardingOrchestrationContext
+): Promise<
+  | {
+      nonce: string;
+      message: string;
+      expiresAt: number;
+      onboarding?: OnboardingResponseMetadata;
+    }
+  | {
+      error: string;
+      onboarding?: OnboardingResponseMetadata;
+      onboardingError?: OnboardingErrorEnvelope;
+    }
+> {
+  const stepContext: OnboardingStepContext = {
+    state: 'linking_identity',
+    step: 'wallet_link_challenge',
+  };
+
   // Check if wallet is already linked to a different account
   const existingAccountId = await getAccountIdForIdentity({ type: 'wallet', providerId: walletAddress });
   if (existingAccountId && existingAccountId !== accountId) {
-    return { error: 'Wallet is already linked to another account' };
+    return {
+      ...buildFailureResponse('Wallet is already linked to another account', onboarding, stepContext, 'actor_not_authorized'),
+    };
   }
 
-  return createLinkChallenge({ accountId, walletAddress, idempotencyKey });
+  const challenge = await createLinkChallenge({ accountId, walletAddress, idempotencyKey });
+  return {
+    ...challenge,
+    ...buildSuccessResponse(onboarding, stepContext),
+  };
 }
 
 /**
  * Verify a wallet link signature and link the wallet to an account.
  */
 export async function verifyAndLinkWallet(params: LinkWalletParams): Promise<LinkWalletResult> {
-  const { accountId, walletAddress, signature, nonce } = params;
+  const { accountId, walletAddress, signature, nonce, onboarding } = params;
+  const stepContext: OnboardingStepContext = {
+    state: 'linking_identity',
+    step: 'wallet_link_verify',
+  };
 
   // 1. Consume the challenge (retry-safe)
   const requestId = `${accountId}:${walletAddress}:${nonce}:${Date.now()}`;
   const challengeResult = await consumeChallenge('link', nonce, requestId);
 
   if (!challengeResult.success) {
-    return { success: false, error: challengeResult.error };
+    return {
+      success: false,
+      ...buildFailureResponse(challengeResult.error, onboarding, stepContext),
+    };
   }
 
   const challenge = challengeResult.challenge;
 
   // Verify the challenge matches the request
   if (challenge.accountId !== accountId || challenge.walletAddress !== walletAddress) {
-    return { success: false, error: 'Challenge does not match request' };
+    return {
+      success: false,
+      ...buildFailureResponse('Challenge does not match request', onboarding, stepContext, 'step_payload_invalid'),
+    };
   }
 
   // 2. Verify the signature
   const isValid = verifyWalletSignature(challenge.message, signature, walletAddress);
   if (!isValid) {
-    return { success: false, error: 'Invalid signature' };
+    return {
+      success: false,
+      ...buildFailureResponse('Invalid signature', onboarding, stepContext, 'actor_not_authorized'),
+    };
   }
 
   // 3. Link the identity
@@ -406,7 +617,7 @@ export async function verifyAndLinkWallet(params: LinkWalletParams): Promise<Lin
   if (!linkResult.success) {
     return {
       success: false,
-      error: linkResult.error,
+      ...buildFailureResponse(linkResult.error, onboarding, stepContext),
       conflict: linkResult.conflict,
     };
   }
@@ -419,6 +630,7 @@ export async function verifyAndLinkWallet(params: LinkWalletParams): Promise<Lin
   return {
     success: true,
     account: account ?? undefined,
+    ...buildSuccessResponse(onboarding, stepContext),
   };
 }
 
@@ -428,8 +640,14 @@ export async function verifyAndLinkWallet(params: LinkWalletParams): Promise<Lin
 export async function linkCrossmint(
   accountId: string,
   crossmintUserId: string,
-  walletAddress?: string
+  walletAddress?: string,
+  onboarding?: OnboardingOrchestrationContext
 ): Promise<LinkWalletResult> {
+  const stepContext: OnboardingStepContext = {
+    state: 'linking_identity',
+    step: 'crossmint_link',
+  };
+
   // Link Crossmint identity
   const crossmintResult = await linkIdentity(accountId, {
     type: 'crossmint',
@@ -439,7 +657,7 @@ export async function linkCrossmint(
   if (!crossmintResult.success) {
     return {
       success: false,
-      error: crossmintResult.error,
+      ...buildFailureResponse(crossmintResult.error, onboarding, stepContext),
       conflict: crossmintResult.conflict,
     };
   }
@@ -454,7 +672,7 @@ export async function linkCrossmint(
     if (!walletResult.success) {
       return {
         success: false,
-        error: walletResult.error,
+        ...buildFailureResponse(walletResult.error, onboarding, stepContext),
         conflict: walletResult.conflict,
       };
     }
@@ -465,6 +683,7 @@ export async function linkCrossmint(
   return {
     success: true,
     account: account ?? undefined,
+    ...buildSuccessResponse(onboarding, stepContext),
   };
 }
 
@@ -474,8 +693,14 @@ export async function linkCrossmint(
 export async function linkPrivy(
   accountId: string,
   privyUserId: string,
-  walletAddress?: string
+  walletAddress?: string,
+  onboarding?: OnboardingOrchestrationContext
 ): Promise<LinkWalletResult> {
+  const stepContext: OnboardingStepContext = {
+    state: 'linking_identity',
+    step: 'privy_link',
+  };
+
   // Link Privy identity
   const privyResult = await linkIdentity(accountId, {
     type: 'privy',
@@ -485,7 +710,7 @@ export async function linkPrivy(
   if (!privyResult.success) {
     return {
       success: false,
-      error: privyResult.error,
+      ...buildFailureResponse(privyResult.error, onboarding, stepContext),
       conflict: privyResult.conflict,
     };
   }
@@ -500,7 +725,7 @@ export async function linkPrivy(
     if (!walletResult.success) {
       return {
         success: false,
-        error: walletResult.error,
+        ...buildFailureResponse(walletResult.error, onboarding, stepContext),
         conflict: walletResult.conflict,
       };
     }
@@ -511,6 +736,7 @@ export async function linkPrivy(
   return {
     success: true,
     account: account ?? undefined,
+    ...buildSuccessResponse(onboarding, stepContext),
   };
 }
 

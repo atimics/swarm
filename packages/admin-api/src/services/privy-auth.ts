@@ -15,7 +15,12 @@ import { PrivyClient, type User as PrivyUser } from '@privy-io/node';
 
 import { checkNFTGate, type NFTGateResult } from './nft-gate.js';
 import type { UserRecord, SessionRecord } from './wallet-auth.js';
-import { getOrCreateAccountForPrivy, recordAccountSession } from './accounts.js';
+import { recordAccountSession } from './accounts.js';
+import {
+  resolveOnboardingAuthAccount,
+  type OnboardingAuthFailureResult,
+  type OnboardingAuthOutcome,
+} from './accounts/onboarding-auth-resolver.js';
 import { upsertActiveUserSlotOnLogin } from './active-user-limit.js';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -54,6 +59,10 @@ export interface PrivyAuthResult {
   user?: UserRecord & { email?: string };
   nftGate?: NFTGateResult;
   error?: string;
+  code?: OnboardingAuthFailureResult['code'];
+  outcome?: OnboardingAuthOutcome;
+  switchAccountId?: string;
+  requiredIntent?: OnboardingAuthFailureResult['requiredIntent'];
   conflict?: { type: 'wallet' | 'privy'; providerId: string; existingAccountId: string };
 }
 
@@ -352,29 +361,51 @@ export async function verifyPrivyAuth(
     // 4) Get/create user record (keyed by wallet).
     const appUser = await getOrCreateUser(walletAddress, email, privyUserId);
 
-    // 5) Resolve/create account.
-    const accountResult = await getOrCreateAccountForPrivy({
-      privyUserId,
-      walletAddress,
+    // 5) Resolve/create account via canonical resolver.
+    const accountResolution = await resolveOnboardingAuthAccount({
+      mode: 'identity',
+      primaryIdentity: { type: 'privy', providerId: privyUserId },
+      additionalIdentities: [{ type: 'wallet', providerId: walletAddress }],
+      createIfNotFound: true,
     });
 
-    if (!accountResult.success) {
+    if (!accountResolution.success) {
+      const conflictIdentity = accountResolution.identity;
+      const conflictType = conflictIdentity?.type === 'wallet' ? 'wallet' : 'privy';
+      const conflictProviderId = conflictIdentity?.providerId ?? privyUserId;
+
       return {
         success: false,
-        error: accountResult.error,
-        conflict: accountResult.conflict,
+        error: accountResolution.error,
+        code: accountResolution.code,
+        outcome: accountResolution.outcome,
+        switchAccountId: accountResolution.switchAccountId,
+        requiredIntent: accountResolution.requiredIntent,
+        conflict: accountResolution.switchAccountId
+          ? {
+              type: conflictType,
+              providerId: conflictProviderId,
+              existingAccountId: accountResolution.switchAccountId,
+            }
+          : undefined,
       };
     }
 
     // Track unified account activity + refresh active-user slot (if enabled)
-    await recordAccountSession(accountResult.accountId);
+    await recordAccountSession(accountResolution.accountId);
     const isOrbHolder = (nftGate.ownedCount ?? 0) > 0;
-    await upsertActiveUserSlotOnLogin({ accountId: accountResult.accountId, walletAddress, isOrbHolder });
+    await upsertActiveUserSlotOnLogin({ accountId: accountResolution.accountId, walletAddress, isOrbHolder });
 
     // 6) Create session.
-    const session = await createSession(walletAddress, privyUserId, accountResult.accountId, isOrbHolder, userAgent, ipAddress);
+    const session = await createSession(walletAddress, privyUserId, accountResolution.accountId, isOrbHolder, userAgent, ipAddress);
 
-    return { success: true, session, user: appUser, nftGate };
+    return {
+      success: true,
+      session,
+      user: appUser,
+      nftGate,
+      outcome: accountResolution.outcome,
+    };
   } catch (error) {
     console.error('[PrivyAuth] Verify error:', error);
     return { success: false, error: 'Authentication failed' };
