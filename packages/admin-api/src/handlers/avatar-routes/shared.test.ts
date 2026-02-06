@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { jsonResponse, parseSinceParam, parseSinceQueryParam, requireOwnerOrAdmin } from './shared.js';
-import { makeCtx, CORS_HEADERS, parseBody } from './test-helpers.js';
+import { makeCtx, CORS_HEADERS } from './test-helpers.js';
 
 describe('jsonResponse', () => {
   it('builds a JSON response with status and headers', () => {

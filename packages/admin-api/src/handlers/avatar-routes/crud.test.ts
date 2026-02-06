@@ -25,14 +25,14 @@ let integrationStatusesResult: unknown = [];
 let galleryProfileResult: unknown = null;
 
 mock.module('../../services/avatars.js', () => ({
-  createAvatar: async (...args: unknown[]) => createAvatarResult,
-  createAvatarWithWallet: async (...args: unknown[]) => createAvatarWithWalletResult,
+  createAvatar: async (..._args: unknown[]) => createAvatarResult,
+  createAvatarWithWallet: async (..._args: unknown[]) => createAvatarWithWalletResult,
   listAvatars: async () => listAvatarsResult,
   listAvatarsByWallet: async () => listAvatarsByWalletResult,
   getAvatar: async () => getAvatarResult,
-  updateAvatar: async (...args: unknown[]) => updateAvatarResult,
-  deleteAvatar: async (...args: unknown[]) => { deleteAvatarCalls.push(args); },
-  reassignAvatar: async (...args: unknown[]) => reassignAvatarResult,
+  updateAvatar: async (..._args: unknown[]) => updateAvatarResult,
+  deleteAvatar: async (..._args: unknown[]) => { deleteAvatarCalls.push(_args); },
+  reassignAvatar: async (..._args: unknown[]) => reassignAvatarResult,
 }));
 
 mock.module('../../services/gallery.js', () => ({

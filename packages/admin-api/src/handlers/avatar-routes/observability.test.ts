@@ -52,7 +52,7 @@ mock.module('@swarm/core', () => ({
 }));
 
 import { handleObservabilityRoutes } from './observability.js';
-import { makeCtx, parseBody, MOCK_AVATAR } from './test-helpers.js';
+import { makeCtx, parseBody } from './test-helpers.js';
 
 beforeEach(() => {
   getAvatarResult = null;
