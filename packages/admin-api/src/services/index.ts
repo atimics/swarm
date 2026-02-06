@@ -9,12 +9,16 @@ export * from './gallery.js';
 export * from './media-jobs.js';
 export * from './credits.js';
 export * from './entitlements.js';
+export * from './onboarding/index.js';
+export * from './activation-readiness.js';
+export * from './onboarding-rollout.js';
 // Energy service types that don't conflict with credits.js wrappers
 export type { EnergyStatus, EnergyConfig, ConsumeEnergyResult, EnergyEvent, EnergyCostType, EnergyServiceDeps } from './energy.js';
 export { getOwnerWallet, getOwnerWallets, getTokenBalance, getOwnerTokenBalance, clearBalanceCache } from './wallet-balance.js';
 export * from './media.js';
 export * from './telegram-stickers.js';
 export * from './telegram.js';
+export * from './telegram-onboarding.js';
 export * from './sticker-processor.js';
 // Export stickers service with explicit names to avoid conflicts with media.ts
 export {

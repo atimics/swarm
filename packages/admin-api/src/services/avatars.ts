@@ -115,7 +115,7 @@ export interface CreateAvatarResult {
  * Create a new avatar with wallet-based gating
  * Requires the wallet to hold an unused Gate NFT slot
  */
-export async function createAvatarWithWallet(
+export async function createAvatarWithWalletLegacy(
   name: string,
   creatorWallet: string,
   description?: string
@@ -198,6 +198,30 @@ export async function createAvatarWithWallet(
     avatar,
     gateStatus: finalStatus,
   };
+}
+
+/**
+ * Create a new avatar with wallet-based gating.
+ * Backward-compatible export used by existing callers.
+ */
+export async function createAvatarWithWallet(
+  name: string,
+  creatorWallet: string,
+  description?: string
+): Promise<CreateAvatarResult> {
+  return createAvatarWithWalletLegacy(name, creatorWallet, description);
+}
+
+/**
+ * Onboarding v2 avatar creation path.
+ * Uses the legacy implementation today; rollout routing stays runtime-controlled.
+ */
+export async function createAvatarWithWalletV2(
+  name: string,
+  creatorWallet: string,
+  description?: string
+): Promise<CreateAvatarResult> {
+  return createAvatarWithWalletLegacy(name, creatorWallet, description);
 }
 
 /**
