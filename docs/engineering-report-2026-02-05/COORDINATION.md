@@ -37,7 +37,7 @@ Snapshot collected on **2026-02-06** from:
 
 ### Current Findings
 
-- `main` is at `ed9161b` with active uncommitted integration deltas in the primary worktree.
+- `main` is at `8f0540c` with SWARM-008 and SWARM-019 integration commits applied on top of prior onboarding waves.
 - Local SWARM branches currently present: `feat/swarm-008` through `feat/swarm-020` (legacy lanes still provisioned for coordination replay and drift tracking).
 - Local SWARM worktrees currently present: `swarm-008` through `swarm-020`.
 - SWARM-001/002/003/004 were delivered via `main` commits and are tracked via closure ledger.
@@ -45,7 +45,8 @@ Snapshot collected on **2026-02-06** from:
 - Wave 6 dispatch now has successful runs covering SWARM-011 through SWARM-020 (`20260206T060843Z`, `20260206T164723Z`, `20260206T182912Z`), and docs outputs have been promoted into `main` for coordinator review.
 - Execution Wave 1 and Wave 2 deltas were promoted to mainline runtime paths for SWARM-012/013/014/015/016/017/020 and validated via package builds plus avatar-routes tests.
 - SWARM-018 was promoted from lane primitives into the current onboarding module set (`error-types.ts`, `errors.ts`, `resume-token.ts`, `persistence.ts`) and validated with focused onboarding unit tests plus admin-api build.
-- Testing stream has been declared complete; onboarding integration now includes test additions directly in mainline.
+- SWARM-008 has been normalized and integrated on mainline (`33762c8`, `5c1c25d`) covering WAF/IAM/SQS hardening plus deploy workflow cleanup.
+- Testing stream has been declared complete; onboarding integration now includes deterministic onboarding matrix and route tests directly on mainline (`8f0540c`).
 
 ## Worker Assignment Matrix
 
@@ -58,7 +59,7 @@ Snapshot collected on **2026-02-06** from:
 | `worker-005` | SWARM-005 | `(mainline-first lane)` | `(n/a)` | Decompose oversized files into focused modules while preserving existing exports and behavior. | In progress on mainline (partial) | Commit `bc92632` adds decomposed core type modules; further decomposition still required |
 | `worker-006` | SWARM-006 | `(mainline-first lane)` | `(n/a)` | Wire all current CloudWatch alarms to actionable SNS notifications without replacements. | In review on mainline | Commit `288687f` wires alarm actions to SNS; validate full alarm coverage before closure |
 | `worker-007` | SWARM-007 | `(mainline-first lane)` | `(n/a)` | Add high-value tests for LLM services, avatars handler, Discord adapter, and worker critical paths. | In progress on mainline | Commits `22b7ed6` and `c127e91` add core/admin-api test coverage; Discord/worker paths still open |
-| `worker-008` | SWARM-008 | `feat/swarm-008` | `/Users/ratimics/develop/aws-swarm-swarm-008` | Harden security posture with WAF, scoped Bedrock IAM, queue encryption, and workflow cleanup. | Blocked (dirty worktree) | Worktree has unexpected tracked deletions across repo root files |
+| `worker-008` | SWARM-008 | `feat/swarm-008` | `/Users/ratimics/develop/aws-swarm-swarm-008` | Harden security posture with WAF, scoped Bedrock IAM, queue encryption, and workflow cleanup. | Integrated on mainline (validation pass) | WAF + IAM + queue encryption in `33762c8`; deploy workflow cleanup in `5c1c25d` |
 | `worker-009` | SWARM-009 | `feat/swarm-009` | `/Users/ratimics/develop/aws-swarm-swarm-009` | Remove legacy code paths and duplicate types after migration and compatibility verification. | Assigned, not started | Branch/worktree present and clean at `3223c53` |
 | `worker-010` | SWARM-010 | `feat/swarm-010` | `/Users/ratimics/develop/aws-swarm-swarm-010` | Improve operational resilience with EventBridge DLQs, configurable LLM limits, and deploy/admin-api maintainability work. | Assigned, not started | Branch/worktree present and clean at `3223c53` |
 
@@ -70,10 +71,12 @@ Snapshot collected on **2026-02-06** from:
 | SWARM-002 | Completed-by-commit | `3223c53` | Confirm message-processor side completed as intended and close worker branch as superseded |
 | SWARM-003 | Completed-by-commit | `3223c53` | Confirm all fallback sites migrated and close worker branch as superseded |
 | SWARM-004 | Completed-by-commit | `edad325` | Confirm lint/coverage gate behavior in CI and close worker branch as superseded |
+| SWARM-008 | Completed-by-commit | `33762c8`, `5c1c25d` | Monitor WAF and API stage associations in next staging deploy diff |
+| SWARM-019 | Completed-by-commit | `8f0540c` | Expand matrix/artifact CI automation if full WF/EF/FR case expansion is prioritized |
 
 ## Onboarding Story Set - Provisioned (SWARM-011 to SWARM-020)
 
-Status: branches/worktrees remain provisioned for traceability. Wave 6 docs-phase lanes are complete, and implementation deltas for SWARM-012/013/014/015/016/017/018/020 are integrated on mainline with local validation evidence.
+Status: branches/worktrees remain provisioned for traceability. Wave 6 docs-phase lanes are complete, and implementation deltas for SWARM-012/013/014/015/016/017/018/019/020 are integrated on mainline with local validation evidence.
 
 | Worker | Ticket | Proposed Branch | Worktree | Status | Notes |
 |--------|--------|-----------------|----------|--------|-------|
@@ -85,7 +88,7 @@ Status: branches/worktrees remain provisioned for traceability. Wave 6 docs-phas
 | `worker-016` | SWARM-016 | `feat/swarm-016` | `/Users/ratimics/develop/aws-swarm-swarm-016` | Integrated on mainline (validation pass) | Telegram onboarding diagnostics/repair response shaping promoted |
 | `worker-017` | SWARM-017 | `feat/swarm-017` | `/Users/ratimics/develop/aws-swarm-swarm-017` | Integrated on mainline (validation pass) | Activation readiness evaluator/endpoint and activation gating promoted |
 | `worker-018` | SWARM-018 | `feat/swarm-018` | `/Users/ratimics/develop/aws-swarm-swarm-018` | Integrated on mainline (validation pass) | Typed onboarding error/retry/resume primitives plus auth-orchestrator hooks and onboarding unit tests landed |
-| `worker-019` | SWARM-019 | `feat/swarm-019` | `/Users/ratimics/develop/aws-swarm-swarm-019` | Review (checkpoint complete) | Run `20260206T182912Z`; deterministic E2E/stability matrix drafted and promoted to `main` |
+| `worker-019` | SWARM-019 | `feat/swarm-019` | `/Users/ratimics/develop/aws-swarm-swarm-019` | Integrated on mainline (validation pass) | Deterministic onboarding matrix + onboarding route tests added in `8f0540c` |
 | `worker-020` | SWARM-020 | `feat/swarm-020` | `/Users/ratimics/develop/aws-swarm-swarm-020` | Integrated on mainline (validation pass) | Rollout feature-flag service + cohort assignment helpers promoted into avatar creation flow |
 
 ## Dispatch Automation
@@ -173,27 +176,17 @@ Snapshot intent: monitor engineering activity without editing runtime code.
 
 | Area | Files | Likely Ticket Impact | Confidence |
 |------|-------|----------------------|------------|
-| Admin API handler churn and backup artifact | `packages/admin-api/src/handlers/avatars.ts`, `packages/admin-api/src/handlers/avatars.ts.bak` | SWARM-005 / SWARM-007 / SWARM-010 overlap; cleanup needed before merge | Medium |
-| Admin API routing decomposition (engineering in-flight) | `packages/admin-api/src/handlers/avatar-routes/` | SWARM-005 / SWARM-007 overlap | Medium |
-| Onboarding docs promoted from worker lanes | `docs/engineering-report-2026-02-05/SWARM-011...SWARM-020` | SWARM-011 through SWARM-020 docs-phase planning complete; ready for implementation planning review | High |
-| Coordination updates | `docs/engineering-report-2026-02-05/COORDINATION.md`, `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-WAVE6.md`, `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W1.md`, `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W2.md`, `docs/engineering-report-2026-02-05/SWARM-012-013-alignment-notes.md` | Swarm orchestration metadata, alignment gate closure, and execution-wave checkpointing | High |
-| Dispatch assets | `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-WAVE6.manifest`, `docs/engineering-report-2026-02-05/dispatch-prompts/wave6/*.prompt.txt` | Wave 6 worker orchestration | High |
-| Execution dispatch assets | `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W1.manifest`, `docs/engineering-report-2026-02-05/dispatch-prompts/execution-wave1/*.prompt.txt` | Implementation wave orchestration (`worker-012`, `013`, `014`, `017`, `018`) | High |
-| Execution dispatch assets (wave 2) | `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W2.manifest`, `docs/engineering-report-2026-02-05/dispatch-prompts/execution-wave2/*.prompt.txt` | Implementation wave orchestration (`worker-015`, `016`, `020`) | High |
-| Worker launcher script | `scripts/swarm-workers.sh` | Swarm subagent parallel execution tooling | High |
+| Coordination status refresh | `docs/engineering-report-2026-02-05/COORDINATION.md`, `docs/engineering-report-2026-02-05/README.md`, `docs/engineering-report-2026-02-05/SWARM-008-security-hardening.md`, `docs/engineering-report-2026-02-05/SWARM-019-onboarding-e2e-and-stability-tests.md` | Ticket closure metadata alignment for SWARM-008 and SWARM-019 | High |
 
 ### Branch Discipline Watch
 
 - Risk: active branch/worktree inventory no longer matches historical worker mapping.
 - Required coordinator action: keep matrix synced with mainline-first delivery and branch lane checkpoints.
-- Current blocker:
-  - `feat/swarm-008` worktree has widespread tracked deletions and should be normalized before development continues.
 - Current watch item:
   - `feat/swarm-011` through `feat/swarm-020` now contain uncommitted docs from completed dispatch runs; coordinator should decide whether to commit per-lane or treat `main` doc promotion as source of truth and reset lanes.
   - Dispatch run `20260206T175732Z` failed under sandbox permission constraints; rerun `20260206T182912Z` succeeded under escalation.
   - Execution runs `20260206T184805Z` and `20260206T200331Z` have been materially integrated into mainline runtime paths; lane worktrees now primarily serve as historical checkpoint artifacts.
-  - Testing stream is complete; targeted onboarding tests (`errors.test.ts`, `resume-token.test.ts`) now run on mainline.
-  - `main` currently includes in-flight `avatars.ts` edits plus an untracked `avatars.ts.bak`; ensure backup artifacts are not merged.
+  - Testing stream is complete; targeted onboarding tests (`errors.test.ts`, `resume-token.test.ts`, `stability-matrix.test.ts`, `onboarding.test.ts`) now run on mainline.
 
 ## Coordinator Runbook
 

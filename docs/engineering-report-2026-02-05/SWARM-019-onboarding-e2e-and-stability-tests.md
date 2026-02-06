@@ -1,6 +1,6 @@
 # SWARM-019: Onboarding E2E and Stability Tests
 
-**Priority:** P1 - Next Sprint
+**Priority:** P1 - Integrated on mainline (validation pass)
 **Package:** `@swarm/admin-api`, `@swarm/admin-ui`
 **Risk:** Low - additive test and validation coverage
 
@@ -9,7 +9,7 @@
 - **Assigned Worker:** `worker-019` (active)
 - **Branch:** `feat/swarm-019`
 - **Worktree:** `/Users/ratimics/develop/aws-swarm-swarm-019` (provisioned)
-- **Current Lane Status:** `review` (checkpoint captured 2026-02-06, run `20260206T182912Z`; deterministic E2E/retry matrix drafted)
+- **Current Lane Status:** `integrated on mainline (validation pass)` (`8f0540c`; deterministic onboarding matrix + onboarding route tests)
 - **Core Mission:** Protect onboarding overhaul quality with deterministic integration and end-to-end stability coverage.
 
 ## Problem
@@ -98,6 +98,16 @@ Without high-confidence test coverage, onboarding improvements can regress quick
 ## Dependencies
 
 - SWARM-012 through SWARM-018 core contracts and flows.
+
+## Mainline Evidence (2026-02-06)
+
+- `8f0540c` (`test(admin-api): add onboarding stability matrix coverage (SWARM-019)`)
+  - Added deterministic contract matrix tests at `packages/admin-api/src/services/onboarding/stability-matrix.test.ts`.
+  - Added onboarding route handler tests at `packages/admin-api/src/handlers/avatar-routes/onboarding.test.ts`.
+- Local validation commands:
+  - `bun test packages/admin-api/src/services/onboarding/stability-matrix.test.ts packages/admin-api/src/handlers/avatar-routes/onboarding.test.ts`
+  - `pnpm --filter @swarm/admin-api build`
+  - `bun test packages/admin-api/src/handlers/avatar-routes --bail=1`
 
 ## Acceptance Criteria
 
