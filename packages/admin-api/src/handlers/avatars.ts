@@ -21,6 +21,7 @@ import * as twitterFeedService from '../services/twitter-feed.js';
 import * as observabilityService from '../services/observability.js';
 import * as energyService from '../services/energy.js';
 import * as energyBurnService from '../services/energy-burn.js';
+import * as burnStatsService from '../services/burn-stats.js';
 import { recordError, listAvatarIssues } from '../services/auto-issues.js';
 import { setupTelegramIntegration } from '../services/telegram-setup.js';
 import { diagnoseTelegram } from '../services/telegram-diagnostics.js';
@@ -33,6 +34,7 @@ import {
   getEffectiveLimitsForAvatar,
   toRuntimeLimits,
   syncRuntimeLimitsToState,
+  type RuntimeAugmentations,
 } from '../services/runtime-limits.js';
 import { SecretType } from '../types.js';
 import { resumeChatAfterToolResult } from './chat.js';
@@ -73,6 +75,76 @@ function parseSinceQueryParam(value?: string): number | undefined {
  */
 function isAdminWallet(walletAddress: string): boolean {
   return ADMIN_WALLETS.includes(walletAddress);
+}
+
+async function buildRuntimeAugmentations(avatarId: string): Promise<RuntimeAugmentations | undefined> {
+  const [burnResult, energyResult, bankResult] = await Promise.allSettled([
+    burnStatsService.getBurnStats(avatarId),
+    energyService.getEnergyStatus(avatarId),
+    energyService.getEnergyBankBalance(avatarId),
+  ]);
+
+  if (burnResult.status === 'rejected') {
+    logger.warn('Failed to fetch burn stats for runtime augmentation', {
+      avatarId,
+      error: burnResult.reason instanceof Error ? burnResult.reason.message : String(burnResult.reason),
+    });
+  }
+  if (energyResult.status === 'rejected') {
+    logger.warn('Failed to fetch energy status for runtime augmentation', {
+      avatarId,
+      error: energyResult.reason instanceof Error ? energyResult.reason.message : String(energyResult.reason),
+    });
+  }
+  if (bankResult.status === 'rejected') {
+    logger.warn('Failed to fetch energy bank for runtime augmentation', {
+      avatarId,
+      error: bankResult.reason instanceof Error ? bankResult.reason.message : String(bankResult.reason),
+    });
+  }
+
+  const burn = burnResult.status === 'fulfilled'
+    ? {
+        totalBurned: burnResult.value.totalBurned,
+        tier: burnResult.value.tier,
+        tierName: burnResult.value.tierName,
+        maxEnergy: burnResult.value.maxEnergy,
+        regenPerHour: burnResult.value.regenPerHour,
+        updatedAt: burnResult.value.lastVerifiedAt,
+      }
+    : undefined;
+
+  const energy = energyResult.status === 'fulfilled'
+    ? {
+        current: energyResult.value.current,
+        max: energyResult.value.max,
+        refillPerHour: energyResult.value.refillPerHour,
+        nextRefillIn: energyResult.value.nextRefillIn,
+        bankCredits: bankResult.status === 'fulfilled' ? bankResult.value.credits : undefined,
+        updatedAt: Date.now(),
+      }
+    : undefined;
+
+  if (!burn && !energy) return undefined;
+
+  return {
+    ...(burn ? { burn } : {}),
+    ...(energy ? { energy } : {}),
+  };
+}
+
+async function syncRuntimeContractForAvatar(avatarId: string): Promise<void> {
+  const entitlement = await entitlementsService.getEntitlement(avatarId);
+  const effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
+  const augmentations = await buildRuntimeAugmentations(avatarId);
+  await syncRuntimeLimitsToState({
+    avatarId,
+    runtimeLimits: toRuntimeLimits(effective.limits),
+    plan: effective.plan,
+    source: effective.source,
+    entitlementStatus: effective.entitlementStatus,
+    augmentations,
+  });
 }
 
 function jsonResponse(
@@ -383,19 +455,12 @@ export async function handler(
         actorId,
       });
 
-      const effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
-      await syncRuntimeLimitsToState({
-        avatarId,
-        runtimeLimits: toRuntimeLimits(effective.limits),
-        plan: effective.plan,
-        source: effective.source,
-        entitlementStatus: effective.entitlementStatus,
-      });
+      await syncRuntimeContractForAvatar(avatarId);
 
       return jsonResponse(corsHeaders, 200, {
         avatarId,
         entitlement,
-        effective,
+        effective: getEffectiveLimitsForAvatar(avatarId, entitlement),
       });
     }
 
@@ -473,15 +538,7 @@ export async function handler(
 
       // Ensure runtime limits are synced for immediate enforcement.
       try {
-        const entitlement = await entitlementsService.getEntitlement(avatarId);
-        const effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
-        await syncRuntimeLimitsToState({
-          avatarId,
-          runtimeLimits: toRuntimeLimits(effective.limits),
-          plan: effective.plan,
-          source: effective.source,
-          entitlementStatus: effective.entitlementStatus,
-        });
+        await syncRuntimeContractForAvatar(avatarId);
       } catch (err) {
         logger.warn('Failed to sync runtime limits on activation', {
           avatarId,
@@ -1319,6 +1376,15 @@ export async function handler(
         });
       }
 
+      try {
+        await syncRuntimeContractForAvatar(avatarId);
+      } catch (err) {
+        logger.warn('Failed to sync runtime limits after energy burn', {
+          avatarId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
       const status = await energyService.getEnergyStatus(avatarId);
       const bank = await energyService.getEnergyBankBalance(avatarId);
 
@@ -1347,6 +1413,14 @@ export async function handler(
       }
 
       const result = await energyService.setEnergy(avatarId, value);
+      try {
+        await syncRuntimeContractForAvatar(avatarId);
+      } catch (err) {
+        logger.warn('Failed to sync runtime limits after setEnergy', {
+          avatarId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       
       return jsonResponse(corsHeaders, 200, {
         avatarId,
@@ -1370,6 +1444,14 @@ export async function handler(
       }
 
       const result = await energyService.addEnergy(avatarId, amount);
+      try {
+        await syncRuntimeContractForAvatar(avatarId);
+      } catch (err) {
+        logger.warn('Failed to sync runtime limits after addEnergy', {
+          avatarId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       
       return jsonResponse(corsHeaders, 200, {
         avatarId,

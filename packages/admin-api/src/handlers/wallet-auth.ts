@@ -30,6 +30,15 @@ import { getGateStatus } from '../services/nft-gate.js';
 import { listUnclaimedAvatars } from '../services/avatars.js';
 import { prepareLineageMint } from '../services/lineage-nft.js';
 import { recordBurn } from '../services/burn-stats.js';
+import { getBurnStats } from '../services/burn-stats.js';
+import { getEnergyStatus, getEnergyBankBalance } from '../services/energy.js';
+import { getEntitlement } from '../services/entitlements.js';
+import {
+  getEffectiveLimitsForAvatar,
+  toRuntimeLimits,
+  syncRuntimeLimitsToState,
+  type RuntimeAugmentations,
+} from '../services/runtime-limits.js';
 import { handleCrossmintAuth } from './crossmint-auth.js';
 import { handlePrivyAuth } from './privy-auth.js';
 import {
@@ -95,6 +104,56 @@ function getDefaultDeps(): WalletAuthHandlerDeps {
       getAccountSummary,
     },
   };
+}
+
+async function buildRuntimeAugmentations(avatarId: string): Promise<RuntimeAugmentations | undefined> {
+  const [burnResult, energyResult, bankResult] = await Promise.allSettled([
+    getBurnStats(avatarId),
+    getEnergyStatus(avatarId),
+    getEnergyBankBalance(avatarId),
+  ]);
+
+  const burn = burnResult.status === 'fulfilled'
+    ? {
+        totalBurned: burnResult.value.totalBurned,
+        tier: burnResult.value.tier,
+        tierName: burnResult.value.tierName,
+        maxEnergy: burnResult.value.maxEnergy,
+        regenPerHour: burnResult.value.regenPerHour,
+        updatedAt: burnResult.value.lastVerifiedAt,
+      }
+    : undefined;
+
+  const energy = energyResult.status === 'fulfilled'
+    ? {
+        current: energyResult.value.current,
+        max: energyResult.value.max,
+        refillPerHour: energyResult.value.refillPerHour,
+        nextRefillIn: energyResult.value.nextRefillIn,
+        bankCredits: bankResult.status === 'fulfilled' ? bankResult.value.credits : undefined,
+        updatedAt: Date.now(),
+      }
+    : undefined;
+
+  if (!burn && !energy) return undefined;
+  return {
+    ...(burn ? { burn } : {}),
+    ...(energy ? { energy } : {}),
+  };
+}
+
+async function syncRuntimeContractForAvatar(avatarId: string): Promise<void> {
+  const entitlement = await getEntitlement(avatarId);
+  const effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
+  const augmentations = await buildRuntimeAugmentations(avatarId);
+  await syncRuntimeLimitsToState({
+    avatarId,
+    runtimeLimits: toRuntimeLimits(effective.limits),
+    plan: effective.plan,
+    source: effective.source,
+    entitlementStatus: effective.entitlementStatus,
+    augmentations,
+  });
 }
 
 // ============================================================================
@@ -1030,6 +1089,12 @@ export async function handleExecuteAscension(
       return jsonResponse(400, {
         error: result.error || 'Ascension failed',
       }, cors);
+    }
+
+    try {
+      await syncRuntimeContractForAvatar(avatarId);
+    } catch (syncError) {
+      console.warn('[WalletAuth] Failed to sync runtime limits after ascension:', syncError);
     }
 
     return jsonResponse(200, {
