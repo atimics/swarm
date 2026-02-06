@@ -9,7 +9,7 @@
 - **Assigned Worker:** `worker-016` (active)
 - **Branch:** `feat/swarm-016`
 - **Worktree:** `/Users/ratimics/develop/aws-swarm-swarm-016` (provisioned)
-- **Current Lane Status:** `review` (checkpoint captured 2026-02-06, run `20260206T182912Z`; deterministic Telegram state/repair contract drafted)
+- **Current Lane Status:** `integrated on mainline (validation pass)` (Telegram onboarding status/execute semantics and diagnostics/repair response shaping promoted)
 - **Core Mission:** Convert Telegram onboarding from multi-action manual setup into one verified step with built-in diagnosis and auto-repair.
 
 ## Problem

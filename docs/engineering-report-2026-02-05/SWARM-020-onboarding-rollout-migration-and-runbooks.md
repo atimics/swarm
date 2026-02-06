@@ -9,7 +9,7 @@
 - **Assigned Worker:** `worker-020` (active)
 - **Branch:** `feat/swarm-020`
 - **Worktree:** `/Users/ratimics/develop/aws-swarm-swarm-020` (provisioned)
-- **Current Lane Status:** `review` (checkpoint captured 2026-02-06, run `20260206T182912Z`; phased rollout + runbook plan drafted)
+- **Current Lane Status:** `integrated on mainline (validation pass)` (rollout decision service and cohort-based onboarding routing promoted into avatar creation flow)
 - **Core Mission:** Ship onboarding overhaul safely with staged rollout controls, support playbooks, and clear rollback paths.
 
 ## Problem

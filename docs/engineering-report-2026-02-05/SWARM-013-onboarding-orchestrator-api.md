@@ -9,7 +9,7 @@
 - **Assigned Worker:** `worker-013` (active)
 - **Branch:** `feat/swarm-013`
 - **Worktree:** `/Users/ratimics/develop/aws-swarm-swarm-013` (provisioned)
-- **Current Lane Status:** `review` (checkpoint captured 2026-02-06, run `20260206T164723Z`; state enum alignment with SWARM-012 reconciled in this draft)
+- **Current Lane Status:** `integrated on mainline (validation pass)` (onboarding orchestrator endpoints, handler routing, and infra path wiring promoted and validated)
 - **Core Mission:** Expose a single backend onboarding interface that executes and tracks steps idempotently.
 
 ## Problem

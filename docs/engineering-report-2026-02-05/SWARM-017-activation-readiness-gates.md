@@ -9,7 +9,7 @@
 - **Assigned Worker:** `worker-017` (active)
 - **Branch:** `feat/swarm-017`
 - **Worktree:** `/Users/ratimics/develop/aws-swarm-swarm-017` (provisioned)
-- **Current Lane Status:** `review` (checkpoint captured 2026-02-06, run `20260206T182912Z`; readiness schema + gate enforcement contract drafted)
+- **Current Lane Status:** `integrated on mainline (validation pass)` (activation-readiness endpoint plus activation gate enforcement promoted into avatar entitlements routes)
 - **Core Mission:** Block premature activation and enforce explicit readiness checks before production enablement.
 
 ## Problem

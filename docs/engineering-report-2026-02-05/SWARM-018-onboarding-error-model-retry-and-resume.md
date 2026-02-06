@@ -6,10 +6,10 @@
 
 ## Worker Assignment
 
-- **Assigned Worker:** `worker-018` (active)
+- **Assigned Worker:** `worker-018`
 - **Branch:** `feat/swarm-018`
-- **Worktree:** `/Users/ratimics/develop/aws-swarm-swarm-018` (provisioned)
-- **Current Lane Status:** `review` (checkpoint captured 2026-02-06, run `20260206T182912Z`; error taxonomy + resume token contract drafted)
+- **Worktree:** `/Users/ratimics/develop/aws-swarm-swarm-018`
+- **Current Lane Status:** `integrated on mainline (validation pass)` (typed error/retry/resume primitives + auth-orchestrator hooks promoted; onboarding unit tests added)
 - **Core Mission:** Make onboarding failures predictable and recoverable with typed errors, retry policy, and resumable execution.
 
 ## Problem

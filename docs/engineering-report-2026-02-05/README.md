@@ -11,14 +11,16 @@ AWS Swarm is a **well-architected, production-grade multi-platform AI avatar fra
 ## Coordination Snapshot (2026-02-06)
 
 - Coordination source of truth: [`COORDINATION.md`](./COORDINATION.md) (includes assignment authority, worker roster, and coordinator runbook)
-- Current execution state: `main` is at `bc92632` and ahead of `origin/main` by 4 commits; locally provisioned SWARM branches/worktrees now include `feat/swarm-008` through `feat/swarm-020`.
+- Current execution state: `main` is at `ed9161b`; locally provisioned SWARM branches/worktrees include `feat/swarm-008` through `feat/swarm-020`.
 - Governance mode is `mainline-first`; SWARM-001/002/003/004 are tracked as `completed-by-commit` in the coordination closure ledger.
 - Live activity is being tracked in `COORDINATION.md` under **Engineering Change Watch** (including branch/worktree drift and likely ticket mapping).
 - Onboarding overhaul has been decomposed into SWARM-011 through SWARM-020 for phased execution; all Wave 6 docs lanes (`worker-011` through `worker-020`) have now been dispatched and are in `review`.
 - Latest successful dispatch run is `/tmp/swarm-workers/20260206T182912Z` (`worker-014` through `worker-020`, all exit `0`); an earlier non-escalated attempt `/tmp/swarm-workers/20260206T175732Z` failed on session-path permissions and was rerun successfully with escalation.
 - Latest implementation dispatch run is `/tmp/swarm-workers/20260206T184805Z` (`worker-012`, `013`, `014`, `017`, `018`, all exit `0`) with code deltas staged in lane worktrees.
 - Follow-on implementation dispatch run is `/tmp/swarm-workers/20260206T200331Z` (`worker-015`, `016`, `020`, all exit `0`) with additional code deltas staged in lane worktrees.
-- Testing-stream monitor: no new test-file edits were introduced by this implementation wave; existing mainline test churn remains in the separate testing stream.
+- Coordinator integration update (2026-02-06): SWARM-012/013/014/015/016/017/018/020 implementation deltas were merged into `main` worktree routing/modules and validated locally.
+- Validation snapshot (2026-02-06): `pnpm --filter @swarm/admin-api build`, `pnpm --filter @swarm/infra build`, `pnpm --filter @swarm/admin-ui build`, `bun test packages/admin-api/src/handlers/avatar-routes`, `bun test packages/admin-api/src/services/accounts/auth-orchestrator.test.ts`, and `bun test packages/admin-api/src/services/onboarding/errors.test.ts packages/admin-api/src/services/onboarding/resume-token.test.ts` all passed.
+- Testing stream has been marked complete by coordination; no execution-lane test churn was introduced while promoting implementation deltas.
 - SWARM-012/SWARM-013 alignment gate has been reconciled in docs and recorded in [`SWARM-012-013-alignment-notes.md`](./SWARM-012-013-alignment-notes.md).
 
 ### Repository Metrics
@@ -47,15 +49,15 @@ AWS Swarm is a **well-architected, production-grade multi-platform AI avatar fra
 | SWARM-009 | Assigned, not started | Clean `feat/swarm-009` lane at `3223c53` |
 | SWARM-010 | Assigned, not started | Clean `feat/swarm-010` lane at `3223c53` |
 | SWARM-011 | Review (checkpoint complete) | Run `20260206T060843Z`; doc expanded and promoted to `main` |
-| SWARM-012 | Review (implementation lane active) | Run `20260206T184805Z`; executable state-machine module added, pending dependency/typecheck validation |
-| SWARM-013 | Review (implementation lane active) | Run `20260206T184805Z`; onboarding route + orchestrator service + infra route wiring added |
-| SWARM-014 | In progress (implementation dependency) | Run `20260206T184805Z`; canonical auth/account resolver added, awaiting SWARM-013 endpoint integration in-branch |
-| SWARM-015 | Blocked (implementation dependency) | Run `20260206T200331Z`; onboarding wizard route/client added, blocked on in-branch SWARM-013 endpoint availability + dependency validation |
-| SWARM-016 | Review (implementation lane active) | Run `20260206T200331Z`; Telegram onboarding state/repair implementation landed in existing API surfaces |
-| SWARM-017 | Blocked (implementation lane active) | Run `20260206T184805Z`; readiness evaluator + activation gate added, blocked on dependency/typecheck validation |
-| SWARM-018 | Review (implementation lane active) | Run `20260206T184805Z`; typed onboarding error/retry/resume primitives added, awaiting SWARM-013 endpoint plumbing in-branch |
+| SWARM-012 | Integrated on mainline (validation pass) | `services/onboarding/contract-v1.ts` landed; admin-api/infra/admin-ui builds passing |
+| SWARM-013 | Integrated on mainline (validation pass) | Onboarding orchestrator endpoints + route wiring + infra routes landed |
+| SWARM-014 | Integrated on mainline (validation pass) | Canonical onboarding auth/account resolver wired into Crossmint/Privy handlers/services |
+| SWARM-015 | Integrated on mainline (validation pass) | Admin UI onboarding wizard route + API client + telemetry plumbing landed |
+| SWARM-016 | Integrated on mainline (validation pass) | Telegram onboarding step status/execution + diagnostics/repair response shaping landed |
+| SWARM-017 | Integrated on mainline (validation pass) | Activation readiness report endpoint + activation gate enforcement landed |
+| SWARM-018 | Integrated on mainline (validation pass) | Typed onboarding error/retry/resume primitives landed (`services/onboarding/error-types.ts`, `errors.ts`, `resume-token.ts`, `persistence.ts`) with auth-orchestrator hooks and focused tests |
 | SWARM-019 | Review (checkpoint complete) | Run `20260206T182912Z`; deterministic E2E/retry matrix drafted |
-| SWARM-020 | Review (implementation lane active) | Run `20260206T200331Z`; rollout feature-flag/cohort helpers wired into avatar creation path |
+| SWARM-020 | Integrated on mainline (validation pass) | Onboarding rollout flag/cohort routing wired into avatar creation flow |
 
 ---
 

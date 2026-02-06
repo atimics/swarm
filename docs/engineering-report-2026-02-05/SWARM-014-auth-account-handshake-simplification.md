@@ -9,7 +9,7 @@
 - **Assigned Worker:** `worker-014` (active)
 - **Branch:** `feat/swarm-014`
 - **Worktree:** `/Users/ratimics/develop/aws-swarm-swarm-014` (provisioned)
-- **Current Lane Status:** `review` (checkpoint captured 2026-02-06, run `20260206T182912Z`; docs-only expansion drafted and promoted to `main`)
+- **Current Lane Status:** `integrated on mainline (validation pass)` (canonical onboarding auth/account resolver promoted into Crossmint and Privy auth flows)
 - **Core Mission:** Make account identity and session truth deterministic so onboarding cannot enter split-brain auth states.
 
 ## Problem

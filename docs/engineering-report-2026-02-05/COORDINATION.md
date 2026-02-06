@@ -37,15 +37,15 @@ Snapshot collected on **2026-02-06** from:
 
 ### Current Findings
 
-- `main` is at `bc92632` and is ahead of `origin/main` by 4 commits.
-- Local SWARM branches currently present: `feat/swarm-008` through `feat/swarm-020` (`feat/swarm-008..010` at `3223c53`, `feat/swarm-011..020` at `bc92632`).
+- `main` is at `ed9161b` with active uncommitted integration deltas in the primary worktree.
+- Local SWARM branches currently present: `feat/swarm-008` through `feat/swarm-020` (legacy lanes still provisioned for coordination replay and drift tracking).
 - Local SWARM worktrees currently present: `swarm-008` through `swarm-020`.
 - SWARM-001/002/003/004 were delivered via `main` commits and are tracked via closure ledger.
 - SWARM-005/006/007 now have additional mainline progress (`bc92632`, `288687f`, `c127e91`) and remain open for closure review.
 - Wave 6 dispatch now has successful runs covering SWARM-011 through SWARM-020 (`20260206T060843Z`, `20260206T164723Z`, `20260206T182912Z`), and docs outputs have been promoted into `main` for coordinator review.
-- Execution Wave 1 (implementation lanes) launched with `worker-012`, `worker-013`, `worker-014`, `worker-017`, `worker-018` under run `20260206T184805Z`; all workers exited `0` with uncommitted code deltas in their lane worktrees.
-- Execution Wave 2 (implementation lanes) launched with `worker-015`, `worker-016`, `worker-020` under run `20260206T200331Z`; all workers exited `0` with uncommitted code deltas in their lane worktrees.
-- Testing-stream monitor snapshots show no new test-file churn introduced in execution-wave worktrees; existing mainline test churn remains external.
+- Execution Wave 1 and Wave 2 deltas were promoted to mainline runtime paths for SWARM-012/013/014/015/016/017/020 and validated via package builds plus avatar-routes tests.
+- SWARM-018 was promoted from lane primitives into the current onboarding module set (`error-types.ts`, `errors.ts`, `resume-token.ts`, `persistence.ts`) and validated with focused onboarding unit tests plus admin-api build.
+- Testing stream has been declared complete; onboarding integration now includes test additions directly in mainline.
 
 ## Worker Assignment Matrix
 
@@ -73,20 +73,20 @@ Snapshot collected on **2026-02-06** from:
 
 ## Onboarding Story Set - Provisioned (SWARM-011 to SWARM-020)
 
-Status: branches/worktrees provisioned. Wave 6 docs-phase lanes (`worker-011` through `worker-020`) are complete and in review; implementation execution is active for `worker-012`, `013`, `014`, `017`, and `018`.
+Status: branches/worktrees remain provisioned for traceability. Wave 6 docs-phase lanes are complete, and implementation deltas for SWARM-012/013/014/015/016/017/018/020 are integrated on mainline with local validation evidence.
 
 | Worker | Ticket | Proposed Branch | Worktree | Status | Notes |
 |--------|--------|-----------------|----------|--------|-------|
 | `worker-011` | SWARM-011 | `feat/swarm-011` | `/Users/ratimics/develop/aws-swarm-swarm-011` | Review (checkpoint complete) | Run `20260206T060843Z`; uncommitted doc update in SWARM-011 ticket file |
-| `worker-012` | SWARM-012 | `feat/swarm-012` | `/Users/ratimics/develop/aws-swarm-swarm-012` | Review (implementation lane active) | Run `20260206T184805Z`; added onboarding state-machine module (`services/onboarding/contract-v1.ts`) and exports; blocked on dependency install/typecheck |
-| `worker-013` | SWARM-013 | `feat/swarm-013` | `/Users/ratimics/develop/aws-swarm-swarm-013` | Review (implementation lane active) | Run `20260206T184805Z`; added onboarding route + orchestrator service + infra route wiring; blocked on dependency install/typecheck |
-| `worker-014` | SWARM-014 | `feat/swarm-014` | `/Users/ratimics/develop/aws-swarm-swarm-014` | In progress (implementation dependency) | Run `20260206T184805Z`; canonical auth/account resolver integrated into crossmint/privy flows; waiting on SWARM-013 endpoint wiring in-branch |
-| `worker-015` | SWARM-015 | `feat/swarm-015` | `/Users/ratimics/develop/aws-swarm-swarm-015` | Blocked (implementation dependency) | Run `20260206T200331Z`; onboarding wizard UI route/API client added; blocked until SWARM-013 `/onboarding/*` endpoints are available in-branch and typecheck can run |
-| `worker-016` | SWARM-016 | `feat/swarm-016` | `/Users/ratimics/develop/aws-swarm-swarm-016` | Review (implementation lane active) | Run `20260206T200331Z`; Telegram onboarding state/repair primitives wired into existing API responses; awaiting SWARM-013 orchestrator endpoint wiring |
-| `worker-017` | SWARM-017 | `feat/swarm-017` | `/Users/ratimics/develop/aws-swarm-swarm-017` | Blocked (implementation lane active) | Run `20260206T184805Z`; added readiness evaluator + activation gate endpoint/response contract; blocked on dependency install/typecheck validation |
-| `worker-018` | SWARM-018 | `feat/swarm-018` | `/Users/ratimics/develop/aws-swarm-swarm-018` | Review (implementation lane active) | Run `20260206T184805Z`; added typed onboarding error/retry/resume primitives + auth-orchestrator hooks; blocked on dependency install/typecheck |
+| `worker-012` | SWARM-012 | `feat/swarm-012` | `/Users/ratimics/develop/aws-swarm-swarm-012` | Integrated on mainline (validation pass) | State-machine contract module and exports promoted to mainline onboarding services |
+| `worker-013` | SWARM-013 | `feat/swarm-013` | `/Users/ratimics/develop/aws-swarm-swarm-013` | Integrated on mainline (validation pass) | Onboarding routes + orchestrator + infra route wiring promoted and validated |
+| `worker-014` | SWARM-014 | `feat/swarm-014` | `/Users/ratimics/develop/aws-swarm-swarm-014` | Integrated on mainline (validation pass) | Canonical auth/account resolver integrated into Crossmint/Privy flows |
+| `worker-015` | SWARM-015 | `feat/swarm-015` | `/Users/ratimics/develop/aws-swarm-swarm-015` | Integrated on mainline (validation pass) | Admin UI onboarding wizard route/API client/telemetry promoted and built |
+| `worker-016` | SWARM-016 | `feat/swarm-016` | `/Users/ratimics/develop/aws-swarm-swarm-016` | Integrated on mainline (validation pass) | Telegram onboarding diagnostics/repair response shaping promoted |
+| `worker-017` | SWARM-017 | `feat/swarm-017` | `/Users/ratimics/develop/aws-swarm-swarm-017` | Integrated on mainline (validation pass) | Activation readiness evaluator/endpoint and activation gating promoted |
+| `worker-018` | SWARM-018 | `feat/swarm-018` | `/Users/ratimics/develop/aws-swarm-swarm-018` | Integrated on mainline (validation pass) | Typed onboarding error/retry/resume primitives plus auth-orchestrator hooks and onboarding unit tests landed |
 | `worker-019` | SWARM-019 | `feat/swarm-019` | `/Users/ratimics/develop/aws-swarm-swarm-019` | Review (checkpoint complete) | Run `20260206T182912Z`; deterministic E2E/stability matrix drafted and promoted to `main` |
-| `worker-020` | SWARM-020 | `feat/swarm-020` | `/Users/ratimics/develop/aws-swarm-swarm-020` | Review (implementation lane active) | Run `20260206T200331Z`; rollout feature-flag service + cohort assignment helpers wired into avatar creation flow; pending dependency/typecheck validation |
+| `worker-020` | SWARM-020 | `feat/swarm-020` | `/Users/ratimics/develop/aws-swarm-swarm-020` | Integrated on mainline (validation pass) | Rollout feature-flag service + cohort assignment helpers promoted into avatar creation flow |
 
 ## Dispatch Automation
 
@@ -103,6 +103,7 @@ Status: branches/worktrees provisioned. Wave 6 docs-phase lanes (`worker-011` th
 
 - Run directory: `/tmp/swarm-workers/20260206T200331Z`
 - Outcome: `worker-015`, `worker-016`, `worker-020` all exit `0`
+- Historical note: checkpoint blocker statuses below reflect lane-local state at run time and are superseded by the mainline integration updates recorded above.
 - Checkpoints:
   - `worker-015`: `status=blocked`, `latest_commit=UNCOMMITTED`, blockers=`SWARM-013 onboarding endpoints not available in-branch + dependency install/typecheck unavailable`
   - `worker-016`: `status=review`, `latest_commit=UNCOMMITTED`, blockers=`waiting on SWARM-013 endpoint plumbing in-branch`
@@ -190,9 +191,8 @@ Snapshot intent: monitor engineering activity without editing runtime code.
 - Current watch item:
   - `feat/swarm-011` through `feat/swarm-020` now contain uncommitted docs from completed dispatch runs; coordinator should decide whether to commit per-lane or treat `main` doc promotion as source of truth and reset lanes.
   - Dispatch run `20260206T175732Z` failed under sandbox permission constraints; rerun `20260206T182912Z` succeeded under escalation.
-  - Execution run `20260206T184805Z` produced uncommitted implementation deltas in `feat/swarm-012`, `013`, `014`, `017`, `018`; coordinate cherry-pick/rebase strategy before parallel implementation continues.
-  - Execution run `20260206T200331Z` produced additional uncommitted implementation deltas in `feat/swarm-015`, `016`, `020`; coordinate merge strategy with Wave 1 implementation lanes.
-  - External testing stream remains active on `main` (current visible artifact: `packages/admin-api/src/handlers/avatars.test.ts.vitest`); execution-wave prompts intentionally excluded test edits.
+  - Execution runs `20260206T184805Z` and `20260206T200331Z` have been materially integrated into mainline runtime paths; lane worktrees now primarily serve as historical checkpoint artifacts.
+  - Testing stream is complete; targeted onboarding tests (`errors.test.ts`, `resume-token.test.ts`) now run on mainline.
   - `main` currently includes in-flight `avatars.ts` edits plus an untracked `avatars.ts.bak`; ensure backup artifacts are not merged.
 
 ## Coordinator Runbook
@@ -321,8 +321,7 @@ Coordinator options:
 
 ## Suggested Next Agent Actions
 
-1. Coordinator: triage execution runs `20260206T184805Z` and `20260206T200331Z` outputs for SWARM-012/013/014/015/016/017/018/020 and decide merge path (lane commits vs cherry-picks to `main`).
-2. Coordinator: unblock dependency validation by running dependency install + typecheck in a network-enabled environment (`pnpm install`, `pnpm --filter @swarm/admin-api typecheck`, `pnpm --filter @swarm/admin-ui typecheck`).
-3. Coordinator: reconcile SWARM-014, SWARM-015, SWARM-016, and SWARM-018 branches with SWARM-013 endpoint plumbing to close implementation dependencies.
-4. Coordinator: preserve external testing stream isolation (continue excluding test edits in execution lanes; keep SWARM-019 out-of-wave until test-stream stabilization).
-5. Coordinator: resolve the `feat/swarm-008` dirty worktree state before assigning new implementation work to that lane.
+1. Coordinator: close SWARM-012/013/014/015/016/017/018/020 as integrated-on-mainline in ticket docs with acceptance checklist evidence links.
+2. Coordinator: schedule SWARM-019 implementation follow-through (convert drafted E2E/retry matrix into executable suites and CI wiring).
+3. Coordinator: normalize or deprovision stale SWARM lane worktrees after capturing any residual artifacts needed for auditability.
+4. Coordinator: resolve the `feat/swarm-008` dirty worktree state before assigning new implementation work to that lane.

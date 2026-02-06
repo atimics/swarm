@@ -9,7 +9,7 @@
 - **Assigned Worker:** `worker-015` (active)
 - **Branch:** `feat/swarm-015`
 - **Worktree:** `/Users/ratimics/develop/aws-swarm-swarm-015` (provisioned)
-- **Current Lane Status:** `review` (checkpoint captured 2026-02-06, run `20260206T182912Z`; IA + backend-driven action contract drafted)
+- **Current Lane Status:** `integrated on mainline (validation pass)` (wizard route, API client normalization, and onboarding telemetry plumbing promoted into admin-ui)
 - **Core Mission:** Replace fragmented setup prompts with one guided onboarding wizard driven by backend step state.
 
 ## Problem

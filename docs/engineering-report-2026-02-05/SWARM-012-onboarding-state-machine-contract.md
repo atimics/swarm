@@ -9,7 +9,7 @@
 - **Assigned Worker:** `worker-012` (active)
 - **Branch:** `feat/swarm-012`
 - **Worktree:** `/Users/ratimics/develop/aws-swarm-swarm-012` (provisioned)
-- **Current Lane Status:** `review` (checkpoint captured 2026-02-06, run `20260206T060843Z`; detailed contract draft promoted to `main` for coordinator review)
+- **Current Lane Status:** `integrated on mainline (validation pass)` (state machine contract module and route/service wiring promoted with admin-api/infra/admin-ui build coverage)
 - **Core Mission:** Replace implicit onboarding flow with an explicit, validated state machine that is deterministic and resumable.
 
 ## Problem
