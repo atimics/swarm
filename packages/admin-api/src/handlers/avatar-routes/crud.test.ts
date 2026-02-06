@@ -23,10 +23,28 @@ const deleteAvatarCalls: unknown[][] = [];
 let reassignAvatarResult: unknown = {};
 let integrationStatusesResult: unknown = [];
 let galleryProfileResult: unknown = null;
+let onboardingRoutingDecision: unknown = {
+  onboardingVersion: 'v1',
+  reason: 'disabled',
+  cohortBucket: 0,
+  assignmentKeyHash: 'testhash',
+  assignmentKeySource: 'anonymous',
+  matchedAvatarAllowlist: false,
+  flags: {
+    enabled: false,
+    rolloutPercent: 0,
+    avatarAllowlist: [],
+    forceLegacy: false,
+    source: 'env',
+    readAt: 0,
+  },
+};
 
 mock.module('../../services/avatars.js', () => ({
   createAvatar: async (..._args: unknown[]) => createAvatarResult,
   createAvatarWithWallet: async (..._args: unknown[]) => createAvatarWithWalletResult,
+  createAvatarWithWalletLegacy: async (..._args: unknown[]) => createAvatarWithWalletResult,
+  createAvatarWithWalletV2: async (..._args: unknown[]) => createAvatarWithWalletResult,
   listAvatars: async () => listAvatarsResult,
   listAvatarsByWallet: async () => listAvatarsByWalletResult,
   getAvatar: async () => getAvatarResult,
@@ -41,6 +59,10 @@ mock.module('../../services/gallery.js', () => ({
 
 mock.module('../../services/integrations.js', () => ({
   getAllIntegrationStatuses: async () => integrationStatusesResult,
+}));
+
+mock.module('../../services/onboarding-rollout.js', () => ({
+  resolveOnboardingRoutingDecision: async () => onboardingRoutingDecision,
 }));
 
 mock.module('@swarm/core', () => ({
@@ -62,6 +84,22 @@ beforeEach(() => {
   reassignAvatarResult = {};
   integrationStatusesResult = [];
   galleryProfileResult = null;
+  onboardingRoutingDecision = {
+    onboardingVersion: 'v1',
+    reason: 'disabled',
+    cohortBucket: 0,
+    assignmentKeyHash: 'testhash',
+    assignmentKeySource: 'anonymous',
+    matchedAvatarAllowlist: false,
+    flags: {
+      enabled: false,
+      rolloutPercent: 0,
+      avatarAllowlist: [],
+      forceLegacy: false,
+      source: 'env',
+      readAt: 0,
+    },
+  };
 });
 
 // =========================================================================

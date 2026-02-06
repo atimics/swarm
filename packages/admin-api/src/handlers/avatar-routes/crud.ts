@@ -10,6 +10,10 @@ import { logger } from '@swarm/core';
 import * as avatarService from '../../services/avatars.js';
 import * as galleryService from '../../services/gallery.js';
 import * as integrationsService from '../../services/integrations.js';
+import {
+  resolveOnboardingRoutingDecision,
+  type OnboardingRoutingDecision,
+} from '../../services/onboarding-rollout.js';
 
 // ── Profile-image hydration ────────────────────────────────────────────────
 
@@ -34,6 +38,25 @@ async function hydrateAvatarProfileImage<
   };
 }
 
+function buildOnboardingDiagnostics(decision: OnboardingRoutingDecision) {
+  return {
+    version: decision.onboardingVersion,
+    reason: decision.reason,
+    cohortBucket: decision.cohortBucket,
+    assignmentKeyHash: decision.assignmentKeyHash,
+    assignmentKeySource: decision.assignmentKeySource,
+    matchedAvatarAllowlist: decision.matchedAvatarAllowlist,
+    flags: {
+      enabled: decision.flags.enabled,
+      rolloutPercent: decision.flags.rolloutPercent,
+      avatarAllowlist: decision.flags.avatarAllowlist,
+      forceLegacy: decision.flags.forceLegacy,
+      source: decision.flags.source,
+      readAt: decision.flags.readAt,
+    },
+  };
+}
+
 // ── Route handler ──────────────────────────────────────────────────────────
 
 export async function handleCrudRoutes(
@@ -45,6 +68,14 @@ export async function handleCrudRoutes(
   if (method === 'POST' && path === '/avatars') {
     const body = JSON.parse(event.body || '{}');
     const { name, description } = body;
+    const onboardingAttemptKey =
+      typeof body?.onboardingAttemptKey === 'string'
+        ? body.onboardingAttemptKey
+        : undefined;
+    const onboardingAvatarId =
+      typeof body?.avatarId === 'string'
+        ? body.avatarId
+        : undefined;
 
     if (!name || typeof name !== 'string') {
       return {
@@ -54,9 +85,33 @@ export async function handleCrudRoutes(
       };
     }
 
+    const onboardingDecision = await resolveOnboardingRoutingDecision({
+      attemptKey: onboardingAttemptKey,
+      accountId: ctx.accountId,
+      walletAddress: walletAddress ?? undefined,
+      userId: session.userId || session.email,
+      avatarId: onboardingAvatarId,
+      avatarName: name,
+    });
+    const onboardingDiagnostics = buildOnboardingDiagnostics(onboardingDecision);
+    const walletPrefix = walletAddress ? `${walletAddress.slice(0, 8)}...` : undefined;
+
+    logger.info('Onboarding rollout decision', {
+      event: 'onboarding_rollout_decision',
+      subsystem: 'onboarding',
+      onboarding: onboardingDiagnostics,
+      wallet: walletPrefix,
+      accountId: ctx.accountId,
+      avatarId: onboardingAvatarId,
+    });
+
     // Wallet user: use gated creation (non-admin allowed)
     if (walletAddress) {
-      const result = await avatarService.createAvatarWithWallet(name, walletAddress, description);
+      const createLegacy = avatarService.createAvatarWithWalletLegacy ?? avatarService.createAvatarWithWallet;
+      const createV2 = avatarService.createAvatarWithWalletV2 ?? avatarService.createAvatarWithWallet;
+      const result = onboardingDecision.onboardingVersion === 'v2'
+        ? await createV2(name, walletAddress, description)
+        : await createLegacy(name, walletAddress, description);
       if (!result.success) {
         const errorMessage = result.error === 'no_gate_slot'
           ? 'No available avatar slots. Hold an Orb NFT to create more avatars.'
@@ -66,25 +121,31 @@ export async function handleCrudRoutes(
         return jsonResponse(corsHeaders, result.error === 'no_gate_slot' ? 403 : 400, {
           error: errorMessage,
           gateStatus: result.gateStatus,
+          onboarding: onboardingDiagnostics,
         });
       }
 
       logger.info(`[Avatars] Created avatar=${result.avatar!.avatarId} by wallet=${walletAddress.slice(0, 8)}...`);
-      return jsonResponse(corsHeaders, 201, result.avatar);
+      return jsonResponse(corsHeaders, 201, {
+        ...result.avatar,
+        onboarding: onboardingDiagnostics,
+      });
     }
 
     // Legacy email-based creation stays admin-only
     if (!effectiveIsAdmin) {
-      return jsonResponse(corsHeaders, 403, { error: 'Wallet sign-in required' });
+      return jsonResponse(corsHeaders, 403, {
+        error: 'Wallet sign-in required',
+        onboarding: onboardingDiagnostics,
+      });
     }
 
     const avatar = await avatarService.createAvatar(name, session, description);
 
-    return {
-      statusCode: 201,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify(avatar),
-    };
+    return jsonResponse(corsHeaders, 201, {
+      ...avatar,
+      onboarding: onboardingDiagnostics,
+    });
   }
 
   // ── GET /avatars — List avatars (filtered by wallet unless admin) ────────

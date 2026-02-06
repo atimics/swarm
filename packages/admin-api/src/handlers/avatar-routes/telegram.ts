@@ -15,6 +15,10 @@ import * as telegramService from '../../services/telegram.js';
 import * as secretsService from '../../services/secrets.js';
 import { diagnoseTelegram } from '../../services/telegram-diagnostics.js';
 import { computeTelegramRepairPlan } from '../../services/telegram-repair.js';
+import {
+  computeTelegramOnboardingExecution,
+  deriveTelegramOnboardingStepStatus,
+} from '../../services/telegram-onboarding.js';
 import { getKnownTelegramUsers } from '../../services/channel-state.js';
 
 export async function handleTelegramRoutes(
@@ -23,7 +27,7 @@ export async function handleTelegramRoutes(
   const { method, path, event, corsHeaders, session } = ctx;
 
   // ── GET /avatars/{id}/telegram/diagnose ──────────────────────────────────
-  const diagnoseMatch = path.match(/^\/avatars\/([^/]+)\/telegram\/diagnose$/);
+  const diagnoseMatch = path.match(/^\/avatars\/([^/]+)\/telegram\/(diagnose|diagnostics)$/);
   if (method === 'GET' && diagnoseMatch) {
     const avatarId = diagnoseMatch[1];
 
@@ -32,7 +36,21 @@ export async function handleTelegramRoutes(
 
     try {
       const report = await diagnoseTelegram(avatarId);
-      return jsonResponse(corsHeaders, 200, report);
+      const onboardingStep = report.onboardingStep ?? deriveTelegramOnboardingStepStatus({
+        platformEnabled: report.platformEnabled,
+        tokenPresent: report.tokenPresent,
+        webhookSecretPresent: report.webhookSecretPresent,
+        issues: report.issues,
+      });
+      const onboardingExecution = computeTelegramOnboardingExecution(onboardingStep, 'verify');
+      return jsonResponse(corsHeaders, 200, {
+        ...report,
+        onboardingStep,
+        onboardingExecution,
+        stepState: onboardingStep.state,
+        reasonCodes: onboardingStep.reasons.map(reason => reason.code),
+        remediation: onboardingStep.remediation,
+      });
     } catch (err) {
       logger.error('Telegram diagnosis failed', {
         event: 'telegram_diagnose_failed',
@@ -55,6 +73,7 @@ export async function handleTelegramRoutes(
       repairOnPendingUpdates?: boolean;
       repairOnLastError?: boolean;
     };
+    const rotateSecret = Boolean(body.rotateSecret);
 
     const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
     if (denied) return denied;
@@ -62,6 +81,13 @@ export async function handleTelegramRoutes(
     logger.setContext({ subsystem: 'telegram', avatarId });
 
     const before = await diagnoseTelegram(avatarId);
+    const beforeOnboardingStep = before.onboardingStep ?? deriveTelegramOnboardingStepStatus({
+      platformEnabled: before.platformEnabled,
+      tokenPresent: before.tokenPresent,
+      webhookSecretPresent: before.webhookSecretPresent,
+      issues: before.issues,
+    });
+    const onboardingExecution = computeTelegramOnboardingExecution(beforeOnboardingStep, 'repair');
     const plan = computeTelegramRepairPlan(before, {
       force: Boolean(body.force),
       includeDisabled: Boolean(body.includeDisabled),
@@ -74,6 +100,13 @@ export async function handleTelegramRoutes(
         avatarId,
         action: 'skipped',
         reason: plan.reason,
+        idempotent: onboardingExecution.idempotent,
+        reasonCodes: onboardingExecution.reasonCodes,
+        onboardingStep: {
+          requestedAction: onboardingExecution.requestedAction,
+          execution: onboardingExecution,
+          before: beforeOnboardingStep,
+        },
         before,
       });
     }
@@ -83,6 +116,13 @@ export async function handleTelegramRoutes(
         avatarId,
         action: 'would_repair',
         reason: plan.reason,
+        idempotent: onboardingExecution.idempotent,
+        reasonCodes: onboardingExecution.reasonCodes,
+        onboardingStep: {
+          requestedAction: onboardingExecution.requestedAction,
+          execution: onboardingExecution,
+          before: beforeOnboardingStep,
+        },
         before,
       });
     }
@@ -96,6 +136,12 @@ export async function handleTelegramRoutes(
     if (!botToken) {
       return jsonResponse(corsHeaders, 400, {
         error: 'Missing Telegram bot token secret',
+        reasonCodes: onboardingExecution.reasonCodes,
+        onboardingStep: {
+          requestedAction: onboardingExecution.requestedAction,
+          execution: onboardingExecution,
+          before: beforeOnboardingStep,
+        },
       });
     }
 
@@ -105,7 +151,6 @@ export async function handleTelegramRoutes(
       'default',
     );
 
-    const rotateSecret = Boolean(body.rotateSecret);
     const hadSecret = Boolean(webhookSecret);
     if (!webhookSecret || rotateSecret) {
       webhookSecret = telegramService.generateWebhookSecret();
@@ -131,6 +176,12 @@ export async function handleTelegramRoutes(
       });
       return jsonResponse(corsHeaders, 400, {
         error: result.message || 'Failed to repair Telegram webhook',
+        reasonCodes: onboardingExecution.reasonCodes,
+        onboardingStep: {
+          requestedAction: onboardingExecution.requestedAction,
+          execution: onboardingExecution,
+          before: beforeOnboardingStep,
+        },
       });
     }
 
@@ -147,11 +198,27 @@ export async function handleTelegramRoutes(
     }
 
     const after = await diagnoseTelegram(avatarId);
+    const afterOnboardingStep = after.onboardingStep ?? deriveTelegramOnboardingStepStatus({
+      platformEnabled: after.platformEnabled,
+      tokenPresent: after.tokenPresent,
+      webhookSecretPresent: after.webhookSecretPresent,
+      issues: after.issues,
+    });
+    const afterOnboardingExecution = computeTelegramOnboardingExecution(afterOnboardingStep, 'repair');
     return jsonResponse(corsHeaders, 200, {
       avatarId,
       action: 'repaired',
       reason: plan.reason,
+      idempotent: rotateSecret ? false : onboardingExecution.idempotent,
+      reasonCodes: onboardingExecution.reasonCodes,
       rotatedSecret: !hadSecret || rotateSecret ? true : false,
+      onboardingStep: {
+        requestedAction: onboardingExecution.requestedAction,
+        execution: onboardingExecution,
+        before: beforeOnboardingStep,
+        after: afterOnboardingStep,
+        afterExecution: afterOnboardingExecution,
+      },
       before,
       after,
       status: {

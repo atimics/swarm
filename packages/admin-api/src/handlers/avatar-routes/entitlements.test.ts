@@ -19,6 +19,20 @@ let setEntitlementResult: unknown = {};
 let effectiveLimitsResult: unknown = { plan: 'free', limits: {}, source: 'default', entitlementStatus: 'active' };
 let activateResult: unknown = { success: true };
 let deactivateResult: unknown = { success: true };
+let activationReadinessResult: unknown = {
+  version: 'activation_readiness_v1',
+  avatarId: 'avatar-1',
+  evaluatedAt: '2026-02-06T00:00:00.000Z',
+  gateStatus: 'pass',
+  summary: {
+    requiredTotal: 0,
+    requiredPassing: 0,
+    requiredFailing: 0,
+    optionalTotal: 0,
+    optionalFailing: 0,
+  },
+  checks: [],
+};
 
 mock.module('../../services/avatars.js', () => ({
   getAvatar: async () => getAvatarResult,
@@ -40,6 +54,15 @@ mock.module('../../services/runtime-limits.js', () => ({
   getEffectiveLimitsForAvatar: () => effectiveLimitsResult,
   toRuntimeLimits: () => ({}),
   syncRuntimeLimitsToState: async () => {},
+}));
+
+mock.module('../../services/activation-readiness.js', () => ({
+  ACTIVATION_READINESS_VERSION: 'activation_readiness_v1',
+  evaluateActivationReadiness: async () => activationReadinessResult,
+  toLegacyActivationIssues: () => {
+    const result = activationReadinessResult as { gateStatus?: string };
+    return result.gateStatus === 'fail' ? ['blocked'] : [];
+  },
 }));
 
 mock.module('./runtime-sync.js', () => ({
@@ -64,6 +87,20 @@ beforeEach(() => {
   effectiveLimitsResult = { plan: 'free', limits: {}, source: 'default', entitlementStatus: 'active' };
   activateResult = { success: true };
   deactivateResult = { success: true };
+  activationReadinessResult = {
+    version: 'activation_readiness_v1',
+    avatarId: 'avatar-1',
+    evaluatedAt: '2026-02-06T00:00:00.000Z',
+    gateStatus: 'pass',
+    summary: {
+      requiredTotal: 0,
+      requiredPassing: 0,
+      requiredFailing: 0,
+      optionalTotal: 0,
+      optionalFailing: 0,
+    },
+    checks: [],
+  };
 });
 
 // =========================================================================
@@ -207,6 +244,32 @@ describe('GET /avatars/{id}/effective-limits', () => {
 });
 
 // =========================================================================
+// GET /avatars/{id}/activation-readiness
+// =========================================================================
+describe('GET /avatars/{id}/activation-readiness', () => {
+  it('returns readiness payload', async () => {
+    getAvatarResult = { ...MOCK_AVATAR };
+    activationReadinessResult = {
+      ...(activationReadinessResult as Record<string, unknown>),
+      avatarId: 'avatar-1',
+      gateStatus: 'pass',
+    };
+
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars/avatar-1/activation-readiness',
+      effectiveIsAdmin: true,
+    });
+
+    const result = await handleEntitlementRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+    const body = parseBody(result!) as { version: string; avatarId: string };
+    expect(body.version).toBe('activation_readiness_v1');
+    expect(body.avatarId).toBe('avatar-1');
+  });
+});
+
+// =========================================================================
 // POST /avatars/{id}/activate
 // =========================================================================
 describe('POST /avatars/{id}/activate', () => {
@@ -215,6 +278,11 @@ describe('POST /avatars/{id}/activate', () => {
       ...MOCK_AVATAR,
       status: 'draft',
       platforms: { telegram: { enabled: true, botUsername: 'mybot' } },
+    };
+    activationReadinessResult = {
+      ...(activationReadinessResult as Record<string, unknown>),
+      avatarId: 'avatar-1',
+      gateStatus: 'pass',
     };
     const ctx = makeCtx({
       method: 'POST',
@@ -230,13 +298,18 @@ describe('POST /avatars/{id}/activate', () => {
 
   it('fails when no platform enabled', async () => {
     getAvatarResult = { ...MOCK_AVATAR, platforms: {} };
+    activationReadinessResult = {
+      ...(activationReadinessResult as Record<string, unknown>),
+      avatarId: 'avatar-1',
+      gateStatus: 'fail',
+    };
     const ctx = makeCtx({
       method: 'POST',
       path: '/avatars/avatar-1/activate',
       effectiveIsAdmin: true,
     });
     const result = await handleEntitlementRoutes(ctx);
-    expect(result!.statusCode).toBe(400);
+    expect(result!.statusCode).toBe(409);
   });
 
   it('non-owner gets 403', async () => {

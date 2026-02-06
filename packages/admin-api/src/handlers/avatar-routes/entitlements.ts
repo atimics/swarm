@@ -16,6 +16,11 @@ import * as avatarService from '../../services/avatars.js';
 import * as orbSlotsService from '../../services/orb-slots.js';
 import * as entitlementsService from '../../services/entitlements.js';
 import { getEffectiveLimitsForAvatar } from '../../services/runtime-limits.js';
+import {
+  ACTIVATION_READINESS_VERSION,
+  evaluateActivationReadiness,
+  toLegacyActivationIssues,
+} from '../../services/activation-readiness.js';
 
 export async function handleEntitlementRoutes(
   ctx: RouteContext,
@@ -189,6 +194,31 @@ export async function handleEntitlementRoutes(
     });
   }
 
+  // ── GET /avatars/{id}/activation-readiness ───────────────────────────────
+  const activationReadinessMatch = path.match(/^\/avatars\/([^/]+)\/activation-readiness$/);
+  if (method === 'GET' && activationReadinessMatch) {
+    const avatarId = activationReadinessMatch[1];
+
+    const avatar = await avatarService.getAvatar(avatarId);
+    if (!avatar) {
+      return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+    }
+
+    if (!effectiveIsAdmin) {
+      if (!walletAddress || (avatar.creatorWallet !== walletAddress && avatar.inhabitantWallet !== walletAddress)) {
+        return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+      }
+    }
+
+    const readiness = await evaluateActivationReadiness(avatar, {
+      effectiveIsAdmin,
+      walletAddress,
+      accountId: ctx.accountId ?? null,
+    });
+
+    return jsonResponse(corsHeaders, 200, readiness);
+  }
+
   // ── POST /avatars/{id}/activate ──────────────────────────────────────────
   const activateMatch = path.match(/^\/avatars\/([^/]+)\/activate$/);
   if (method === 'POST' && activateMatch) {
@@ -208,21 +238,23 @@ export async function handleEntitlementRoutes(
       return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
     }
 
-    // Validate prerequisites
-    const issues: string[] = [];
-    if (
-      !avatar.platforms?.telegram?.enabled &&
-      !avatar.platforms?.twitter?.enabled &&
-      !avatar.platforms?.discord?.enabled
-    ) {
-      issues.push('At least one platform must be enabled');
-    }
-    if (avatar.platforms?.telegram?.enabled && !avatar.platforms?.telegram?.botUsername) {
-      issues.push('Telegram bot username is required');
-    }
-
-    if (issues.length > 0) {
-      return jsonResponse(corsHeaders, 400, { error: 'Cannot activate avatar', issues });
+    // Evaluate activation readiness gate using canonical contract.
+    const readiness = await evaluateActivationReadiness(avatar, {
+      effectiveIsAdmin,
+      walletAddress,
+      accountId: ctx.accountId ?? null,
+    });
+    if (readiness.gateStatus === 'fail') {
+      return jsonResponse(corsHeaders, 409, {
+        error: {
+          code: 'ACTIVATION_GATE_BLOCKED',
+          message: 'Activation blocked until required readiness checks pass.',
+          retryable: true,
+        },
+        avatarId,
+        readiness,
+        issues: toLegacyActivationIssues(readiness),
+      });
     }
 
     const actorId = walletAddress || session.email || 'unknown';
@@ -257,6 +289,7 @@ export async function handleEntitlementRoutes(
       status: 'active',
       activatedAt: Date.now(),
       activatedBy: actorId,
+      readinessVersion: ACTIVATION_READINESS_VERSION,
     });
   }
 

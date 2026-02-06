@@ -31,6 +31,7 @@ import { handleEnergyRoutes } from './avatar-routes/energy.js';
 import { handleObservabilityRoutes } from './avatar-routes/observability.js';
 import { handleTwitterRoutes } from './avatar-routes/twitter.js';
 import { handleApiKeyRoutes } from './avatar-routes/api-keys.js';
+import { handleOnboardingAvatarRoutes } from './avatar-routes/onboarding.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ const routeHandlers: RouteHandler[] = [
   handleCrudRoutes,
   handleEntitlementRoutes,
   handleTelegramRoutes,
+  handleOnboardingAvatarRoutes,
   handleSecretsRoutes,
   handleEnergyRoutes,
   handleObservabilityRoutes,
