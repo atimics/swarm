@@ -14,9 +14,8 @@
  */
 import type { SQSEvent, Context } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { randomUUID } from 'crypto';
-import { DEFAULT_LLM_MODEL } from '@swarm/core';
+import { DEFAULT_AVATAR_CONFIG } from '@swarm/core';
 import {
   createStateService,
   createSecretsService,
@@ -24,6 +23,7 @@ import {
   createMediaDependencies,
   createPresenceService,
   createChannelSummaryService,
+  createCircuitBreaker,
   logger,
   MessageQueueItemSchema,
   extractThinking,
@@ -54,9 +54,9 @@ import {
   isMemoryWriteAllowed,
 } from './services/entitlement-enforcement.js';
 import { ensureReplicateKey } from './utils/system-replicate-key.js';
+import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
 
 const sqs = new SQSClient({});
-const secretsClient = new SecretsManagerClient({});
 
 // LLM Configuration
 const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'https://openrouter.ai/api/v1/chat/completions';
@@ -64,6 +64,10 @@ const LLM_ENDPOINT = process.env.LLM_ENDPOINT || 'https://openrouter.ai/api/v1/c
 // Default increased to better handle slow OpenRouter responses in multi-agent channels.
 const LLM_TIMEOUT_MS = Number.parseInt(process.env.LLM_TIMEOUT_MS || '', 10) || 90_000;
 const MAX_TOOL_ITERATIONS = 5;
+
+// Circuit breaker for LLM calls — trips after 3 consecutive failures,
+// half-opens after 30s. Prevents burning Lambda concurrency on a down provider.
+const llmCircuitBreaker = createCircuitBreaker({ failureThreshold: 3, cooldownMs: 30_000 });
 
 /**
  * Parse XML-style function calls that some models output in their text content
@@ -258,83 +262,16 @@ const avatarRuntimeCache = new Map<string, AvatarRuntime>();
 
 /**
  * Fetch individual secrets from Secrets Manager using direct paths.
- * Uses the pattern: {prefix}/{avatarId}/{secretType}/default
- * Falls back to global secrets if avatar-specific not found.
+ * Delegates to the shared loadAvatarSecrets utility for consistent
+ * fallback chains and naming conventions across all handlers.
  */
 async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, string>> {
   const prefix = getSecretPrefix();
-  const secrets: Record<string, string> = {};
-
-  // Shared Twitter app credentials can optionally be stored as a single JSON secret.
-  // This mirrors the shared `response-sender` behavior so tools that call Twitter APIs
-  // can work even when app key/secret are not stored per-avatar.
-  async function tryLoadTwitterAppCredentials(): Promise<void> {
-    if (secrets.TWITTER_API_KEY && secrets.TWITTER_API_SECRET) return;
-    const secretId = process.env.TWITTER_APP_CREDENTIALS_ARN || `${prefix}/global/twitter-app-credentials`;
-    try {
-      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretId }));
-      const raw = response.SecretString;
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const appKey = (parsed.TWITTER_APP_KEY || parsed.consumer_key || parsed.consumerKey) as string | undefined;
-      const appSecret = (parsed.TWITTER_APP_SECRET || parsed.consumer_secret || parsed.consumerSecret) as string | undefined;
-      if (appKey && !secrets.TWITTER_API_KEY) secrets.TWITTER_API_KEY = appKey;
-      if (appSecret && !secrets.TWITTER_API_SECRET) secrets.TWITTER_API_SECRET = appSecret;
-      logger.info('Loaded Twitter app credentials from global secret', {
-        hasAppKey: !!appKey,
-        hasAppSecret: !!appSecret,
-        secretId,
-      });
-    } catch (err) {
-      logger.warn('Failed to load Twitter app credentials', {
-        secretId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  // Define secret types to fetch and their normalized key names
-  const secretTypes = [
-    { type: 'openrouter_api_key', key: 'OPENROUTER_API_KEY' },
-    { type: 'replicate_api_key', key: 'REPLICATE_API_KEY' },
-    { type: 'telegram_bot_token', key: 'TELEGRAM_BOT_TOKEN' },
-    { type: 'twitter_api_key', key: 'TWITTER_API_KEY' },
-    { type: 'twitter_api_secret', key: 'TWITTER_API_SECRET' },
-    { type: 'twitter_access_token', key: 'TWITTER_ACCESS_TOKEN' },
-    { type: 'twitter_access_secret', key: 'TWITTER_ACCESS_SECRET' },
-  ];
-
-  for (const { type, key } of secretTypes) {
-    // Try avatar-specific secret first
-    let secretName = `${prefix}/${avatarId}/${type}/default`;
-    try {
-      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
-      if (response.SecretString) {
-        secrets[key] = response.SecretString;
-        continue;
-      }
-    } catch {
-      // Avatar secret not found, try global
-    }
-
-    // Fall back to global secret
-    secretName = `${prefix}/global/${type}/default`;
-    try {
-      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
-      if (response.SecretString) {
-        secrets[key] = response.SecretString;
-      }
-    } catch {
-      // Global secret not found either - continue without it
-    }
-
-    if (type === 'twitter_api_key' || type === 'twitter_api_secret') {
-      await tryLoadTwitterAppCredentials();
-    }
-  }
+  const secrets = await loadAvatarSecrets(secretsService, avatarId, prefix);
 
   logger.info('Fetched avatar secrets', {
     avatarId,
+    hasOpenRouterKey: !!secrets.OPENROUTER_API_KEY,
     hasTwitterApiKey: !!secrets.TWITTER_API_KEY,
     hasTwitterApiSecret: !!secrets.TWITTER_API_SECRET,
     hasTwitterAccessToken: !!secrets.TWITTER_ACCESS_TOKEN,
@@ -357,33 +294,17 @@ async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
   if (cached) return cached;
 
   const avatarConfig = await stateService.getAvatarConfig(avatarId) || {
+    ...DEFAULT_AVATAR_CONFIG,
     id: avatarId,
     name: process.env.AVATAR_NAME || avatarId,
-    version: '1.0.0',
-    persona: process.env.AGENT_PERSONA || 'You are a helpful AI assistant.',
-    platforms: {},
+    persona: process.env.AGENT_PERSONA || DEFAULT_AVATAR_CONFIG.persona,
     llm: {
-      provider: (process.env.LLM_PROVIDER as 'openrouter') || 'openrouter',
-      model: process.env.LLM_MODEL || DEFAULT_LLM_MODEL,
-      temperature: 0.8,
-      maxTokens: 1024,
+      ...DEFAULT_AVATAR_CONFIG.llm,
+      provider: (process.env.LLM_PROVIDER as 'openrouter') || DEFAULT_AVATAR_CONFIG.llm.provider,
+      model: process.env.LLM_MODEL || DEFAULT_AVATAR_CONFIG.llm.model,
     },
-    media: {
-      image: { provider: 'replicate', model: 'black-forest-labs/flux-schnell' },
-    },
-    scheduling: {},
-    behavior: {
-      responseDelayMs: [1000, 3000],
-      typingIndicator: true,
-      ignoreBots: true,
-      cooldownMinutes: 5,
-      maxContextMessages: 20,
-    },
-    tools: [
-      'send_message', 'react', 'wait', 'ignore',
-      'generate_image', 'remember', 'recall',
-    ],
-    secrets: ['OPENROUTER_API_KEY', 'REPLICATE_API_KEY'],
+    tools: [...DEFAULT_AVATAR_CONFIG.tools],
+    secrets: [...DEFAULT_AVATAR_CONFIG.secrets],
   };
 
   // Back-compat + parity: if Twitter is enabled, ensure the runtime tool allowlist includes
@@ -554,6 +475,17 @@ async function callLLM(
     throw new Error('OPENROUTER_API_KEY not found in secrets');
   }
 
+  // Circuit breaker — fail fast when LLM provider is unhealthy
+  if (!llmCircuitBreaker.canExecute()) {
+    logger.warn('LLM circuit breaker is open, failing fast', {
+      event: 'circuit_breaker_open',
+      subsystem: 'llm',
+      state: llmCircuitBreaker.state(),
+      model: config.model,
+    });
+    throw new Error('LLM circuit breaker is open — provider unhealthy');
+  }
+
   const requestBody: Record<string, unknown> = {
     model: config.model,
     messages,
@@ -665,10 +597,22 @@ async function callLLM(
     // Combine API tool calls with any XML-parsed tool calls
     const allToolCalls = [...apiToolCalls, ...xmlToolCalls];
 
+    llmCircuitBreaker.recordSuccess();
+
     return {
       content: finalContent,
       toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
     };
+  } catch (error) {
+    llmCircuitBreaker.recordFailure();
+    if (llmCircuitBreaker.state() === 'open') {
+      logger.error('LLM circuit breaker tripped to OPEN after consecutive failures', {
+        event: 'circuit_breaker_tripped',
+        subsystem: 'llm',
+        model: config.model,
+      });
+    }
+    throw error;
   } finally {
     clearTimeout(timeoutId);
   }

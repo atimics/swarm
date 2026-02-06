@@ -67,3 +67,8 @@ export {
   getMediaQueueUrl,
   type MediaQueueMessage,
 } from './media-queue.js';
+export {
+  createCircuitBreaker,
+  type CircuitBreaker,
+  type CircuitState,
+} from './circuit-breaker.js';
