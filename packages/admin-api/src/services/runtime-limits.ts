@@ -27,6 +27,29 @@ export interface RuntimeLimits {
   priorityProcessing: boolean;
 }
 
+export interface RuntimeBurnAugmentation {
+  totalBurned?: number;
+  tier?: number;
+  tierName?: string;
+  maxEnergy?: number;
+  regenPerHour?: number;
+  updatedAt?: number;
+}
+
+export interface RuntimeEnergyAugmentation {
+  current?: number;
+  max?: number;
+  refillPerHour?: number;
+  nextRefillIn?: number;
+  bankCredits?: number;
+  updatedAt?: number;
+}
+
+export interface RuntimeAugmentations {
+  burn?: RuntimeBurnAugmentation;
+  energy?: RuntimeEnergyAugmentation;
+}
+
 export interface EffectiveLimitsResult {
   avatarId: string;
   plan: PlanType;
@@ -76,11 +99,12 @@ export async function syncRuntimeLimitsToState(params: {
   plan: PlanType;
   source: EffectiveLimitsResult['source'];
   entitlementStatus?: EffectiveLimitsResult['entitlementStatus'];
+  augmentations?: RuntimeAugmentations;
 }): Promise<void> {
   const stateTable = process.env.STATE_TABLE;
   if (!stateTable) return;
 
-  const { avatarId, runtimeLimits, plan, source, entitlementStatus } = params;
+  const { avatarId, runtimeLimits, plan, source, entitlementStatus, augmentations } = params;
 
   await dynamoClient.send(new UpdateCommand({
     TableName: stateTable,
@@ -99,6 +123,8 @@ export async function syncRuntimeLimitsToState(params: {
           plan = :plan,
           source = :source,
           entitlementStatus = :entitlementStatus,
+          contractVersion = :contractVersion,
+          augmentations = :augmentations,
           updatedAt = :now
     `,
     ExpressionAttributeValues: {
@@ -112,6 +138,8 @@ export async function syncRuntimeLimitsToState(params: {
       ':plan': plan,
       ':source': source,
       ':entitlementStatus': entitlementStatus ?? 'none',
+      ':contractVersion': 'entitlement-runtime-v1',
+      ':augmentations': augmentations ?? {},
       ':now': Date.now(),
     },
   }));
