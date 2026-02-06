@@ -1,0 +1,305 @@
+/**
+ * Entitlement, Orb-slot, and activation lifecycle routes.
+ *
+ * - PUT / DELETE /avatars/{id}/orb
+ * - GET / PUT  /avatars/{id}/entitlement
+ * - GET        /avatars/{id}/effective-limits
+ * - POST       /avatars/{id}/activate
+ * - POST       /avatars/{id}/deactivate
+ */
+import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { RouteContext } from './types.js';
+import { jsonResponse } from './shared.js';
+import { syncRuntimeContractForAvatar } from './runtime-sync.js';
+import { logger } from '@swarm/core';
+import * as avatarService from '../../services/avatars.js';
+import * as orbSlotsService from '../../services/orb-slots.js';
+import * as entitlementsService from '../../services/entitlements.js';
+import { getEffectiveLimitsForAvatar } from '../../services/runtime-limits.js';
+
+export async function handleEntitlementRoutes(
+  ctx: RouteContext,
+): Promise<APIGatewayProxyResultV2 | null> {
+  const { method, path, event, corsHeaders, session, walletAddress, effectiveIsAdmin } = ctx;
+
+  // ── PUT / DELETE /avatars/{id}/orb ───────────────────────────────────────
+  const avatarOrbMatch = path.match(/^\/avatars\/([^/]+)\/orb$/);
+  if (avatarOrbMatch && (method === 'PUT' || method === 'DELETE')) {
+    const avatarId = avatarOrbMatch[1];
+
+    if (!walletAddress) {
+      return jsonResponse(corsHeaders, 403, { error: 'Wallet sign-in required' });
+    }
+
+    const avatar = await avatarService.getAvatar(avatarId);
+    if (!avatar) {
+      return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+    }
+
+    const canManage =
+      effectiveIsAdmin ||
+      avatar.creatorWallet === walletAddress ||
+      avatar.inhabitantWallet === walletAddress;
+
+    if (!canManage) {
+      return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
+    }
+
+    if (method === 'PUT') {
+      const body = JSON.parse(event.body || '{}');
+      const mintAddress = body?.mintAddress;
+      if (!mintAddress || typeof mintAddress !== 'string') {
+        return jsonResponse(corsHeaders, 400, { error: 'mintAddress is required' });
+      }
+
+      const result = await orbSlotsService.slotOrbToAvatar(walletAddress, avatar, mintAddress);
+      if (!result.success) {
+        const message =
+          result.error === 'not_owned'
+            ? 'You do not own this Orb.'
+            : result.error === 'already_slotted'
+            ? 'This Orb is already slotted into another avatar.'
+            : 'This avatar already has an Orb slotted.';
+        return jsonResponse(corsHeaders, 403, { error: message });
+      }
+
+      return jsonResponse(corsHeaders, 200, { success: true, avatarId, mintAddress });
+    }
+
+    // DELETE
+    const result = await orbSlotsService.unslotOrbFromAvatar(walletAddress, avatar);
+    if (!result.success) {
+      if (result.error === 'not_owner') {
+        return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
+      }
+      return jsonResponse(corsHeaders, 400, {
+        error: 'No Orb is currently slotted into this avatar.',
+      });
+    }
+
+    return jsonResponse(corsHeaders, 200, { success: true, avatarId });
+  }
+
+  // ── GET /avatars/{id}/entitlement ────────────────────────────────────────
+  const entitlementMatch = path.match(/^\/avatars\/([^/]+)\/entitlement$/);
+  if (method === 'GET' && entitlementMatch) {
+    const avatarId = entitlementMatch[1];
+
+    const avatar = await avatarService.getAvatar(avatarId);
+    if (!avatar) {
+      return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+    }
+
+    if (!effectiveIsAdmin) {
+      if (
+        !walletAddress ||
+        (avatar.creatorWallet !== walletAddress &&
+          avatar.inhabitantWallet !== walletAddress)
+      ) {
+        return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+      }
+    }
+
+    const entitlement = await entitlementsService.getEntitlement(avatarId);
+    return jsonResponse(corsHeaders, 200, { avatarId, entitlement });
+  }
+
+  // ── PUT /avatars/{id}/entitlement — Admin-only ───────────────────────────
+  if (method === 'PUT' && entitlementMatch) {
+    if (!effectiveIsAdmin) {
+      return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+    }
+
+    const avatarId = entitlementMatch[1];
+    const avatar = await avatarService.getAvatar(avatarId);
+    if (!avatar) {
+      return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+    }
+
+    const body = JSON.parse(event.body || '{}');
+    const plan = body?.plan;
+
+    if (plan !== 'free' && plan !== 'pro' && plan !== 'enterprise') {
+      return jsonResponse(corsHeaders, 400, { error: 'Invalid plan' });
+    }
+
+    // Resolve the wallet session for accountId if not provided in body.
+    const accountId =
+      body?.accountId && typeof body.accountId === 'string'
+        ? body.accountId
+        : ctx.accountId;
+    if (!accountId) {
+      return jsonResponse(corsHeaders, 400, {
+        error: 'accountId is required (no wallet session found)',
+      });
+    }
+
+    const actorId = walletAddress || session.email || 'unknown';
+
+    const entitlement = await entitlementsService.setEntitlement({
+      accountId,
+      avatarId,
+      plan,
+      overrides: body?.overrides,
+      status: body?.status,
+      trialEndsAt: body?.trialEndsAt,
+      stripeCustomerId: body?.stripeCustomerId,
+      stripeSubscriptionId: body?.stripeSubscriptionId,
+      actorId,
+    });
+
+    await syncRuntimeContractForAvatar(avatarId);
+
+    return jsonResponse(corsHeaders, 200, {
+      avatarId,
+      entitlement,
+      effective: getEffectiveLimitsForAvatar(avatarId, entitlement),
+    });
+  }
+
+  // ── GET /avatars/{id}/effective-limits ───────────────────────────────────
+  const effectiveLimitsMatch = path.match(/^\/avatars\/([^/]+)\/effective-limits$/);
+  if (method === 'GET' && effectiveLimitsMatch) {
+    const avatarId = effectiveLimitsMatch[1];
+
+    const avatar = await avatarService.getAvatar(avatarId);
+    if (!avatar) {
+      return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+    }
+
+    if (!effectiveIsAdmin) {
+      if (
+        !walletAddress ||
+        (avatar.creatorWallet !== walletAddress &&
+          avatar.inhabitantWallet !== walletAddress)
+      ) {
+        return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+      }
+    }
+
+    const entitlement = await entitlementsService.getEntitlement(avatarId);
+    const effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
+
+    return jsonResponse(corsHeaders, 200, {
+      avatarId,
+      plan: effective.plan,
+      limits: effective.limits,
+      source: effective.source,
+      entitlementStatus: effective.entitlementStatus,
+    });
+  }
+
+  // ── POST /avatars/{id}/activate ──────────────────────────────────────────
+  const activateMatch = path.match(/^\/avatars\/([^/]+)\/activate$/);
+  if (method === 'POST' && activateMatch) {
+    const avatarId = activateMatch[1];
+
+    const avatar = await avatarService.getAvatar(avatarId);
+    if (!avatar) {
+      return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+    }
+
+    const canActivate =
+      effectiveIsAdmin ||
+      avatar.creatorWallet === walletAddress ||
+      avatar.inhabitantWallet === walletAddress;
+
+    if (!canActivate) {
+      return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
+    }
+
+    // Validate prerequisites
+    const issues: string[] = [];
+    if (
+      !avatar.platforms?.telegram?.enabled &&
+      !avatar.platforms?.twitter?.enabled &&
+      !avatar.platforms?.discord?.enabled
+    ) {
+      issues.push('At least one platform must be enabled');
+    }
+    if (avatar.platforms?.telegram?.enabled && !avatar.platforms?.telegram?.botUsername) {
+      issues.push('Telegram bot username is required');
+    }
+
+    if (issues.length > 0) {
+      return jsonResponse(corsHeaders, 400, { error: 'Cannot activate avatar', issues });
+    }
+
+    const actorId = walletAddress || session.email || 'unknown';
+    const result = await avatarService.activateAvatar(avatarId, actorId);
+
+    if (!result.success) {
+      return jsonResponse(corsHeaders, 500, {
+        error: result.error || 'Failed to activate avatar',
+      });
+    }
+
+    // Ensure runtime limits are synced for immediate enforcement.
+    try {
+      await syncRuntimeContractForAvatar(avatarId);
+    } catch (err) {
+      logger.warn('Failed to sync runtime limits on activation', {
+        avatarId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    logger.info('Avatar activated', {
+      event: 'avatar_activated',
+      avatarId,
+      actor: actorId,
+      previousStatus: avatar.status,
+    });
+
+    return jsonResponse(corsHeaders, 200, {
+      success: true,
+      avatarId,
+      status: 'active',
+      activatedAt: Date.now(),
+      activatedBy: actorId,
+    });
+  }
+
+  // ── POST /avatars/{id}/deactivate ────────────────────────────────────────
+  const deactivateMatch = path.match(/^\/avatars\/([^/]+)\/deactivate$/);
+  if (method === 'POST' && deactivateMatch) {
+    const avatarId = deactivateMatch[1];
+
+    const avatar = await avatarService.getAvatar(avatarId);
+    if (!avatar) {
+      return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+    }
+
+    const canDeactivate =
+      effectiveIsAdmin ||
+      avatar.creatorWallet === walletAddress ||
+      avatar.inhabitantWallet === walletAddress;
+
+    if (!canDeactivate) {
+      return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
+    }
+
+    const actorId = walletAddress || session.email || 'unknown';
+    const result = await avatarService.deactivateAvatar(avatarId, actorId);
+
+    if (!result.success) {
+      return jsonResponse(corsHeaders, 500, {
+        error: result.error || 'Failed to deactivate avatar',
+      });
+    }
+
+    logger.info('Avatar deactivated', {
+      event: 'avatar_deactivated',
+      avatarId,
+      actor: actorId,
+    });
+
+    return jsonResponse(corsHeaders, 200, {
+      success: true,
+      avatarId,
+      status: 'paused',
+    });
+  }
+
+  return null;
+}

@@ -1,0 +1,107 @@
+/**
+ * Runtime contract synchronisation helpers.
+ *
+ * Isolated in their own module so domain-handler tests can mock the whole
+ * file with a single `mock.module('./runtime-sync.js', …)` instead of
+ * individually mocking burn-stats, energy, entitlements, and runtime-limits.
+ */
+import { logger } from '@swarm/core';
+import * as burnStatsService from '../../services/burn-stats.js';
+import * as energyService from '../../services/energy.js';
+import * as entitlementsService from '../../services/entitlements.js';
+import {
+  getEffectiveLimitsForAvatar,
+  toRuntimeLimits,
+  syncRuntimeLimitsToState,
+  type RuntimeAugmentations,
+} from '../../services/runtime-limits.js';
+
+export type { RuntimeAugmentations };
+
+export async function buildRuntimeAugmentations(
+  avatarId: string,
+): Promise<RuntimeAugmentations | undefined> {
+  const [burnResult, energyResult, bankResult] = await Promise.allSettled([
+    burnStatsService.getBurnStats(avatarId),
+    energyService.getEnergyStatus(avatarId),
+    energyService.getEnergyBankBalance(avatarId),
+  ]);
+
+  if (burnResult.status === 'rejected') {
+    logger.warn('Failed to fetch burn stats for runtime augmentation', {
+      avatarId,
+      error:
+        burnResult.reason instanceof Error
+          ? burnResult.reason.message
+          : String(burnResult.reason),
+    });
+  }
+  if (energyResult.status === 'rejected') {
+    logger.warn('Failed to fetch energy status for runtime augmentation', {
+      avatarId,
+      error:
+        energyResult.reason instanceof Error
+          ? energyResult.reason.message
+          : String(energyResult.reason),
+    });
+  }
+  if (bankResult.status === 'rejected') {
+    logger.warn('Failed to fetch energy bank for runtime augmentation', {
+      avatarId,
+      error:
+        bankResult.reason instanceof Error
+          ? bankResult.reason.message
+          : String(bankResult.reason),
+    });
+  }
+
+  const burn =
+    burnResult.status === 'fulfilled'
+      ? {
+          totalBurned: burnResult.value.totalBurned,
+          tier: burnResult.value.tier,
+          tierName: burnResult.value.tierName,
+          maxEnergy: burnResult.value.maxEnergy,
+          regenPerHour: burnResult.value.regenPerHour,
+          updatedAt: burnResult.value.lastVerifiedAt,
+        }
+      : undefined;
+
+  const energy =
+    energyResult.status === 'fulfilled'
+      ? {
+          current: energyResult.value.current,
+          max: energyResult.value.max,
+          refillPerHour: energyResult.value.refillPerHour,
+          nextRefillIn: energyResult.value.nextRefillIn,
+          bankCredits:
+            bankResult.status === 'fulfilled'
+              ? bankResult.value.credits
+              : undefined,
+          updatedAt: Date.now(),
+        }
+      : undefined;
+
+  if (!burn && !energy) return undefined;
+
+  return {
+    ...(burn ? { burn } : {}),
+    ...(energy ? { energy } : {}),
+  };
+}
+
+export async function syncRuntimeContractForAvatar(
+  avatarId: string,
+): Promise<void> {
+  const entitlement = await entitlementsService.getEntitlement(avatarId);
+  const effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
+  const augmentations = await buildRuntimeAugmentations(avatarId);
+  await syncRuntimeLimitsToState({
+    avatarId,
+    runtimeLimits: toRuntimeLimits(effective.limits),
+    plan: effective.plan,
+    source: effective.source,
+    entitlementStatus: effective.entitlementStatus,
+    augmentations,
+  });
+}

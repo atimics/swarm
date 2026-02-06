@@ -1,0 +1,352 @@
+/**
+ * Tests for avatar-routes/crud.ts
+ *
+ * Routes:
+ *   POST   /avatars
+ *   GET    /avatars
+ *   GET    /avatars/{id}
+ *   PUT    /avatars/{id}
+ *   DELETE /avatars/{id}
+ *   PUT    /avatars/{id}/reassign
+ *   GET    /avatars/{id}/integrations
+ */
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+
+// ── Mock state ─────────────────────────────────────────────────────────────
+let getAvatarResult: unknown = null;
+let listAvatarsResult: unknown[] = [];
+let listAvatarsByWalletResult: unknown[] = [];
+let createAvatarResult: unknown = {};
+let createAvatarWithWalletResult: unknown = { success: true, avatar: {} };
+let updateAvatarResult: unknown = {};
+const deleteAvatarCalls: unknown[][] = [];
+let reassignAvatarResult: unknown = {};
+let integrationStatusesResult: unknown = [];
+let galleryProfileResult: unknown = null;
+
+mock.module('../../services/avatars.js', () => ({
+  createAvatar: async (...args: unknown[]) => createAvatarResult,
+  createAvatarWithWallet: async (...args: unknown[]) => createAvatarWithWalletResult,
+  listAvatars: async () => listAvatarsResult,
+  listAvatarsByWallet: async () => listAvatarsByWalletResult,
+  getAvatar: async () => getAvatarResult,
+  updateAvatar: async (...args: unknown[]) => updateAvatarResult,
+  deleteAvatar: async (...args: unknown[]) => { deleteAvatarCalls.push(args); },
+  reassignAvatar: async (...args: unknown[]) => reassignAvatarResult,
+}));
+
+mock.module('../../services/gallery.js', () => ({
+  getLatestProfileImageFromGallery: async () => galleryProfileResult,
+}));
+
+mock.module('../../services/integrations.js', () => ({
+  getAllIntegrationStatuses: async () => integrationStatusesResult,
+}));
+
+mock.module('@swarm/core', () => ({
+  logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, setContext: () => {} },
+}));
+
+// ── Import handler AFTER mocks ─────────────────────────────────────────────
+import { handleCrudRoutes } from './crud.js';
+import { makeCtx, parseBody, MOCK_AVATAR } from './test-helpers.js';
+
+beforeEach(() => {
+  getAvatarResult = null;
+  listAvatarsResult = [];
+  listAvatarsByWalletResult = [];
+  createAvatarResult = {};
+  createAvatarWithWalletResult = { success: true, avatar: { avatarId: 'new-1', name: 'New' } };
+  updateAvatarResult = {};
+  deleteAvatarCalls.length = 0;
+  reassignAvatarResult = {};
+  integrationStatusesResult = [];
+  galleryProfileResult = null;
+});
+
+// =========================================================================
+// POST /avatars
+// =========================================================================
+describe('POST /avatars', () => {
+  it('creates with wallet', async () => {
+    const ctx = makeCtx({
+      method: 'POST',
+      path: '/avatars',
+      body: JSON.stringify({ name: 'My Avatar' }),
+      walletAddress: 'wallet-1',
+      effectiveIsAdmin: false,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.statusCode).toBe(201);
+  });
+
+  it('rejects wallet creation when no slots', async () => {
+    createAvatarWithWalletResult = { success: false, error: 'no_gate_slot', gateStatus: {} };
+    const ctx = makeCtx({
+      method: 'POST',
+      path: '/avatars',
+      body: JSON.stringify({ name: 'My Avatar' }),
+      walletAddress: 'wallet-1',
+      effectiveIsAdmin: false,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.statusCode).toBe(403);
+  });
+
+  it('returns 400 when name missing', async () => {
+    const ctx = makeCtx({
+      method: 'POST',
+      path: '/avatars',
+      body: JSON.stringify({}),
+      effectiveIsAdmin: true,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.statusCode).toBe(400);
+  });
+
+  it('admin creates via email session', async () => {
+    createAvatarResult = { avatarId: 'new-1', name: 'Admin Avatar' };
+    const ctx = makeCtx({
+      method: 'POST',
+      path: '/avatars',
+      body: JSON.stringify({ name: 'Admin Avatar' }),
+      walletAddress: null,
+      effectiveIsAdmin: true,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.statusCode).toBe(201);
+  });
+
+  it('non-admin without wallet gets 403', async () => {
+    const ctx = makeCtx({
+      method: 'POST',
+      path: '/avatars',
+      body: JSON.stringify({ name: 'Test' }),
+      walletAddress: null,
+      effectiveIsAdmin: false,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.statusCode).toBe(403);
+  });
+});
+
+// =========================================================================
+// GET /avatars
+// =========================================================================
+describe('GET /avatars', () => {
+  it('admin lists all avatars', async () => {
+    listAvatarsResult = [{ ...MOCK_AVATAR }];
+    const ctx = makeCtx({ method: 'GET', path: '/avatars', effectiveIsAdmin: true });
+    const result = await handleCrudRoutes(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.statusCode).toBe(200);
+    const body = JSON.parse(result!.body as string);
+    expect(body).toHaveLength(1);
+  });
+
+  it('wallet user lists own avatars', async () => {
+    listAvatarsByWalletResult = [{ ...MOCK_AVATAR }];
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars',
+      walletAddress: 'wallet-1',
+      effectiveIsAdmin: false,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.statusCode).toBe(200);
+  });
+
+  it('admin wallet lists all avatars', async () => {
+    listAvatarsResult = [{ ...MOCK_AVATAR }];
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars',
+      walletAddress: 'admin-wallet',
+      effectiveIsAdmin: true,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+  });
+
+  it('non-admin without wallet gets 403', async () => {
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars',
+      walletAddress: null,
+      effectiveIsAdmin: false,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(403);
+  });
+});
+
+// =========================================================================
+// GET /avatars/{id}
+// =========================================================================
+describe('GET /avatars/{id}', () => {
+  it('returns avatar for admin', async () => {
+    getAvatarResult = { ...MOCK_AVATAR };
+    const ctx = makeCtx({ method: 'GET', path: '/avatars/avatar-1', effectiveIsAdmin: true });
+    const result = await handleCrudRoutes(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.statusCode).toBe(200);
+  });
+
+  it('returns 404 when not found', async () => {
+    getAvatarResult = null;
+    const ctx = makeCtx({ method: 'GET', path: '/avatars/missing', effectiveIsAdmin: true });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(404);
+  });
+
+  it('owner wallet can read own avatar', async () => {
+    getAvatarResult = { ...MOCK_AVATAR, creatorWallet: 'wallet-1' };
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars/avatar-1',
+      walletAddress: 'wallet-1',
+      effectiveIsAdmin: false,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+  });
+
+  it('non-owner wallet gets 404', async () => {
+    getAvatarResult = { ...MOCK_AVATAR, creatorWallet: 'wallet-1' };
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars/avatar-1',
+      walletAddress: 'wallet-other',
+      effectiveIsAdmin: false,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(404);
+  });
+
+  it('hydrates profile image from gallery when missing', async () => {
+    getAvatarResult = { ...MOCK_AVATAR, profileImage: undefined };
+    galleryProfileResult = { url: 'https://cdn/img.jpg', s3Key: 's3/img.jpg', createdAt: 1000 };
+    const ctx = makeCtx({ method: 'GET', path: '/avatars/avatar-1', effectiveIsAdmin: true });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+    const body = JSON.parse(result!.body as string);
+    expect(body.profileImage.url).toBe('https://cdn/img.jpg');
+  });
+});
+
+// =========================================================================
+// PUT /avatars/{id}
+// =========================================================================
+describe('PUT /avatars/{id}', () => {
+  it('admin updates avatar', async () => {
+    updateAvatarResult = { ...MOCK_AVATAR, name: 'Updated' };
+    const ctx = makeCtx({
+      method: 'PUT',
+      path: '/avatars/avatar-1',
+      body: JSON.stringify({ name: 'Updated' }),
+      effectiveIsAdmin: true,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+  });
+
+  it('non-admin without wallet gets 403', async () => {
+    const ctx = makeCtx({
+      method: 'PUT',
+      path: '/avatars/avatar-1',
+      body: JSON.stringify({ name: 'Updated' }),
+      walletAddress: null,
+      effectiveIsAdmin: false,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(403);
+  });
+});
+
+// =========================================================================
+// DELETE /avatars/{id}
+// =========================================================================
+describe('DELETE /avatars/{id}', () => {
+  it('admin deletes avatar', async () => {
+    const ctx = makeCtx({ method: 'DELETE', path: '/avatars/avatar-1', effectiveIsAdmin: true });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(204);
+    expect(deleteAvatarCalls).toHaveLength(1);
+  });
+
+  it('creator wallet deletes own avatar', async () => {
+    getAvatarResult = { ...MOCK_AVATAR, creatorWallet: 'wallet-1' };
+    const ctx = makeCtx({
+      method: 'DELETE',
+      path: '/avatars/avatar-1',
+      walletAddress: 'wallet-1',
+      effectiveIsAdmin: false,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(204);
+  });
+});
+
+// =========================================================================
+// PUT /avatars/{id}/reassign
+// =========================================================================
+describe('PUT /avatars/{id}/reassign', () => {
+  it('admin can reassign', async () => {
+    getAvatarResult = { ...MOCK_AVATAR };
+    reassignAvatarResult = { ...MOCK_AVATAR, creatorWallet: 'wallet-new' };
+    const ctx = makeCtx({
+      method: 'PUT',
+      path: '/avatars/avatar-1/reassign',
+      body: JSON.stringify({ creatorWallet: 'wallet-new' }),
+      effectiveIsAdmin: true,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+  });
+
+  it('non-admin gets 403', async () => {
+    const ctx = makeCtx({
+      method: 'PUT',
+      path: '/avatars/avatar-1/reassign',
+      body: JSON.stringify({}),
+      effectiveIsAdmin: false,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(403);
+  });
+});
+
+// =========================================================================
+// GET /avatars/{id}/integrations
+// =========================================================================
+describe('GET /avatars/{id}/integrations', () => {
+  it('admin gets integration statuses', async () => {
+    integrationStatusesResult = [{ name: 'telegram', connected: true }];
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars/avatar-1/integrations',
+      effectiveIsAdmin: true,
+    });
+    const result = await handleCrudRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+    const body = parseBody(result!) as { integrations: unknown[] };
+    expect(body.integrations).toHaveLength(1);
+  });
+});
+
+// =========================================================================
+// Unmatched routes
+// =========================================================================
+describe('unmatched routes', () => {
+  it('returns null for unknown paths', async () => {
+    const ctx = makeCtx({ method: 'GET', path: '/something-else' });
+    const result = await handleCrudRoutes(ctx);
+    expect(result).toBeNull();
+  });
+});

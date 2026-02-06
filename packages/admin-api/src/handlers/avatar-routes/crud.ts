@@ -1,0 +1,252 @@
+/**
+ * Avatar CRUD routes: create, list, get, update, delete, reassign, integrations.
+ *
+ * Extracted from the monolithic avatars.ts handler.
+ */
+import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { RouteContext } from './types.js';
+import { jsonResponse } from './shared.js';
+import { logger } from '@swarm/core';
+import * as avatarService from '../../services/avatars.js';
+import * as galleryService from '../../services/gallery.js';
+import * as integrationsService from '../../services/integrations.js';
+
+// ── Profile-image hydration ────────────────────────────────────────────────
+
+/**
+ * Back-compat helper: older avatars may not have `profileImage` set but may
+ * have a generated profile image in the gallery.  Fill it in when missing.
+ */
+async function hydrateAvatarProfileImage<
+  T extends { avatarId: string; profileImage?: { url: string } },
+>(avatar: T): Promise<T> {
+  if (avatar.profileImage?.url) return avatar;
+  const inferred = await galleryService.getLatestProfileImageFromGallery(avatar.avatarId);
+  if (!inferred) return avatar;
+
+  return {
+    ...avatar,
+    profileImage: {
+      url: inferred.url,
+      s3Key: inferred.s3Key,
+      updatedAt: inferred.createdAt,
+    },
+  };
+}
+
+// ── Route handler ──────────────────────────────────────────────────────────
+
+export async function handleCrudRoutes(
+  ctx: RouteContext,
+): Promise<APIGatewayProxyResultV2 | null> {
+  const { method, path, event, corsHeaders, session, walletAddress, effectiveIsAdmin } = ctx;
+
+  // ── POST /avatars — Create a new avatar ──────────────────────────────────
+  if (method === 'POST' && path === '/avatars') {
+    const body = JSON.parse(event.body || '{}');
+    const { name, description } = body;
+
+    if (!name || typeof name !== 'string') {
+      return {
+        statusCode: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'Name is required' }),
+      };
+    }
+
+    // Wallet user: use gated creation (non-admin allowed)
+    if (walletAddress) {
+      const result = await avatarService.createAvatarWithWallet(name, walletAddress, description);
+      if (!result.success) {
+        const errorMessage = result.error === 'no_gate_slot'
+          ? 'No available avatar slots. Hold an Orb NFT to create more avatars.'
+          : result.error === 'name_taken'
+          ? 'An avatar with this name already exists.'
+          : 'Failed to create avatar.';
+        return jsonResponse(corsHeaders, result.error === 'no_gate_slot' ? 403 : 400, {
+          error: errorMessage,
+          gateStatus: result.gateStatus,
+        });
+      }
+
+      logger.info(`[Avatars] Created avatar=${result.avatar!.avatarId} by wallet=${walletAddress.slice(0, 8)}...`);
+      return jsonResponse(corsHeaders, 201, result.avatar);
+    }
+
+    // Legacy email-based creation stays admin-only
+    if (!effectiveIsAdmin) {
+      return jsonResponse(corsHeaders, 403, { error: 'Wallet sign-in required' });
+    }
+
+    const avatar = await avatarService.createAvatar(name, session, description);
+
+    return {
+      statusCode: 201,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify(avatar),
+    };
+  }
+
+  // ── GET /avatars — List avatars (filtered by wallet unless admin) ────────
+  if (method === 'GET' && path === '/avatars') {
+    let avatars: Awaited<ReturnType<typeof avatarService.listAvatars>>;
+
+    if (walletAddress) {
+      if (effectiveIsAdmin) {
+        avatars = await avatarService.listAvatars();
+        logger.info(`[Avatars] Admin wallet=${walletAddress.slice(0, 8)}... listed all ${avatars.length} avatars`);
+      } else {
+        avatars = await avatarService.listAvatarsByWallet(walletAddress);
+        logger.info(`[Avatars] Listed ${avatars.length} avatars for wallet=${walletAddress.slice(0, 8)}...`);
+      }
+    } else if (effectiveIsAdmin) {
+      avatars = await avatarService.listAvatars();
+      logger.info(`[Avatars] Listed all ${avatars.length} avatars (no wallet session)`);
+    } else {
+      return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+    }
+
+    // Back-compat: older avatars may not have `profileImage` set, but may have
+    // a generated profile image in the gallery.
+    const hydrated = await Promise.all(avatars.map(hydrateAvatarProfileImage));
+
+    return {
+      statusCode: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify(hydrated),
+    };
+  }
+
+  // ── PUT /avatars/{id}/reassign — Admin-only: Reassign avatar ownership ───
+  const reassignMatch = path.match(/^\/avatars\/([^/]+)\/reassign$/);
+  if (method === 'PUT' && reassignMatch) {
+    const avatarId = reassignMatch[1];
+
+    // Admin-only endpoint
+    if (!effectiveIsAdmin) {
+      return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+    }
+
+    const body = JSON.parse(event.body || '{}') as {
+      creatorWallet?: string;
+      inhabitantWallet?: string | null;
+    };
+
+    const existing = await avatarService.getAvatar(avatarId);
+    if (!existing) {
+      return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+    }
+
+    try {
+      const result = await avatarService.reassignAvatar(avatarId, body, session);
+      logger.info(`[Avatars] Reassigned avatar=${avatarId}`, {
+        event: 'avatar_reassigned',
+        avatarId,
+        oldCreator: existing.creatorWallet?.slice(0, 8),
+        newCreator: body.creatorWallet?.slice(0, 8),
+        inhabitantCleared: body.inhabitantWallet === null,
+      });
+      return jsonResponse(corsHeaders, 200, result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to reassign avatar';
+      return jsonResponse(corsHeaders, 400, { error: msg });
+    }
+  }
+
+  // ── GET /avatars/{id}/integrations — List integration statuses ───────────
+  const avatarIntegrationsMatch = path.match(/^\/avatars\/([^/]+)\/integrations$/);
+  if (method === 'GET' && avatarIntegrationsMatch) {
+    const avatarId = avatarIntegrationsMatch[1];
+
+    if (!effectiveIsAdmin) {
+      if (!walletAddress) {
+        return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+      }
+      const existing = await avatarService.getAvatar(avatarId);
+      if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+        return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+      }
+    }
+
+    const statuses = await integrationsService.getAllIntegrationStatuses(avatarId);
+    return jsonResponse(corsHeaders, 200, { integrations: statuses });
+  }
+
+  // ── GET / PUT / DELETE /avatars/{id} ─────────────────────────────────────
+  const avatarIdMatch = path.match(/^\/avatars\/([^/]+)$/);
+  if (avatarIdMatch) {
+    const avatarId = avatarIdMatch[1];
+
+    // GET /avatars/{id} - Get single avatar
+    if (method === 'GET') {
+      const avatarRaw = await avatarService.getAvatar(avatarId);
+      const avatar = avatarRaw ? await hydrateAvatarProfileImage(avatarRaw) : null;
+
+      if (!avatar) {
+        return {
+          statusCode: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Avatar not found' }),
+        };
+      }
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress || (avatar.creatorWallet !== walletAddress && avatar.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(avatar),
+      };
+    }
+
+    // PUT /avatars/{id} - Update avatar
+    if (method === 'PUT') {
+      const body = JSON.parse(event.body || '{}');
+
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      const avatar = await avatarService.updateAvatar(avatarId, body, session);
+
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(avatar),
+      };
+    }
+
+    // DELETE /avatars/{id} - Delete avatar (creator only for non-admin)
+    if (method === 'DELETE') {
+      if (!effectiveIsAdmin) {
+        if (!walletAddress) {
+          return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
+        }
+        const existing = await avatarService.getAvatar(avatarId);
+        if (!existing || existing.creatorWallet !== walletAddress) {
+          return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
+        }
+      }
+
+      await avatarService.deleteAvatar(avatarId, session);
+
+      return {
+        statusCode: 204,
+        headers: corsHeaders,
+      };
+    }
+  }
+
+  // No route matched
+  return null;
+}

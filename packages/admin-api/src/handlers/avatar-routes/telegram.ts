@@ -1,0 +1,238 @@
+/**
+ * Telegram integration routes.
+ *
+ * - GET  /avatars/{id}/telegram/diagnose
+ * - POST /avatars/{id}/telegram/repair
+ * - GET  /avatars/{id}/telegram/known-users
+ * - POST /avatars/{id}/telegram/resolve-group
+ */
+import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { RouteContext } from './types.js';
+import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
+import { logger } from '@swarm/core';
+import * as avatarService from '../../services/avatars.js';
+import * as telegramService from '../../services/telegram.js';
+import * as secretsService from '../../services/secrets.js';
+import { diagnoseTelegram } from '../../services/telegram-diagnostics.js';
+import { computeTelegramRepairPlan } from '../../services/telegram-repair.js';
+import { getKnownTelegramUsers } from '../../services/channel-state.js';
+
+export async function handleTelegramRoutes(
+  ctx: RouteContext,
+): Promise<APIGatewayProxyResultV2 | null> {
+  const { method, path, event, corsHeaders, session } = ctx;
+
+  // ── GET /avatars/{id}/telegram/diagnose ──────────────────────────────────
+  const diagnoseMatch = path.match(/^\/avatars\/([^/]+)\/telegram\/diagnose$/);
+  if (method === 'GET' && diagnoseMatch) {
+    const avatarId = diagnoseMatch[1];
+
+    const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
+    if (denied) return denied;
+
+    try {
+      const report = await diagnoseTelegram(avatarId);
+      return jsonResponse(corsHeaders, 200, report);
+    } catch (err) {
+      logger.error('Telegram diagnosis failed', {
+        event: 'telegram_diagnose_failed',
+        avatarId,
+        error: err,
+      });
+      return jsonResponse(corsHeaders, 500, { error: 'Diagnosis failed' });
+    }
+  }
+
+  // ── POST /avatars/{id}/telegram/repair ───────────────────────────────────
+  const repairMatch = path.match(/^\/avatars\/([^/]+)\/telegram\/repair$/);
+  if (method === 'POST' && repairMatch) {
+    const avatarId = repairMatch[1];
+    const body = JSON.parse(event.body || '{}') as {
+      dryRun?: boolean;
+      force?: boolean;
+      includeDisabled?: boolean;
+      rotateSecret?: boolean;
+      repairOnPendingUpdates?: boolean;
+      repairOnLastError?: boolean;
+    };
+
+    const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
+    if (denied) return denied;
+
+    logger.setContext({ subsystem: 'telegram', avatarId });
+
+    const before = await diagnoseTelegram(avatarId);
+    const plan = computeTelegramRepairPlan(before, {
+      force: Boolean(body.force),
+      includeDisabled: Boolean(body.includeDisabled),
+      repairOnPendingUpdates: Boolean(body.repairOnPendingUpdates),
+      repairOnLastError: Boolean(body.repairOnLastError),
+    });
+
+    if (plan.action === 'skip') {
+      return jsonResponse(corsHeaders, 200, {
+        avatarId,
+        action: 'skipped',
+        reason: plan.reason,
+        before,
+      });
+    }
+
+    if (body.dryRun) {
+      return jsonResponse(corsHeaders, 200, {
+        avatarId,
+        action: 'would_repair',
+        reason: plan.reason,
+        before,
+      });
+    }
+
+    // Repair without user re-submitting the token.
+    const botToken = await secretsService._getSecretValueInternal(
+      avatarId,
+      'telegram_bot_token',
+      'default',
+    );
+    if (!botToken) {
+      return jsonResponse(corsHeaders, 400, {
+        error: 'Missing Telegram bot token secret',
+      });
+    }
+
+    let webhookSecret = await secretsService._getSecretValueInternal(
+      avatarId,
+      'telegram_webhook_secret',
+      'default',
+    );
+
+    const rotateSecret = Boolean(body.rotateSecret);
+    const hadSecret = Boolean(webhookSecret);
+    if (!webhookSecret || rotateSecret) {
+      webhookSecret = telegramService.generateWebhookSecret();
+    }
+
+    logger.info('Telegram webhook repair requested', {
+      event: 'telegram_webhook_repair_requested',
+      force: Boolean(body.force),
+      includeDisabled: Boolean(body.includeDisabled),
+      rotateSecret,
+      hadSecret,
+    });
+
+    const result = await telegramService.registerTelegramWebhook(
+      botToken,
+      avatarId,
+      webhookSecret,
+    );
+    if (!result.success) {
+      logger.warn('Telegram webhook repair failed', {
+        event: 'telegram_webhook_repair_failed',
+        error: result.message,
+      });
+      return jsonResponse(corsHeaders, 400, {
+        error: result.message || 'Failed to repair Telegram webhook',
+      });
+    }
+
+    // Only store the secret if it was missing or explicitly rotated.
+    if (!hadSecret || rotateSecret) {
+      await secretsService.storeSecret(
+        avatarId,
+        'telegram_webhook_secret',
+        'default',
+        webhookSecret,
+        session,
+        `Telegram webhook secret for ${avatarId}`,
+      );
+    }
+
+    const after = await diagnoseTelegram(avatarId);
+    return jsonResponse(corsHeaders, 200, {
+      avatarId,
+      action: 'repaired',
+      reason: plan.reason,
+      rotatedSecret: !hadSecret || rotateSecret ? true : false,
+      before,
+      after,
+      status: {
+        webhookUrl: result.webhookUrl,
+        reRegistered: result.reRegistered,
+        webhookInfo: result.webhookInfo,
+      },
+    });
+  }
+
+  // ── GET /avatars/{id}/telegram/known-users ───────────────────────────────
+  const knownUsersMatch = path.match(
+    /^\/avatars\/([^/]+)\/telegram\/known-users$/,
+  );
+  if (method === 'GET' && knownUsersMatch) {
+    const avatarId = knownUsersMatch[1];
+
+    const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
+    if (denied) return denied;
+
+    try {
+      const users = await getKnownTelegramUsers(avatarId);
+      return jsonResponse(corsHeaders, 200, { users });
+    } catch (err) {
+      logger.error('Failed to get known Telegram users', {
+        event: 'telegram_known_users_failed',
+        error: err,
+      });
+      return jsonResponse(corsHeaders, 500, {
+        error: 'Failed to get known Telegram users',
+      });
+    }
+  }
+
+  // ── POST /avatars/{id}/telegram/resolve-group ────────────────────────────
+  const resolveGroupMatch = path.match(
+    /^\/avatars\/([^/]+)\/telegram\/resolve-group$/,
+  );
+  if (method === 'POST' && resolveGroupMatch) {
+    const avatarId = resolveGroupMatch[1];
+    const body = JSON.parse(event.body || '{}') as { username?: string };
+
+    const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
+    if (denied) return denied;
+
+    if (!body.username || typeof body.username !== 'string') {
+      return jsonResponse(corsHeaders, 400, { error: 'username is required' });
+    }
+
+    // Get bot token to make the API call
+    const botToken = await secretsService._getSecretValueInternal(
+      avatarId,
+      'telegram_bot_token',
+      'default',
+    );
+    if (!botToken) {
+      return jsonResponse(corsHeaders, 400, {
+        error: 'Telegram bot token not configured',
+      });
+    }
+
+    try {
+      const result = await telegramService.resolveGroupUsername(
+        botToken,
+        body.username,
+      );
+      if (!result) {
+        return jsonResponse(corsHeaders, 404, {
+          error:
+            'Group not found or bot does not have access. Make sure the bot is a member of the group.',
+        });
+      }
+      return jsonResponse(corsHeaders, 200, result);
+    } catch (err) {
+      logger.error('Failed to resolve Telegram group', {
+        event: 'telegram_resolve_group_failed',
+        error: err,
+      });
+      return jsonResponse(corsHeaders, 500, { error: 'Failed to resolve group' });
+    }
+  }
+
+  return null;
+}
