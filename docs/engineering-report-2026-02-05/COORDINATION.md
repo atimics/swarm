@@ -37,32 +37,27 @@ Snapshot collected on **2026-02-06** from:
 
 ### Current Findings
 
-- `main` is at `3223c53` and is **ahead of `origin/main` by 4 commits**.
-- Branch split:
-  - `feat/swarm-001` to `feat/swarm-004` remain at `223a963`
-  - `feat/swarm-005` to `feat/swarm-010` are at `3223c53`
-- SWARM-001/002/003/004 scope has already been committed directly to `main` (mainline-first closure path).
-- Assigned worktree signals:
-  - `feat/swarm-001`: untracked `packages/core/src/services/circuit-breaker.ts`
-  - `feat/swarm-004`: untracked `.editorconfig`, `.prettierrc`
-- Additional branch signal:
-  - `feat/swarm-007`: untracked `packages/core/src/services/llm/index.test.ts`
-- Remaining uncommitted activity in `main` is focused on runtime limits / entitlement / energy and one LLM test file.
+- `main` is at `33fdda5` and currently synced with `origin/main`.
+- Local SWARM branches currently present: `feat/swarm-008`, `feat/swarm-009`, `feat/swarm-010` (all at `3223c53`).
+- Local SWARM worktrees currently present: `swarm-008`, `swarm-009`, `swarm-010`.
+- SWARM-001/002/003/004 were delivered via `main` commits and are tracked via closure ledger.
+- SWARM-007 has mainline progress (`22b7ed6`) but is not yet marked complete.
+- Current uncommitted activity in `main` is infra plus type/test additions; see Change Watch.
 
 ## Worker Assignment Matrix
 
 | Worker | Ticket | Branch | Worktree | Core Mission | Status (2026-02-06) | Notes |
 |--------|--------|--------|----------|--------------|-----------------------|-------|
-| `worker-001` | SWARM-001 | `feat/swarm-001` | `/Users/ratimics/develop/aws-swarm-swarm-001` | Add fail-fast LLM protection in `message-processor` using shared circuit breaker logic from `@swarm/core`. | Completed-by-commit | Implemented on `main` via `f18a552`; branch still at `223a963` |
-| `worker-002` | SWARM-002 | `feat/swarm-002` | `/Users/ratimics/develop/aws-swarm-swarm-002` | Replace duplicated secret fetching with shared `loadAvatarSecrets()` utility in all targeted handlers. | Completed-by-commit | Implemented on `main` via `3223c53`; branch still at `223a963` |
-| `worker-003` | SWARM-003 | `feat/swarm-003` | `/Users/ratimics/develop/aws-swarm-swarm-003` | Introduce canonical `DEFAULT_AVATAR_CONFIG` and remove divergent inline fallback objects. | Completed-by-commit | Implemented on `main` via `3223c53`; branch still at `223a963` |
-| `worker-004` | SWARM-004 | `feat/swarm-004` | `/Users/ratimics/develop/aws-swarm-swarm-004` | Establish consistent formatting and coverage guardrails (`.editorconfig`, `.prettierrc`, lint-staged, vitest thresholds). | Completed-by-commit | Implemented on `main` via `edad325`; branch still at `223a963` |
-| `worker-005` | SWARM-005 | `feat/swarm-005` | `/Users/ratimics/develop/aws-swarm-swarm-005` | Decompose oversized files into focused modules while preserving existing exports and behavior. | Assigned, not started | Branch is aligned to `3223c53`; clean worktree |
-| `worker-006` | SWARM-006 | `feat/swarm-006` | `/Users/ratimics/develop/aws-swarm-swarm-006` | Wire all current CloudWatch alarms to actionable SNS notifications without replacements. | Assigned, not started | Branch is aligned to `3223c53`; clean worktree |
-| `worker-007` | SWARM-007 | `feat/swarm-007` | `/Users/ratimics/develop/aws-swarm-swarm-007` | Add high-value tests for LLM services, avatars handler, Discord adapter, and worker critical paths. | In progress (branch-local) | Branch is aligned to `3223c53`; untracked `packages/core/src/services/llm/index.test.ts` in worktree |
-| `worker-008` | SWARM-008 | `feat/swarm-008` | `/Users/ratimics/develop/aws-swarm-swarm-008` | Harden security posture with WAF, scoped Bedrock IAM, queue encryption, and workflow cleanup. | Assigned, not started | Branch is aligned to `3223c53`; clean worktree |
-| `worker-009` | SWARM-009 | `feat/swarm-009` | `/Users/ratimics/develop/aws-swarm-swarm-009` | Remove legacy code paths and duplicate types after migration and compatibility verification. | Assigned, not started | Branch is aligned to `3223c53`; clean worktree |
-| `worker-010` | SWARM-010 | `feat/swarm-010` | `/Users/ratimics/develop/aws-swarm-swarm-010` | Improve operational resilience with EventBridge DLQs, configurable LLM limits, and deploy/admin-api maintainability work. | Adjacent activity detected | Branch is aligned to `3223c53`; runtime-limit/entitlement changes are active in `main` |
+| `worker-001` | SWARM-001 | `(deprovisioned locally)` | `(deprovisioned locally)` | Add fail-fast LLM protection in `message-processor` using shared circuit breaker logic from `@swarm/core`. | Completed-by-commit | Implemented on `main` via `f18a552` |
+| `worker-002` | SWARM-002 | `(deprovisioned locally)` | `(deprovisioned locally)` | Replace duplicated secret fetching with shared `loadAvatarSecrets()` utility in all targeted handlers. | Completed-by-commit | Implemented on `main` via `3223c53` |
+| `worker-003` | SWARM-003 | `(deprovisioned locally)` | `(deprovisioned locally)` | Introduce canonical `DEFAULT_AVATAR_CONFIG` and remove divergent inline fallback objects. | Completed-by-commit | Implemented on `main` via `3223c53` |
+| `worker-004` | SWARM-004 | `(deprovisioned locally)` | `(deprovisioned locally)` | Establish consistent formatting and coverage guardrails (`.editorconfig`, `.prettierrc`, lint-staged, vitest thresholds). | Completed-by-commit | Implemented on `main` via `edad325` |
+| `worker-005` | SWARM-005 | `(not present locally)` | `(not provisioned)` | Decompose oversized files into focused modules while preserving existing exports and behavior. | Planned / not active | Local branch/worktree not currently provisioned |
+| `worker-006` | SWARM-006 | `(not present locally)` | `(not provisioned)` | Wire all current CloudWatch alarms to actionable SNS notifications without replacements. | Planned / not active | Local branch/worktree not currently provisioned |
+| `worker-007` | SWARM-007 | `(not present locally)` | `(not provisioned)` | Add high-value tests for LLM services, avatars handler, Discord adapter, and worker critical paths. | In progress on mainline | Commit `22b7ed6` adds LLM tests; broader ticket still open |
+| `worker-008` | SWARM-008 | `feat/swarm-008` | `/Users/ratimics/develop/aws-swarm-swarm-008` | Harden security posture with WAF, scoped Bedrock IAM, queue encryption, and workflow cleanup. | Blocked (dirty worktree) | Worktree has unexpected tracked deletions across repo root files |
+| `worker-009` | SWARM-009 | `feat/swarm-009` | `/Users/ratimics/develop/aws-swarm-swarm-009` | Remove legacy code paths and duplicate types after migration and compatibility verification. | Assigned, not started | Branch/worktree present and clean at `3223c53` |
+| `worker-010` | SWARM-010 | `feat/swarm-010` | `/Users/ratimics/develop/aws-swarm-swarm-010` | Improve operational resilience with EventBridge DLQs, configurable LLM limits, and deploy/admin-api maintainability work. | Assigned, not started | Branch/worktree present and clean at `3223c53` |
 
 ## Ticket Closure Ledger (Mainline-First)
 
@@ -73,6 +68,23 @@ Snapshot collected on **2026-02-06** from:
 | SWARM-003 | Completed-by-commit | `3223c53` | Confirm all fallback sites migrated and close worker branch as superseded |
 | SWARM-004 | Completed-by-commit | `edad325` | Confirm lint/coverage gate behavior in CI and close worker branch as superseded |
 
+## Planned Story Set - Onboarding Overhaul (SWARM-011 to SWARM-020)
+
+Status: planned backlog, not yet provisioned as local worktrees/branches.
+
+| Worker | Ticket | Proposed Branch | Worktree | Status | Notes |
+|--------|--------|-----------------|----------|--------|-------|
+| `worker-011` | SWARM-011 | `feat/swarm-011` | `/Users/ratimics/develop/aws-swarm-swarm-011` | Planned | Baseline metrics and funnel instrumentation kickoff |
+| `worker-012` | SWARM-012 | `feat/swarm-012` | `/Users/ratimics/develop/aws-swarm-swarm-012` | Planned | State machine contract and transition guards |
+| `worker-013` | SWARM-013 | `feat/swarm-013` | `/Users/ratimics/develop/aws-swarm-swarm-013` | Planned | Onboarding orchestrator API and idempotent step execution |
+| `worker-014` | SWARM-014 | `feat/swarm-014` | `/Users/ratimics/develop/aws-swarm-swarm-014` | Planned | Auth/account handshake hardening for onboarding |
+| `worker-015` | SWARM-015 | `feat/swarm-015` | `/Users/ratimics/develop/aws-swarm-swarm-015` | Planned | Unified wizard UI |
+| `worker-016` | SWARM-016 | `feat/swarm-016` | `/Users/ratimics/develop/aws-swarm-swarm-016` | Planned | Telegram verified step with diagnostics/repair |
+| `worker-017` | SWARM-017 | `feat/swarm-017` | `/Users/ratimics/develop/aws-swarm-swarm-017` | Planned | Activation readiness gate enforcement |
+| `worker-018` | SWARM-018 | `feat/swarm-018` | `/Users/ratimics/develop/aws-swarm-swarm-018` | Planned | Typed error model plus retry/resume |
+| `worker-019` | SWARM-019 | `feat/swarm-019` | `/Users/ratimics/develop/aws-swarm-swarm-019` | Planned | End-to-end and resilience test suite |
+| `worker-020` | SWARM-020 | `feat/swarm-020` | `/Users/ratimics/develop/aws-swarm-swarm-020` | Planned | Rollout controls, migration, and runbooks |
+
 ## Engineering Change Watch (Docs-Only Monitoring)
 
 Snapshot intent: monitor engineering activity without editing runtime code.
@@ -81,6 +93,11 @@ Snapshot intent: monitor engineering activity without editing runtime code.
 
 | Commit | Message | Ticket Impact | Files |
 |--------|---------|---------------|-------|
+| `33fdda5` | `docs: update coordination snapshot and engineering report` | Coordination metadata | `docs/engineering-report-2026-02-05/*` |
+| `22b7ed6` | `test(core): add LLM service tests (SWARM-007)` | SWARM-007 (partial) | `packages/core/src/services/llm/index.test.ts` |
+| `3a008cf` | `feat(admin-api): sync runtime contract with burn/energy augmentations` | Adjacent SWARM-010 | `packages/admin-api/src/handlers/avatars.ts`, `packages/admin-api/src/handlers/wallet-auth.ts`, `packages/admin-api/src/services/runtime-limits.ts` |
+| `64c21e4` | `feat(handlers): wire entitlement-based media usage gating` | Adjacent SWARM-010 | `packages/handlers/src/media-processor.ts`, `packages/handlers/src/tweet-poster.ts`, `packages/handlers/src/autonomous-tweet-poster.ts`, `packages/handlers/src/services/platform-mcp-adapter.ts` |
+| `4a123a0` | `feat(handlers): introduce RuntimeContract and refactor entitlement enforcement` | Adjacent SWARM-010 / SWARM-005 | `packages/handlers/src/services/entitlement-enforcement.ts` and related runtime contract paths |
 | `edad325` | `chore: add developer tooling configs (SWARM-004)` | SWARM-004 | `.editorconfig`, `.prettierrc`, `package.json`, `vitest.config.ts` |
 | `f18a552` | `feat(core): add circuit breaker and wire into message processor (SWARM-001)` | SWARM-001 | `packages/core/src/services/circuit-breaker.ts`, `packages/core/src/services/index.ts`, `packages/admin-api/src/services/circuit-breaker.ts`, `packages/handlers/src/message-processor.ts` |
 | `3223c53` | `refactor(handlers): extract DEFAULT_AVATAR_CONFIG and consolidate secrets (SWARM-002, SWARM-003)` | SWARM-002, SWARM-003 | `packages/core/src/constants.ts`, `packages/handlers/src/response-sender.ts` |
@@ -89,17 +106,16 @@ Snapshot intent: monitor engineering activity without editing runtime code.
 
 | Area | Files | Likely Ticket Impact | Confidence |
 |------|-------|----------------------|------------|
-| LLM service tests | `packages/core/src/services/llm/index.test.ts` | SWARM-007 | Medium |
-| Runtime limits / entitlements / energy stream | `packages/admin-api/src/handlers/avatars.ts`, `packages/admin-api/src/handlers/wallet-auth.ts`, `packages/admin-api/src/services/runtime-limits.ts`, `packages/handlers/src/services/entitlement-enforcement.ts`, `packages/handlers/src/services/platform-mcp-adapter.ts`, `packages/handlers/src/media-processor.ts`, `packages/handlers/src/autonomous-tweet-poster.ts`, `packages/handlers/src/tweet-poster.ts`, `packages/core/src/services/media-queue.ts` | Outside current SWARM tickets (or adjacent to SWARM-010) | Medium |
+| Infra alarm/notification/security changes | `packages/infra/src/constructs/avatar.ts`, `packages/infra/src/constructs/shared.ts`, `packages/infra/src/stacks/avatars-stack.ts`, `packages/infra/src/stacks/shared-infra-stack.ts` | SWARM-006 / SWARM-008 / SWARM-010 overlap | Medium |
+| Admin API test addition | `packages/admin-api/src/handlers/avatars.test.ts` | SWARM-007 | Medium |
+| Core type decomposition additions | `packages/core/src/types/envelope.ts`, `packages/core/src/types/helpers.ts`, `packages/core/src/types/platform.ts`, `packages/core/src/types/queue.ts`, `packages/core/src/types/response.ts`, `packages/core/src/types/service.ts`, `packages/core/src/types/state.ts` | SWARM-005 | High |
 
 ### Branch Discipline Watch
 
-- Risk: mixed governance if branch-only and mainline-first habits are both used simultaneously.
-- Required coordinator action: for SWARM-001/002/003/004, mark `feat/swarm-00x` branches as superseded by commit evidence and avoid duplicate branch PRs.
-- Current exceptions already visible in assigned worktrees:
-  - `feat/swarm-001`: `packages/core/src/services/circuit-breaker.ts`
-  - `feat/swarm-004`: `.editorconfig`, `.prettierrc`
-  - `feat/swarm-007`: `packages/core/src/services/llm/index.test.ts`
+- Risk: active branch/worktree inventory no longer matches historical worker mapping.
+- Required coordinator action: refresh branch/worktree provisioning plan before starting new ticket execution.
+- Current blocker:
+  - `feat/swarm-008` worktree has widespread tracked deletions and should be normalized before development continues.
 
 ## Coordinator Runbook
 
@@ -171,6 +187,9 @@ Use this order to reduce conflicts in shared files:
 3. **Wave 3 (P1 reliability/testing):** SWARM-006, SWARM-007
 4. **Wave 4 (P1/P2 refactor and cleanup):** SWARM-005, SWARM-009
 5. **Wave 5 (P2 infra and operational):** SWARM-008, SWARM-010
+6. **Wave 6 (Onboarding foundation):** SWARM-011, SWARM-012, SWARM-013, SWARM-014
+7. **Wave 7 (Onboarding UX and resiliency):** SWARM-015, SWARM-016, SWARM-017, SWARM-018
+8. **Wave 8 (Onboarding validation and rollout):** SWARM-019, SWARM-020
 
 ### Conflict Hotspots
 
@@ -224,6 +243,8 @@ Coordinator options:
 
 ## Suggested Next Agent Actions
 
-1. Coordinator: mark SWARM-001/002/003/004 ticket branches as superseded using the closure ledger.
-2. SWARM-007 agent: continue LLM test implementation in `feat/swarm-007` and report checkpoint with test command output.
-3. Coordinator: classify current runtime-limits/entitlement stream as SWARM-010 extension or open a new ticket to prevent scope ambiguity.
+1. Coordinator: resolve the `feat/swarm-008` dirty worktree state before assigning new work to that lane.
+2. Coordinator: decide whether to re-provision SWARM-005/006/007 branches locally or continue those tickets directly in `mainline-first` mode.
+3. Coordinator: classify current uncommitted infra/type/test changes into SWARM-005/006/007/008/010 ownership before merge.
+4. Coordinator: provision worktrees for SWARM-011 through SWARM-020 before onboarding overhaul kickoff.
+5. Kickoff order for onboarding overhaul: SWARM-011 -> SWARM-012 -> SWARM-013 -> SWARM-014.

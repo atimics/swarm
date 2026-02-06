@@ -11,9 +11,10 @@ AWS Swarm is a **well-architected, production-grade multi-platform AI avatar fra
 ## Coordination Snapshot (2026-02-06)
 
 - Coordination source of truth: [`COORDINATION.md`](./COORDINATION.md) (includes assignment authority, worker roster, and coordinator runbook)
-- Current execution state: `main` is at `3223c53` and ahead of `origin/main` by 4 commits; SWARM branches are split (`001-004` at `223a963`, `005-010` at `3223c53`).
+- Current execution state: `main` is at `33fdda5` and synced with `origin/main`; locally provisioned SWARM branches/worktrees currently include `feat/swarm-008` to `feat/swarm-010`.
 - Governance mode is `mainline-first`; SWARM-001/002/003/004 are tracked as `completed-by-commit` in the coordination closure ledger.
 - Live activity is being tracked in `COORDINATION.md` under **Engineering Change Watch** (including branch/worktree drift and likely ticket mapping).
+- Onboarding overhaul has been decomposed into SWARM-011 through SWARM-020 for phased execution.
 
 ### Repository Metrics
 
@@ -105,3 +106,18 @@ See individual ticket files in this directory:
 | P2 | [SWARM-008](./SWARM-008-security-hardening.md) | `feat/swarm-008` | WAF, scoped IAM, SQS encryption |
 | P2 | [SWARM-009](./SWARM-009-deprecate-legacy.md) | `feat/swarm-009` | Deprecate legacy stack, processors, dead code |
 | P2 | [SWARM-010](./SWARM-010-operational-improvements.md) | `feat/swarm-010` | EventBridge DLQs, configurable timeouts |
+
+## Onboarding Overhaul Stories (Next 10)
+
+| Priority | Ticket | Branch | Description |
+|----------|--------|--------|-------------|
+| P0 | [SWARM-011](./SWARM-011-onboarding-audit-and-funnel-baseline.md) | `feat/swarm-011` | Baseline onboarding funnel metrics and failure taxonomy |
+| P0 | [SWARM-012](./SWARM-012-onboarding-state-machine-contract.md) | `feat/swarm-012` | Define deterministic onboarding state machine contract |
+| P0 | [SWARM-013](./SWARM-013-onboarding-orchestrator-api.md) | `feat/swarm-013` | Build idempotent onboarding orchestration API |
+| P0 | [SWARM-014](./SWARM-014-auth-account-handshake-simplification.md) | `feat/swarm-014` | Simplify auth/account handshake for onboarding stability |
+| P1 | [SWARM-015](./SWARM-015-onboarding-wizard-ui.md) | `feat/swarm-015` | Unified guided onboarding wizard in Admin UI |
+| P1 | [SWARM-016](./SWARM-016-telegram-step-diagnostics-and-repair.md) | `feat/swarm-016` | Verified Telegram onboarding step with auto-diagnostics/repair |
+| P1 | [SWARM-017](./SWARM-017-activation-readiness-gates.md) | `feat/swarm-017` | Enforce readiness gates before activation |
+| P1 | [SWARM-018](./SWARM-018-onboarding-error-model-retry-and-resume.md) | `feat/swarm-018` | Typed onboarding error model with retry/resume behavior |
+| P1 | [SWARM-019](./SWARM-019-onboarding-e2e-and-stability-tests.md) | `feat/swarm-019` | End-to-end onboarding stability test suite |
+| P1 | [SWARM-020](./SWARM-020-onboarding-rollout-migration-and-runbooks.md) | `feat/swarm-020` | Rollout controls, migration plan, and runbooks |
