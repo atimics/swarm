@@ -5,7 +5,7 @@ import { useAuth } from './store/auth';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
 import { getTwitterConnectionStatus } from './api/twitter';
 import { appendSystemMessage } from './api/chat';
-import { AvatarSidebar, ChatPanel, LandingPage, PublicChatPage } from './components';
+import { AvatarSidebar, ChatPanel, LandingPage, OnboardingWizard, PublicChatPage } from './components';
 
 const TWITTER_OAUTH_STORAGE_KEY = 'swarm:oauth:twitter:lastResult';
 
@@ -22,6 +22,16 @@ function getChatAvatarId(pathname: string): string | null {
   // Chat deep link: /avatars/:id
   const match = pathname.match(/^\/avatars\/([^/]+)\/?$/);
   return match?.[1] || null;
+}
+
+function getOnboardingAvatarId(pathname: string): string | null {
+  // Onboarding deep link: /avatars/:id/onboarding
+  const match = pathname.match(/^\/avatars\/([^/]+)\/onboarding\/?$/);
+  return match?.[1] || null;
+}
+
+function getAvatarIdFromAvatarPath(pathname: string): string | null {
+  return getOnboardingAvatarId(pathname) || getChatAvatarId(pathname);
 }
 
 function getBotIdFromHostname(hostname: string): string | null {
@@ -54,7 +64,7 @@ function parseTwitterOAuthResultFromLocation(location: Location): TwitterOAuthRe
   const error = params.get('twitter_error');
   if (!connected && !error) return null;
 
-  const avatarIdFromPath = getChatAvatarId(location.pathname);
+  const avatarIdFromPath = getAvatarIdFromAvatarPath(location.pathname);
   const ts = Date.now();
 
   if (connected) {
@@ -79,6 +89,9 @@ function App() {
   );
   const [chatAvatarId, setChatAvatarId] = useState<string | null>(
     () => getChatAvatarId(window.location.pathname)
+  );
+  const [onboardingAvatarId, setOnboardingAvatarId] = useState<string | null>(
+    () => getOnboardingAvatarId(window.location.pathname)
   );
   const [pendingInhabitPrompt, setPendingInhabitPrompt] = useState(Boolean(inhabitAvatarId));
   const [pendingOAuthResult, setPendingOAuthResult] = useState<TwitterOAuthResult | null>(
@@ -198,6 +211,7 @@ function App() {
       setInhabitAvatarId(nextInhabitAvatarId);
       setPendingInhabitPrompt(Boolean(nextInhabitAvatarId));
       setChatAvatarId(getChatAvatarId(window.location.pathname));
+      setOnboardingAvatarId(getOnboardingAvatarId(window.location.pathname));
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -212,6 +226,15 @@ function App() {
       setActiveAvatar(chatAvatarId);
     }
   }, [avatars, activeAvatarId, chatAvatarId, initialized, setActiveAvatar]);
+
+  // Support deep-linking to /avatars/:id/onboarding by selecting that avatar once avatars are loaded.
+  useEffect(() => {
+    if (!initialized || !onboardingAvatarId) return;
+    const hasAvatar = avatars.some((avatar) => avatar.id === onboardingAvatarId);
+    if (hasAvatar && activeAvatarId !== onboardingAvatarId) {
+      setActiveAvatar(onboardingAvatarId);
+    }
+  }, [avatars, activeAvatarId, onboardingAvatarId, initialized, setActiveAvatar]);
 
   useEffect(() => {
     if (!initialized || !inhabitAvatarId) return;
@@ -400,8 +423,25 @@ function App() {
   const handleSelectAvatar = useCallback((avatarId: string) => {
     setActiveAvatar(avatarId);
     setChatAvatarId(avatarId);
+    setOnboardingAvatarId(null);
     window.history.pushState({}, '', `/avatars/${avatarId}`);
   }, [setActiveAvatar]);
+
+  const handleOpenOnboarding = useCallback((avatarId: string) => {
+    setActiveAvatar(avatarId);
+    setOnboardingAvatarId(avatarId);
+    setChatAvatarId(null);
+    window.history.pushState({}, '', `/avatars/${avatarId}/onboarding`);
+  }, [setActiveAvatar]);
+
+  const handleBackToChat = useCallback((avatarId?: string) => {
+    const targetAvatarId = avatarId || activeAvatarId;
+    if (!targetAvatarId) return;
+    setActiveAvatar(targetAvatarId);
+    setChatAvatarId(targetAvatarId);
+    setOnboardingAvatarId(null);
+    window.history.pushState({}, '', `/avatars/${targetAvatarId}`);
+  }, [activeAvatarId, setActiveAvatar]);
 
   // Show loading state while checking auth (only use local authChecked state)
   if (!authChecked) {
@@ -449,10 +489,19 @@ function App() {
           <AvatarSidebar onClose={() => setSidebarOpen(false)} onSelectAvatar={handleSelectAvatar} />
         </div>
 
-        {/* Main Chat Area */}
-        <ChatPanel
-          onMenuClick={() => setSidebarOpen(true)}
-        />
+        {/* Main Route Area */}
+        {onboardingAvatarId ? (
+          <OnboardingWizard
+            avatarId={onboardingAvatarId}
+            onMenuClick={() => setSidebarOpen(true)}
+            onBackToChat={() => handleBackToChat(onboardingAvatarId)}
+          />
+        ) : (
+          <ChatPanel
+            onMenuClick={() => setSidebarOpen(true)}
+            onOpenOnboarding={handleOpenOnboarding}
+          />
+        )}
       </div>
       
       {/* Safe area spacer for iOS home indicator */}

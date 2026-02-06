@@ -21,9 +21,10 @@ const activePollers = new Map<string, { controller: AbortController; avatarId: s
 
 interface ChatPanelProps {
   onMenuClick?: () => void;
+  onOpenOnboarding?: (avatarId: string) => void;
 }
 
-export function ChatPanel({ onMenuClick }: ChatPanelProps) {
+export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
   const activeAvatar = useActiveAvatar();
   const messages = useActiveChat();
   const { addMessage, updateMessage, removeMessage, clearChat, updateAvatar, setLoading, setError, createAvatar } = useAvatarStore();
@@ -938,6 +939,15 @@ export function ChatPanel({ onMenuClick }: ChatPanelProps) {
           <div className="flex items-center gap-2">
             {accessMode === 'admin' && (
               <>
+                {onOpenOnboarding && (
+                  <button
+                    onClick={() => onOpenOnboarding(activeAvatar.id)}
+                    className="px-2 lg:px-3 py-1.5 text-xs lg:text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors"
+                    title="Open onboarding wizard"
+                  >
+                    Onboarding
+                  </button>
+                )}
                 <button
                   onClick={() => setPlanModalOpen(true)}
                   className="px-2 lg:px-3 py-1.5 text-xs lg:text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors"
