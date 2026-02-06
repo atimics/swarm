@@ -26,3 +26,20 @@ All prompts enforce:
 - no edits to test config files
 
 `SWARM-019` remains intentionally out-of-wave to avoid overlapping with the dedicated testing stream.
+
+## Run Result (2026-02-06)
+
+- Run directory: `/tmp/swarm-workers/20260206T200331Z`
+- Outcome: all workers exit `0`
+  - `worker-015`: `status=blocked`, `latest_commit=UNCOMMITTED`
+  - `worker-016`: `status=review`, `latest_commit=UNCOMMITTED`
+  - `worker-020`: `status=review`, `latest_commit=UNCOMMITTED`
+- Common blocker: full dependency/typecheck validation unavailable in this environment (`pnpm install`/`tsc` blocked by registry/network constraints).
+
+## Test-Stream Monitor Snapshot
+
+- Baseline file: `/tmp/swarm-exec-w2-test-watch-before.txt`
+- After file: `/tmp/swarm-exec-w2-test-watch-after.txt`
+- Result:
+  - No new test-file changes appeared in `feat/swarm-015`, `016`, `020` worktrees.
+  - Existing mainline test-file drift remained unchanged and was treated as external testing-stream activity.

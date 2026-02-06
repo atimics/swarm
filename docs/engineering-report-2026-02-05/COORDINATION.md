@@ -44,6 +44,7 @@ Snapshot collected on **2026-02-06** from:
 - SWARM-005/006/007 now have additional mainline progress (`bc92632`, `288687f`, `c127e91`) and remain open for closure review.
 - Wave 6 dispatch now has successful runs covering SWARM-011 through SWARM-020 (`20260206T060843Z`, `20260206T164723Z`, `20260206T182912Z`), and docs outputs have been promoted into `main` for coordinator review.
 - Execution Wave 1 (implementation lanes) launched with `worker-012`, `worker-013`, `worker-014`, `worker-017`, `worker-018` under run `20260206T184805Z`; all workers exited `0` with uncommitted code deltas in their lane worktrees.
+- Execution Wave 2 (implementation lanes) launched with `worker-015`, `worker-016`, `worker-020` under run `20260206T200331Z`; all workers exited `0` with uncommitted code deltas in their lane worktrees.
 - Testing-stream monitor snapshots show no new test-file churn introduced in execution-wave worktrees; existing mainline test churn remains external.
 
 ## Worker Assignment Matrix
@@ -80,12 +81,12 @@ Status: branches/worktrees provisioned. Wave 6 docs-phase lanes (`worker-011` th
 | `worker-012` | SWARM-012 | `feat/swarm-012` | `/Users/ratimics/develop/aws-swarm-swarm-012` | Review (implementation lane active) | Run `20260206T184805Z`; added onboarding state-machine module (`services/onboarding/contract-v1.ts`) and exports; blocked on dependency install/typecheck |
 | `worker-013` | SWARM-013 | `feat/swarm-013` | `/Users/ratimics/develop/aws-swarm-swarm-013` | Review (implementation lane active) | Run `20260206T184805Z`; added onboarding route + orchestrator service + infra route wiring; blocked on dependency install/typecheck |
 | `worker-014` | SWARM-014 | `feat/swarm-014` | `/Users/ratimics/develop/aws-swarm-swarm-014` | In progress (implementation dependency) | Run `20260206T184805Z`; canonical auth/account resolver integrated into crossmint/privy flows; waiting on SWARM-013 endpoint wiring in-branch |
-| `worker-015` | SWARM-015 | `feat/swarm-015` | `/Users/ratimics/develop/aws-swarm-swarm-015` | Review (checkpoint complete) | Run `20260206T182912Z`; onboarding wizard IA/contract drafted and promoted to `main` |
-| `worker-016` | SWARM-016 | `feat/swarm-016` | `/Users/ratimics/develop/aws-swarm-swarm-016` | Review (checkpoint complete) | Run `20260206T182912Z`; Telegram diagnostics/repair contract drafted and promoted to `main` |
+| `worker-015` | SWARM-015 | `feat/swarm-015` | `/Users/ratimics/develop/aws-swarm-swarm-015` | Blocked (implementation dependency) | Run `20260206T200331Z`; onboarding wizard UI route/API client added; blocked until SWARM-013 `/onboarding/*` endpoints are available in-branch and typecheck can run |
+| `worker-016` | SWARM-016 | `feat/swarm-016` | `/Users/ratimics/develop/aws-swarm-swarm-016` | Review (implementation lane active) | Run `20260206T200331Z`; Telegram onboarding state/repair primitives wired into existing API responses; awaiting SWARM-013 orchestrator endpoint wiring |
 | `worker-017` | SWARM-017 | `feat/swarm-017` | `/Users/ratimics/develop/aws-swarm-swarm-017` | Blocked (implementation lane active) | Run `20260206T184805Z`; added readiness evaluator + activation gate endpoint/response contract; blocked on dependency install/typecheck validation |
 | `worker-018` | SWARM-018 | `feat/swarm-018` | `/Users/ratimics/develop/aws-swarm-swarm-018` | Review (implementation lane active) | Run `20260206T184805Z`; added typed onboarding error/retry/resume primitives + auth-orchestrator hooks; blocked on dependency install/typecheck |
 | `worker-019` | SWARM-019 | `feat/swarm-019` | `/Users/ratimics/develop/aws-swarm-swarm-019` | Review (checkpoint complete) | Run `20260206T182912Z`; deterministic E2E/stability matrix drafted and promoted to `main` |
-| `worker-020` | SWARM-020 | `feat/swarm-020` | `/Users/ratimics/develop/aws-swarm-swarm-020` | Review (checkpoint complete) | Run `20260206T182912Z`; phased rollout/migration/runbook plan drafted and promoted to `main` |
+| `worker-020` | SWARM-020 | `feat/swarm-020` | `/Users/ratimics/develop/aws-swarm-swarm-020` | Review (implementation lane active) | Run `20260206T200331Z`; rollout feature-flag service + cohort assignment helpers wired into avatar creation flow; pending dependency/typecheck validation |
 
 ## Dispatch Automation
 
@@ -93,19 +94,19 @@ Status: branches/worktrees provisioned. Wave 6 docs-phase lanes (`worker-011` th
 - Prompt files: `docs/engineering-report-2026-02-05/dispatch-prompts/wave6/`
 - Execution manifest: `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W1.manifest`
 - Execution prompts: `docs/engineering-report-2026-02-05/dispatch-prompts/execution-wave1/`
+- Execution manifest (wave 2): `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W2.manifest`
+- Execution prompts (wave 2): `docs/engineering-report-2026-02-05/dispatch-prompts/execution-wave2/`
 - Parallel launcher: `scripts/swarm-workers.sh`
 - Operational note: launch via escalated shell when running under sandbox, because `codex exec` writes session state under `~/.codex/sessions`.
 
 ### Latest Dispatch Evidence
 
-- Run directory: `/tmp/swarm-workers/20260206T184805Z`
-- Outcome: `worker-012`, `worker-013`, `worker-014`, `worker-017`, `worker-018` all exit `0`
+- Run directory: `/tmp/swarm-workers/20260206T200331Z`
+- Outcome: `worker-015`, `worker-016`, `worker-020` all exit `0`
 - Checkpoints:
-  - `worker-012`: `status=review`, `latest_commit=UNCOMMITTED`, blockers=`dependency install/typecheck unavailable`
-  - `worker-013`: `status=review`, `latest_commit=UNCOMMITTED`, blockers=`dependency install/typecheck unavailable`
-  - `worker-014`: `status=in_progress`, `latest_commit=UNCOMMITTED`, blockers=`waiting on SWARM-013 onboarding endpoint wiring in-branch`
-  - `worker-017`: `status=blocked`, `latest_commit=UNCOMMITTED`, blockers=`dependency install/typecheck unavailable`
-  - `worker-018`: `status=review`, `latest_commit=UNCOMMITTED`, blockers=`waiting on SWARM-013 endpoint plumbing in-branch + dependency install/typecheck unavailable`
+  - `worker-015`: `status=blocked`, `latest_commit=UNCOMMITTED`, blockers=`SWARM-013 onboarding endpoints not available in-branch + dependency install/typecheck unavailable`
+  - `worker-016`: `status=review`, `latest_commit=UNCOMMITTED`, blockers=`waiting on SWARM-013 endpoint plumbing in-branch`
+  - `worker-020`: `status=review`, `latest_commit=UNCOMMITTED`, blockers=`dependency install/typecheck unavailable`
 - Resolution note:
   - Test-stream guardrail held: no new `*.test.ts` / `*.test.ts.vitest` changes were introduced in execution-wave worktrees.
 
@@ -118,6 +119,14 @@ Status: branches/worktrees provisioned. Wave 6 docs-phase lanes (`worker-011` th
 
 ### Prior Dispatch Evidence
 
+- Run directory: `/tmp/swarm-workers/20260206T184805Z`
+- Outcome: `worker-012`, `worker-013`, `worker-014`, `worker-017`, `worker-018` all exit `0`
+- Checkpoints:
+  - `worker-012`: `status=review`, `latest_commit=UNCOMMITTED`, blockers=`dependency install/typecheck unavailable`
+  - `worker-013`: `status=review`, `latest_commit=UNCOMMITTED`, blockers=`dependency install/typecheck unavailable`
+  - `worker-014`: `status=in_progress`, `latest_commit=UNCOMMITTED`, blockers=`waiting on SWARM-013 onboarding endpoint wiring in-branch`
+  - `worker-017`: `status=blocked`, `latest_commit=UNCOMMITTED`, blockers=`dependency install/typecheck unavailable`
+  - `worker-018`: `status=review`, `latest_commit=UNCOMMITTED`, blockers=`waiting on SWARM-013 endpoint plumbing in-branch + dependency install/typecheck unavailable`
 - Run directory: `/tmp/swarm-workers/20260206T182912Z`
 - Outcome: `worker-014` through `worker-020` all exit `0`
 - Checkpoints:
@@ -166,9 +175,10 @@ Snapshot intent: monitor engineering activity without editing runtime code.
 | Admin API handler churn and backup artifact | `packages/admin-api/src/handlers/avatars.ts`, `packages/admin-api/src/handlers/avatars.ts.bak` | SWARM-005 / SWARM-007 / SWARM-010 overlap; cleanup needed before merge | Medium |
 | Admin API routing decomposition (engineering in-flight) | `packages/admin-api/src/handlers/avatar-routes/` | SWARM-005 / SWARM-007 overlap | Medium |
 | Onboarding docs promoted from worker lanes | `docs/engineering-report-2026-02-05/SWARM-011...SWARM-020` | SWARM-011 through SWARM-020 docs-phase planning complete; ready for implementation planning review | High |
-| Coordination updates | `docs/engineering-report-2026-02-05/COORDINATION.md`, `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-WAVE6.md`, `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W1.md`, `docs/engineering-report-2026-02-05/SWARM-012-013-alignment-notes.md` | Swarm orchestration metadata, alignment gate closure, and implementation-wave checkpointing | High |
+| Coordination updates | `docs/engineering-report-2026-02-05/COORDINATION.md`, `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-WAVE6.md`, `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W1.md`, `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W2.md`, `docs/engineering-report-2026-02-05/SWARM-012-013-alignment-notes.md` | Swarm orchestration metadata, alignment gate closure, and execution-wave checkpointing | High |
 | Dispatch assets | `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-WAVE6.manifest`, `docs/engineering-report-2026-02-05/dispatch-prompts/wave6/*.prompt.txt` | Wave 6 worker orchestration | High |
 | Execution dispatch assets | `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W1.manifest`, `docs/engineering-report-2026-02-05/dispatch-prompts/execution-wave1/*.prompt.txt` | Implementation wave orchestration (`worker-012`, `013`, `014`, `017`, `018`) | High |
+| Execution dispatch assets (wave 2) | `docs/engineering-report-2026-02-05/SUBAGENT-DISPATCH-EXECUTION-W2.manifest`, `docs/engineering-report-2026-02-05/dispatch-prompts/execution-wave2/*.prompt.txt` | Implementation wave orchestration (`worker-015`, `016`, `020`) | High |
 | Worker launcher script | `scripts/swarm-workers.sh` | Swarm subagent parallel execution tooling | High |
 
 ### Branch Discipline Watch
@@ -181,7 +191,8 @@ Snapshot intent: monitor engineering activity without editing runtime code.
   - `feat/swarm-011` through `feat/swarm-020` now contain uncommitted docs from completed dispatch runs; coordinator should decide whether to commit per-lane or treat `main` doc promotion as source of truth and reset lanes.
   - Dispatch run `20260206T175732Z` failed under sandbox permission constraints; rerun `20260206T182912Z` succeeded under escalation.
   - Execution run `20260206T184805Z` produced uncommitted implementation deltas in `feat/swarm-012`, `013`, `014`, `017`, `018`; coordinate cherry-pick/rebase strategy before parallel implementation continues.
-  - External testing stream remains active on `main` (`avatars.test.ts` replacement and route test files); execution-wave prompts intentionally excluded test edits.
+  - Execution run `20260206T200331Z` produced additional uncommitted implementation deltas in `feat/swarm-015`, `016`, `020`; coordinate merge strategy with Wave 1 implementation lanes.
+  - External testing stream remains active on `main` (current visible artifact: `packages/admin-api/src/handlers/avatars.test.ts.vitest`); execution-wave prompts intentionally excluded test edits.
   - `main` currently includes in-flight `avatars.ts` edits plus an untracked `avatars.ts.bak`; ensure backup artifacts are not merged.
 
 ## Coordinator Runbook
@@ -310,8 +321,8 @@ Coordinator options:
 
 ## Suggested Next Agent Actions
 
-1. Coordinator: triage execution run `20260206T184805Z` outputs for SWARM-012/013/014/017/018 and decide merge path (lane commits vs cherry-picks to `main`).
-2. Coordinator: unblock dependency validation by running dependency install + typecheck in a network-enabled environment (`pnpm install`, `pnpm --filter @swarm/admin-api typecheck`).
-3. Coordinator: reconcile SWARM-014 and SWARM-018 branches with SWARM-013 endpoint plumbing to close implementation dependencies.
-4. Coordinator: preserve external testing stream isolation (continue excluding test edits in execution lanes until test-stream branch stabilizes).
+1. Coordinator: triage execution runs `20260206T184805Z` and `20260206T200331Z` outputs for SWARM-012/013/014/015/016/017/018/020 and decide merge path (lane commits vs cherry-picks to `main`).
+2. Coordinator: unblock dependency validation by running dependency install + typecheck in a network-enabled environment (`pnpm install`, `pnpm --filter @swarm/admin-api typecheck`, `pnpm --filter @swarm/admin-ui typecheck`).
+3. Coordinator: reconcile SWARM-014, SWARM-015, SWARM-016, and SWARM-018 branches with SWARM-013 endpoint plumbing to close implementation dependencies.
+4. Coordinator: preserve external testing stream isolation (continue excluding test edits in execution lanes; keep SWARM-019 out-of-wave until test-stream stabilization).
 5. Coordinator: resolve the `feat/swarm-008` dirty worktree state before assigning new implementation work to that lane.
