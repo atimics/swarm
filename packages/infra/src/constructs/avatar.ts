@@ -14,6 +14,8 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -96,6 +98,12 @@ export interface AvatarConstructProps {
    * When provided, avatar runtime lambdas can invoke it (e.g., to produce Telegram-friendly OGG/Opus).
    */
   mediaConvertFunction?: lambda.IFunction;
+
+  /**
+   * SNS topic for CloudWatch alarm notifications.
+   * When provided, all alarms in this construct will send notifications to this topic.
+   */
+  alarmTopic?: sns.ITopic;
 }
 
 export class AvatarConstruct extends Construct {
@@ -122,6 +130,7 @@ export class AvatarConstruct extends Construct {
       discordCluster,
       replicateApiKeyArn,
       mediaConvertFunction,
+      alarmTopic,
     } = props;
     const suffix = nameSuffix ?? '';
     const secretsPrefix = secretPrefix ?? 'swarm';
@@ -401,9 +410,10 @@ export class AvatarConstruct extends Construct {
     }
 
     const alarmPrefix = `${config.id}-${environment}`;
+    const snsAction = alarmTopic ? new cw_actions.SnsAction(alarmTopic) : undefined;
 
     // Queue depth alarms
-    new cloudwatch.Alarm(this, 'MessageQueueDepthAlarm', {
+    const messageQueueDepthAlarm = new cloudwatch.Alarm(this, 'MessageQueueDepthAlarm', {
       alarmName: `${alarmPrefix}-messages-queue-depth`,
       metric: this.messageQueue.metricApproximateNumberOfMessagesVisible({
         period: cdk.Duration.minutes(5),
@@ -414,7 +424,7 @@ export class AvatarConstruct extends Construct {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
-    new cloudwatch.Alarm(this, 'ResponseQueueDepthAlarm', {
+    const responseQueueDepthAlarm = new cloudwatch.Alarm(this, 'ResponseQueueDepthAlarm', {
       alarmName: `${alarmPrefix}-responses-queue-depth`,
       metric: this.responseQueue.metricApproximateNumberOfMessagesVisible({
         period: cdk.Duration.minutes(5),
@@ -425,7 +435,7 @@ export class AvatarConstruct extends Construct {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
-    new cloudwatch.Alarm(this, 'MediaQueueDepthAlarm', {
+    const mediaQueueDepthAlarm = new cloudwatch.Alarm(this, 'MediaQueueDepthAlarm', {
       alarmName: `${alarmPrefix}-media-queue-depth`,
       metric: this.mediaQueue.metricApproximateNumberOfMessagesVisible({
         period: cdk.Duration.minutes(5),
@@ -437,7 +447,7 @@ export class AvatarConstruct extends Construct {
     });
 
     // DLQ alarms
-    new cloudwatch.Alarm(this, 'DlqDepthAlarm', {
+    const dlqDepthAlarm = new cloudwatch.Alarm(this, 'DlqDepthAlarm', {
       alarmName: `${alarmPrefix}-dlq-depth`,
       metric: dlq.metricApproximateNumberOfMessagesVisible({
         period: cdk.Duration.minutes(5),
@@ -448,7 +458,7 @@ export class AvatarConstruct extends Construct {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
-    new cloudwatch.Alarm(this, 'DlqAgeAlarm', {
+    const dlqAgeAlarm = new cloudwatch.Alarm(this, 'DlqAgeAlarm', {
       alarmName: `${alarmPrefix}-dlq-age`,
       metric: dlq.metricApproximateAgeOfOldestMessage({
         period: cdk.Duration.minutes(5),
@@ -460,7 +470,7 @@ export class AvatarConstruct extends Construct {
     });
 
     // Lambda error alarms
-    new cloudwatch.Alarm(this, 'MessageProcessorErrorsAlarm', {
+    const messageProcessorErrorsAlarm = new cloudwatch.Alarm(this, 'MessageProcessorErrorsAlarm', {
       alarmName: `${alarmPrefix}-message-processor-errors`,
       metric: messageProcessor.metricErrors({
         period: cdk.Duration.minutes(5),
@@ -471,7 +481,7 @@ export class AvatarConstruct extends Construct {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
-    new cloudwatch.Alarm(this, 'ResponseSenderErrorsAlarm', {
+    const responseSenderErrorsAlarm = new cloudwatch.Alarm(this, 'ResponseSenderErrorsAlarm', {
       alarmName: `${alarmPrefix}-response-sender-errors`,
       metric: responseSender.metricErrors({
         period: cdk.Duration.minutes(5),
@@ -482,7 +492,7 @@ export class AvatarConstruct extends Construct {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
-    new cloudwatch.Alarm(this, 'MediaProcessorErrorsAlarm', {
+    const mediaProcessorErrorsAlarm = new cloudwatch.Alarm(this, 'MediaProcessorErrorsAlarm', {
       alarmName: `${alarmPrefix}-media-processor-errors`,
       metric: mediaProcessor.metricErrors({
         period: cdk.Duration.minutes(5),
@@ -492,6 +502,22 @@ export class AvatarConstruct extends Construct {
       datapointsToAlarm: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
+
+    // Wire all alarms to SNS topic for notifications
+    if (snsAction) {
+      for (const alarm of [
+        messageQueueDepthAlarm,
+        responseQueueDepthAlarm,
+        mediaQueueDepthAlarm,
+        dlqDepthAlarm,
+        dlqAgeAlarm,
+        messageProcessorErrorsAlarm,
+        responseSenderErrorsAlarm,
+        mediaProcessorErrorsAlarm,
+      ]) {
+        alarm.addAlarmAction(snsAction);
+      }
+    }
 
     // Scheduled tweet poster
     const scheduledTweet = config.scheduling.tweets?.[0];

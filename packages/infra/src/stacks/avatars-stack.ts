@@ -7,6 +7,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as cr from 'aws-cdk-lib/custom-resources';
@@ -144,6 +145,13 @@ export class AvatarsStack extends cdk.Stack {
       dependencyLayerArn
     );
 
+    // Import the alarm SNS topic from the shared infrastructure stack
+    const alarmTopic = sns.Topic.fromTopicArn(
+      this,
+      'AlarmTopic',
+      sharedInfraStack.alarmTopicArn
+    );
+
     // Look up default VPC for ECS cluster
     const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
     const discordCluster = ecs.Cluster.fromClusterAttributes(this, 'DiscordCluster', {
@@ -198,6 +206,7 @@ export class AvatarsStack extends cdk.Stack {
         discordCluster,
         replicateApiKeyArn,
         mediaConvertFunction: adminApiStack?.adminApi?.mediaConvertHandler,
+        alarmTopic,
       });
 
       // Seed CONFIG into DynamoDB (won't overwrite admin-synced configs)

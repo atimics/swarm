@@ -9,6 +9,8 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
@@ -57,6 +59,12 @@ export interface SharedInfrastructureProps {
    * Use this when the bucket already exists (e.g., from a previous stack with RETAIN policy).
    */
   useExistingMediaBucket?: boolean;
+
+  /**
+   * Email address for CloudWatch alarm notifications via SNS.
+   * When provided, an email subscription is added to the alarm SNS topic.
+   */
+  alarmNotificationEmail?: string;
 }
 
 export class SharedInfrastructure extends Construct {
@@ -66,12 +74,13 @@ export class SharedInfrastructure extends Construct {
   public readonly distribution?: cloudfront.Distribution;
   public readonly dependencyLayer: lambda.LayerVersion;
   public readonly cdnUrl?: string;
+  public readonly alarmTopic: sns.Topic;
   public readonly discordCluster: ecs.Cluster;
 
   constructor(scope: Construct, id: string, props: SharedInfrastructureProps) {
     super(scope, id);
 
-    const { environment, enableCdn = true, layerCodePath, cdnDomain, cdnCertificateArn, nameSuffix, useExistingMediaBucket } = props;
+    const { environment, enableCdn = true, layerCodePath, cdnDomain, cdnCertificateArn, nameSuffix, useExistingMediaBucket, alarmNotificationEmail } = props;
     const suffix = nameSuffix ?? '';
     const isPersistentEnv = environment === 'prod' || environment === 'production' || environment === 'staging';
 
@@ -234,6 +243,18 @@ export class SharedInfrastructure extends Construct {
           }),
     });
 
+    // SNS topic for CloudWatch alarm notifications
+    this.alarmTopic = new sns.Topic(this, 'AlarmTopic', {
+      topicName: `swarm-alarms-${environment}${suffix}`,
+      displayName: `Swarm Alarms (${environment})`,
+    });
+
+    if (alarmNotificationEmail) {
+      this.alarmTopic.addSubscription(
+        new snsSubscriptions.EmailSubscription(alarmNotificationEmail)
+      );
+    }
+
     const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
     this.discordCluster = new ecs.Cluster(this, 'DiscordCluster', {
       vpc,
@@ -262,5 +283,10 @@ export class SharedInfrastructure extends Construct {
         exportName: `swarm-cdn-domain-${environment}${suffix}`,
       });
     }
+
+    new cdk.CfnOutput(this, 'AlarmTopicArn', {
+      value: this.alarmTopic.topicArn,
+      exportName: `swarm-alarm-topic-arn-${environment}${suffix}`,
+    });
   }
 }

@@ -6,6 +6,8 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -61,6 +63,12 @@ export interface SharedInfraStackProps extends cdk.StackProps {
    * If omitted and useExistingResources is true, cdnDistributionId will be left undefined.
    */
   existingCdnDistributionId?: string;
+
+  /**
+   * Email address for CloudWatch alarm notifications.
+   * When provided, an email subscription is added to the alarm SNS topic.
+   */
+  alarmNotificationEmail?: string;
 }
 
 export class SharedInfraStack extends cdk.Stack {
@@ -81,6 +89,7 @@ export class SharedInfraStack extends cdk.Stack {
   public readonly dependencyLayerArnParamName: string;
   public readonly cdnUrl?: string;
   public readonly cdnDistributionId?: string;
+  public readonly alarmTopicArn: string;
   public readonly discordClusterArn: string;
   public readonly discordClusterName: string;
 
@@ -96,6 +105,7 @@ export class SharedInfraStack extends cdk.Stack {
       useExistingResources = false,
       existingDependencyLayerArn,
       existingCdnDistributionId,
+      alarmNotificationEmail,
     } = props;
     const suffix = nameSuffix ?? '';
 
@@ -160,6 +170,18 @@ export class SharedInfraStack extends cdk.Stack {
         });
         this.dependencyLayerArn = layer.layerVersionArn;
       }
+
+      // SNS alarm topic (created even in migration mode for new alarm wiring)
+      const alarmTopic = new sns.Topic(this, 'AlarmTopic', {
+        topicName: `swarm-alarms-${environment}${suffix}`,
+        displayName: `Swarm Alarms (${environment})`,
+      });
+      if (alarmNotificationEmail) {
+        alarmTopic.addSubscription(
+          new snsSubscriptions.EmailSubscription(alarmNotificationEmail)
+        );
+      }
+      this.alarmTopicArn = alarmTopic.topicArn;
     } else {
       // Create shared infrastructure
       this.shared = new SharedInfrastructure(this, 'Shared', {
@@ -168,6 +190,7 @@ export class SharedInfraStack extends cdk.Stack {
         enableCdn,
         cdnDomain: galleryDomain,
         cdnCertificateArn: galleryCertificateArn,
+        alarmNotificationEmail,
       });
 
       // Store references for cross-stack access
@@ -180,6 +203,7 @@ export class SharedInfraStack extends cdk.Stack {
       this.dependencyLayerArn = this.shared.dependencyLayer.layerVersionArn;
       this.cdnUrl = this.shared.cdnUrl;
       this.cdnDistributionId = this.shared.distribution?.distributionId;
+      this.alarmTopicArn = this.shared.alarmTopic.topicArn;
       this.discordClusterArn = this.shared.discordCluster.clusterArn;
       this.discordClusterName = this.shared.discordCluster.clusterName;
     }
@@ -247,6 +271,11 @@ export class SharedInfraStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'DiscordClusterArnExport', {
       value: this.discordClusterArn,
       exportName: `swarm-discord-cluster-arn-${environment}${suffix}`,
+    });
+
+    new cdk.CfnOutput(this, 'AlarmTopicArnExport', {
+      value: this.alarmTopicArn,
+      exportName: `swarm-alarm-topic-arn-${environment}${suffix}`,
     });
   }
 }
