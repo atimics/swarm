@@ -261,6 +261,16 @@ export async function updateAvatar(
     throw new Error(`Avatar not found: ${avatarId}`);
   }
 
+  // Block persona and profile image updates for ascended avatars (permanently locked)
+  if (existing.isAscended) {
+    if (updates.persona !== undefined) {
+      throw new Error('Cannot update persona of ascended avatar - it is permanently locked');
+    }
+    if (updates.profileImage !== undefined) {
+      throw new Error('Cannot update profile image of ascended avatar - it is permanently locked');
+    }
+  }
+
   // Filter out undefined values to avoid overwriting existing fields
   const cleanUpdates = Object.fromEntries(
     Object.entries(updates).filter(([, v]) => v !== undefined)

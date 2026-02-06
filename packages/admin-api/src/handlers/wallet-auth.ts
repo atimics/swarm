@@ -29,8 +29,15 @@ import {
 import { getGateStatus } from '../services/nft-gate.js';
 import { listUnclaimedAvatars } from '../services/avatars.js';
 import { prepareLineageMint } from '../services/lineage-nft.js';
+import { recordBurn } from '../services/burn-stats.js';
 import { handleCrossmintAuth } from './crossmint-auth.js';
 import { handlePrivyAuth } from './privy-auth.js';
+import {
+  preflightAscend,
+  verifyAscensionBurns,
+  executeAscension,
+  getAvatarAscensionStatus,
+} from '../services/avatar-ascend.js';
 
 // Internal test key for E2E tests - bypasses NFT gate requirements
 // NEVER active in production
@@ -837,6 +844,208 @@ export async function handleAbandonAvatar(
   }
 }
 
+// ============================================================================
+// ASCENSION ENDPOINTS
+// ============================================================================
+
+/**
+ * GET /avatar/:id/ascension-status
+ * Get ascension status for an avatar
+ */
+export async function handleAscensionStatus(
+  event: APIGatewayProxyEventV2
+): Promise<APIGatewayProxyResultV2> {
+  const cors = getCorsHeaders(event);
+
+  if (event.requestContext.http.method === 'OPTIONS') {
+    return { statusCode: 204, headers: cors };
+  }
+
+  try {
+    // Extract avatarId from path
+    const pathMatch = event.rawPath.match(/\/avatar\/([^/]+)\/ascension-status/);
+    const avatarId = pathMatch?.[1];
+
+    if (!avatarId) {
+      return jsonResponse(400, { error: 'Avatar ID required' }, cors);
+    }
+
+    const status = await getAvatarAscensionStatus(avatarId);
+
+    return jsonResponse(200, status, cors);
+  } catch (error) {
+    console.error('[WalletAuth] Ascension status error:', error);
+    return jsonResponse(500, { error: 'Internal server error' }, cors);
+  }
+}
+
+/**
+ * POST /avatar/:id/ascend/preflight
+ * Check if user can ascend an avatar (requirements check)
+ */
+export async function handleAscensionPreflight(
+  event: APIGatewayProxyEventV2
+): Promise<APIGatewayProxyResultV2> {
+  const cors = getCorsHeaders(event);
+
+  if (event.requestContext.http.method === 'OPTIONS') {
+    return { statusCode: 204, headers: cors };
+  }
+
+  try {
+    // Require authentication
+    const sessionToken = getSessionFromCookie(event);
+    if (!sessionToken) {
+      return jsonResponse(401, { error: 'Authentication required' }, cors);
+    }
+
+    const session = await getSessionWithUser(sessionToken);
+    if (!session) {
+      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
+    }
+
+    // Extract avatarId from path
+    const pathMatch = event.rawPath.match(/\/avatar\/([^/]+)\/ascend\/preflight/);
+    const avatarId = pathMatch?.[1];
+
+    if (!avatarId) {
+      return jsonResponse(400, { error: 'Avatar ID required' }, cors);
+    }
+
+    const result = await preflightAscend(avatarId, session.user.walletAddress);
+
+    return jsonResponse(200, result, cors);
+  } catch (error) {
+    console.error('[WalletAuth] Ascension preflight error:', error);
+    return jsonResponse(500, { error: 'Internal server error' }, cors);
+  }
+}
+
+/**
+ * POST /avatar/:id/ascend
+ * Execute ascension after burns have been verified
+ *
+ * Request body:
+ * - orbBurnSignature: REQUIRED - The signature of the Orb NFT burn transaction
+ * - ratiBurnSignature: REQUIRED - The signature of the RATI token burn transaction
+ * - nftMint: REQUIRED - The mint address of the newly created Ascension NFT
+ */
+export async function handleExecuteAscension(
+  event: APIGatewayProxyEventV2
+): Promise<APIGatewayProxyResultV2> {
+  const cors = getCorsHeaders(event);
+
+  if (event.requestContext.http.method === 'OPTIONS') {
+    return { statusCode: 204, headers: cors };
+  }
+
+  try {
+    // Require authentication
+    const sessionToken = getSessionFromCookie(event);
+    if (!sessionToken) {
+      return jsonResponse(401, { error: 'Authentication required' }, cors);
+    }
+
+    const session = await getSessionWithUser(sessionToken);
+    if (!session) {
+      return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
+    }
+
+    // Extract avatarId from path
+    const pathMatch = event.rawPath.match(/\/avatar\/([^/]+)\/ascend$/);
+    const avatarId = pathMatch?.[1];
+
+    if (!avatarId) {
+      return jsonResponse(400, { error: 'Avatar ID required' }, cors);
+    }
+
+    // Parse request body
+    const body = JSON.parse(event.body || '{}');
+    const { orbBurnSignature, ratiBurnSignature, nftMint } = body;
+
+    if (!orbBurnSignature || typeof orbBurnSignature !== 'string') {
+      return jsonResponse(400, {
+        error: 'orbBurnSignature is required. You must burn an Orb NFT first.',
+      }, cors);
+    }
+
+    if (!ratiBurnSignature || typeof ratiBurnSignature !== 'string') {
+      return jsonResponse(400, {
+        error: 'ratiBurnSignature is required. You must burn RATI tokens first.',
+      }, cors);
+    }
+
+    if (!nftMint || typeof nftMint !== 'string') {
+      return jsonResponse(400, {
+        error: 'nftMint is required. You must provide the Ascension NFT mint address.',
+      }, cors);
+    }
+
+    // First do a preflight check to get the required RATI amount
+    const preflight = await preflightAscend(avatarId, session.user.walletAddress);
+    if (!preflight.canAscend) {
+      return jsonResponse(400, {
+        error: preflight.error || 'Cannot ascend this avatar',
+        ...preflight,
+      }, cors);
+    }
+
+    // Verify both burns on-chain before accepting the ascension.
+    const burnVerification = await verifyAscensionBurns(
+      session.user.walletAddress,
+      orbBurnSignature,
+      ratiBurnSignature,
+      preflight.requiredRatiBurn
+    );
+
+    if (!burnVerification.verified) {
+      return jsonResponse(400, {
+        error: burnVerification.error || 'Burn verification failed',
+        orb: burnVerification.orbResult,
+        rati: burnVerification.ratiResult,
+      }, cors);
+    }
+
+    const burnedRatiAmount = burnVerification.ratiResult.burnedAmount ?? preflight.requiredRatiBurn;
+
+    // Record the burn so tiers/leaderboard reflect verified burns.
+    await recordBurn({
+      avatarId,
+      signature: ratiBurnSignature,
+      amount: burnedRatiAmount,
+      walletAddress: session.user.walletAddress,
+    });
+
+    // Execute the ascension
+    const result = await executeAscension(
+      avatarId,
+      session.user.walletAddress,
+      nftMint,
+      orbBurnSignature,
+      ratiBurnSignature,
+      burnedRatiAmount
+    );
+
+    if (!result.success) {
+      return jsonResponse(400, {
+        error: result.error || 'Ascension failed',
+      }, cors);
+    }
+
+    return jsonResponse(200, {
+      success: true,
+      avatarId: result.avatarId,
+      avatarName: result.avatarName,
+      ascendedNftMint: result.ascendedNftMint,
+      ascendedAt: result.ascendedAt,
+      message: `Avatar has been ascended! Persona and profile image are now permanently locked.`,
+    }, cors);
+  } catch (error) {
+    console.error('[WalletAuth] Execute ascension error:', error);
+    return jsonResponse(500, { error: 'Internal server error' }, cors);
+  }
+}
+
 /**
  * Main router for /auth/* endpoints
  */
@@ -921,6 +1130,19 @@ export async function handleWalletAuth(
 
   if (path === '/auth/abandon' && method === 'POST') {
     return handleAbandonAvatar(event);
+  }
+
+  // Ascension endpoints
+  if (path.match(/^\/avatar\/[^/]+\/ascension-status$/) && method === 'GET') {
+    return handleAscensionStatus(event);
+  }
+
+  if (path.match(/^\/avatar\/[^/]+\/ascend\/preflight$/) && method === 'POST') {
+    return handleAscensionPreflight(event);
+  }
+
+  if (path.match(/^\/avatar\/[^/]+\/ascend$/) && method === 'POST') {
+    return handleExecuteAscension(event);
   }
 
   return jsonResponse(404, { error: 'Not found' }, cors);

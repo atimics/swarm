@@ -14,7 +14,7 @@ import {
   QueryCommand,
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { BURN_TIERS } from '@swarm/core';
+import { BURN_TIERS, ASCENSION_ENERGY_BOOST } from '@swarm/core';
 import type { CreditBucket, AvatarRecord } from '../types.js';
 
 // Default DynamoDB clients
@@ -267,6 +267,7 @@ function getNextMidnightUTC(now: number): number {
  * Get energy configuration for an avatar
  * Uses burn tier-based values for maxEnergy and baseRefillPerHour,
  * with optional bucket overrides for advanced configurations.
+ * Ascended avatars get boosted energy (+50% max, +50% regen).
  */
 export async function getAvatarEnergyConfig(
   avatarId: string,
@@ -288,6 +289,23 @@ export async function getAvatarEnergyConfig(
     };
   }
 
+  // Check if avatar is ascended (for energy boost)
+  let isAscended = false;
+  try {
+    const avatar = await d.getAvatar(avatarId);
+    isAscended = avatar?.isAscended === true;
+  } catch (error) {
+    console.warn(`[Energy] Failed to check ascension status for ${avatarId}:`, error);
+  }
+
+  // Apply ascension boost if applicable (+50% max energy, +50% regen)
+  let maxEnergy = burnStats.maxEnergy;
+  let regenPerHour = burnStats.regenPerHour;
+  if (isAscended) {
+    maxEnergy = Math.floor(maxEnergy * ASCENSION_ENERGY_BOOST.maxEnergyMultiplier);
+    regenPerHour = regenPerHour * ASCENSION_ENERGY_BOOST.regenRateMultiplier;
+  }
+
   // Check if bucket has custom config overrides
   const result = await d.dynamoClient.send(new GetCommand({
     TableName: d.tableName,
@@ -302,7 +320,7 @@ export async function getAvatarEnergyConfig(
   } | undefined;
 
   // Use tier-based values as defaults, allow bucket overrides for special cases
-  let baseRefillPerHour = burnStats.regenPerHour;
+  let baseRefillPerHour = regenPerHour;
   if (bucket?.refillRate && bucket?.refillIntervalMinutes) {
     // Convert refillRate per interval to per hour (legacy override)
     // e.g., 1 per 15 min = 4 per hour
@@ -310,7 +328,7 @@ export async function getAvatarEnergyConfig(
   }
 
   return {
-    maxEnergy: bucket?.max ?? burnStats.maxEnergy,
+    maxEnergy: bucket?.max ?? maxEnergy,
     baseRefillPerHour,
     bonusPerMillionTokens: DEFAULT_ENERGY_CONFIG.bonusPerMillionTokens,
     maxBonusPerHour: DEFAULT_ENERGY_CONFIG.maxBonusPerHour,

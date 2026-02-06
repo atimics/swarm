@@ -35,6 +35,9 @@ export * as bagsLaunch from './bags-launch.js';
 // RATI burn stats and tier system
 export * as burnStats from './burn-stats.js';
 
+// Avatar ascension (Orb + RATI burn to mint Ascension NFT)
+export * as avatarAscend from './avatar-ascend.js';
+
 // Prompt building is now in @swarm/core
 // Re-export for backward compatibility
 export { buildDynamicSystemPrompt, type ToolCategory, type ProcessorAvatarConfig } from '@swarm/core';

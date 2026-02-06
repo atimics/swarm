@@ -2160,6 +2160,27 @@ function createNFTServices(): NFTServices {
       return `${baseUrl}/inhabit/${avatarId}`;
     },
 
+    getAvatarAscensionStatus: async (avatarId: string) => {
+      const avatar = await avatars.getAvatar(avatarId);
+      if (!avatar || !avatar.isAscended) {
+        return { isAscended: false };
+      }
+
+      // Import ASCENSION_ENERGY_BOOST from core
+      const { ASCENSION_ENERGY_BOOST } = await import('@swarm/core');
+
+      return {
+        isAscended: true,
+        ascendedAt: avatar.ascendedAt,
+        ascendedNftMint: avatar.ascendedNftMint,
+        ascendedByWallet: avatar.ascendedByWallet,
+        energyBoost: {
+          maxEnergyMultiplier: ASCENSION_ENERGY_BOOST.maxEnergyMultiplier,
+          regenRateMultiplier: ASCENSION_ENERGY_BOOST.regenRateMultiplier,
+        },
+      };
+    },
+
     // NFT Collection Avatar operations
     getClaimableNFTs: async (walletAddress: string) => {
       return nftGate.getClaimableNFTs(walletAddress);

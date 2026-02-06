@@ -490,6 +490,27 @@ export interface AvatarRecord {
     bagsUrl: string;        // https://bags.fm/{mint}
   };
 
+  // ==========================================================================
+  // Avatar Ascension (Burn Orb + RATI to mint unique Avatar NFT)
+  // Ascended avatars have locked personas, tradeable via NFT ownership
+  // ==========================================================================
+
+  /** Whether this avatar has been ascended (persona/image locked, NFT-owned) */
+  isAscended?: boolean;
+  /** When ascension occurred */
+  ascendedAt?: number;
+  /** Wallet that performed the ascension */
+  ascendedByWallet?: string;
+  /** The minted Ascension NFT address (holder = owner) */
+  ascendedNftMint?: string;
+
+  /** Orb NFT burn transaction signature for ascension */
+  ascensionOrbBurnSignature?: string;
+  /** RATI token burn transaction signature for ascension */
+  ascensionRatiBurnSignature?: string;
+  /** Amount of RATI burned for ascension */
+  ascensionRatiBurnAmount?: number;
+
   status: 'draft' | 'active' | 'paused' | 'deleted';
   createdAt: number;
   createdBy: string;

@@ -24,6 +24,7 @@ import {
 import type { AvatarRecord } from '../types.js';
 import { getGateStatus, type GateStatus } from './nft-gate.js';
 import { verifyGateBurn } from './lineage-nft.js';
+import { canInhabitAscendedAvatar } from './avatar-ascend.js';
 
 const TABLE_NAME = process.env.ADMIN_TABLE || 'SwarmAdminTable';
 const GSI1_NAME = 'GSI1';
@@ -186,6 +187,17 @@ export async function inhabitAvatar(
       success: false,
       error: `${avatar.name} is already inhabited by another wallet`,
     };
+  }
+
+  // Check if avatar is ascended - only the Ascension NFT holder can inhabit
+  if (avatar.isAscended && avatar.ascendedNftMint) {
+    const ascensionCheck = await canInhabitAscendedAvatar(avatar, walletAddress);
+    if (!ascensionCheck.allowed) {
+      return {
+        success: false,
+        error: ascensionCheck.error || 'Only the Ascension NFT holder can inhabit this avatar',
+      };
+    }
   }
 
   const now = Date.now();

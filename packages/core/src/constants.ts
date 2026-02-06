@@ -148,3 +148,58 @@ export function getProgressToNextTier(totalBurned: number): number {
 
   return Math.min(100, Math.max(0, progress));
 }
+
+// =============================================================================
+// AVATAR ASCENSION SYSTEM
+// =============================================================================
+
+/**
+ * Gate NFT collection address - required for ascension (burn 1 Orb)
+ */
+export const GATE_COLLECTION = '8GCAyy5L2o2ZPdQKo3EtYAYNKYT8Y6sqGHweintLTSJ';
+
+/**
+ * Energy boost multiplier for ascended avatars
+ * Ascended avatars get +50% max energy and +50% regen rate
+ */
+export const ASCENSION_ENERGY_BOOST = {
+  maxEnergyMultiplier: 1.5,
+  regenRateMultiplier: 1.5,
+} as const;
+
+/**
+ * Minimum RATI burn for ascension if already at max tier (Tier 5)
+ */
+export const ASCENSION_MIN_BURN_AT_MAX_TIER = 1_000_000; // 1M RATI
+
+/**
+ * Calculate the RATI burn required for ascension based on current tier
+ * Ascension requires burning enough RATI to reach the next tier,
+ * or a minimum amount if already at max tier.
+ */
+export function getAscensionCost(currentTotalBurned: number): {
+  currentTier: BurnTier;
+  nextTier: BurnTier | null;
+  ratiBurnRequired: number;
+} {
+  const currentTier = getTierForBurnAmount(currentTotalBurned);
+  const nextTier = getNextTier(currentTier.tier);
+
+  if (!nextTier) {
+    // Already at max tier - require minimum burn
+    return {
+      currentTier,
+      nextTier: null,
+      ratiBurnRequired: ASCENSION_MIN_BURN_AT_MAX_TIER,
+    };
+  }
+
+  // Require enough to reach next tier
+  const ratiBurnRequired = nextTier.minBurned - currentTotalBurned;
+
+  return {
+    currentTier,
+    nextTier,
+    ratiBurnRequired: Math.max(ratiBurnRequired, 0),
+  };
+}

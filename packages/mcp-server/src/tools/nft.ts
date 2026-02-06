@@ -135,6 +135,17 @@ export interface ClaimNFTResult {
   avatarImage?: string;
 }
 
+export interface AvatarAscensionStatus {
+  isAscended: boolean;
+  ascendedAt?: number;
+  ascendedNftMint?: string;
+  ascendedByWallet?: string;
+  energyBoost?: {
+    maxEnergyMultiplier: number;
+    regenRateMultiplier: number;
+  };
+}
+
 export interface NFTServices {
   // Gate NFT operations (for backend/user-facing APIs, not avatar tools)
   getGateStatus: (walletAddress: string) => Promise<GateStatus>;
@@ -170,6 +181,7 @@ export interface NFTServices {
   // Avatar self-awareness (the only thing avatars should access)
   getAvatarInhabitationStatus: (avatarId: string) => Promise<AvatarInhabitationStatus>;
   getInhabitationUrl: (avatarId: string) => string;
+  getAvatarAscensionStatus: (avatarId: string) => Promise<AvatarAscensionStatus>;
 
   // NFT Collection Avatar operations (user-facing, requires wallet context)
   getClaimableNFTs: (walletAddress: string) => Promise<ClaimableNFT[]>;
@@ -299,6 +311,53 @@ export const createNFTTools = (services: NFTServices) => [
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to get lineage info',
+        };
+      }
+    },
+  }),
+
+  defineReadonlyTool({
+    name: 'get_my_ascension_status',
+    description:
+      'Check if this avatar has been ascended (permanently locked with an Ascension NFT). ' +
+      'Ascended avatars have locked personas and profile images, but gain energy bonuses.',
+    toolset: 'nft',
+    inputSchema: z.object({}),
+    execute: async (_input, context): Promise<ToolResult> => {
+      try {
+        const status = await services.getAvatarAscensionStatus(context.avatarId);
+
+        if (status.isAscended) {
+          return {
+            success: true,
+            data: {
+              isAscended: true,
+              message: 'This avatar has been ascended! Persona and profile image are permanently locked.',
+              ascendedAt: status.ascendedAt,
+              ascendedNftMint: status.ascendedNftMint,
+              energyBoost: status.energyBoost,
+              note: 'Only the Ascension NFT holder can inhabit this avatar.',
+            },
+          };
+        }
+
+        return {
+          success: true,
+          data: {
+            isAscended: false,
+            message: 'This avatar has not been ascended. The inhabitant can ascend by burning an Orb NFT + RATI tokens.',
+            benefits: [
+              'Permanently lock persona and profile image',
+              'Tradeable avatar identity (NFT holder = owner)',
+              '+50% max energy boost',
+              '+50% energy regeneration boost',
+            ],
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get ascension status',
         };
       }
     },
