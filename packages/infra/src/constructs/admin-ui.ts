@@ -8,6 +8,7 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import { Construct } from 'constructs';
+import { createManagedWebAcl } from '../utils/waf.js';
 
 export interface AdminUiProps {
   /**
@@ -170,6 +171,12 @@ export class AdminUi extends Construct {
         })
       : undefined;
 
+    const cloudFrontWebAcl = createManagedWebAcl(this, 'CloudFrontWebAcl', {
+      scope: 'CLOUDFRONT',
+      name: `swarm-admin-ui-${environment}${suffix}-webacl`,
+      metricPrefix: `swarm-admin-ui-${environment}${suffix}`,
+    });
+
     // CloudFront distribution
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
@@ -224,6 +231,7 @@ export class AdminUi extends Construct {
       defaultRootObject: 'index.html',
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       comment: `Admin UI - ${environment}`,
+      webAclId: cloudFrontWebAcl.attrArn,
       // Custom error responses for SPA routing fallback
       // If S3 returns 403/404 for a path, serve index.html instead (for client-side routing)
       errorResponses: [

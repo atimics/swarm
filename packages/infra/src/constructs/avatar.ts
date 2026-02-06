@@ -21,6 +21,10 @@ import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import type { AvatarConfig } from '@swarm/core';
+
+const BEDROCK_ALLOWED_MODEL_ARNS = [
+  'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-*',
+];
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -150,6 +154,7 @@ export class AvatarConstruct extends Construct {
       queueName: `${config.id}${suffix}-dlq.fifo`,
       fifo: true,
       retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
     this.messageQueue = new sqs.Queue(this, 'MessageQueue', {
@@ -161,6 +166,7 @@ export class AvatarConstruct extends Construct {
         queue: dlq,
         maxReceiveCount: 3,
       },
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
     this.responseQueue = new sqs.Queue(this, 'ResponseQueue', {
@@ -172,6 +178,7 @@ export class AvatarConstruct extends Construct {
         queue: dlq,
         maxReceiveCount: 3,
       },
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
     this.mediaQueue = new sqs.Queue(this, 'MediaQueue', {
@@ -183,6 +190,7 @@ export class AvatarConstruct extends Construct {
         queue: dlq,
         maxReceiveCount: 3,
       },
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
     // Common Lambda environment
@@ -241,7 +249,7 @@ export class AvatarConstruct extends Construct {
         'bedrock:InvokeModel',
         'bedrock:InvokeModelWithResponseStream',
       ],
-      resources: ['*'],
+      resources: BEDROCK_ALLOWED_MODEL_ARNS,
     }));
 
     if (mediaConvertFunction) {

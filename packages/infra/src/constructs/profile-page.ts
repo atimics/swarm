@@ -8,6 +8,7 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import { Construct } from 'constructs';
+import { createManagedWebAcl } from '../utils/waf.js';
 
 export interface ProfilePageProps {
   /**
@@ -152,6 +153,12 @@ export class ProfilePage extends Construct {
     });
 
     // CloudFront distribution
+    const cloudFrontWebAcl = createManagedWebAcl(this, 'CloudFrontWebAcl', {
+      scope: 'CLOUDFRONT',
+      name: `swarm-profile-page-${environment}${suffix}-webacl`,
+      metricPrefix: `swarm-profile-page-${environment}${suffix}`,
+    });
+
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessIdentity(this.bucket, {
@@ -172,6 +179,7 @@ export class ProfilePage extends Construct {
       defaultRootObject: 'index.html',
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       comment: `Profile Page - ${environment}`,
+      webAclId: cloudFrontWebAcl.attrArn,
       // Custom error responses for SPA routing fallback
       // If S3 returns 403/404 for a path, serve index.html instead (for client-side routing)
       errorResponses: [

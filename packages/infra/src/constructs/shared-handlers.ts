@@ -25,6 +25,10 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const BEDROCK_ALLOWED_MODEL_ARNS = [
+  'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-*',
+];
+
 export interface SharedHandlersProps {
   environment: string;
   /**
@@ -204,7 +208,7 @@ export class SharedHandlers extends Construct {
     // Grant Bedrock access (used by core LLM service if configured)
     lambdaRole.addToPolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
-      resources: ['*'],
+      resources: BEDROCK_ALLOWED_MODEL_ARNS,
     }));
 
     const commonEnv: Record<string, string> = {

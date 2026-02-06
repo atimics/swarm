@@ -21,9 +21,11 @@ const __dirname = path.dirname(__filename);
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
+import { createManagedWebAcl } from '../utils/waf.js';
 
 export interface AdminApiConstructProps {
   /**
@@ -566,6 +568,20 @@ export class AdminApiConstruct extends Construct {
       });
     }
 
+    const adminApiWebAcl = createManagedWebAcl(this, 'AdminApiWebAcl', {
+      scope: 'REGIONAL',
+      name: `swarm-admin-api-${environment}${suffix}-webacl`,
+      metricPrefix: `swarm-admin-api-${environment}${suffix}`,
+    });
+
+    const adminApiWebAclAssociation = new wafv2.CfnWebACLAssociation(this, 'AdminApiWebAclAssociation', {
+      webAclArn: adminApiWebAcl.attrArn,
+      resourceArn: `arn:${cdk.Aws.PARTITION}:apigateway:${cdk.Aws.REGION}::/apis/${this.api.apiId}/stages/$default`,
+    });
+    if (defaultStage) {
+      adminApiWebAclAssociation.node.addDependency(defaultStage);
+    }
+
     // Telegram needs a publicly reachable webhook URL. In non-prod environments,
     // our custom domain is often protected by Cloudflare Access/WAF rules, so
     // default Telegram webhooks to the raw execute-api host (still stable per stack).
@@ -1061,6 +1077,12 @@ export class AdminApiConstruct extends Construct {
       integration: avatarsIntegration,
     });
 
+    this.api.addRoutes({
+      path: '/avatars/{avatarId}/activation-readiness',
+      methods: [apigateway.HttpMethod.GET],
+      integration: avatarsIntegration,
+    });
+
     // Energy routes
     this.api.addRoutes({
       path: '/avatars/{avatarId}/energy',
@@ -1101,6 +1123,31 @@ export class AdminApiConstruct extends Construct {
 
     this.api.addRoutes({
       path: '/avatars/{avatarId}/telegram/repair',
+      methods: [apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
+    // Onboarding orchestrator routes
+    this.api.addRoutes({
+      path: '/onboarding/{avatarId}',
+      methods: [apigateway.HttpMethod.GET],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/onboarding/{avatarId}/restart',
+      methods: [apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/onboarding/{avatarId}/steps/{stepId}/execute',
+      methods: [apigateway.HttpMethod.POST],
+      integration: avatarsIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/onboarding/{avatarId}/steps/{stepId}/skip-optional',
       methods: [apigateway.HttpMethod.POST],
       integration: avatarsIntegration,
     });

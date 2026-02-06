@@ -14,6 +14,7 @@ import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
+import { createManagedWebAcl } from '../utils/waf.js';
 
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -204,6 +205,11 @@ export class SharedInfrastructure extends Construct {
         comment: `Swarm media CDN (${environment})`,
         ...(logBucket ? { logBucket, logFilePrefix: 'cdn/' } : {}),
         ...domainConfig,
+        webAclId: createManagedWebAcl(this, 'MediaCdnWebAcl', {
+          scope: 'CLOUDFRONT',
+          name: `swarm-media-cdn-${environment}${suffix}-webacl`,
+          metricPrefix: `swarm-media-cdn-${environment}${suffix}`,
+        }).attrArn,
       });
 
       // Set cdnUrl - use custom domain if configured, otherwise use CloudFront domain
