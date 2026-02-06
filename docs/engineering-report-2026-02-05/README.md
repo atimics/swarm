@@ -10,11 +10,10 @@ AWS Swarm is a **well-architected, production-grade multi-platform AI avatar fra
 
 ## Coordination Snapshot (2026-02-06)
 
-- Coordination source of truth: [`COORDINATION.md`](./COORDINATION.md) (includes assignment authority and worker roster)
-- Current execution state: all `feat/swarm-001` ... `feat/swarm-010` branches are still at baseline commit `223a963` (no branch divergence yet).
-- Existing uncommitted implementation artifacts are currently only in `main`:
-  - `.editorconfig` and `.prettierrc` (SWARM-004 scope)
-  - `packages/core/src/services/circuit-breaker.ts` (SWARM-001 scope)
+- Coordination source of truth: [`COORDINATION.md`](./COORDINATION.md) (includes assignment authority, worker roster, and coordinator runbook)
+- Current execution state: `main` is at `3223c53` and ahead of `origin/main` by 4 commits; SWARM branches are split (`001-004` at `223a963`, `005-010` at `3223c53`).
+- Governance mode is `mainline-first`; SWARM-001/002/003/004 are tracked as `completed-by-commit` in the coordination closure ledger.
+- Live activity is being tracked in `COORDINATION.md` under **Engineering Change Watch** (including branch/worktree drift and likely ticket mapping).
 
 ### Repository Metrics
 
