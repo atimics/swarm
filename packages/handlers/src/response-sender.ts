@@ -6,7 +6,6 @@ import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { randomUUID } from 'crypto';
 import {
   TelegramAdapter,
@@ -18,18 +17,15 @@ import {
   createActivityService,
   createOutboundSender,
   logger,
-  DEFAULT_LLM_MODEL,
-  DEFAULT_LLM_PROVIDER,
-  DEFAULT_LLM_TEMPERATURE,
-  DEFAULT_LLM_MAX_TOKENS,
+  DEFAULT_AVATAR_CONFIG,
   type AvatarConfig,
   type SwarmResponse,
   type ResponseAction,
 } from '@swarm/core';
 import { isAllowedDmUserById } from './telegram-webhook-shared.js';
+import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
 
 const sqs = new SQSClient({});
-const secretsClient = new SecretsManagerClient({});
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
@@ -135,73 +131,13 @@ async function initialize(): Promise<void> {
 }
 
 /**
- * Fetch individual secrets from Secrets Manager using direct paths
- * Falls back to global secrets if avatar-specific secrets are not found
+ * Fetch individual secrets from Secrets Manager using direct paths.
+ * Delegates to the shared loadAvatarSecrets utility for consistent
+ * fallback chains and naming conventions across all handlers.
  */
 async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, string>> {
-  const secrets: Record<string, string> = {};
-
-  // Shared Twitter app credentials are stored as a single JSON secret.
-  // This keeps app credentials centralized while per-avatar OAuth tokens remain per-secret.
-  // Do not fail hard if it is missing; some avatars may not use Twitter.
-  async function tryLoadTwitterAppCredentials(): Promise<void> {
-    if (secrets.TWITTER_API_KEY && secrets.TWITTER_API_SECRET) return;
-    const secretId = process.env.TWITTER_APP_CREDENTIALS_ARN || `${SECRET_PREFIX}/global/twitter-app-credentials`;
-    try {
-      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretId }));
-      const raw = response.SecretString;
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const appKey = (parsed.TWITTER_APP_KEY || parsed.consumer_key || parsed.consumerKey) as string | undefined;
-      const appSecret = (parsed.TWITTER_APP_SECRET || parsed.consumer_secret || parsed.consumerSecret) as string | undefined;
-      if (appKey && !secrets.TWITTER_API_KEY) secrets.TWITTER_API_KEY = appKey;
-      if (appSecret && !secrets.TWITTER_API_SECRET) secrets.TWITTER_API_SECRET = appSecret;
-    } catch {
-      // Ignore parse/lookup errors and rely on per-avatar secrets if present.
-    }
-  }
-
-  // Define secret types to fetch and their normalized key names
-  const secretTypes = [
-    { type: 'telegram_bot_token', key: 'TELEGRAM_BOT_TOKEN' },
-    { type: 'twitter_api_key', key: 'TWITTER_API_KEY' },
-    { type: 'twitter_api_secret', key: 'TWITTER_API_SECRET' },
-    { type: 'twitter_access_token', key: 'TWITTER_ACCESS_TOKEN' },
-    { type: 'twitter_access_secret', key: 'TWITTER_ACCESS_SECRET' },
-    { type: 'discord_bot_token', key: 'DISCORD_BOT_TOKEN' },
-  ];
-
-  for (const { type, key } of secretTypes) {
-    // Try avatar-specific secret first
-    let secretName = `${SECRET_PREFIX}/${avatarId}/${type}/default`;
-    try {
-      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
-      if (response.SecretString) {
-        secrets[key] = response.SecretString;
-        continue;
-      }
-    } catch {
-      // Avatar secret not found, try global
-    }
-
-    // Fall back to global secret
-    secretName = `${SECRET_PREFIX}/global/${type}/default`;
-    try {
-      const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
-      if (response.SecretString) {
-        secrets[key] = response.SecretString;
-        continue;
-      }
-    } catch {
-      // Global secret not found either - continue without it
-    }
-
-    if (type === 'twitter_api_key' || type === 'twitter_api_secret') {
-      await tryLoadTwitterAppCredentials();
-    }
-  }
-
-  return secrets;
+  const secretsService = (await import('@swarm/core')).createSecretsService();
+  return loadAvatarSecrets(secretsService, avatarId, SECRET_PREFIX);
 }
 
 async function getOutboundRuntime(avatarId: string): Promise<AvatarOutboundRuntime> {
@@ -209,15 +145,10 @@ async function getOutboundRuntime(avatarId: string): Promise<AvatarOutboundRunti
   if (cached) return cached;
 
   const avatarConfig = await stateService.getAvatarConfig(avatarId) || {
+    ...DEFAULT_AVATAR_CONFIG,
     id: avatarId,
     name: avatarId,
-    version: '1.0.0',
     persona: '',
-    platforms: {},
-    llm: { provider: DEFAULT_LLM_PROVIDER, model: DEFAULT_LLM_MODEL, temperature: DEFAULT_LLM_TEMPERATURE, maxTokens: DEFAULT_LLM_MAX_TOKENS },
-    media: { image: { provider: 'replicate', model: 'black-forest-labs/flux-schnell' } },
-    scheduling: {},
-    behavior: { responseDelayMs: [1000, 3000], typingIndicator: true, ignoreBots: true, cooldownMinutes: 5, maxContextMessages: 20 },
     tools: [],
     secrets: [],
   };

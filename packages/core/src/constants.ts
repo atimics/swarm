@@ -24,6 +24,44 @@ export const DEFAULT_LLM_TEMPERATURE = 0.8;
  */
 export const DEFAULT_LLM_MAX_TOKENS = 1024;
 
+/**
+ * Default avatar configuration — used as a fallback when a config
+ * cannot be loaded from DynamoDB. Handlers should spread this with
+ * `{ ...DEFAULT_AVATAR_CONFIG, id: avatarId, name: ... }`.
+ *
+ * Centralised here to prevent divergence across handlers (previously
+ * duplicated in message-processor.ts and response-sender.ts).
+ */
+export const DEFAULT_AVATAR_CONFIG: import('./types/index.js').AvatarConfig = {
+  id: 'unknown',
+  name: 'Assistant',
+  version: '1.0.0',
+  persona: 'You are a helpful AI assistant.',
+  platforms: {},
+  llm: {
+    provider: DEFAULT_LLM_PROVIDER as 'openrouter',
+    model: DEFAULT_LLM_MODEL,
+    temperature: DEFAULT_LLM_TEMPERATURE,
+    maxTokens: DEFAULT_LLM_MAX_TOKENS,
+  },
+  media: {
+    image: { provider: 'replicate' as const, model: 'black-forest-labs/flux-schnell' },
+  },
+  scheduling: {},
+  behavior: {
+    responseDelayMs: [1000, 3000],
+    typingIndicator: true,
+    ignoreBots: true,
+    cooldownMinutes: 5,
+    maxContextMessages: 20,
+  },
+  tools: [
+    'send_message', 'react', 'wait', 'ignore',
+    'generate_image', 'remember', 'recall',
+  ],
+  secrets: ['OPENROUTER_API_KEY', 'REPLICATE_API_KEY'],
+};
+
 // =============================================================================
 // RATI BURN TIER SYSTEM
 // =============================================================================
