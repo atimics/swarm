@@ -11,10 +11,14 @@ AWS Swarm is a **well-architected, production-grade multi-platform AI avatar fra
 ## Coordination Snapshot (2026-02-06)
 
 - Coordination source of truth: [`COORDINATION.md`](./COORDINATION.md) (includes assignment authority, worker roster, and coordinator runbook)
-- Current execution state: `main` is at `33fdda5` and synced with `origin/main`; locally provisioned SWARM branches/worktrees currently include `feat/swarm-008` to `feat/swarm-010`.
+- Current execution state: `main` is at `bc92632` and ahead of `origin/main` by 4 commits; locally provisioned SWARM branches/worktrees now include `feat/swarm-008` through `feat/swarm-020`.
 - Governance mode is `mainline-first`; SWARM-001/002/003/004 are tracked as `completed-by-commit` in the coordination closure ledger.
 - Live activity is being tracked in `COORDINATION.md` under **Engineering Change Watch** (including branch/worktree drift and likely ticket mapping).
-- Onboarding overhaul has been decomposed into SWARM-011 through SWARM-020 for phased execution.
+- Onboarding overhaul has been decomposed into SWARM-011 through SWARM-020 for phased execution; all Wave 6 docs lanes (`worker-011` through `worker-020`) have now been dispatched and are in `review`.
+- Latest successful dispatch run is `/tmp/swarm-workers/20260206T182912Z` (`worker-014` through `worker-020`, all exit `0`); an earlier non-escalated attempt `/tmp/swarm-workers/20260206T175732Z` failed on session-path permissions and was rerun successfully with escalation.
+- Latest implementation dispatch run is `/tmp/swarm-workers/20260206T184805Z` (`worker-012`, `013`, `014`, `017`, `018`, all exit `0`) with code deltas staged in lane worktrees.
+- Testing-stream monitor: no new test-file edits were introduced by this implementation wave; existing mainline test churn remains in the separate testing stream.
+- SWARM-012/SWARM-013 alignment gate has been reconciled in docs and recorded in [`SWARM-012-013-alignment-notes.md`](./SWARM-012-013-alignment-notes.md).
 
 ### Repository Metrics
 
@@ -26,6 +30,31 @@ AWS Swarm is a **well-architected, production-grade multi-platform AI avatar fra
 | LOC (TypeScript) | ~50,000+ |
 | CI/CD workflows | 5 |
 | AWS resources | 30+ (Lambda, DynamoDB, SQS, S3, CloudFront, API GW, ECS, EventBridge) |
+
+### Plan Status Board (2026-02-06)
+
+| Ticket | Current Status | Evidence |
+|--------|----------------|----------|
+| SWARM-001 | Completed-by-commit | `f18a552` |
+| SWARM-002 | Completed-by-commit | `3223c53` |
+| SWARM-003 | Completed-by-commit | `3223c53` |
+| SWARM-004 | Completed-by-commit | `edad325` |
+| SWARM-005 | In progress on mainline (partial) | `bc92632` |
+| SWARM-006 | In review on mainline | `288687f` |
+| SWARM-007 | In progress on mainline | `22b7ed6`, `c127e91` |
+| SWARM-008 | Blocked | Dirty `feat/swarm-008` worktree deletions |
+| SWARM-009 | Assigned, not started | Clean `feat/swarm-009` lane at `3223c53` |
+| SWARM-010 | Assigned, not started | Clean `feat/swarm-010` lane at `3223c53` |
+| SWARM-011 | Review (checkpoint complete) | Run `20260206T060843Z`; doc expanded and promoted to `main` |
+| SWARM-012 | Review (implementation lane active) | Run `20260206T184805Z`; executable state-machine module added, pending dependency/typecheck validation |
+| SWARM-013 | Review (implementation lane active) | Run `20260206T184805Z`; onboarding route + orchestrator service + infra route wiring added |
+| SWARM-014 | In progress (implementation dependency) | Run `20260206T184805Z`; canonical auth/account resolver added, awaiting SWARM-013 endpoint integration in-branch |
+| SWARM-015 | Review (checkpoint complete) | Run `20260206T182912Z`; wizard IA + backend-driven UI contract drafted |
+| SWARM-016 | Review (checkpoint complete) | Run `20260206T182912Z`; Telegram diagnostics/repair contract drafted |
+| SWARM-017 | Blocked (implementation lane active) | Run `20260206T184805Z`; readiness evaluator + activation gate added, blocked on dependency/typecheck validation |
+| SWARM-018 | Review (implementation lane active) | Run `20260206T184805Z`; typed onboarding error/retry/resume primitives added, awaiting SWARM-013 endpoint plumbing in-branch |
+| SWARM-019 | Review (checkpoint complete) | Run `20260206T182912Z`; deterministic E2E/retry matrix drafted |
+| SWARM-020 | Review (checkpoint complete) | Run `20260206T182912Z`; phased rollout/migration/runbook plan drafted |
 
 ---
 
