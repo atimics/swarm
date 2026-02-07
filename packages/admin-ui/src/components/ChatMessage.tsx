@@ -668,12 +668,12 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3 lg:mb-4`}>
-      <div className={`flex items-end gap-2 max-w-[90%] sm:max-w-[85%] lg:max-w-[80%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+      <div className={`flex items-end gap-2 min-w-0 max-w-[90%] sm:max-w-[85%] lg:max-w-[80%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
         {/* Show avatar for user messages */}
         {isUser && <SenderAvatar sender={message.sender} />}
         
         <div
-          className={`rounded-2xl px-3 lg:px-4 py-2.5 lg:py-3 ${
+          className={`rounded-2xl px-3 lg:px-4 py-2.5 lg:py-3 overflow-hidden min-w-0 break-words ${
             isUser
               ? 'bg-brand-600 text-white rounded-br-md'
               : 'bg-[var(--color-bg-secondary)] text-[var(--color-text)] rounded-bl-md border border-[var(--color-border)]'
@@ -710,7 +710,7 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
                   </pre>
                 </div>
               ) : (
-                <div className={`prose prose-sm max-w-none ${isUser ? 'prose-invert' : 'dark:prose-invert'}`}>
+                <div className={`prose prose-sm max-w-none break-words ${isUser ? 'prose-invert' : 'dark:prose-invert'}`}>
                   <ReactMarkdown>{cleanedContent}</ReactMarkdown>
                 </div>
               )

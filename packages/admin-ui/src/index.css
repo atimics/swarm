@@ -195,6 +195,15 @@ body {
 }
 
 /* ============================================
+   Chat Message Overflow Protection
+   ============================================ */
+.prose,
+.chat-message {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* ============================================
    Code Blocks
    ============================================ */
 .prose pre {
@@ -202,6 +211,7 @@ body {
   border-radius: 0.5rem;
   padding: 1rem;
   overflow-x: auto;
+  max-width: 100%;
 }
 
 .prose code {
