@@ -15,5 +15,13 @@ if [ -f "scripts/check-issues.sh" ]; then
 	./scripts/check-issues.sh
 fi
 
+# Verify lockfile is in sync with all package.json files
+echo "pre-commit: lockfile check"
+pnpm install --frozen-lockfile --ignore-scripts > /dev/null 2>&1 || {
+	echo "ERROR: pnpm-lock.yaml is out of date."
+	echo "       Run 'pnpm install' and commit the updated lockfile."
+	exit 1
+}
+
 echo "pre-commit: pnpm lint"
 pnpm lint
