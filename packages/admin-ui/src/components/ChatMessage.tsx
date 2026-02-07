@@ -17,7 +17,7 @@ interface ChatMessageProps {
  * - Has inhabitedAvatarId = avatar avatar
  * - Has walletAddress = wallet-based display
  */
-function SenderAvatar({ sender }: { sender?: MessageSender }) {
+const SenderAvatar = memo(function SenderAvatar({ sender }: { sender?: MessageSender }) {
   // Ghost icon for anonymous/no wallet users
   if (!sender || !sender.walletAddress) {
     return (
@@ -47,7 +47,7 @@ function SenderAvatar({ sender }: { sender?: MessageSender }) {
       {shortWallet}
     </div>
   );
-}
+});
 
 /**
  * Parsed tool result from message content

@@ -27,34 +27,8 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false, // Disable sourcemaps to reduce memory usage in CI
     chunkSizeWarningLimit: 2000, // Increase limit since we're combining chunks
-    rollupOptions: {
-      output: {
-        // Avoid manual chunking that creates circular dependencies
-        // Let Rollup handle the dependency graph automatically for Solana ecosystem
-        // Only split out truly independent chunks
-        manualChunks(id) {
-          if (id.includes('node_modules')) {
-            // Core React (react, react-dom only - NOT react-based libraries)
-            if (id.includes('/react/') || id.includes('/react-dom/') ||
-                id.includes('/scheduler/')) {
-              return 'vendor-react-core';
-            }
-            // Markdown rendering pipeline
-            if (id.includes('react-markdown') || id.includes('remark') ||
-                id.includes('rehype') || id.includes('unified') ||
-                id.includes('mdast') || id.includes('micromark') ||
-                id.includes('hast')) {
-              return 'vendor-markdown';
-            }
-            // Auth providers
-            if (id.includes('@privy-io/')) {
-              return 'vendor-privy';
-            }
-            // Everything else stays in default vendor chunk
-            // This avoids circular chunk issues between Solana <-> React adapters
-          }
-        },
-      },
-    },
+    // Let Rollup handle chunk splitting automatically.
+    // Manual chunking of React causes createContext errors due to
+    // chunk load ordering issues with Privy and other React-dependent libs.
   },
 });
