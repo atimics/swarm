@@ -1,6 +1,6 @@
 # SWARM-009: Deprecate Legacy Code
 
-**Priority:** P2 — Planned
+**Priority:** P2 — Integrated
 **Package:** Multiple
 
 ## Worker Assignment
@@ -29,7 +29,7 @@
 
 ## Acceptance Criteria
 
-- [ ] Legacy stack removed after migration verification
-- [ ] Legacy processors deprecated with JSDoc `@deprecated` tags, then removed
-- [ ] Dead code removed
-- [ ] No duplicate type names across packages
+- [x] Legacy stack removed after migration verification
+- [x] Legacy processors deprecated with JSDoc `@deprecated` tags
+- [x] Dead code removed
+- [x] No duplicate type names across packages

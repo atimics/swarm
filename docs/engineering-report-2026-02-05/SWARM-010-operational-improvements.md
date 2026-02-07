@@ -1,6 +1,6 @@
 # SWARM-010: Operational Improvements
 
-**Priority:** P2 — Planned
+**Priority:** P2 — Integrated
 **Package:** `@swarm/infra`, `@swarm/core`
 
 ## Worker Assignment
@@ -26,7 +26,7 @@ At 1,247 lines, `deploy.yml` is extremely hard to review. Break into reusable wo
 
 ## Acceptance Criteria
 
-- [ ] EventBridge rules have SQS DLQs for failed invocations
-- [ ] LLM timeout/max tokens configurable per avatar
-- [ ] Admin API uses a router framework (or at minimum extracted route handlers)
-- [ ] Deploy workflow split into ≤3 composable workflows
+- [x] EventBridge rules have SQS DLQs for failed invocations
+- [x] LLM timeout/max tokens configurable per avatar
+- [x] Admin API uses a router framework (or at minimum extracted route handlers)
+- [x] Deploy workflow split into ≤3 composable workflows

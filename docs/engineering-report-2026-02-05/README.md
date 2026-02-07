@@ -11,7 +11,7 @@ AWS Swarm is a **well-architected, production-grade multi-platform AI avatar fra
 ## Coordination Snapshot (2026-02-06)
 
 - Coordination source of truth: [`COORDINATION.md`](./COORDINATION.md) (includes assignment authority, worker roster, and coordinator runbook)
-- Current execution state: `main` is at `8f0540c`; locally provisioned SWARM branches/worktrees include `feat/swarm-008` through `feat/swarm-020`.
+- Current execution state: `main` is at `88828c3`; locally provisioned SWARM branches/worktrees include `feat/swarm-008` through `feat/swarm-020`.
 - Governance mode is `mainline-first`; SWARM-001/002/003/004 are tracked as `completed-by-commit` in the coordination closure ledger.
 - Live activity is being tracked in `COORDINATION.md` under **Engineering Change Watch** (including branch/worktree drift and likely ticket mapping).
 - Onboarding overhaul has been decomposed into SWARM-011 through SWARM-020 for phased execution; all Wave 6 docs lanes (`worker-011` through `worker-020`) have now been dispatched and are in `review`.
@@ -46,8 +46,8 @@ AWS Swarm is a **well-architected, production-grade multi-platform AI avatar fra
 | SWARM-006 | In review on mainline | `288687f` |
 | SWARM-007 | In progress on mainline | `22b7ed6`, `c127e91` |
 | SWARM-008 | Integrated on mainline (validation pass) | `33762c8`, `5c1c25d` |
-| SWARM-009 | Assigned, not started | Clean `feat/swarm-009` lane at `3223c53` |
-| SWARM-010 | Assigned, not started | Clean `feat/swarm-010` lane at `3223c53` |
+| SWARM-009 | Integrated on mainline (validation pass) | `fd4ec31`; legacy monolithic stack removed, dead code deleted, duplicate service types unified |
+| SWARM-010 | Integrated on mainline (validation pass) | `88828c3`; EventBridge target DLQs added, per-avatar LLM timeout configurable, deploy workflow decomposed via `workflow_call` |
 | SWARM-011 | Review (checkpoint complete) | Run `20260206T060843Z`; doc expanded and promoted to `main` |
 | SWARM-012 | Integrated on mainline (validation pass) | `services/onboarding/contract-v1.ts` landed; admin-api/infra/admin-ui builds passing |
 | SWARM-013 | Integrated on mainline (validation pass) | Onboarding orchestrator endpoints + route wiring + infra routes landed |
