@@ -1441,6 +1441,7 @@ export interface AvatarMemory {
   updatedAt: number;
   consolidatedAt?: number;   // When this was last processed by consolidation
   sourceMemoryIds?: string[]; // For summaries: IDs of memories that were consolidated
+  ttl?: number;              // DynamoDB TTL (epoch seconds) for automatic expiration
 }
 
 /**
@@ -1474,6 +1475,7 @@ export interface AvatarIdentitySnapshot {
   previousStatement?: string; // Previous identity for comparison
   triggeringMemories: string[]; // Memory IDs that led to this
   createdAt: number;
+  ttl?: number;              // DynamoDB TTL (epoch seconds) for automatic expiration
 }
 
 /**

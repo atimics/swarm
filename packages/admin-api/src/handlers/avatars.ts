@@ -31,6 +31,7 @@ import { handleEnergyRoutes } from './avatar-routes/energy.js';
 import { handleObservabilityRoutes } from './avatar-routes/observability.js';
 import { handleTwitterRoutes } from './avatar-routes/twitter.js';
 import { handleApiKeyRoutes } from './avatar-routes/api-keys.js';
+import { handleMemoryRoutes } from './avatar-routes/memory.js';
 import { handleOnboardingAvatarRoutes } from './avatar-routes/onboarding.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ const routeHandlers: RouteHandler[] = [
   handleObservabilityRoutes,
   handleTwitterRoutes,
   handleApiKeyRoutes,
+  handleMemoryRoutes,
 ];
 
 // ── Lambda handler ─────────────────────────────────────────────────────────

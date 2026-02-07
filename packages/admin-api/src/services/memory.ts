@@ -57,6 +57,65 @@ const MAX_THEMES = 10;
 /** Maximum strength value (capped on reinforcement) */
 const MAX_STRENGTH = 2.0;
 
+/** Default memory retention in days when no plan config is available */
+const DEFAULT_RETENTION_DAYS = 30;
+
+/** Seconds in a day */
+const SECONDS_PER_DAY = 86400;
+
+// ============================================================================
+// TTL Helpers
+// ============================================================================
+
+/**
+ * Compute a DynamoDB TTL value (epoch seconds) from a retention period.
+ *
+ * @param retentionDays - Number of days to retain the item.
+ *   - >0: TTL is now + retentionDays * 86400
+ *   - 0 or undefined: uses DEFAULT_RETENTION_DAYS (30 days)
+ *   - -1: unlimited retention, returns undefined (no TTL set)
+ * @returns Epoch-seconds TTL or undefined for unlimited
+ */
+export function computeMemoryTtl(retentionDays?: number): number | undefined {
+  if (retentionDays === -1) {
+    // Unlimited retention - no TTL
+    return undefined;
+  }
+
+  const effectiveDays = (retentionDays && retentionDays > 0)
+    ? retentionDays
+    : DEFAULT_RETENTION_DAYS;
+
+  return Math.floor(Date.now() / 1000) + (effectiveDays * SECONDS_PER_DAY);
+}
+
+/**
+ * Get the memory retention days for an avatar by looking up its entitlement.
+ *
+ * Falls back to DEFAULT_RETENTION_DAYS if no entitlement is found.
+ * This import is done lazily to avoid circular dependency issues.
+ */
+export async function getRetentionDaysForAvatar(avatarId: string): Promise<number> {
+  try {
+    const { getMemoryConfig } = await import('./entitlements.js');
+    const config = await getMemoryConfig(avatarId);
+    // retentionDays: 0 = no retention (free tier, memory disabled)
+    // In free tier memoryEnabled is false, so memories shouldn't be written at all.
+    // But if they are, apply default TTL rather than leaving them forever.
+    if (config.retentionDays === 0 && !config.enabled) {
+      return DEFAULT_RETENTION_DAYS;
+    }
+    return config.retentionDays || DEFAULT_RETENTION_DAYS;
+  } catch (error) {
+    logger.warn('Failed to get retention days, using default', {
+      event: 'retention_days_lookup_error',
+      avatarId,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+    return DEFAULT_RETENTION_DAYS;
+  }
+}
+
 /** Default configuration for memory consolidation */
 export const DEFAULT_CONFIG: MemoryConsolidationConfig = {
   immediateMaxCount: 10,
@@ -192,6 +251,8 @@ export async function createMemory(
     skipEmbedding?: boolean;
     metadata?: Record<string, unknown>;
     sourceMemoryIds?: string[];
+    /** Memory retention in days. -1 = unlimited, 0/undefined = default (30d). */
+    retentionDays?: number;
   }
 ): Promise<AvatarMemory> {
   // Validate inputs
@@ -226,6 +287,9 @@ export async function createMemory(
     }
   }
 
+  // Compute TTL for DynamoDB automatic expiration
+  const ttl = computeMemoryTtl(params.retentionDays);
+
   const memory: AvatarMemory = {
     pk: `MEMORY#${validAvatarId}`,
     sk: `${tier}#${now}#${id}`,
@@ -247,10 +311,16 @@ export async function createMemory(
     sourceMemoryIds: params.sourceMemoryIds,
   };
 
+  // Build DynamoDB item, including ttl only when defined (unlimited retention omits it)
+  const dynamoItem: Record<string, unknown> = { ...memory };
+  if (ttl !== undefined) {
+    dynamoItem.ttl = ttl;
+  }
+
   try {
     await getDynamoClient().send(new PutCommand({
       TableName: ADMIN_TABLE,
-      Item: memory,
+      Item: dynamoItem,
     }));
 
     logger.info('Memory created', {
@@ -261,6 +331,7 @@ export async function createMemory(
       type: params.type,
       contentLength: validContent.length,
       hasEmbedding: !!embedding,
+      ttl: ttl ?? 'unlimited',
     });
 
     return memory;
@@ -897,6 +968,10 @@ export async function promoteImmediateToRecent(
     return { promoted: 0 };
   }
 
+  // Look up retention days for TTL on promoted memories
+  const retentionDays = await getRetentionDaysForAvatar(validAvatarId);
+  const ttl = computeMemoryTtl(retentionDays);
+
   // Sort by creation time, oldest first
   const sorted = [...immediateMemories].sort((a, b) => a.createdAt - b.createdAt);
   const toPromote = sorted.slice(0, sorted.length - maxImmediate);
@@ -926,6 +1001,12 @@ export async function promoteImmediateToRecent(
       sourceMemoryIds: [memory.id],
     };
 
+    // Include TTL in the marshalled item for DynamoDB auto-expiration
+    const dynamoItem: Record<string, unknown> = { ...newMemory };
+    if (ttl !== undefined) {
+      dynamoItem.ttl = ttl;
+    }
+
     try {
       // Use transaction to ensure both write and delete succeed together
       const client = new DynamoDBClient({});
@@ -934,7 +1015,7 @@ export async function promoteImmediateToRecent(
           {
             Put: {
               TableName: ADMIN_TABLE,
-              Item: marshall(newMemory, { removeUndefinedValues: true }),
+              Item: marshall(dynamoItem, { removeUndefinedValues: true }),
             },
           },
           {
@@ -988,6 +1069,10 @@ export async function saveIdentitySnapshot(
   const validAvatarId = validateAvatarId(avatarId);
   const validStatement = validateContent(statement);
 
+  // Look up retention days for TTL
+  const retentionDays = await getRetentionDaysForAvatar(validAvatarId);
+  const ttl = computeMemoryTtl(retentionDays);
+
   const now = Date.now();
   const snapshot: AvatarIdentitySnapshot = {
     pk: `IDENTITY#${validAvatarId}`,
@@ -999,19 +1084,26 @@ export async function saveIdentitySnapshot(
     createdAt: now,
   };
 
+  // Build DynamoDB item with optional TTL
+  const dynamoItem: Record<string, unknown> = { ...snapshot };
+  if (ttl !== undefined) {
+    dynamoItem.ttl = ttl;
+  }
+
   try {
     await getDynamoClient().send(new PutCommand({
       TableName: ADMIN_TABLE,
-      Item: snapshot,
+      Item: dynamoItem,
     }));
 
-    // Also create a core memory for the identity
+    // Also create a core memory for the identity (retentionDays passed through)
     await createMemory(validAvatarId, {
       tier: 'core',
       type: 'identity',
       content: validStatement,
       strength: 1.0,
       metadata: { snapshotSk: snapshot.sk },
+      retentionDays,
     });
 
     logger.info('Identity snapshot saved', {
@@ -1081,6 +1173,9 @@ export async function remember(
   const validAvatarId = validateAvatarId(avatarId);
   const validFact = validateContent(fact);
 
+  // Look up retention days for TTL enforcement
+  const retentionDays = await getRetentionDaysForAvatar(validAvatarId);
+
   // Check for similar existing memory to reinforce
   if (about) {
     const existing = await recallAbout(validAvatarId, about, 5);
@@ -1104,13 +1199,14 @@ export async function remember(
     }
   }
 
-  // Create new immediate memory
+  // Create new immediate memory with TTL based on avatar's retention config
   const memory = await createMemory(validAvatarId, {
     tier: 'immediate',
     type: about ? 'fact' : 'event',
     content: validFact,
     about: about?.trim(),
     userId: userId?.trim(),
+    retentionDays,
   });
 
   // Check if we need to promote memories (async, don't block)
