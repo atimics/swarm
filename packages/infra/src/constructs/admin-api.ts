@@ -1680,6 +1680,11 @@ export class AdminApiConstruct extends Construct {
       resources: ['arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0'],
     }));
 
+    const consolidationDlq = new sqs.Queue(this, 'ConsolidationScheduleDLQ', {
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+    });
+
     // Schedule consolidation to run daily at 3 AM UTC
     new events.Rule(this, 'ConsolidationSchedule', {
       schedule: events.Schedule.cron({
@@ -1688,7 +1693,11 @@ export class AdminApiConstruct extends Construct {
         day: '*',
         month: '*',
       }),
-      targets: [new targets.LambdaFunction(consolidationWorker)],
+      targets: [new targets.LambdaFunction(consolidationWorker, {
+        deadLetterQueue: consolidationDlq,
+        retryAttempts: 2,
+        maxEventAge: cdk.Duration.hours(2),
+      })],
       description: 'Daily memory consolidation for all avatars',
     });
 

@@ -341,9 +341,19 @@ export class SharedHandlers extends Construct {
       logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
+    const schedulerDlq = new sqs.Queue(this, 'SchedulerDLQ', {
+      queueName: `swarm-${environment}${suffix}-scheduler-dlq`,
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+    });
+
     new events.Rule(this, 'TwitterMentionPollSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
-      targets: [new targets.LambdaFunction(twitterMentionPoller)],
+      targets: [new targets.LambdaFunction(twitterMentionPoller, {
+        deadLetterQueue: schedulerDlq,
+        retryAttempts: 2,
+        maxEventAge: cdk.Duration.hours(2),
+      })],
     });
 
     // Autonomous Tweet Poster - runs hourly, manages per-avatar timing internally
@@ -365,7 +375,11 @@ export class SharedHandlers extends Construct {
 
     new events.Rule(this, 'AutonomousTweetSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.hours(1)),
-      targets: [new targets.LambdaFunction(autonomousTweetPoster)],
+      targets: [new targets.LambdaFunction(autonomousTweetPoster, {
+        deadLetterQueue: schedulerDlq,
+        retryAttempts: 2,
+        maxEventAge: cdk.Duration.hours(2),
+      })],
     });
 
     // Moltbook Heartbeat - runs every 33 minutes, manages per-avatar timing internally
@@ -387,7 +401,11 @@ export class SharedHandlers extends Construct {
 
     new events.Rule(this, 'MoltbookHeartbeatSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(33)),
-      targets: [new targets.LambdaFunction(moltbookHeartbeat)],
+      targets: [new targets.LambdaFunction(moltbookHeartbeat, {
+        deadLetterQueue: schedulerDlq,
+        retryAttempts: 2,
+        maxEventAge: cdk.Duration.hours(2),
+      })],
     });
 
     // Tweet Sender - Consumes POST_QUEUE for decoupled Twitter posting

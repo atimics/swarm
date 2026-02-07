@@ -143,12 +143,17 @@ const LLMConfigFileSchema = z.object({
   temperature: z.number().default(0.8),
   max_tokens: z.number().optional(),
   maxTokens: z.number().optional(),
+  timeout_ms: z.number().optional(),
+  timeoutMs: z.number().optional(),
 }).transform((val) => ({
   provider: val.provider,
   model: val.model,
   fallbackModel: val.fallbackModel || val.fallback_model,
   temperature: val.temperature,
   maxTokens: val.maxTokens ?? val.max_tokens ?? 1024,
+  ...((val.timeoutMs ?? val.timeout_ms) !== undefined
+    ? { timeoutMs: val.timeoutMs ?? val.timeout_ms }
+    : {}),
 }));
 
 const MediaConfigFileSchema = z.object({
@@ -326,6 +331,7 @@ export function loadAvatarConfigFromEnv(avatarId: string): AvatarConfig {
       model: process.env.LLM_MODEL || 'anthropic/claude-sonnet-4',
       temperature: parseFloat(process.env.LLM_TEMPERATURE || '0.8'),
       maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '1024', 10),
+      ...(process.env.LLM_TIMEOUT_MS ? { timeoutMs: parseInt(process.env.LLM_TIMEOUT_MS, 10) } : {}),
     },
     media: {
       image: {

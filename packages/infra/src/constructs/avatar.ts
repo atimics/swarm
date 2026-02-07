@@ -545,6 +545,12 @@ export class AvatarConstruct extends Construct {
         },
       });
 
+      const tweetScheduleDlq = new sqs.Queue(this, 'TweetScheduleDLQ', {
+        queueName: `${config.id}${suffix}-tweet-schedule-dlq`,
+        retentionPeriod: cdk.Duration.days(14),
+        encryption: sqs.QueueEncryption.SQS_MANAGED,
+      });
+
       // Schedule rule - parse cron string or use default
       const cronParts = scheduledTweet.cron?.split(' ') || [];
       new events.Rule(this, 'TweetSchedule', {
@@ -570,7 +576,11 @@ export class AvatarConstruct extends Construct {
               hour: '12,18',
               minute: '0',
             }),
-        targets: [new targets.LambdaFunction(tweetPoster)],
+        targets: [new targets.LambdaFunction(tweetPoster, {
+          deadLetterQueue: tweetScheduleDlq,
+          retryAttempts: 2,
+          maxEventAge: cdk.Duration.hours(2),
+        })],
       });
     }
 
