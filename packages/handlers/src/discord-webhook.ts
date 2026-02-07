@@ -12,6 +12,8 @@ import {
   createActivityService,
   createMessageEvaluator,
   logger,
+  CORRELATION_ID_ATTR,
+  extractCorrelationIdFromApiEvent,
   DEFAULT_LLM_MODEL,
   type AvatarConfig,
 } from '@swarm/core';
@@ -96,10 +98,12 @@ export async function handler(
   context: Context
 ): Promise<APIGatewayProxyResult> {
   const startTime = Date.now();
+  const correlationId = extractCorrelationIdFromApiEvent(event);
   logger.setContext({
     avatarId: AVATAR_ID,
     platform: 'discord',
     requestId: context.awsRequestId,
+    correlationId,
   });
 
   logger.info('Discord webhook received', {
@@ -231,6 +235,10 @@ export async function handler(
         traceId: {
           DataType: 'String',
           StringValue: traceId,
+        },
+        [CORRELATION_ID_ATTR]: {
+          DataType: 'String',
+          StringValue: correlationId,
         },
       },
       MessageGroupId: `${AVATAR_ID}#${envelope.conversationId}`,

@@ -27,6 +27,8 @@ import {
   logger,
   MessageQueueItemSchema,
   extractThinking,
+  CORRELATION_ID_ATTR,
+  extractCorrelationIdFromSqsRecord,
   // Unified prompt builder
   buildDynamicSystemPrompt,
   toolsToCategories,
@@ -1248,12 +1250,14 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
 
       const recordTraceId = record.messageAttributes?.traceId?.stringValue;
       const traceId = recordTraceId || envelope.traceId || randomUUID();
+      const correlationId = extractCorrelationIdFromSqsRecord(record);
 
       logger.setContext({
         avatarId,
         messageId: envelope.messageId,
         platform: envelope.platform,
         conversationId: envelope.conversationId,
+        correlationId,
         traceId,
       });
 
@@ -1384,6 +1388,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
         MessageBody: JSON.stringify(response),
         MessageAttributes: {
           traceId: { DataType: 'String', StringValue: traceId },
+          [CORRELATION_ID_ATTR]: { DataType: 'String', StringValue: correlationId },
         },
         MessageGroupId: `${avatarId}#${envelope.conversationId}`,
         MessageDeduplicationId: `resp_${avatarId}_${envelope.conversationId}_${envelope.messageId}`,

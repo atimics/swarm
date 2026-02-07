@@ -19,6 +19,8 @@ import {
   createMessageEvaluator,
   createStateService,
   logger,
+  CORRELATION_ID_ATTR,
+  extractCorrelationIdFromApiEvent,
   type AvatarConfig,
 } from '@swarm/core';
 
@@ -980,11 +982,12 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   const startTime = Date.now();
   const avatarId = event.pathParameters?.avatarId;
   const requestId = event.requestContext.requestId;
+  const correlationId = extractCorrelationIdFromApiEvent(event);
 
   const headers = lowerHeaders(event.headers);
   const traceId = headers['x-trace-id'] || randomUUID();
 
-  logger.setContext({ subsystem: 'telegram', avatarId, requestId, traceId });
+  logger.setContext({ subsystem: 'telegram', avatarId, requestId, correlationId, traceId });
   logger.info('Telegram webhook received', { event: 'request_received' });
 
   try {
@@ -1319,6 +1322,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
           }),
           MessageAttributes: {
             traceId: { DataType: 'String', StringValue: traceId },
+            [CORRELATION_ID_ATTR]: { DataType: 'String', StringValue: correlationId },
           },
           MessageGroupId: `${avatarId}#${envelope.conversationId}`,
           MessageDeduplicationId: envelope.metadata.idempotencyKey,
@@ -1532,6 +1536,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       }),
       MessageAttributes: {
         traceId: { DataType: 'String', StringValue: traceId },
+        [CORRELATION_ID_ATTR]: { DataType: 'String', StringValue: correlationId },
       },
       MessageGroupId: `${avatarId}#${envelope.conversationId}`,
       MessageDeduplicationId: envelope.metadata.idempotencyKey,

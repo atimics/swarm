@@ -17,6 +17,7 @@ import {
   createActivityService,
   createOutboundSender,
   logger,
+  extractCorrelationIdFromSqsRecord,
   DEFAULT_AVATAR_CONFIG,
   type AvatarConfig,
   type SwarmResponse,
@@ -221,6 +222,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
   for (const record of event.Records) {
     try {
       const traceId = record.messageAttributes?.traceId?.stringValue;
+      const correlationId = extractCorrelationIdFromSqsRecord(record);
 
       let response: SwarmResponse;
       try {
@@ -264,6 +266,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
         avatarId,
         platform: response.platform,
         conversationId: response.conversationId,
+        correlationId,
         traceId,
       });
 

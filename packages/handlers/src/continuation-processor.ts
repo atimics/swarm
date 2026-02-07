@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { logger } from '@swarm/core';
+import { logger, extractCorrelationIdFromSqsRecord } from '@swarm/core';
 import type {
   ContinuationMessage,
 } from '@swarm/core';
@@ -351,7 +351,8 @@ export async function handler(
     try {
       const recordTraceId = record.messageAttributes?.traceId?.stringValue;
       const traceId = recordTraceId || randomUUID();
-      logger.setContext({ traceId });
+      const correlationId = extractCorrelationIdFromSqsRecord(record);
+      logger.setContext({ correlationId, traceId });
 
       let msg: ContinuationMessage;
       try {
