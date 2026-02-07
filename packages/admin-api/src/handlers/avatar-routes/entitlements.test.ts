@@ -7,6 +7,7 @@
  *   GET          /avatars/{id}/effective-limits
  *   POST         /avatars/{id}/activate
  *   POST         /avatars/{id}/deactivate
+ *   GET          /avatars/{id}/audit-log
  */
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
@@ -19,6 +20,8 @@ let setEntitlementResult: unknown = {};
 let effectiveLimitsResult: unknown = { plan: 'free', limits: {}, source: 'default', entitlementStatus: 'active' };
 let activateResult: unknown = { success: true };
 let deactivateResult: unknown = { success: true };
+let recordAuditEventCalls: unknown[] = [];
+let listAuditEventsResult: unknown[] = [];
 let activationReadinessResult: unknown = {
   version: 'activation_readiness_v1',
   avatarId: 'avatar-1',
@@ -65,6 +68,14 @@ mock.module('../../services/activation-readiness.js', () => ({
   },
 }));
 
+mock.module('../../services/audit-log.js', () => ({
+  recordAuditEvent: async (params: unknown) => {
+    recordAuditEventCalls.push(params);
+    return { id: 'audit-mock', ...params as Record<string, unknown>, timestamp: Date.now() };
+  },
+  listAuditEvents: async () => listAuditEventsResult,
+}));
+
 mock.module('./runtime-sync.js', () => ({
   syncRuntimeContractForAvatar: async () => {},
   buildRuntimeAugmentations: async () => undefined,
@@ -87,6 +98,8 @@ beforeEach(() => {
   effectiveLimitsResult = { plan: 'free', limits: {}, source: 'default', entitlementStatus: 'active' };
   activateResult = { success: true };
   deactivateResult = { success: true };
+  recordAuditEventCalls = [];
+  listAuditEventsResult = [];
   activationReadinessResult = {
     version: 'activation_readiness_v1',
     avatarId: 'avatar-1',
@@ -341,6 +354,172 @@ describe('POST /avatars/{id}/deactivate', () => {
     expect(result!.statusCode).toBe(200);
     const body = parseBody(result!) as { success: boolean; status: string };
     expect(body.status).toBe('paused');
+  });
+});
+
+// =========================================================================
+// Audit logging on activate
+// =========================================================================
+describe('audit logging on activate', () => {
+  it('records audit event on successful activation', async () => {
+    getAvatarResult = {
+      ...MOCK_AVATAR,
+      status: 'draft',
+      platforms: { telegram: { enabled: true, botUsername: 'mybot' } },
+    };
+    activationReadinessResult = {
+      ...(activationReadinessResult as Record<string, unknown>),
+      avatarId: 'avatar-1',
+      gateStatus: 'pass',
+    };
+    const ctx = makeCtx({
+      method: 'POST',
+      path: '/avatars/avatar-1/activate',
+      effectiveIsAdmin: true,
+    });
+    const result = await handleEntitlementRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+    expect(recordAuditEventCalls.length).toBe(1);
+    const call = recordAuditEventCalls[0] as Record<string, unknown>;
+    expect(call.avatarId).toBe('avatar-1');
+    expect(call.eventType).toBe('activated');
+    expect(call.actorType).toBe('admin');
+  });
+
+  it('does not record audit event when activation is blocked', async () => {
+    getAvatarResult = { ...MOCK_AVATAR, platforms: {} };
+    activationReadinessResult = {
+      ...(activationReadinessResult as Record<string, unknown>),
+      avatarId: 'avatar-1',
+      gateStatus: 'fail',
+    };
+    const ctx = makeCtx({
+      method: 'POST',
+      path: '/avatars/avatar-1/activate',
+      effectiveIsAdmin: true,
+    });
+    const result = await handleEntitlementRoutes(ctx);
+    expect(result!.statusCode).toBe(409);
+    expect(recordAuditEventCalls.length).toBe(0);
+  });
+});
+
+// =========================================================================
+// Audit logging on deactivate
+// =========================================================================
+describe('audit logging on deactivate', () => {
+  it('records audit event on successful deactivation', async () => {
+    getAvatarResult = { ...MOCK_AVATAR, creatorWallet: 'wallet-1', status: 'active' };
+    const ctx = makeCtx({
+      method: 'POST',
+      path: '/avatars/avatar-1/deactivate',
+      body: JSON.stringify({ reason: 'scheduled maintenance' }),
+      walletAddress: 'wallet-1',
+      effectiveIsAdmin: false,
+    });
+    const result = await handleEntitlementRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+    expect(recordAuditEventCalls.length).toBe(1);
+    const call = recordAuditEventCalls[0] as Record<string, unknown>;
+    expect(call.avatarId).toBe('avatar-1');
+    expect(call.eventType).toBe('deactivated');
+    expect(call.actorType).toBe('owner');
+    const details = call.details as Record<string, unknown>;
+    expect(details.reason).toBe('scheduled maintenance');
+    expect(details.previousStatus).toBe('active');
+  });
+});
+
+// =========================================================================
+// Audit logging on entitlement change
+// =========================================================================
+describe('audit logging on entitlement change', () => {
+  it('records audit event when entitlement is set', async () => {
+    getAvatarResult = { ...MOCK_AVATAR };
+    setEntitlementResult = { plan: 'pro', status: 'active' };
+    const ctx = makeCtx({
+      method: 'PUT',
+      path: '/avatars/avatar-1/entitlement',
+      body: JSON.stringify({ plan: 'pro', accountId: 'acc-1' }),
+      effectiveIsAdmin: true,
+      accountId: 'acc-1',
+    });
+    const result = await handleEntitlementRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+    expect(recordAuditEventCalls.length).toBe(1);
+    const call = recordAuditEventCalls[0] as Record<string, unknown>;
+    expect(call.avatarId).toBe('avatar-1');
+    expect(call.eventType).toBe('entitlement_changed');
+    expect(call.actorType).toBe('admin');
+    const details = call.details as Record<string, unknown>;
+    expect(details.plan).toBe('pro');
+    expect(details.accountId).toBe('acc-1');
+  });
+});
+
+// =========================================================================
+// GET /avatars/{id}/audit-log
+// =========================================================================
+describe('GET /avatars/{id}/audit-log', () => {
+  it('returns audit events for admin', async () => {
+    listAuditEventsResult = [
+      {
+        id: 'audit-1',
+        avatarId: 'avatar-1',
+        eventType: 'activated',
+        actorId: 'admin@test.com',
+        actorType: 'admin',
+        details: {},
+        timestamp: Date.now(),
+      },
+    ];
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars/avatar-1/audit-log',
+      effectiveIsAdmin: true,
+    });
+    const result = await handleEntitlementRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+    const body = parseBody(result!) as { avatarId: string; events: unknown[]; count: number };
+    expect(body.avatarId).toBe('avatar-1');
+    expect(body.events.length).toBe(1);
+    expect(body.count).toBe(1);
+  });
+
+  it('non-admin gets 403', async () => {
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars/avatar-1/audit-log',
+      effectiveIsAdmin: false,
+    });
+    const result = await handleEntitlementRoutes(ctx);
+    expect(result!.statusCode).toBe(403);
+  });
+
+  it('returns empty array when no events exist', async () => {
+    listAuditEventsResult = [];
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars/avatar-1/audit-log',
+      effectiveIsAdmin: true,
+    });
+    const result = await handleEntitlementRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
+    const body = parseBody(result!) as { events: unknown[]; count: number };
+    expect(body.events).toEqual([]);
+    expect(body.count).toBe(0);
+  });
+
+  it('passes query parameters through', async () => {
+    listAuditEventsResult = [];
+    const ctx = makeCtx({
+      method: 'GET',
+      path: '/avatars/avatar-1/audit-log',
+      queryStringParameters: { eventType: 'activated', limit: '10', since: '1700000000000' },
+      effectiveIsAdmin: true,
+    });
+    const result = await handleEntitlementRoutes(ctx);
+    expect(result!.statusCode).toBe(200);
   });
 });
 

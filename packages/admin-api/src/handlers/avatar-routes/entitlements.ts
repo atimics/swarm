@@ -6,6 +6,7 @@
  * - GET        /avatars/{id}/effective-limits
  * - POST       /avatars/{id}/activate
  * - POST       /avatars/{id}/deactivate
+ * - GET        /avatars/{id}/audit-log
  */
 import type { APIGatewayProxyResultV2 } from 'aws-lambda';
 import type { RouteContext } from './types.js';
@@ -21,6 +22,21 @@ import {
   evaluateActivationReadiness,
   toLegacyActivationIssues,
 } from '../../services/activation-readiness.js';
+import * as auditLogService from '../../services/audit-log.js';
+import type { ActorType } from '../../services/audit-log.js';
+
+/**
+ * Resolve actor type from context: admin, owner, or inhabitant.
+ */
+function resolveActorType(
+  effectiveIsAdmin: boolean,
+  walletAddress: string | null,
+  avatar: { creatorWallet?: string | null; inhabitantWallet?: string | null } | null,
+): ActorType {
+  if (effectiveIsAdmin) return 'admin';
+  if (avatar && walletAddress && avatar.inhabitantWallet === walletAddress) return 'inhabitant';
+  return 'owner';
+}
 
 export async function handleEntitlementRoutes(
   ctx: RouteContext,
@@ -155,6 +171,27 @@ export async function handleEntitlementRoutes(
 
     await syncRuntimeContractForAvatar(avatarId);
 
+    // Audit: record entitlement change
+    try {
+      await auditLogService.recordAuditEvent({
+        avatarId,
+        eventType: 'entitlement_changed',
+        actorId,
+        actorType: resolveActorType(effectiveIsAdmin, walletAddress, avatar),
+        details: {
+          plan,
+          overrides: body?.overrides ?? null,
+          status: body?.status ?? null,
+          accountId,
+        },
+      });
+    } catch (err) {
+      logger.warn('Failed to record entitlement audit event', {
+        avatarId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return jsonResponse(corsHeaders, 200, {
       avatarId,
       entitlement,
@@ -283,6 +320,27 @@ export async function handleEntitlementRoutes(
       previousStatus: avatar.status,
     });
 
+    // Audit: record activation
+    try {
+      await auditLogService.recordAuditEvent({
+        avatarId,
+        eventType: 'activated',
+        actorId,
+        actorType: resolveActorType(effectiveIsAdmin, walletAddress, avatar),
+        details: {
+          previousStatus: avatar.status,
+          readinessVersion: ACTIVATION_READINESS_VERSION,
+          gateStatus: readiness.gateStatus,
+          readinessSummary: readiness.summary ?? null,
+        },
+      });
+    } catch (err) {
+      logger.warn('Failed to record activation audit event', {
+        avatarId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return jsonResponse(corsHeaders, 200, {
       success: true,
       avatarId,
@@ -327,10 +385,56 @@ export async function handleEntitlementRoutes(
       actor: actorId,
     });
 
+    // Audit: record deactivation
+    const body = JSON.parse(event.body || '{}');
+    try {
+      await auditLogService.recordAuditEvent({
+        avatarId,
+        eventType: 'deactivated',
+        actorId,
+        actorType: resolveActorType(effectiveIsAdmin, walletAddress, avatar),
+        details: {
+          previousStatus: avatar.status,
+          reason: body?.reason ?? null,
+        },
+      });
+    } catch (err) {
+      logger.warn('Failed to record deactivation audit event', {
+        avatarId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return jsonResponse(corsHeaders, 200, {
       success: true,
       avatarId,
       status: 'paused',
+    });
+  }
+
+  // ── GET /avatars/{id}/audit-log — Admin-only ────────────────────────────
+  const auditLogMatch = path.match(/^\/avatars\/([^/]+)\/audit-log$/);
+  if (method === 'GET' && auditLogMatch) {
+    if (!effectiveIsAdmin) {
+      return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
+    }
+
+    const avatarId = auditLogMatch[1];
+    const params = event.queryStringParameters || {};
+    const limit = params.limit ? Number.parseInt(params.limit, 10) : undefined;
+    const since = params.since ? Number.parseInt(params.since, 10) : undefined;
+    const eventType = params.eventType as auditLogService.AuditEventType | undefined;
+
+    const events = await auditLogService.listAuditEvents(avatarId, {
+      eventType,
+      limit,
+      since,
+    });
+
+    return jsonResponse(corsHeaders, 200, {
+      avatarId,
+      events,
+      count: events.length,
     });
   }
 
