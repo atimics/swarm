@@ -23,3 +23,10 @@ export {
   fetchWithRetry,
   type FetchRetryOptions,
 } from './fetch-retry.js';
+
+export {
+  CORRELATION_ID_ATTR,
+  generateCorrelationId,
+  extractCorrelationIdFromApiEvent,
+  extractCorrelationIdFromSqsRecord,
+} from './correlation.js';
