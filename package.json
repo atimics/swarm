@@ -25,6 +25,7 @@
     "diff:staging": "pnpm --filter @swarm/infra cdk diff -c environment=staging",
     "test:persona": "node scripts/test-persona.mjs",
     "test:browser": "node scripts/test-browser.mjs",
+    "canary:telegram": "bun run scripts/telegram-canary.ts",
     "prepare": "husky"
   },
   "keywords": [
