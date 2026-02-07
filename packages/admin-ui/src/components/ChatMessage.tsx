@@ -1,5 +1,5 @@
 import ReactMarkdown from 'react-markdown';
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { extractThinkingTags } from '../utils/thinkingTags';
 import type { ChatMessage as ChatMessageType, MessageSender } from '../types';
 import { useWalletAuth } from '../store';
@@ -530,7 +530,7 @@ function getFailedJobs(pendingJobs?: ChatMessageType['pendingJobs']) {
   return pendingJobs.filter(job => job.status === 'failed');
 }
 
-export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
+function ChatMessageInner({ message, onToolSubmit }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const hasPendingTools = message.toolCalls?.some(tc => tc.status === 'pending');
   const { isAuthenticated, inhabitAvatar } = useWalletAuth();
@@ -605,18 +605,9 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
       r.type !== 'twitter_status' && r.type !== 'model_list' && r.type !== 'unknown'
   );
   
-  // Filter out media generation tools for interactive display
-  const mediaToolNames = ['generate_image', 'generate_video', 'generate_sticker', 'get_my_gallery', 'send_voice_message', 'create_my_voice'];
-  const interactiveToolCalls = message.toolCalls?.filter(tc => !mediaToolNames.includes(tc.name)) ?? [];
-  
-  // DEBUG: Log tool calls to diagnose missing tool prompts
-  if (message.toolCalls && message.toolCalls.length > 0) {
-    console.log('[ChatMessage] Tool calls:', {
-      messageId: message.id,
-      allToolCalls: message.toolCalls.map(tc => ({ id: tc.id, name: tc.name, status: tc.status })),
-      interactiveToolCalls: interactiveToolCalls.map(tc => ({ id: tc.id, name: tc.name, status: tc.status })),
-    });
-  }
+  // Filter out auto-executed tools that don't need user input for interactive display
+  const autoExecutedTools = ['generate_image', 'generate_video', 'generate_sticker', 'get_my_gallery', 'send_voice_message', 'create_my_voice', 'update_my_profile'];
+  const interactiveToolCalls = message.toolCalls?.filter(tc => !autoExecutedTools.includes(tc.name)) ?? [];
   
   // Don't render empty bubbles - check if there's any visible content
   const hasVisibleContent = 
@@ -1282,3 +1273,5 @@ export function ChatMessage({ message, onToolSubmit }: ChatMessageProps) {
     </div>
   );
 }
+
+export const ChatMessage = memo(ChatMessageInner);

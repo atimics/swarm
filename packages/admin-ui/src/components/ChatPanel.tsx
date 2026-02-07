@@ -27,7 +27,9 @@ interface ChatPanelProps {
 export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
   const activeAvatar = useActiveAvatar();
   const messages = useActiveChat();
-  const { addMessage, updateMessage, removeMessage, clearChat, updateAvatar, setLoading, setError, createAvatar } = useAvatarStore();
+  // Extract action functions directly — they're stable references and don't
+  // need reactive subscriptions, avoiding full-store re-renders.
+  const { addMessage, updateMessage, removeMessage, clearChat, updateAvatar, setLoading, setError, createAvatar } = useAvatarStore.getState();
   const { user: user, isAuthenticated, gateStatus, account } = useAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -165,10 +167,11 @@ export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
     return 'chat'; // Can chat but no admin tools
   }, [isAuthenticated, user, activeAvatar, hasOrb]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom — depend on length, not reference, to avoid
+  // scroll-jacking when polling updates mutate the messages array.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages.length]);
 
   // Cancel pollers when switching avatars or unmounting
   useEffect(() => {
@@ -266,14 +269,6 @@ export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
           // Check if there's a pending tool call that needs user input
           const pendingToolCall = response.pendingToolCall;
           
-          // DEBUG: Log pendingToolCall to diagnose missing tool prompts
-          console.log('[ChatPanel] Response received:', {
-            hasContent: !!response.response,
-            contentLength: response.response?.length,
-            pendingToolCall: pendingToolCall ? { id: pendingToolCall.id, name: pendingToolCall.name } : null,
-            pendingJobsCount: response.pendingJobs?.length || 0,
-          });
-
           // Pending jobs can arrive either as structured `pendingJobs` OR embedded in tool-result text.
           const pendingJobsList = [...(response.pendingJobs || [])];
           
@@ -835,7 +830,7 @@ export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
   if (!activeAvatar) {
     // Show chat interface ready to create avatar on first message
     return (
-      <div className="flex-1 flex flex-col h-full bg-[var(--color-bg)]">
+      <div className="flex-1 flex flex-col h-full min-w-0 bg-[var(--color-bg)]">
         {/* Minimal header with menu button */}
         <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 lg:px-6 py-3 lg:py-4">
           <div className="flex items-center gap-3 lg:gap-4">
@@ -898,7 +893,7 @@ export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--color-bg)]">
+    <div className="flex-1 flex flex-col h-full min-w-0 bg-[var(--color-bg)]">
       {/* Avatar Header */}
       {shouldRenderHeader ? (
         <header className="bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border-b border-[var(--color-border)] px-4 lg:px-6 py-3 lg:py-4">
@@ -983,8 +978,8 @@ export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
       ) : null}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 lg:px-6 py-4">
-        <div className="max-w-3xl mx-auto space-y-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 lg:px-6 py-4">
+        <div className="max-w-3xl mx-auto space-y-4 w-full">
           {messages.map((message) => (
             <ChatMessageComponent 
               key={message.id} 
