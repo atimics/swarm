@@ -35,9 +35,20 @@ export default defineConfig({
         manualChunks(id) {
           if (id.includes('node_modules')) {
             // Core React (react, react-dom only - NOT react-based libraries)
-            if (id.includes('/react/') || id.includes('/react-dom/') || 
+            if (id.includes('/react/') || id.includes('/react-dom/') ||
                 id.includes('/scheduler/')) {
               return 'vendor-react-core';
+            }
+            // Markdown rendering pipeline
+            if (id.includes('react-markdown') || id.includes('remark') ||
+                id.includes('rehype') || id.includes('unified') ||
+                id.includes('mdast') || id.includes('micromark') ||
+                id.includes('hast')) {
+              return 'vendor-markdown';
+            }
+            // Auth providers
+            if (id.includes('@privy-io/')) {
+              return 'vendor-privy';
             }
             // Everything else stays in default vendor chunk
             // This avoids circular chunk issues between Solana <-> React adapters

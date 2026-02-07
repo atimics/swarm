@@ -359,13 +359,21 @@ export const useAvatarStore = create<AvatarState>()(
   )
 );
 
-// Selectors
-export const useActiveAvatar = () => {
-  const { avatars, activeAvatarId } = useAvatarStore();
-  return avatars.find((a) => a.id === activeAvatarId);
-};
+// Stable empty array to avoid new references when there is no chat
+const EMPTY_MESSAGES: ChatMessage[] = [];
 
-export const useActiveChat = () => {
-  const { chats, activeAvatarId } = useAvatarStore();
-  return activeAvatarId ? chats[activeAvatarId] || [] : [];
-};
+// Selectors — use targeted zustand subscriptions to avoid
+// re-rendering consumers on unrelated store changes.
+export const useActiveAvatar = () =>
+  useAvatarStore((state) =>
+    state.activeAvatarId
+      ? state.avatars.find((a) => a.id === state.activeAvatarId)
+      : undefined
+  );
+
+export const useActiveChat = () =>
+  useAvatarStore((state) =>
+    state.activeAvatarId
+      ? state.chats[state.activeAvatarId] ?? EMPTY_MESSAGES
+      : EMPTY_MESSAGES
+  );

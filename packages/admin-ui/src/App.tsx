@@ -1,11 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useAvatarStore } from './store';
 import { useWalletAuth } from './store/walletAuth';
 import { useAuth } from './store/auth';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
 import { getTwitterConnectionStatus } from './api/twitter';
 import { appendSystemMessage } from './api/chat';
-import { AvatarSidebar, ChatPanel, LandingPage, OnboardingWizard, PublicChatPage } from './components';
+import { AvatarSidebar, ChatPanel } from './components';
+
+// Lazy-load route-level components that aren't always needed
+const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
+const OnboardingWizard = lazy(() => import('./components/OnboardingWizard').then(m => ({ default: m.OnboardingWizard })));
+const PublicChatPage = lazy(() => import('./components/PublicChatPage').then(m => ({ default: m.PublicChatPage })));
+
+function LazyFallback() {
+  return (
+    <div className="flex-1 flex items-center justify-center bg-[var(--color-bg)]">
+      <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
 
 const TWITTER_OAUTH_STORAGE_KEY = 'swarm:oauth:twitter:lastResult';
 
@@ -74,10 +87,7 @@ function parseTwitterOAuthResultFromLocation(location: Location): TwitterOAuthRe
 }
 
 function App() {
-  // Debug: trace App render (should NOT appear on subdomains)
-  console.log('[App] Rendering - this should NOT appear on avatar subdomains');
-
-  const { avatars, fetchAvatars, activeAvatarId, syncChatHistory, setActiveAvatar, addMessage, chats, updateMessage } = useAvatarStore();
+  const { avatars, fetchAvatars, activeAvatarId, syncChatHistory, setActiveAvatar, addMessage, updateMessage } = useAvatarStore();
   const { checkAuth } = useWalletAuth();
   // Use unified auth to check both wallet and Crossmint authentication
   const { isAuthenticated } = useAuth();
@@ -291,7 +301,7 @@ function App() {
       }
 
       // Clear any twitter connection tool call messages (pending OR completed - status may have changed when user clicked Connect)
-      const avatarChats = chats[targetAvatarId] || [];
+      const avatarChats = useAvatarStore.getState().chats[targetAvatarId] || [];
       for (const msg of avatarChats) {
         if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' || tc.name === 'configure_integration')) {
           const updatedToolCalls = msg.toolCalls.map(tc =>
@@ -343,7 +353,7 @@ function App() {
       }
     } else {
       // On error, clear the tool call message (check both pending AND completed status)
-      const avatarChats = chats[targetAvatarId] || [];
+      const avatarChats = useAvatarStore.getState().chats[targetAvatarId] || [];
       for (const msg of avatarChats) {
         if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' || tc.name === 'configure_integration')) {
           const updatedToolCalls = msg.toolCalls.map(tc =>
@@ -377,7 +387,7 @@ function App() {
         content: errorContent,
       });
     }
-  }, [activeAvatarId, addMessage, chats, fetchAvatars, setActiveAvatar, syncChatHistory, updateMessage]);
+  }, [activeAvatarId, addMessage, fetchAvatars, setActiveAvatar, syncChatHistory, updateMessage]);
 
   // If we're in a popup window (OAuth redirect), close it
   // The main window will handle the result via localStorage storage event
@@ -457,7 +467,7 @@ function App() {
 
   // Show landing page for unauthenticated users
   if (!isAuthenticated) {
-    return <LandingPage />;
+    return <Suspense fallback={<LazyFallback />}><LandingPage /></Suspense>;
   }
 
   return (
@@ -481,7 +491,7 @@ function App() {
         {/* Sidebar - hidden on mobile unless toggled */}
         <div className={`
           fixed lg:relative inset-y-0 left-0 z-30 
-          transform transition-transform duration-200 ease-in-out
+          transform transition-transform duration-200 ease-in-out will-change-transform
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
           style={{ top: 'env(safe-area-inset-top, 0px)' }}
@@ -491,11 +501,13 @@ function App() {
 
         {/* Main Route Area */}
         {onboardingAvatarId ? (
-          <OnboardingWizard
-            avatarId={onboardingAvatarId}
-            onMenuClick={() => setSidebarOpen(true)}
-            onBackToChat={() => handleBackToChat(onboardingAvatarId)}
-          />
+          <Suspense fallback={<LazyFallback />}>
+            <OnboardingWizard
+              avatarId={onboardingAvatarId}
+              onMenuClick={() => setSidebarOpen(true)}
+              onBackToChat={() => handleBackToChat(onboardingAvatarId)}
+            />
+          </Suspense>
         ) : (
           <ChatPanel
             onMenuClick={() => setSidebarOpen(true)}
@@ -517,9 +529,8 @@ export default App;
 
 export function AppRouter() {
   const botIdFromHost = getBotIdFromHostname(window.location.hostname);
-  console.log('[AppRouter] hostname:', window.location.hostname, 'botId:', botIdFromHost);
   if (botIdFromHost) {
-    return <PublicChatPage botId={botIdFromHost} />;
+    return <Suspense fallback={<LazyFallback />}><PublicChatPage botId={botIdFromHost} /></Suspense>;
   }
   return <App />;
 }
