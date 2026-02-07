@@ -5,8 +5,8 @@ This roadmap focuses on product and platform milestones.
 **Last reviewed:** 2026-02-07
 
 ## Current focus (early Feb 2026)
-- **M1 is the active milestone.** Auth/onboarding shipped. Entitlements schema + runtime enforcement shipped. Billing posture decided: manual entitlements + Orb-holder auto-boost for M1, Stripe deferred to M2.
-- Next highest-leverage work: unify energy as burst pool within entitlements (eliminate double-gating), Orb-holder auto-boost, memory delete/export, deploy audit logging, observability baseline, E2E validation.
+- **M1 is nearing completion.** Auth/onboarding, entitlements, energy unification, Orb-holder auto-boost, ascension→Pro, memory delete/export/TTL, deploy audit logging, and correlation IDs all shipped.
+- Remaining M1 work: CloudWatch dashboards/DLQ alarms, staging Telegram canary, operational runbook.
 - See [docs/BILLING-STRATEGY.md](docs/BILLING-STRATEGY.md) for the unified web3+web2 billing model.
 
 For the execution-level, MVP-focused plan (2-week slices and P0→P3 sequencing), see:
@@ -14,11 +14,11 @@ For the execution-level, MVP-focused plan (2-week slices and P0→P3 sequencing)
 
 ## Near (0-3 months)
 Milestone M1: Paid Telegram MVP
-- ~~Billing and entitlements with runtime enforcement.~~ **Done.** Manual entitlements + atomic enforcement. Orb-holder auto-boost and energy unification remaining.
-- Memory opt-in (schema + gating done); retention TTL and delete/export remaining.
-- ~~Deploy or activate from admin UI and API.~~ **Done.** Readiness gates + activation endpoints shipped.
+- ~~Billing and entitlements with runtime enforcement.~~ **Done.** Manual entitlements + atomic enforcement + Orb-holder auto-boost + energy as burst pool.
+- ~~Memory opt-in with retention and management.~~ **Done.** Schema, gating, retention TTL, delete, and export endpoints shipped.
+- ~~Deploy or activate from admin UI and API.~~ **Done.** Readiness gates + activation endpoints + audit logging shipped.
 - ~~Authentication improvements (wallet + Crossmint).~~ **Done.** Full onboarding overhaul (SWARM-011 through SWARM-020).
-- Structured logging with correlation IDs and basic dashboards (partial).
+- ~~Structured logging with correlation IDs.~~ **Done.** Correlation ID propagation across webhook→SQS→handler chain. CloudWatch dashboards remaining.
 - End-to-end Telegram canary and operational runbook (not started).
 
 ## Medium (3-9 months)

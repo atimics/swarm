@@ -3,7 +3,7 @@
 Goal: deliver a self-serve paid Telegram avatar with enforced entitlements, opt-in
 memory, and a deploy or activate flow.
 
-**Last reviewed:** 2026-01-25
+**Last reviewed:** 2026-02-07
 
 ## Milestone definition
 - Create avatar in admin UI, connect Telegram, purchase plan or apply entitlement,
@@ -31,23 +31,23 @@ Reference spec: `docs/AUTHENTICATION-IMPROVEMENTS.md`
 - [x] Define an entitlement schema (plan, limits, memory flags) shared by admin API and runtime packages. `EntitlementRecord` + `PlanLimits` + `RuntimeContract` in `admin-api/src/types.ts` and `handlers/src/services/entitlement-enforcement.ts`.
 - [x] Store entitlements in DynamoDB and expose them via admin API. `admin-api/src/services/entitlements.ts`, routes in `admin-api/src/handlers/avatar-routes/entitlements.ts`.
 - [x] Enforce entitlements in runtime handlers (message processor, media tools, voice tools). Atomic DynamoDB conditionals in `handlers/src/services/entitlement-enforcement.ts`.
-- [ ] Unify energy system as burst pool within entitlement limits (eliminate double-gating).
-- [ ] Auto-boost entitlement limits for Orb holders via `syncRuntimeLimitsToState()`.
+- [x] Unify energy system as burst pool within entitlement limits (eliminate double-gating). Media/voice ops check entitlement daily limit first; energy consumed only as burst fallback. Enterprise users (limit=-1) never touch energy.
+- [x] Auto-boost entitlement limits for Orb holders via `syncRuntimeLimitsToState()`. Free-tier avatars with Orb NFTs get boosted limits (100 msg, 15 media, 5 voice, 5 tools).
 
 ### Memory opt-in and retention
 - [x] Add memory configuration fields (enabled, retentionDays) to avatar config. `memoryEnabled`, `memoryRetentionDays`, `maxMemoriesPerTier` in `PlanLimits`.
 - [x] Default free tier to no durable memory writes. `FREE_TIER_LIMITS.memoryEnabled = false`; enforced by `isMemoryWriteAllowed()`.
-- [ ] Implement deletion and export endpoints for paid memory.
-- [ ] Enforce retention policy via TTL or scheduled cleanup.
+- [x] Implement deletion and export endpoints for paid memory. `DELETE /avatars/:id/memories/:memoryId`, `DELETE /avatars/:id/memories` (bulk), `GET /avatars/:id/memories/export`.
+- [x] Enforce retention policy via TTL or scheduled cleanup. `memoryRetentionTtl` field set on write; DynamoDB TTL handles expiry.
 
 ### Deploy and activate flow
 - [x] Add admin API endpoint to trigger deploy or activation. `POST /avatars/{id}/activate` and `/deactivate` with readiness gates in `activation-readiness.ts`.
 - [x] Add admin UI control to call deploy and show status. Onboarding wizard activation step (SWARM-015/017).
-- [ ] Record deploy events in the audit log.
+- [x] Record deploy events in the audit log. `admin-api/src/services/audit-log.ts` with `logAuditEvent()` wired into deploy, entitlement, and activation flows.
 
 ### Observability and reliability
-- [ ] Add shared logger helper with correlation IDs.
-- [ ] Propagate requestId and avatarId across webhook, SQS, and handlers.
+- [x] Add shared logger helper with correlation IDs. `core/src/utils/correlation.ts` with `generateCorrelationId()` and `extractCorrelationId()`.
+- [x] Propagate requestId and avatarId across webhook, SQS, and handlers. Webhook → SQS message attribute → message-processor → response-sender.
 - [ ] Add basic CloudWatch dashboard and DLQ alarms.
 
 ### End-to-end validation

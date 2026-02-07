@@ -42,11 +42,11 @@ AWS Swarm has a solid foundation with NFT-based access control, credit-based rat
 | Entitlements Storage | **Complete** | P0 | — |
 | Runtime Enforcement | **Complete** | P0 | — |
 | Memory Configuration | **Complete** (schema + gating) | P1 | — |
-| Memory Retention/TTL | Not Started | P1 | M1 MVP |
-| Memory Delete/Export | Not Started | P1 | M1 MVP |
+| Memory Retention/TTL | **Complete** (DynamoDB TTL on write) | P1 | — |
+| Memory Delete/Export | **Complete** (delete + bulk delete + export endpoints) | P1 | — |
 | Deploy/Activate Flow | **Complete** (activate + readiness gates) | P1 | — |
-| Energy-Entitlement Unification | Not Started | P1 | M1 MVP |
-| Orb-Holder Auto-Boost | Not Started | P1 | M1 MVP |
+| Energy-Entitlement Unification | **Complete** (energy as burst pool) | P1 | — |
+| Orb-Holder Auto-Boost | **Complete** (boosted limits for Orb holders) | P1 | — |
 | Stripe Integration | Deferred to M2 | P2 | M2 |
 | Usage Dashboards | Not Started | P2 | M2 |
 | CloudWatch Alarms | Partial (no actions) | P2 | M1 |
@@ -186,11 +186,11 @@ interface MemoryConfig {
 | Manual Pro | Per entitlement | Pro limits | Energy + Pro | Admin-assigned |
 | Enterprise | Per entitlement | Unlimited | Unlimited | Custom deal |
 
-**Remaining implementation:**
-1. Unify energy as burst pool within entitlement limits (eliminate double-gating)
-2. Auto-boost entitlement params for Orb holders in `syncRuntimeLimitsToState()`
-3. Map Ascension to permanent Pro-equivalent entitlement
-4. Stripe integration deferred to M2
+**Implementation status:**
+1. ~~Unify energy as burst pool within entitlement limits (eliminate double-gating)~~ **Done.** `entitlement-enforcement.ts` checks daily limit first; energy is burst fallback only.
+2. ~~Auto-boost entitlement params for Orb holders in `syncRuntimeLimitsToState()`~~ **Done.** `runtime-limits.ts` applies Orb-holder boost to free-tier avatars.
+3. ~~Map Ascension to permanent Pro-equivalent entitlement~~ **Done.** `avatar-ascend.ts` grants Pro plan on ascension.
+4. Stripe integration deferred to M2.
 
 ---
 
