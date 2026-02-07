@@ -81,27 +81,29 @@ mock.module('@solana/web3.js', () => ({
   },
 }));
 
-// Mock @aws-sdk DynamoDB (needed by avatar-ascend module-level init)
+// Mock @aws-sdk DynamoDB (needed by avatar-ascend module-level init).
+// IMPORTANT: mock classes must have `send` on the prototype so that
+// spyOn(DynamoDBClient.prototype, 'send') in later test files still works
+// (bun:test mock.module is process-global and persistent).
 mock.module('@aws-sdk/client-dynamodb', () => ({
-  DynamoDBClient: class {
+  DynamoDBClient: class MockDynamoDBClient {
     constructor() {}
+    async send(_command: unknown) { return {}; }
   },
 }));
 
-mock.module('@aws-sdk/lib-dynamodb', () => ({
-  DynamoDBDocumentClient: {
-    from: () => ({ send: async () => ({}) }),
-  },
-  GetCommand: class {
-    constructor(public input: unknown) {}
-  },
-  UpdateCommand: class {
-    constructor(public input: unknown) {}
-  },
-  PutCommand: class {
-    constructor(public input: unknown) {}
-  },
-}));
+mock.module('@aws-sdk/lib-dynamodb', () => {
+  class MockDynamoDBDocumentClient {
+    static from() { return new MockDynamoDBDocumentClient(); }
+    async send(_command: unknown) { return {}; }
+  }
+  return {
+    DynamoDBDocumentClient: MockDynamoDBDocumentClient,
+    GetCommand: class { constructor(public input: unknown) {} },
+    UpdateCommand: class { constructor(public input: unknown) {} },
+    PutCommand: class { constructor(public input: unknown) {} },
+  };
+});
 
 mock.module('@swarm/core', () => ({
   RATI_MINT: 'mock-rati-mint',

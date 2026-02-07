@@ -1,5 +1,6 @@
-import { describe, it, expect, spyOn } from 'bun:test';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { GetCommand, PutCommand, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
 // Ensure env is set before importing module under test.
 process.env.ADMIN_TABLE = process.env.ADMIN_TABLE || 'ADMIN_TABLE_TEST';
@@ -7,11 +8,24 @@ process.env.ADMIN_TABLE = process.env.ADMIN_TABLE || 'ADMIN_TABLE_TEST';
 import {
   registerHomeChannel,
   removeAvatarFromAllHomeChannels,
+  _setDynamoClient,
 } from './home-channel.js';
+
+// ── Mock DynamoDB client ────────────────────────────────────────────────────
+const mockSend = mock(() => Promise.resolve({} as unknown));
+
+beforeEach(() => {
+  mockSend.mockReset();
+  _setDynamoClient({ send: mockSend } as unknown as DynamoDBDocumentClient);
+});
+
+afterEach(() => {
+  _setDynamoClient(null);
+});
 
 describe('home-channel registry', () => {
   it('does not overwrite owner when chatId already registered; appends registeredAvatars', async () => {
-    const sendSpy = spyOn(DynamoDBDocumentClient.prototype, 'send').mockImplementation(async (cmd: any) => {
+    mockSend.mockImplementation(async (cmd: any) => {
       if (cmd instanceof GetCommand) {
         return {
           Item: {
@@ -42,16 +56,11 @@ describe('home-channel registry', () => {
     });
 
     await registerHomeChannel('new-avatar', '-1001', 'newbot');
-
-    sendSpy.mockRestore();
   });
 
   it('removes avatar from all home channels (transfer owner or delete)', async () => {
-    const sendSpy = spyOn(DynamoDBDocumentClient.prototype, 'send').mockImplementation(async (cmd: any) => {
+    mockSend.mockImplementation(async (cmd: any) => {
       if (cmd instanceof QueryCommand) {
-        // Two records:
-        // - record A owned by avatar-to-delete but has another registrant -> should Put w/ transferred owner
-        // - record B owned by someone else but includes avatar-to-delete -> should Put w/ avatar removed
         return {
           Items: [
             {
@@ -114,7 +123,5 @@ describe('home-channel registry', () => {
     });
 
     await removeAvatarFromAllHomeChannels('dead-avatar');
-
-    sendSpy.mockRestore();
   });
 });

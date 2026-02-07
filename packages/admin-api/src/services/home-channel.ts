@@ -19,10 +19,17 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import type { HomeChannelRecord } from '../types.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+let dynamoClient: DynamoDBDocumentClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
+
+/** @internal Test-only: inject a mock DynamoDB client. Pass null to restore the default. */
+export function _setDynamoClient(client: DynamoDBDocumentClient | null): void {
+  dynamoClient = client ?? DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+    marshallOptions: { removeUndefinedValues: true },
+  });
+}
 
 // In-memory cache for home channels (60 second TTL)
 const HOME_CHANNEL_CACHE_TTL_MS = 60_000;
