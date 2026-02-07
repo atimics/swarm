@@ -54,8 +54,42 @@ export interface EffectiveLimitsResult {
   avatarId: string;
   plan: PlanType;
   limits: PlanLimits;
-  source: 'entitlement' | 'default';
+  source: 'entitlement' | 'default' | 'free+orb_boost';
   entitlementStatus?: EntitlementRecord['status'];
+}
+
+/**
+ * Boosted limits applied to free-tier avatars whose creator or inhabitant
+ * holds at least one Gate NFT (Orb).  The boost augments the free-tier
+ * defaults without changing the plan itself, so billing stays on 'free'.
+ */
+export const ORB_HOLDER_BOOST: Partial<PlanLimits> = {
+  dailyMessageLimit: 100,
+  dailyMediaCredits: 15,
+  dailyVoiceMinutes: 5,
+  maxToolCallsPerMessage: 5,
+};
+
+/**
+ * Apply Orb-holder boost to an EffectiveLimitsResult.
+ *
+ * Only applies when the resolved plan is 'free'.  Returns the original
+ * result untouched for any paid plan (pro / enterprise) since those
+ * already exceed the boost values.
+ */
+export function applyOrbHolderBoost(
+  result: EffectiveLimitsResult,
+): EffectiveLimitsResult {
+  if (result.plan !== 'free') return result;
+
+  return {
+    ...result,
+    source: 'free+orb_boost',
+    limits: {
+      ...result.limits,
+      ...ORB_HOLDER_BOOST,
+    },
+  };
 }
 
 export function getEffectiveLimitsForAvatar(

@@ -35,10 +35,13 @@ import { getEnergyStatus, getEnergyBankBalance } from '../services/energy.js';
 import { getEntitlement } from '../services/entitlements.js';
 import {
   getEffectiveLimitsForAvatar,
+  applyOrbHolderBoost,
   toRuntimeLimits,
   syncRuntimeLimitsToState,
   type RuntimeAugmentations,
 } from '../services/runtime-limits.js';
+import { getAvatar } from '../services/avatars.js';
+import { checkNFTGate } from '../services/nft-gate.js';
 import { handleCrossmintAuth } from './crossmint-auth.js';
 import { handlePrivyAuth } from './privy-auth.js';
 import {
@@ -144,7 +147,25 @@ async function buildRuntimeAugmentations(avatarId: string): Promise<RuntimeAugme
 
 async function syncRuntimeContractForAvatar(avatarId: string): Promise<void> {
   const entitlement = await getEntitlement(avatarId);
-  const effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
+  let effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
+
+  // Orb-holder auto-boost: if on free plan, check if creator/inhabitant
+  // holds Gate NFTs and apply boosted limits.
+  if (effective.plan === 'free') {
+    try {
+      const avatar = await getAvatar(avatarId);
+      const walletToCheck = avatar?.inhabitantWallet ?? avatar?.creatorWallet;
+      if (walletToCheck) {
+        const nftResult = await checkNFTGate(walletToCheck);
+        if (nftResult.ownedCount >= 1) {
+          effective = applyOrbHolderBoost(effective);
+        }
+      }
+    } catch {
+      // Swallow errors - boost is best-effort, never blocks sync
+    }
+  }
+
   const augmentations = await buildRuntimeAugmentations(avatarId);
   await syncRuntimeLimitsToState({
     avatarId,

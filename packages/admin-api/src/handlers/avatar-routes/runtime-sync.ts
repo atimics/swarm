@@ -9,8 +9,11 @@ import { logger } from '@swarm/core';
 import * as burnStatsService from '../../services/burn-stats.js';
 import * as energyService from '../../services/energy.js';
 import * as entitlementsService from '../../services/entitlements.js';
+import * as avatarsService from '../../services/avatars.js';
+import { checkNFTGate } from '../../services/nft-gate.js';
 import {
   getEffectiveLimitsForAvatar,
+  applyOrbHolderBoost,
   toRuntimeLimits,
   syncRuntimeLimitsToState,
   type RuntimeAugmentations,
@@ -94,7 +97,15 @@ export async function syncRuntimeContractForAvatar(
   avatarId: string,
 ): Promise<void> {
   const entitlement = await entitlementsService.getEntitlement(avatarId);
-  const effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
+  let effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
+
+  // If the avatar is on the free plan, check whether the creator or
+  // inhabitant wallet holds at least one Gate NFT (Orb).  If so, apply
+  // the Orb-holder boost to raise limits above free-tier defaults.
+  if (effective.plan === 'free') {
+    effective = await maybeApplyOrbBoost(avatarId, effective);
+  }
+
   const augmentations = await buildRuntimeAugmentations(avatarId);
   await syncRuntimeLimitsToState({
     avatarId,
@@ -104,4 +115,39 @@ export async function syncRuntimeContractForAvatar(
     entitlementStatus: effective.entitlementStatus,
     augmentations,
   });
+}
+
+/**
+ * Check whether the avatar's creator or inhabitant wallet holds 1+ Orbs
+ * and, if so, return boosted limits.  Falls back to the original result
+ * on any error so the sync never fails because of NFT checks.
+ */
+async function maybeApplyOrbBoost(
+  avatarId: string,
+  effective: ReturnType<typeof getEffectiveLimitsForAvatar>,
+): Promise<ReturnType<typeof getEffectiveLimitsForAvatar>> {
+  try {
+    const avatar = await avatarsService.getAvatar(avatarId);
+    if (!avatar) return effective;
+
+    // Prefer inhabitant wallet, fall back to creator wallet
+    const walletToCheck = avatar.inhabitantWallet ?? avatar.creatorWallet;
+    if (!walletToCheck) return effective;
+
+    const nftResult = await checkNFTGate(walletToCheck);
+    if (nftResult.ownedCount >= 1) {
+      logger.info('Orb holder boost applied', {
+        avatarId,
+        wallet: walletToCheck.slice(0, 8) + '...',
+        orbsHeld: nftResult.ownedCount,
+      });
+      return applyOrbHolderBoost(effective);
+    }
+  } catch (err) {
+    logger.warn('Failed to check Orb holdings for boost; using base limits', {
+      avatarId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return effective;
 }
