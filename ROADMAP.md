@@ -2,23 +2,24 @@
 
 This roadmap focuses on product and platform milestones.
 
-**Last reviewed:** 2026-01-25
+**Last reviewed:** 2026-02-07
 
-## Current focus (late Jan 2026)
-- **M1 is the active milestone.** Auth/onboarding foundations (Account+Identity, cookie/session consistency, explicit link vs switch) are largely shipped.
-- Next highest-leverage work is: Telegram setup diagnostics/verification UX, access-mode hardening, then entitlements + runtime enforcement + memory opt-in.
+## Current focus (early Feb 2026)
+- **M1 is the active milestone.** Auth/onboarding shipped. Entitlements schema + runtime enforcement shipped. Billing posture decided: manual entitlements + Orb-holder auto-boost for M1, Stripe deferred to M2.
+- Next highest-leverage work: unify energy as burst pool within entitlements (eliminate double-gating), Orb-holder auto-boost, memory delete/export, deploy audit logging, observability baseline, E2E validation.
+- See [docs/BILLING-STRATEGY.md](docs/BILLING-STRATEGY.md) for the unified web3+web2 billing model.
 
 For the execution-level, MVP-focused plan (2-week slices and P0→P3 sequencing), see:
 - [docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md](docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md)
 
 ## Near (0-3 months)
 Milestone M1: Paid Telegram MVP
-- Billing and entitlements with runtime enforcement (manual entitlements are acceptable for MVP; Stripe can follow).
-- Memory opt-in and retention defaults (stateless free tier).
-- Deploy or activate from admin UI and API.
-- Authentication improvements (wallet + Crossmint): cookie/session consistency, backend-session bootstrap, explicit identity linking (Account + Identity), and account-level gating.
-- Structured logging with correlation IDs and basic dashboards.
-- End-to-end Telegram canary and operational runbook.
+- ~~Billing and entitlements with runtime enforcement.~~ **Done.** Manual entitlements + atomic enforcement. Orb-holder auto-boost and energy unification remaining.
+- Memory opt-in (schema + gating done); retention TTL and delete/export remaining.
+- ~~Deploy or activate from admin UI and API.~~ **Done.** Readiness gates + activation endpoints shipped.
+- ~~Authentication improvements (wallet + Crossmint).~~ **Done.** Full onboarding overhaul (SWARM-011 through SWARM-020).
+- Structured logging with correlation IDs and basic dashboards (partial).
+- End-to-end Telegram canary and operational runbook (not started).
 
 ## Medium (3-9 months)
 Milestone M2: Multi-platform parity

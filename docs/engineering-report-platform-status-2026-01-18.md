@@ -129,7 +129,65 @@ This report consolidates the four engineering reports from 2026-01-18 into a sin
 
 ---
 
+## Discord Integration Status (Updated 2026-02-07)
+
+Discord is explicitly **out of scope for M1** (see PLAN.md) and targeted for feature parity with Telegram in **M2 (3-9 months)**.
+
+### What's implemented (~70%)
+
+| Area | Status | Evidence |
+|------|--------|----------|
+| Core adapter (webhook + bot + hybrid modes) | Implemented | `packages/core/src/platforms/discord.ts` (683 LOC) |
+| Ed25519 signature verification | Implemented | `DiscordAdapter.verifyRequest()` |
+| Message + interaction parsing | Implemented | `parseMessage()`, `parseInteraction()`, `parseMessageEvent()` |
+| Gateway WebSocket worker | Implemented | `packages/handlers/src/discord-gateway.ts` (424 LOC) |
+| Webhook Lambda handler | Implemented | `packages/handlers/src/discord-webhook.ts` (276 LOC) |
+| Admin API service (status, messaging, channels, guilds) | Implemented | `packages/admin-api/src/services/discord.ts` (585 LOC) |
+| MCP tool definitions (13 tools) | Implemented | `packages/mcp-server/src/tools/discord.ts` (733 LOC) |
+| CDK infra (webhook Lambda + ECS gateway) | Implemented | `packages/infra/src/constructs/avatar.ts`, `shared.ts` |
+
+### Known gaps
+
+| Gap | Severity | Detail |
+|-----|----------|--------|
+| `setPresence()` not implemented | Medium | MCP tool `discord_set_status` defined but backend function missing; returns fallback message |
+| `getChannelSummary()` not implemented | Low | Falls back to basic message count |
+| No rate limiting | High (for production) | Discord enforces 10 req/10sec per channel; no throttling in codebase |
+| `MESSAGE_CONTENT` privileged intent not validated | Medium | Gateway assumes bot has privileged intent approval; silent message drops if missing |
+| Webhook ignores `channelId` parameter | Medium | `sendMessage()` always routes to stored webhook URL regardless of target channel |
+| No slash command registration flow | Low | Tool infrastructure exists but no dynamic command registration |
+| No thread/forum support | Low | Not handled |
+| No message edit/delete | Low | Send-only |
+| Interaction token expiry not handled gracefully | Low | 15-min tokens; no timeout error handling |
+| Fargate gateway has no health checks or auto-scaling | Medium | Always 1 instance, no graceful shutdown for reconnection |
+| Zero tests for Discord adapter | High | SWARM-007 Phase 3 scope; not yet started |
+
+### Comparison with Telegram
+
+| Capability | Telegram | Discord |
+|------------|----------|---------|
+| Production maturity | ~95% (stable MVP) | ~70% (beta, deferred) |
+| Home channel redirection | Yes | No |
+| DM/channel allowlisting | Yes | No |
+| Rate limiting | Handled | None |
+| Integration tests | Comprehensive | None |
+| Diagnostics/runbook | Yes (SWARM-016) | None |
+| Admin tooling | Full setup/verify flow | Basic connection status |
+
+### M2 path to parity
+
+1. Implement `setPresence()` backend
+2. Add rate limiting middleware for Discord API calls
+3. Add intents validation on gateway startup
+4. Fix webhook channel targeting logic
+5. Add Discord-specific tests (SWARM-007 Phase 3)
+6. Create Discord operational runbook
+7. Implement slash command registration
+8. Add thread/forum support
+
+---
+
 ## Notes on This Consolidation
 
-- This report is intentionally **evidence-based** (items listed as “done” are backed by repository code paths).
+- This report is intentionally **evidence-based** (items listed as "done" are backed by repository code paths).
 - The superseded reports were kept highly actionable but overlapped heavily; this doc replaces them to reduce drift.

@@ -27,22 +27,22 @@ Reference spec: `docs/AUTHENTICATION-IMPROVEMENTS.md`
 - [x] Encode and cover remaining onboarding UX requirements in `packages/plan-tests/authentication-signup.todo.test.ts` (no pending TODOs).
 
 ### Billing and entitlements
-- [ ] Decide M1 billing posture (manual entitlements first vs Stripe-first) and document it in `ROADMAP.md` and `README.md`.
-- [ ] Define an entitlement schema (plan, limits, memory flags) shared by admin API
-      and runtime packages.
-- [ ] Store entitlements in DynamoDB and expose them via admin API.
-- [ ] Enforce entitlements in runtime handlers (message processor, media tools,
-      voice tools).
+- [x] Decide M1 billing posture: **manual entitlements + Orb-holder auto-boost; Stripe deferred to M2.** Energy system unified as burst pool within entitlement framework. See `docs/BILLING-STRATEGY.md`.
+- [x] Define an entitlement schema (plan, limits, memory flags) shared by admin API and runtime packages. `EntitlementRecord` + `PlanLimits` + `RuntimeContract` in `admin-api/src/types.ts` and `handlers/src/services/entitlement-enforcement.ts`.
+- [x] Store entitlements in DynamoDB and expose them via admin API. `admin-api/src/services/entitlements.ts`, routes in `admin-api/src/handlers/avatar-routes/entitlements.ts`.
+- [x] Enforce entitlements in runtime handlers (message processor, media tools, voice tools). Atomic DynamoDB conditionals in `handlers/src/services/entitlement-enforcement.ts`.
+- [ ] Unify energy system as burst pool within entitlement limits (eliminate double-gating).
+- [ ] Auto-boost entitlement limits for Orb holders via `syncRuntimeLimitsToState()`.
 
 ### Memory opt-in and retention
-- [ ] Add memory configuration fields (enabled, retentionDays) to avatar config.
-- [ ] Default free tier to no durable memory writes.
+- [x] Add memory configuration fields (enabled, retentionDays) to avatar config. `memoryEnabled`, `memoryRetentionDays`, `maxMemoriesPerTier` in `PlanLimits`.
+- [x] Default free tier to no durable memory writes. `FREE_TIER_LIMITS.memoryEnabled = false`; enforced by `isMemoryWriteAllowed()`.
 - [ ] Implement deletion and export endpoints for paid memory.
 - [ ] Enforce retention policy via TTL or scheduled cleanup.
 
 ### Deploy and activate flow
-- [ ] Add admin API endpoint to trigger deploy or activation.
-- [ ] Add admin UI control to call deploy and show status.
+- [x] Add admin API endpoint to trigger deploy or activation. `POST /avatars/{id}/activate` and `/deactivate` with readiness gates in `activation-readiness.ts`.
+- [x] Add admin UI control to call deploy and show status. Onboarding wizard activation step (SWARM-015/017).
 - [ ] Record deploy events in the audit log.
 
 ### Observability and reliability

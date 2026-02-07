@@ -52,16 +52,20 @@ Reference:
 ## P1 (Week 3–6): paid plans + enforcement (the MVP core)
 
 ### P1.1 Billing decision + entitlement schema
-- Decide billing provider + plan model (Stripe vs manual entitlements).
-- Define a shared entitlement schema used by Admin API and runtime.
-- Store entitlements in DynamoDB and expose via Admin API.
+- **Decision (2026-02-07):** Manual entitlements + Orb-holder auto-boost for M1. Stripe deferred to M2. Energy system unified as burst pool within entitlement framework. See [BILLING-STRATEGY.md](BILLING-STRATEGY.md).
+- ~~Decide billing provider + plan model (Stripe vs manual entitlements).~~ **Done.**
+- ~~Define a shared entitlement schema used by Admin API and runtime.~~ **Done.** `EntitlementRecord` + `PlanLimits` + `RuntimeContract`.
+- ~~Store entitlements in DynamoDB and expose via Admin API.~~ **Done.** `entitlements.ts` + `avatar-routes/entitlements.ts`.
+- **Remaining:** Unify energy as burst pool within entitlement limits; auto-boost for Orb holders.
 
 Reference:
 - [PLAN.md](../PLAN.md)
+- [BILLING-STRATEGY.md](BILLING-STRATEGY.md)
 
 ### P1.2 Runtime enforcement
-- Enforce entitlements in runtime handlers (message processor, media tools, voice tools).
-- Default free tier to **no durable memory writes**.
+- ~~Enforce entitlements in runtime handlers (message processor, media tools, voice tools).~~ **Done.** Atomic DynamoDB conditionals in `entitlement-enforcement.ts`.
+- ~~Default free tier to **no durable memory writes**.~~ **Done.** `isMemoryWriteAllowed()` checks `memoryEnabled`.
+- **Remaining:** Unify energy + entitlement enforcement to eliminate double-gating on media/voice operations.
 
 Reference:
 - [PLAN.md](../PLAN.md)

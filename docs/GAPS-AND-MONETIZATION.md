@@ -15,33 +15,41 @@ AWS Swarm has a solid foundation with NFT-based access control, credit-based rat
 
 ## Part 1: Current State Analysis
 
-### What's Built
+### What's Built (Updated 2026-02-07)
 
 | Component | Status | Location |
 |-----------|--------|----------|
 | NFT Gating (Gate NFT) | Complete | `admin-api/src/services/nft-gate.ts` |
 | Inhabitation System | Complete | `admin-api/src/services/avatar-ownership.ts` |
 | Lineage NFTs | Complete | `admin-api/src/services/lineage-nft.ts` |
-| Credit/Rate Limiting | Complete | `admin-api/src/services/credits.ts` |
+| Credit/Rate Limiting | Complete (deprecated by Energy) | `admin-api/src/services/credits.ts` |
+| Energy System | Complete | `admin-api/src/services/energy.ts`, `energy-burn.ts` |
+| Avatar Ascension | Complete | `admin-api/src/services/avatar-ascend.ts` |
+| Entitlements (schema + storage + enforcement) | Complete | `admin-api/src/services/entitlements.ts`, `handlers/src/services/entitlement-enforcement.ts` |
+| Runtime Limits Sync | Complete | `admin-api/src/services/runtime-limits.ts` |
+| Activation Readiness Gates | Complete | `admin-api/src/services/activation-readiness.ts` |
 | Wallet Management | Complete | `admin-api/src/services/wallets.ts` |
 | Account-Level Gating | Complete | `admin-api/src/services/account-gate.ts` |
 | Twitter Rate Limiting | Complete | `handlers/src/services/twitter-rate-limit.ts` |
 | Content Store | Complete | `core/src/services/content-store.ts` |
 | Multi-wallet Accounts | Complete | `admin-api/src/services/account.ts` |
 
-### What's Missing
+### What's Missing (Updated 2026-02-07)
 
 | Component | Status | Priority | Blocking |
 |-----------|--------|----------|----------|
-| Entitlements Schema | Not Started | P0 | M1 MVP |
-| Entitlements Storage | Not Started | P0 | M1 MVP |
-| Runtime Enforcement | Not Started | P0 | M1 MVP |
-| Memory Configuration | Not Started | P1 | M1 MVP |
+| Entitlements Schema | **Complete** | P0 | — |
+| Entitlements Storage | **Complete** | P0 | — |
+| Runtime Enforcement | **Complete** | P0 | — |
+| Memory Configuration | **Complete** (schema + gating) | P1 | — |
 | Memory Retention/TTL | Not Started | P1 | M1 MVP |
-| Deploy/Activate Flow | Not Started | P1 | M1 MVP |
-| Stripe Integration | Not Started | P2 | M2 |
+| Memory Delete/Export | Not Started | P1 | M1 MVP |
+| Deploy/Activate Flow | **Complete** (activate + readiness gates) | P1 | — |
+| Energy-Entitlement Unification | Not Started | P1 | M1 MVP |
+| Orb-Holder Auto-Boost | Not Started | P1 | M1 MVP |
+| Stripe Integration | Deferred to M2 | P2 | M2 |
 | Usage Dashboards | Not Started | P2 | M2 |
-| CloudWatch Alarms | Not Started | P2 | M1 |
+| CloudWatch Alarms | Partial (no actions) | P2 | M1 |
 | Operational Runbooks | Not Started | P2 | M1 |
 
 ---
@@ -159,6 +167,30 @@ interface MemoryConfig {
 - Webhook handler for subscription events
 - Entitlement sync on payment success/failure
 - Customer portal link generation
+
+---
+
+## Unified Billing Strategy (2026-02-07)
+
+**Decision:** Web2 entitlements set the floor. Web3 augments the ceiling. See [BILLING-STRATEGY.md](BILLING-STRATEGY.md) for full specification.
+
+**Principle:** `Effective Limit = max(entitlement_limit, web3_augmented_limit)`
+
+| User Type | Access Gate | Capacity Source | Burst Pool | Revenue |
+|-----------|------------|-----------------|------------|---------|
+| No wallet | Free entitlement | Free tier limits | Energy (base) | Future Stripe |
+| Wallet, no Orb | Free entitlement | Free tier limits | Energy (base) | Future Stripe |
+| Orb holder | NFT-gated slots | Boosted free limits | Energy (enhanced) | Orb purchase |
+| RATI burner | NFT-gated slots | Boosted + burn tier | Energy (burn-scaled) | Token burns |
+| Ascended | Permanent NFT | Pro-equivalent | Energy (1.5x) | Orb + RATI burn |
+| Manual Pro | Per entitlement | Pro limits | Energy + Pro | Admin-assigned |
+| Enterprise | Per entitlement | Unlimited | Unlimited | Custom deal |
+
+**Remaining implementation:**
+1. Unify energy as burst pool within entitlement limits (eliminate double-gating)
+2. Auto-boost entitlement params for Orb holders in `syncRuntimeLimitsToState()`
+3. Map Ascension to permanent Pro-equivalent entitlement
+4. Stripe integration deferred to M2
 
 ---
 
