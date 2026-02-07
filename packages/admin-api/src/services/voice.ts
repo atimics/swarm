@@ -663,10 +663,10 @@ export async function createMyVoice(params: {
     };
   }
 
-  // Check energy cost (voice generation costs 1 energy)
-  const energyCheck = await credits.canUseEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
-  if (!energyCheck.allowed) {
-    throw new Error(`Not enough energy to create voice. ${energyCheck.reason}`);
+  // Unified burst pool check: entitlement-first, energy-fallback
+  const voiceBurstCheck = await credits.checkVoiceWithEnergyFallback(params.avatarId);
+  if (!voiceBurstCheck.allowed) {
+    throw new Error(voiceBurstCheck.reason || 'Not enough capacity to create voice');
   }
 
   const avatarName = avatar.name || 'Avatar';
@@ -766,8 +766,8 @@ export async function createMyVoice(params: {
   await saveVoiceProfile(profile);
   await setActiveVoiceProfile(params.avatarId, voiceId, params.updatedBy || 'system');
 
-  // Consume energy after successful creation
-  await credits.consumeEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
+  // Energy was already consumed in burst fallback (if applicable) during the
+  // unified checkVoiceWithEnergyFallback call. No separate consumption needed.
   console.log(`[createMyVoice] Voice profile ${voiceId} created and set as active`);
 
   // ============================================================
@@ -899,10 +899,10 @@ export async function generateVoiceMessage(params: {
     throw new Error(`Avatar not found: ${params.avatarId}`);
   }
 
-  // Check energy cost (voice message costs 1 energy)
-  const energyCheck = await credits.canUseEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
-  if (!energyCheck.allowed) {
-    throw new Error(`Not enough energy to generate voice message. ${energyCheck.reason}`);
+  // Unified burst pool check: entitlement-first, energy-fallback
+  const msgBurstCheck = await credits.checkVoiceWithEnergyFallback(params.avatarId);
+  if (!msgBurstCheck.allowed) {
+    throw new Error(msgBurstCheck.reason || 'Not enough capacity to generate voice message');
   }
 
   const voiceConfig = avatar.voiceConfig;
@@ -966,8 +966,8 @@ export async function generateVoiceMessage(params: {
     format: detectedFormat,
   });
 
-  // Consume energy after successful generation
-  await credits.consumeEnergy(params.avatarId, credits.ENERGY_COSTS.voice);
+  // Energy was already consumed in burst fallback (if applicable) during the
+  // unified checkVoiceWithEnergyFallback call. No separate consumption needed.
 
   return { assetId: asset.assetId, url: asset.url, format: detectedFormat };
 }

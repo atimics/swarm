@@ -373,16 +373,17 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
     chargeEnergy = true,
   } = options;
 
-  // Check credits
-  const canUse = await credits.canUseTool(avatarId, 'generate_image');
-  if (!canUse.allowed) {
-    throw new Error(`Rate limited: ${canUse.reason}`);
-  }
-
+  // Unified burst pool check: entitlement-first, energy-fallback
   if (chargeEnergy) {
-    const energyCheck = await credits.canUseEnergy(avatarId, credits.ENERGY_COSTS.image);
-    if (!energyCheck.allowed) {
-      throw new Error(`Energy limit reached: ${energyCheck.reason}`);
+    const burstCheck = await credits.checkMediaWithEnergyFallback(avatarId);
+    if (!burstCheck.allowed) {
+      throw new Error(burstCheck.reason || 'Media generation not allowed');
+    }
+  } else {
+    // Even when not charging energy, still check tool rate limit
+    const canUse = await credits.canUseTool(avatarId, 'generate_image');
+    if (!canUse.allowed) {
+      throw new Error(`Rate limited: ${canUse.reason}`);
     }
   }
 
@@ -595,13 +596,8 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
     await credits.consumeCredit(avatarId, 'generate_image');
   }
 
-  // Consume energy (applies to all users)
-  if (chargeEnergy) {
-    const energyConsumed = await credits.consumeEnergy(avatarId, credits.ENERGY_COSTS.image);
-    if (!energyConsumed) {
-      console.warn(`[Credits] Failed to consume energy for generate_image: avatar=${avatarId}`);
-    }
-  }
+  // Energy was already consumed in burst fallback (if applicable) during the
+  // unified checkMediaWithEnergyFallback call. No separate consumption needed.
 
   // Construct public URL
   // IMPORTANT: CDN_URL should be set to your CloudFront distribution URL
@@ -652,16 +648,16 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
     apiKey: apiKeyOverride,
   } = options;
 
-  // Check credits
-  const canUse = await credits.canUseTool(avatarId, 'generate_image');
-  if (!canUse.allowed) {
-    throw new Error(`Rate limited: ${canUse.reason}`);
-  }
-
+  // Unified burst pool check: entitlement-first, energy-fallback
   if (chargeEnergy) {
-    const energyCheck = await credits.canUseEnergy(avatarId, credits.ENERGY_COSTS.image);
-    if (!energyCheck.allowed) {
-      throw new Error(`Energy limit reached: ${energyCheck.reason}`);
+    const burstCheck = await credits.checkMediaWithEnergyFallback(avatarId);
+    if (!burstCheck.allowed) {
+      throw new Error(burstCheck.reason || 'Media generation not allowed');
+    }
+  } else {
+    const canUse = await credits.canUseTool(avatarId, 'generate_image');
+    if (!canUse.allowed) {
+      throw new Error(`Rate limited: ${canUse.reason}`);
     }
   }
 
@@ -826,12 +822,8 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
     await credits.consumeCredit(avatarId, 'generate_image');
   }
 
-  if (chargeEnergy) {
-    const energyConsumed = await credits.consumeEnergy(avatarId, credits.ENERGY_COSTS.image);
-    if (!energyConsumed) {
-      console.warn(`[Credits] Failed to consume energy for generate_image: avatar=${avatarId}`);
-    }
-  }
+  // Energy was already consumed in burst fallback (if applicable) during the
+  // unified checkMediaWithEnergyFallback call. No separate consumption needed.
 
   console.log(`[Media] Async image job started: job=${jobId}, prediction=${prediction.id}`);
 
@@ -848,15 +840,10 @@ export async function generateVideo(options: GenerateVideoOptions): Promise<Medi
     model, referenceImageUrl
   } = options;
 
-  // Check credits
-  const canUse = await credits.canUseTool(avatarId, 'generate_video');
-  if (!canUse.allowed) {
-    throw new Error(`Rate limited: ${canUse.reason}`);
-  }
-
-  const energyCheck = await credits.canUseEnergy(avatarId, credits.ENERGY_COSTS.video);
-  if (!energyCheck.allowed) {
-    throw new Error(`Energy limit reached: ${energyCheck.reason}`);
+  // Unified burst pool check: entitlement-first, energy-fallback
+  const videoBurstCheck = await credits.checkVideoWithEnergyFallback(avatarId);
+  if (!videoBurstCheck.allowed) {
+    throw new Error(videoBurstCheck.reason || 'Video generation not allowed');
   }
 
   // Get Replicate API key
@@ -925,12 +912,8 @@ export async function generateVideo(options: GenerateVideoOptions): Promise<Medi
   // Update job with external ID
   await mediaJobs.updateJobStatus(jobId, 'processing', { externalId: prediction.id });
 
-  // Consume credit
+  // Consume rate-limit credit (energy was already handled in burst check)
   await credits.consumeCredit(avatarId, 'generate_video');
-  const energyConsumed = await credits.consumeEnergy(avatarId, credits.ENERGY_COSTS.video);
-  if (!energyConsumed) {
-    console.warn(`[Credits] Failed to consume energy for generate_video: avatar=${avatarId}`);
-  }
 
   return job;
 }
@@ -941,15 +924,10 @@ export async function generateVideo(options: GenerateVideoOptions): Promise<Medi
 export async function generateSticker(options: GenerateStickerOptions): Promise<GalleryItem> {
   const { prompt, avatarId, platform, sourceImageId } = options;
 
-  // Check credits
-  const canUse = await credits.canUseTool(avatarId, 'generate_sticker');
-  if (!canUse.allowed) {
-    throw new Error(`Rate limited: ${canUse.reason}`);
-  }
-
-  const energyCheck = await credits.canUseEnergy(avatarId, credits.ENERGY_COSTS.image);
-  if (!energyCheck.allowed) {
-    throw new Error(`Energy limit reached: ${energyCheck.reason}`);
+  // Unified burst pool check: entitlement-first, energy-fallback
+  const stickerBurstCheck = await credits.checkMediaWithEnergyFallback(avatarId);
+  if (!stickerBurstCheck.allowed) {
+    throw new Error(stickerBurstCheck.reason || 'Sticker generation not allowed');
   }
 
   let imageUrl: string;
@@ -1035,12 +1013,8 @@ export async function generateSticker(options: GenerateStickerOptions): Promise<
     ContentType: 'image/webp',
   }));
 
-  // Consume credit
+  // Consume rate-limit credit (energy was already handled in burst check)
   await credits.consumeCredit(avatarId, 'generate_sticker');
-  const energyConsumed = await credits.consumeEnergy(avatarId, credits.ENERGY_COSTS.image);
-  if (!energyConsumed) {
-    console.warn(`[Credits] Failed to consume energy for generate_sticker: avatar=${avatarId}`);
-  }
 
   // Mark original as converted if it was from gallery
   if (sourceImageId && originalS3Key) {

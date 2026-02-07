@@ -18,7 +18,7 @@ import {
 } from '@swarm/core';
 import { ensureReplicateKey } from './utils/system-replicate-key.js';
 import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
-import { checkAndIncrementMediaUsage } from './services/entitlement-enforcement.js';
+import { checkMediaWithEnergyFallback } from './services/entitlement-enforcement.js';
 
 // Environment variables
 const STATE_TABLE = process.env.STATE_TABLE!;
@@ -165,7 +165,8 @@ Respond with ONLY the tweet text, nothing else.`;
     // 30% chance to include an image
     if (Math.random() < 0.3) {
       try {
-        const usageCheck = await checkAndIncrementMediaUsage(AVATAR_ID);
+        // Unified burst pool: entitlement-first, energy-fallback
+        const usageCheck = await checkMediaWithEnergyFallback(AVATAR_ID);
         if (!usageCheck.allowed) {
           throw new Error(usageCheck.reason || 'Daily media generation limit reached');
         }

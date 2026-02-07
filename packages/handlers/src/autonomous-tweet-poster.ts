@@ -28,7 +28,7 @@ import {
   type PostMedia,
 } from '@swarm/core';
 import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
-import { checkAndIncrementMediaUsage } from './services/entitlement-enforcement.js';
+import { checkMediaWithEnergyFallback } from './services/entitlement-enforcement.js';
 import {
   generateAutonomousContent,
   generateImagePrompt,
@@ -196,9 +196,10 @@ async function processAvatar(
 
   if (Math.random() < imageChance) {
     try {
-      const usageCheck = await checkAndIncrementMediaUsage(avatarId);
+      // Unified burst pool: entitlement-first, energy-fallback
+      const usageCheck = await checkMediaWithEnergyFallback(avatarId);
       if (!usageCheck.allowed) {
-        logger.info('Skipping autonomous image generation due entitlement limits', {
+        logger.info('Skipping autonomous image generation due to limits', {
           avatarId,
           reason: usageCheck.reason,
           limit: usageCheck.limit,

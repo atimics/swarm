@@ -1,9 +1,14 @@
 /**
  * Credit System Service
  * Rate limiting via token bucket algorithm with hourly refill and daily limits
- * 
+ *
  * NOTE: Energy system has been moved to energy.ts with dynamic wallet-based refill rates.
  * This file now re-exports the energy functions for backward compatibility.
+ *
+ * Unified Burst Pool Model:
+ * Entitlement daily limits are checked first. Energy is only consumed when the
+ * entitlement daily limit is exhausted, acting as a "burst" mechanism.
+ * Enterprise avatars (limit = -1) never touch the energy pool.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
@@ -31,9 +36,18 @@ export {
 
 // Import for backward-compatible wrappers
 import {
+  ENERGY_COSTS as ENERGY_COSTS_INTERNAL,
   canUseEnergy as canUseEnergyNew,
+  consumeEnergy as consumeEnergyFull,
   consumeEnergySimple,
+  type EnergyCostType,
 } from './energy.js';
+
+// Lazy import for entitlements to avoid circular dependencies
+async function getCheckLimit() {
+  const { checkLimit } = await import('./entitlements.js');
+  return checkLimit;
+}
 
 /**
  * Check if avatar can use energy (backward compatible signature)
@@ -366,4 +380,178 @@ export async function getCreditBucket(
   }));
 
   return (result.Item as CreditBucket) || null;
+}
+
+// ============================================================================
+// Unified Burst Pool (Entitlement-first, Energy-fallback)
+// ============================================================================
+
+/** Result of a unified burst pool check */
+export interface BurstPoolResult {
+  allowed: boolean;
+  reason?: string;
+  /** When true, the request was served from the energy burst pool. */
+  energyBurst?: boolean;
+  /** Energy remaining after burst consumption (only set when energyBurst=true). */
+  energyRemaining?: number;
+}
+
+/**
+ * Unified media check: entitlement-first with energy burst fallback.
+ *
+ * Flow:
+ *   1. Check tool rate-limit credit (canUseTool) -- fast local bucket.
+ *   2. Check entitlement daily media limit.
+ *   3. If within entitlement limit, allow with NO energy cost.
+ *   4. If entitlement exhausted AND energy available, consume energy and allow.
+ *   5. If entitlement exhausted AND no energy, deny.
+ *   6. Enterprise (limit = -1) never touches energy.
+ *
+ * Callers should still call consumeCredit() after a successful operation to
+ * keep tool rate-limit buckets accurate.
+ */
+export async function checkMediaWithEnergyFallback(
+  avatarId: string,
+  energyCostType: EnergyCostType = 'image',
+): Promise<BurstPoolResult> {
+  // Step 1: Tool rate-limit check (fast, non-entitlement)
+  const toolCheck = await canUseTool(avatarId, 'generate_image');
+  if (!toolCheck.allowed) {
+    return { allowed: false, reason: toolCheck.reason };
+  }
+
+  // Step 2: Entitlement daily limit check
+  const checkLimitFn = await getCheckLimit();
+  const entitlementCheck = await checkLimitFn(avatarId, 'media');
+
+  // Enterprise / unlimited
+  if (entitlementCheck.limit === -1) {
+    return { allowed: true };
+  }
+
+  // Within entitlement limit -- no energy consumed
+  if (entitlementCheck.allowed) {
+    return { allowed: true };
+  }
+
+  // Step 3: Entitlement exhausted -- try energy burst
+  const energyCost = ENERGY_COSTS_INTERNAL[energyCostType] ?? ENERGY_COSTS_INTERNAL.image;
+  const energyCheck = await canUseEnergyNew(avatarId, energyCost);
+  if (!energyCheck.allowed) {
+    return {
+      allowed: false,
+      reason: `Daily media limit reached and ${energyCheck.reason ?? 'not enough energy for burst'}`,
+    };
+  }
+
+  // Consume energy as burst
+  const consumeResult = await consumeEnergyFull(avatarId, energyCost, energyCostType);
+  if (!consumeResult.success) {
+    return {
+      allowed: false,
+      reason: 'Daily media limit reached and energy burst consumption failed',
+    };
+  }
+
+  return {
+    allowed: true,
+    energyBurst: true,
+    energyRemaining: consumeResult.energyAfter,
+  };
+}
+
+/**
+ * Unified voice check: entitlement-first with energy burst fallback.
+ *
+ * Same flow as checkMediaWithEnergyFallback but for voice operations.
+ */
+export async function checkVoiceWithEnergyFallback(
+  avatarId: string,
+): Promise<BurstPoolResult> {
+  // Entitlement daily limit check
+  const checkLimitFn = await getCheckLimit();
+  const entitlementCheck = await checkLimitFn(avatarId, 'voice');
+
+  // Enterprise / unlimited
+  if (entitlementCheck.limit === -1) {
+    return { allowed: true };
+  }
+
+  // Within entitlement limit -- no energy consumed
+  if (entitlementCheck.allowed) {
+    return { allowed: true };
+  }
+
+  // Entitlement exhausted -- try energy burst
+  const energyCost = ENERGY_COSTS_INTERNAL.voice;
+  const energyCheck = await canUseEnergyNew(avatarId, energyCost);
+  if (!energyCheck.allowed) {
+    return {
+      allowed: false,
+      reason: `Daily voice limit reached and ${energyCheck.reason ?? 'not enough energy for burst'}`,
+    };
+  }
+
+  const consumeResult = await consumeEnergyFull(avatarId, energyCost, 'voice');
+  if (!consumeResult.success) {
+    return {
+      allowed: false,
+      reason: 'Daily voice limit reached and energy burst consumption failed',
+    };
+  }
+
+  return {
+    allowed: true,
+    energyBurst: true,
+    energyRemaining: consumeResult.energyAfter,
+  };
+}
+
+/**
+ * Unified video check: entitlement-first with energy burst fallback.
+ */
+export async function checkVideoWithEnergyFallback(
+  avatarId: string,
+): Promise<BurstPoolResult> {
+  // Step 1: Tool rate-limit check
+  const toolCheck = await canUseTool(avatarId, 'generate_video');
+  if (!toolCheck.allowed) {
+    return { allowed: false, reason: toolCheck.reason };
+  }
+
+  // Step 2: Entitlement daily limit check (video shares media counter)
+  const checkLimitFn = await getCheckLimit();
+  const entitlementCheck = await checkLimitFn(avatarId, 'media');
+
+  if (entitlementCheck.limit === -1) {
+    return { allowed: true };
+  }
+
+  if (entitlementCheck.allowed) {
+    return { allowed: true };
+  }
+
+  // Step 3: Energy burst fallback (video costs more energy)
+  const energyCost = ENERGY_COSTS_INTERNAL.video;
+  const energyCheck = await canUseEnergyNew(avatarId, energyCost);
+  if (!energyCheck.allowed) {
+    return {
+      allowed: false,
+      reason: `Daily media limit reached and ${energyCheck.reason ?? 'not enough energy for burst'}`,
+    };
+  }
+
+  const consumeResult = await consumeEnergyFull(avatarId, energyCost, 'video');
+  if (!consumeResult.success) {
+    return {
+      allowed: false,
+      reason: 'Daily media limit reached and energy burst consumption failed',
+    };
+  }
+
+  return {
+    allowed: true,
+    energyBurst: true,
+    energyRemaining: consumeResult.energyAfter,
+  };
 }

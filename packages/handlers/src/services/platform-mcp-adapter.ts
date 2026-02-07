@@ -25,9 +25,10 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
 import {
-  checkAndIncrementMediaUsage,
-  checkAndIncrementVoiceUsage,
   checkMediaLimit,
+  checkMediaWithEnergyFallback,
+  checkVideoWithEnergyFallback,
+  checkVoiceWithEnergyFallback,
   getRuntimeContract,
   getRuntimeUsageSnapshot,
 } from './entitlement-enforcement.js';
@@ -101,7 +102,8 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
       format?: 'ogg' | 'mp3' | 'wav';
       speed?: number;
     }) => {
-      const gate = await checkAndIncrementVoiceUsage(avatarId, 1);
+      // Unified burst pool: entitlement-first, energy-fallback
+      const gate = await checkVoiceWithEnergyFallback(avatarId, 1);
       if (!gate.allowed) {
         throw new Error(gate.reason || 'Daily voice generation limit reached');
       }
@@ -117,7 +119,8 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
       speed?: number;
       replyToMessageId?: string;
     }) => {
-      const gate = await checkAndIncrementVoiceUsage(avatarId, 1);
+      // Unified burst pool: entitlement-first, energy-fallback
+      const gate = await checkVoiceWithEnergyFallback(avatarId, 1);
       if (!gate.allowed) {
         throw new Error(gate.reason || 'Daily voice generation limit reached');
       }
@@ -199,7 +202,8 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // =========================================================================
     media: {
       generateImage: async (params: { prompt: string; aspectRatio?: string; platform?: string; referenceImageUrls?: string[]; conversationId?: string; replyToMessageId?: string }) => {
-        const usageCheck = await checkAndIncrementMediaUsage(avatarId);
+        // Unified burst pool: entitlement-first, energy-fallback
+        const usageCheck = await checkMediaWithEnergyFallback(avatarId);
         if (!usageCheck.allowed) {
           throw new Error(buildLimitError(usageCheck.reason));
         }
@@ -244,7 +248,8 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
       },
 
       generateVideo: async (params: { prompt: string }) => {
-        const usageCheck = await checkAndIncrementMediaUsage(avatarId);
+        // Unified burst pool: entitlement-first, energy-fallback (video has higher energy cost)
+        const usageCheck = await checkVideoWithEnergyFallback(avatarId);
         if (!usageCheck.allowed) {
           throw new Error(buildLimitError(usageCheck.reason));
         }
@@ -256,7 +261,8 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
       },
 
       generateSticker: async (params: { prompt?: string; platform?: string }) => {
-        const usageCheck = await checkAndIncrementMediaUsage(avatarId);
+        // Unified burst pool: entitlement-first, energy-fallback
+        const usageCheck = await checkMediaWithEnergyFallback(avatarId);
         if (!usageCheck.allowed) {
           throw new Error(buildLimitError(usageCheck.reason));
         }

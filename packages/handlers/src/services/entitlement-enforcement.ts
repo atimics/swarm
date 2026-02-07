@@ -1,8 +1,13 @@
 /**
  * Runtime Entitlement Enforcement
- * 
+ *
  * Provides entitlement checking for runtime handlers (message-processor, response-sender, etc.)
  * This wraps the admin-api entitlements service for use in Lambda handlers.
+ *
+ * Unified Burst Pool Model:
+ * Entitlement daily limits are checked first. Energy is only consumed when the
+ * entitlement daily limit is exhausted, acting as a "burst" mechanism.
+ * Enterprise avatars (limit = -1) never touch the energy pool.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
@@ -78,6 +83,10 @@ export interface EnforcementResult {
   reason?: string;
   limit?: number;
   current?: number;
+  /** When true the request was served from the energy burst pool. */
+  energyBurst?: boolean;
+  /** Energy remaining after burst consumption (only set when energyBurst=true). */
+  energyRemaining?: number;
 }
 
 /**
@@ -538,4 +547,277 @@ export async function syncRuntimeLimits(
 
   // Invalidate cache
   limitsCache.delete(avatarId);
+}
+
+// ============================================================================
+// Unified Burst Pool (Entitlement-first, Energy-fallback)
+// ============================================================================
+
+/**
+ * Energy costs mirroring admin-api ENERGY_COSTS.
+ * Kept in sync manually; a shared constants package would be better long-term.
+ */
+export const BURST_ENERGY_COSTS = {
+  voice: 1,
+  image: 2,
+  video: 3,
+} as const;
+
+export type BurstOperationType = keyof typeof BURST_ENERGY_COSTS;
+
+/**
+ * Attempt to consume energy from the ADMIN_TABLE energy bucket.
+ * This is the burst-pool fallback used when entitlement daily limits are exhausted.
+ *
+ * Returns an EnforcementResult indicating whether energy was available.
+ */
+async function consumeEnergyBurst(
+  avatarId: string,
+  energyCost: number,
+): Promise<EnforcementResult> {
+  const adminTable = process.env.ADMIN_TABLE;
+  if (!adminTable) {
+    // Without ADMIN_TABLE we cannot access the energy pool; deny the burst.
+    return {
+      allowed: false,
+      reason: 'Daily limit reached and energy burst pool unavailable',
+    };
+  }
+
+  const pk = `AVATAR#${avatarId}`;
+  const sk = 'CREDIT#energy';
+
+  try {
+    // Read current energy bucket
+    const result = await dynamoClient.send(new GetCommand({
+      TableName: adminTable,
+      Key: { pk, sk },
+    }));
+
+    const bucket = result.Item;
+    if (!bucket) {
+      return {
+        allowed: false,
+        reason: 'Daily limit reached and no energy pool initialized',
+      };
+    }
+
+    const lastRefill = (bucket.lastRefillAt as number) ?? Date.now();
+    const maxEnergy = (bucket.max as number) ?? (bucket.maxCredits as number) ?? 10;
+    const storedCredits = (bucket.credits as number) ?? 0;
+    const refillCap = (bucket.refillCap as number) ?? maxEnergy;
+
+    // Calculate refill from augmentations in the runtime contract
+    const contract = await getRuntimeContract(avatarId);
+    const regenPerHour = contract.augmentations?.energy?.refillPerHour
+      ?? contract.augmentations?.burn?.regenPerHour
+      ?? 1;
+
+    // Calculate current energy with passive regen
+    const now = Date.now();
+    let currentEnergy: number;
+    if (storedCredits >= refillCap) {
+      currentEnergy = Math.min(storedCredits, maxEnergy);
+    } else {
+      const hoursSinceRefill = (now - lastRefill) / (1000 * 60 * 60);
+      currentEnergy = Math.min(storedCredits + hoursSinceRefill * regenPerHour, refillCap);
+    }
+    const flooredEnergy = Math.floor(currentEnergy);
+
+    if (flooredEnergy < energyCost) {
+      return {
+        allowed: false,
+        reason: `Daily limit reached and not enough energy for burst (have ${flooredEnergy}, need ${energyCost})`,
+      };
+    }
+
+    // Consume energy atomically
+    const newEnergy = currentEnergy - energyCost;
+    await dynamoClient.send(new UpdateCommand({
+      TableName: adminTable,
+      Key: { pk, sk },
+      UpdateExpression: 'SET credits = :credits, lastRefillAt = :now',
+      ExpressionAttributeValues: {
+        ':credits': newEnergy,
+        ':now': now,
+      },
+    }));
+
+    logger.info('Energy burst consumed', {
+      avatarId,
+      energyCost,
+      energyBefore: flooredEnergy,
+      energyAfter: Math.floor(newEnergy),
+    });
+
+    return {
+      allowed: true,
+      energyBurst: true,
+      energyRemaining: Math.floor(newEnergy),
+    };
+  } catch (err) {
+    logger.warn('Energy burst consumption failed; denying request', {
+      avatarId,
+      energyCost,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      allowed: false,
+      reason: 'Daily limit reached and energy burst pool error',
+    };
+  }
+}
+
+/**
+ * Unified media check: entitlement-first with energy burst fallback.
+ *
+ * Flow:
+ *   1. If dailyMediaCredits === -1 (enterprise/unlimited), allow immediately.
+ *   2. Try to increment daily media counter within entitlement limit.
+ *   3. If within limit, allow with no energy cost.
+ *   4. If limit exhausted, attempt energy burst consumption.
+ *   5. If energy also insufficient, deny with combined reason.
+ */
+export async function checkMediaWithEnergyFallback(
+  avatarId: string,
+): Promise<EnforcementResult> {
+  const contract = await getRuntimeContract(avatarId);
+
+  // Enterprise / unlimited: always allow, never touch energy
+  if (contract.dailyMediaCredits === -1) {
+    await incrementUsageCounter(avatarId, 'media');
+    return { allowed: true, limit: -1 };
+  }
+
+  // Try entitlement daily limit first (this increments the counter atomically)
+  const entitlementResult = await checkAndIncrementDailyUsage({
+    avatarId,
+    counterType: 'media',
+    limit: contract.dailyMediaCredits,
+    amount: 1,
+    limitReason: 'Daily media generation limit reached',
+  });
+
+  if (entitlementResult.allowed) {
+    // Within entitlement limit - no energy consumed
+    return entitlementResult;
+  }
+
+  // Entitlement exhausted - try energy burst fallback
+  const energyResult = await consumeEnergyBurst(avatarId, BURST_ENERGY_COSTS.image);
+  if (energyResult.allowed) {
+    return {
+      allowed: true,
+      energyBurst: true,
+      energyRemaining: energyResult.energyRemaining,
+      limit: entitlementResult.limit,
+      current: entitlementResult.current,
+    };
+  }
+
+  // Both entitlement and energy denied
+  return {
+    allowed: false,
+    reason: energyResult.reason,
+    limit: entitlementResult.limit,
+    current: entitlementResult.current,
+  };
+}
+
+/**
+ * Unified voice check: entitlement-first with energy burst fallback.
+ *
+ * Same flow as checkMediaWithEnergyFallback but for voice minutes.
+ */
+export async function checkVoiceWithEnergyFallback(
+  avatarId: string,
+  minutes = 1,
+): Promise<EnforcementResult> {
+  const contract = await getRuntimeContract(avatarId);
+  const units = Number.isFinite(minutes) ? Math.max(1, Math.ceil(minutes)) : 1;
+
+  // Enterprise / unlimited: always allow, never touch energy
+  if (contract.dailyVoiceMinutes === -1) {
+    await incrementUsageCounter(avatarId, 'voice', units);
+    return { allowed: true, limit: -1 };
+  }
+
+  // Try entitlement daily limit first
+  const entitlementResult = await checkAndIncrementDailyUsage({
+    avatarId,
+    counterType: 'voice',
+    limit: contract.dailyVoiceMinutes,
+    amount: units,
+    limitReason: 'Daily voice generation limit reached',
+  });
+
+  if (entitlementResult.allowed) {
+    return entitlementResult;
+  }
+
+  // Entitlement exhausted - try energy burst fallback
+  const energyResult = await consumeEnergyBurst(avatarId, BURST_ENERGY_COSTS.voice);
+  if (energyResult.allowed) {
+    return {
+      allowed: true,
+      energyBurst: true,
+      energyRemaining: energyResult.energyRemaining,
+      limit: entitlementResult.limit,
+      current: entitlementResult.current,
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: energyResult.reason,
+    limit: entitlementResult.limit,
+    current: entitlementResult.current,
+  };
+}
+
+/**
+ * Unified video check: entitlement-first with energy burst fallback.
+ *
+ * Video uses the same dailyMediaCredits counter but a higher energy cost.
+ */
+export async function checkVideoWithEnergyFallback(
+  avatarId: string,
+): Promise<EnforcementResult> {
+  const contract = await getRuntimeContract(avatarId);
+
+  if (contract.dailyMediaCredits === -1) {
+    await incrementUsageCounter(avatarId, 'media');
+    return { allowed: true, limit: -1 };
+  }
+
+  const entitlementResult = await checkAndIncrementDailyUsage({
+    avatarId,
+    counterType: 'media',
+    limit: contract.dailyMediaCredits,
+    amount: 1,
+    limitReason: 'Daily media generation limit reached',
+  });
+
+  if (entitlementResult.allowed) {
+    return entitlementResult;
+  }
+
+  // Video costs more energy than image
+  const energyResult = await consumeEnergyBurst(avatarId, BURST_ENERGY_COSTS.video);
+  if (energyResult.allowed) {
+    return {
+      allowed: true,
+      energyBurst: true,
+      energyRemaining: energyResult.energyRemaining,
+      limit: entitlementResult.limit,
+      current: entitlementResult.current,
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: energyResult.reason,
+    limit: entitlementResult.limit,
+    current: entitlementResult.current,
+  };
 }

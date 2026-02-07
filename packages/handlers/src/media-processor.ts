@@ -23,7 +23,7 @@ import {
   type SwarmResponse,
 } from '@swarm/core/types';
 import { ensureReplicateKey } from './utils/system-replicate-key.js';
-import { checkAndIncrementMediaUsage } from './services/entitlement-enforcement.js';
+import { checkMediaWithEnergyFallback } from './services/entitlement-enforcement.js';
 
 // Schema for media queue items
 const MediaQueueItemSchema = z.object({
@@ -269,7 +269,8 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
 
       let mediaAction: ResponseAction | null = null;
       if (!item.usageAccounted) {
-        const usageCheck = await checkAndIncrementMediaUsage(getAvatarId());
+        // Unified burst pool: entitlement-first, energy-fallback
+        const usageCheck = await checkMediaWithEnergyFallback(getAvatarId());
         if (!usageCheck.allowed) {
           logger.warn('Media generation blocked by entitlement limits', {
             event: 'limit_exceeded',
