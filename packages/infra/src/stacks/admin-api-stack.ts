@@ -9,6 +9,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
@@ -16,6 +17,7 @@ import { Construct } from 'constructs';
 import { AdminApiConstruct } from '../constructs/admin-api.js';
 import { SharedHandlers } from '../constructs/shared-handlers.js';
 import { ClaudeCodeWorker } from '../constructs/claude-code-worker.js';
+import { OpsDashboard } from '../constructs/ops-dashboard.js';
 import type { SharedInfraStack } from './shared-infra-stack.js';
 
 export interface AdminApiStackProps extends cdk.StackProps {
@@ -234,6 +236,13 @@ export class AdminApiStack extends cdk.Stack {
       securityGroups: [],
     });
 
+    // Import the alarm SNS topic from the shared infrastructure stack
+    const alarmTopic = sns.Topic.fromTopicArn(
+      this,
+      'AlarmTopic',
+      sharedInfraStack.alarmTopicArn
+    );
+
     // Generate internal test key for non-production
     const isProd = environment === 'prod' || environment === 'production';
     const internalTestKey = isProd
@@ -255,6 +264,7 @@ export class AdminApiStack extends cdk.Stack {
       replicateApiKeyArn,
       secretPrefix,
       internalTestKey,
+      alarmTopic,
     });
 
     // Create Admin API if configured
@@ -287,6 +297,7 @@ export class AdminApiStack extends cdk.Stack {
         telegramWebhookFunction: this.sharedHandlers.telegramWebhook,
         postQueue: this.sharedHandlers?.postQueue,
         internalTestKey,
+        alarmTopic,
       });
 
       this.apiEndpoint = this.adminApi.apiEndpoint;
@@ -339,6 +350,43 @@ export class AdminApiStack extends cdk.Stack {
         exportName: `swarm-claude-code-callback-queue-url-${environment}${nameSuffix ?? ''}`,
       });
     }
+
+    // CloudWatch Operations Dashboard
+    new OpsDashboard(this, 'OpsDashboard', {
+      environment,
+      nameSuffix,
+      sharedHandlerFunctions: {
+        messageProcessor: this.sharedHandlers.messageProcessor,
+        responseSender: this.sharedHandlers.responseSender,
+        mediaProcessor: this.sharedHandlers.mediaProcessor,
+        tweetSender: this.sharedHandlers.tweetSender,
+        telegramWebhook: this.sharedHandlers.telegramWebhook,
+      },
+      sharedQueues: {
+        messageQueue: this.sharedHandlers.messageQueue,
+        responseQueue: this.sharedHandlers.responseQueue,
+        mediaQueue: this.sharedHandlers.mediaQueue,
+        postQueue: this.sharedHandlers.postQueue,
+      },
+      sharedDlqs: {
+        dlq: this.sharedHandlers.dlq,
+        schedulerDlq: this.sharedHandlers.schedulerDlq,
+      },
+      ...(this.adminApi ? {
+        adminHandlerFunctions: {
+          chatWorker: this.adminApi.chatWorkerHandler,
+          responseSender: this.adminApi.responseSenderHandler,
+          dreamWorker: this.adminApi.dreamWorker,
+          openaiCompat: this.adminApi.openaiCompatHandler,
+        },
+        adminDlqs: {
+          responseDlq: this.adminApi.responseDlq,
+          chatDlq: this.adminApi.chatDlq,
+          dreamDlq: this.adminApi.dreamDlq,
+          consolidationDlq: this.adminApi.consolidationDlq,
+        },
+      } : {}),
+    });
 
     // Export API endpoint
     if (this.apiEndpoint) {

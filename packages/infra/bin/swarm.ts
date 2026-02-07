@@ -108,6 +108,7 @@ const galleryCertificateArn = getContextValue<string>('galleryCertificateArn', e
 const profileDomain = getContextValue<string>('profileDomain', envConfig);
 const profileCertificateArn = getContextValue<string>('profileCertificateArn', envConfig);
 const profileApiUrl = getContextValue<string>('profileApiUrl', envConfig);
+const alarmNotificationEmail = getContextValue<string>('alarmNotificationEmail', envConfig) || process.env.ALARM_EMAIL;
 const enableClaudeCode = parseBoolean(getContextValue<unknown>('enableClaudeCode', envConfig)) ?? false;
 const claudeCodeUseOpenRouter = parseBoolean(getContextValue<unknown>('claudeCodeUseOpenRouter', envConfig)) ?? false;
 const anthropicApiKeyArn = getContextValue<string>('anthropicApiKeyArn', envConfig);
@@ -212,6 +213,7 @@ if (useSplitStacks) {
     useExistingResources: useExistingSharedResources,
     existingDependencyLayerArn,
     existingCdnDistributionId,
+    alarmNotificationEmail,
     env: stackEnv,
     description: `Swarm Shared Infrastructure (${environment})`,
   });

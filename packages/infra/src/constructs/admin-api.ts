@@ -21,6 +21,9 @@ const __dirname = path.dirname(__filename);
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as events from 'aws-cdk-lib/aws-events';
@@ -187,6 +190,12 @@ export interface AdminApiConstructProps {
    * Defaults to `SwarmAdmin-${environment}` (no suffix).
    */
   existingAdminTableName?: string;
+
+  /**
+   * SNS topic for CloudWatch alarm notifications.
+   * When provided, all alarms in this construct will send notifications to this topic.
+   */
+  alarmTopic?: sns.ITopic;
 }
 
 export class AdminApiConstruct extends Construct {
@@ -196,6 +205,15 @@ export class AdminApiConstruct extends Construct {
   public readonly table: dynamodb.Table;
   public readonly chatHandler: lambda.Function;
   public readonly mediaConvertHandler?: lambda.Function;
+  // Exposed for the ops dashboard
+  public readonly chatWorkerHandler: lambda.Function;
+  public readonly responseSenderHandler: lambda.Function;
+  public readonly dreamWorker: lambda.Function;
+  public readonly openaiCompatHandler: lambda.Function;
+  public readonly responseDlq: sqs.Queue;
+  public readonly chatDlq: sqs.Queue;
+  public readonly dreamDlq: sqs.Queue;
+  public readonly consolidationDlq: sqs.Queue;
 
   constructor(scope: Construct, id: string, props: AdminApiConstructProps) {
     super(scope, id);
@@ -291,39 +309,43 @@ export class AdminApiConstruct extends Construct {
     // When Replicate finishes generating an image/video, it calls our webhook
     // which puts a message in this queue. The response sender Lambda then
     // delivers the media to Telegram.
+    this.responseDlq = new sqs.Queue(this, 'ResponseDLQ', {
+      queueName: `swarm-response-dlq-${environment}${suffix}`,
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+    });
+
     const responseQueue = new sqs.Queue(this, 'ResponseQueue', {
       queueName: `swarm-response-queue-${environment}${suffix}`,
       visibilityTimeout: cdk.Duration.seconds(120), // Match Lambda timeout
       retentionPeriod: cdk.Duration.days(1),
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       deadLetterQueue: {
-        queue: new sqs.Queue(this, 'ResponseDLQ', {
-        queueName: `swarm-response-dlq-${environment}${suffix}`,
-          retentionPeriod: cdk.Duration.days(14),
-          encryption: sqs.QueueEncryption.SQS_MANAGED,
-        }),
+        queue: this.responseDlq,
         maxReceiveCount: 3,
       },
     });
 
     // Chat queue for async /chat jobs (admin UI polling)
+    this.chatDlq = new sqs.Queue(this, 'ChatDLQ', {
+      queueName: `swarm-chat-dlq-${environment}${suffix}`,
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+    });
+
     const chatQueue = new sqs.Queue(this, 'ChatQueue', {
       queueName: `swarm-chat-queue-${environment}${suffix}`,
       visibilityTimeout: cdk.Duration.seconds(600),
       retentionPeriod: cdk.Duration.days(1),
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       deadLetterQueue: {
-        queue: new sqs.Queue(this, 'ChatDLQ', {
-        queueName: `swarm-chat-dlq-${environment}${suffix}`,
-          retentionPeriod: cdk.Duration.days(14),
-          encryption: sqs.QueueEncryption.SQS_MANAGED,
-        }),
+        queue: this.chatDlq,
         maxReceiveCount: 3,
       },
     });
 
     // Dreams queue (FIFO) for async dream generation jobs
-    const dreamDlq = new sqs.Queue(this, 'DreamDLQ', {
+    this.dreamDlq = new sqs.Queue(this, 'DreamDLQ', {
       queueName: `swarm-dream-dlq-${environment}${suffix}.fifo`,
       fifo: true,
       retentionPeriod: cdk.Duration.days(14),
@@ -338,7 +360,7 @@ export class AdminApiConstruct extends Construct {
       visibilityTimeout: cdk.Duration.minutes(5),
       retentionPeriod: cdk.Duration.days(1),
       deadLetterQueue: {
-        queue: dreamDlq,
+        queue: this.dreamDlq,
         maxReceiveCount: 3,
       },
     });
@@ -590,7 +612,7 @@ export class AdminApiConstruct extends Construct {
       || (isProd ? (props.apiDomain || rawApiHost) : rawApiHost);
 
     // Chat Worker Lambda - processes async admin chat jobs
-    const chatWorkerHandler = new nodejs.NodejsFunction(this, 'ChatWorkerHandler', {
+    this.chatWorkerHandler = new nodejs.NodejsFunction(this, 'ChatWorkerHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/chat-worker.ts'),
       handler: 'handler',
@@ -641,26 +663,26 @@ export class AdminApiConstruct extends Construct {
     });
 
     // Worker permissions
-    this.table.grantReadWriteData(chatWorkerHandler);
-    llmApiKey.grantRead(chatWorkerHandler);
-    dreamQueue.grantSendMessages(chatWorkerHandler);
+    this.table.grantReadWriteData(this.chatWorkerHandler);
+    llmApiKey.grantRead(this.chatWorkerHandler);
+    dreamQueue.grantSendMessages(this.chatWorkerHandler);
     if (replicateApiKey) {
-      replicateApiKey.grantRead(chatWorkerHandler);
+      replicateApiKey.grantRead(this.chatWorkerHandler);
     }
     if (webSearchApiKey) {
-      webSearchApiKey.grantRead(chatWorkerHandler);
+      webSearchApiKey.grantRead(this.chatWorkerHandler);
     }
     if (stateTable) {
-      stateTable.grantReadWriteData(chatWorkerHandler);
+      stateTable.grantReadWriteData(this.chatWorkerHandler);
     }
     if (mediaBucket) {
-      mediaBucket.grantReadWrite(chatWorkerHandler);
+      mediaBucket.grantReadWrite(this.chatWorkerHandler);
     }
-    twitterAppCredentialsSecret.grantRead(chatWorkerHandler);
-    responseQueue.grantSendMessages(chatWorkerHandler);
+    twitterAppCredentialsSecret.grantRead(this.chatWorkerHandler);
+    responseQueue.grantSendMessages(this.chatWorkerHandler);
 
     // Secrets Manager permissions (same as chat handler)
-    chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
+    this.chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['secretsmanager:CreateSecret'],
       resources: ['*'],
@@ -671,7 +693,7 @@ export class AdminApiConstruct extends Construct {
       },
     }));
 
-    chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
+    this.chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         'secretsmanager:UpdateSecret',
@@ -686,13 +708,13 @@ export class AdminApiConstruct extends Construct {
       ],
     }));
 
-    chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
+    this.chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['secretsmanager:ListSecrets'],
       resources: ['*'],
     }));
 
-    chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
+    this.chatWorkerHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         'kms:Decrypt',
@@ -707,7 +729,7 @@ export class AdminApiConstruct extends Construct {
       },
     }));
 
-    chatWorkerHandler.addEventSource(new lambdaEventSources.SqsEventSource(chatQueue, {
+    this.chatWorkerHandler.addEventSource(new lambdaEventSources.SqsEventSource(chatQueue, {
       batchSize: 1,
       maxBatchingWindow: cdk.Duration.seconds(2),
     }));
@@ -727,7 +749,7 @@ export class AdminApiConstruct extends Construct {
     );
 
     // ChatWorkerHandler
-    (chatWorkerHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
+    (this.chatWorkerHandler.node.defaultChild as lambda.CfnFunction).addPropertyOverride(
       'Environment.Variables.REPLICATE_WEBHOOK_URL',
       replicateWebhookUrl
     );
@@ -1293,7 +1315,7 @@ export class AdminApiConstruct extends Construct {
     // This provides a /v1/chat/completions endpoint that external applications
     // can use with the familiar OpenAI API format. Authentication is via API key
     // (Bearer token in Authorization header) rather than Cloudflare Access.
-    const openaiCompatHandler = new nodejs.NodejsFunction(this, 'OpenAICompatHandler', {
+    this.openaiCompatHandler = new nodejs.NodejsFunction(this, 'OpenAICompatHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/openai-compat.ts'),
       handler: 'handler',
@@ -1324,17 +1346,17 @@ export class AdminApiConstruct extends Construct {
     });
 
     // Grant permissions to OpenAI compat handler
-    this.table.grantReadWriteData(openaiCompatHandler);
-    llmApiKey.grantRead(openaiCompatHandler);
+    this.table.grantReadWriteData(this.openaiCompatHandler);
+    llmApiKey.grantRead(this.openaiCompatHandler);
     if (stateTable) {
-      stateTable.grantReadData(openaiCompatHandler);
+      stateTable.grantReadData(this.openaiCompatHandler);
     }
     if (mediaBucket) {
-      mediaBucket.grantReadWrite(openaiCompatHandler);
+      mediaBucket.grantReadWrite(this.openaiCompatHandler);
     }
 
     // Grant secrets manager read for avatar secrets (persona/config)
-    openaiCompatHandler.addToRolePolicy(new iam.PolicyStatement({
+    this.openaiCompatHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['secretsmanager:GetSecretValue'],
       resources: secretArnPatterns,
@@ -1342,7 +1364,7 @@ export class AdminApiConstruct extends Construct {
 
     const openaiCompatIntegration = new integrations.HttpLambdaIntegration(
       'OpenAICompatIntegration',
-      openaiCompatHandler
+      this.openaiCompatHandler
     );
 
     // OpenAI-compatible routes
@@ -1599,7 +1621,7 @@ export class AdminApiConstruct extends Construct {
     const telegramWebhookHandler: lambda.IFunction = props.telegramWebhookFunction;
 
     // Dream worker: consumes from dreamQueue and writes dream state
-    const dreamWorker = new nodejs.NodejsFunction(this, 'DreamWorkerHandler', {
+    this.dreamWorker = new nodejs.NodejsFunction(this, 'DreamWorkerHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/dream-worker.ts'),
       handler: 'handler',
@@ -1624,22 +1646,22 @@ export class AdminApiConstruct extends Construct {
       },
     });
 
-    this.table.grantReadWriteData(dreamWorker);
+    this.table.grantReadWriteData(this.dreamWorker);
     if (stateTable) {
-      stateTable.grantReadWriteData(dreamWorker);
+      stateTable.grantReadWriteData(this.dreamWorker);
     }
-    llmApiKey.grantRead(dreamWorker);
-    dreamQueue.grantConsumeMessages(dreamWorker);
+    llmApiKey.grantRead(this.dreamWorker);
+    dreamQueue.grantConsumeMessages(this.dreamWorker);
 
     // Grant Bedrock access for embeddings (used in dream memory search)
-    dreamWorker.addToRolePolicy(new iam.PolicyStatement({
+    this.dreamWorker.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['bedrock:InvokeModel'],
       resources: ['arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0'],
     }));
 
     // Ensure the worker processes one SQS message per invocation (avoid whole-batch retries)
-    dreamWorker.addEventSource(new lambdaEventSources.SqsEventSource(dreamQueue, {
+    this.dreamWorker.addEventSource(new lambdaEventSources.SqsEventSource(dreamQueue, {
       batchSize: 1,
     }));
 
@@ -1680,7 +1702,7 @@ export class AdminApiConstruct extends Construct {
       resources: ['arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0'],
     }));
 
-    const consolidationDlq = new sqs.Queue(this, 'ConsolidationScheduleDLQ', {
+    this.consolidationDlq = new sqs.Queue(this, 'ConsolidationScheduleDLQ', {
       retentionPeriod: cdk.Duration.days(14),
       encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
@@ -1694,7 +1716,7 @@ export class AdminApiConstruct extends Construct {
         month: '*',
       }),
       targets: [new targets.LambdaFunction(consolidationWorker, {
-        deadLetterQueue: consolidationDlq,
+        deadLetterQueue: this.consolidationDlq,
         retryAttempts: 2,
         maxEventAge: cdk.Duration.hours(2),
       })],
@@ -1756,7 +1778,7 @@ export class AdminApiConstruct extends Construct {
 
     // Response Sender Lambda - delivers generated media to platforms
     // Triggered by SQS messages from the Replicate webhook handler
-    const responseSenderHandler = new nodejs.NodejsFunction(this, 'ResponseSenderHandler', {
+    this.responseSenderHandler = new nodejs.NodejsFunction(this, 'ResponseSenderHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/response-sender.ts'),
       handler: 'handler',
@@ -1775,10 +1797,10 @@ export class AdminApiConstruct extends Construct {
     });
 
     // Grant permissions to response sender
-    this.table.grantReadData(responseSenderHandler);
+    this.table.grantReadData(this.responseSenderHandler);
 
     // Grant secrets manager access (for bot tokens)
-    responseSenderHandler.addToRolePolicy(new iam.PolicyStatement({
+    this.responseSenderHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['secretsmanager:GetSecretValue'],
       resources: [
@@ -1788,7 +1810,7 @@ export class AdminApiConstruct extends Construct {
 
     // KMS permissions for Secrets Manager (customer-managed keys in some envs)
     // Required when secrets are encrypted with a CMK (e.g. admin secrets key in staging).
-    responseSenderHandler.addToRolePolicy(new iam.PolicyStatement({
+    this.responseSenderHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         'kms:Decrypt',
@@ -1803,7 +1825,7 @@ export class AdminApiConstruct extends Construct {
     }));
 
     // Add SQS trigger
-    responseSenderHandler.addEventSource(new lambdaEventSources.SqsEventSource(responseQueue, {
+    this.responseSenderHandler.addEventSource(new lambdaEventSources.SqsEventSource(responseQueue, {
       batchSize: 5,
       maxBatchingWindow: cdk.Duration.seconds(5),
     }));
@@ -1955,6 +1977,118 @@ export class AdminApiConstruct extends Construct {
         description: 'Target for CNAME record',
         exportName: `swarm-admin-api-target-${environment}${suffix}`,
       });
+    }
+
+    // ========================================================================
+    // CloudWatch Alarms
+    // ========================================================================
+    const alarmPrefix = `swarm-${environment}-admin`;
+    const snsAction = props.alarmTopic ? new cw_actions.SnsAction(props.alarmTopic) : undefined;
+
+    // DLQ depth alarms (threshold: 1 — any message in DLQ is actionable)
+    const responseDlqAlarm = new cloudwatch.Alarm(this, 'ResponseDlqDepthAlarm', {
+      alarmName: `${alarmPrefix}-response-dlq-depth`,
+      metric: this.responseDlq.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const chatDlqAlarm = new cloudwatch.Alarm(this, 'ChatDlqDepthAlarm', {
+      alarmName: `${alarmPrefix}-chat-dlq-depth`,
+      metric: this.chatDlq.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const dreamDlqAlarm = new cloudwatch.Alarm(this, 'DreamDlqDepthAlarm', {
+      alarmName: `${alarmPrefix}-dream-dlq-depth`,
+      metric: this.dreamDlq.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const consolidationDlqAlarm = new cloudwatch.Alarm(this, 'ConsolidationDlqDepthAlarm', {
+      alarmName: `${alarmPrefix}-consolidation-dlq-depth`,
+      metric: this.consolidationDlq.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // Lambda error alarms for critical handlers
+    const chatWorkerErrorsAlarm = new cloudwatch.Alarm(this, 'ChatWorkerErrorsAlarm', {
+      alarmName: `${alarmPrefix}-chat-worker-errors`,
+      metric: this.chatWorkerHandler.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const responseSenderErrorsAlarm = new cloudwatch.Alarm(this, 'ResponseSenderErrorsAlarm', {
+      alarmName: `${alarmPrefix}-response-sender-errors`,
+      metric: this.responseSenderHandler.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const dreamWorkerErrorsAlarm = new cloudwatch.Alarm(this, 'DreamWorkerErrorsAlarm', {
+      alarmName: `${alarmPrefix}-dream-worker-errors`,
+      metric: this.dreamWorker.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const openaiCompatErrorsAlarm = new cloudwatch.Alarm(this, 'OpenAICompatErrorsAlarm', {
+      alarmName: `${alarmPrefix}-openai-compat-errors`,
+      metric: this.openaiCompatHandler.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // Wire all alarms to SNS topic for notifications
+    if (snsAction) {
+      for (const alarm of [
+        responseDlqAlarm,
+        chatDlqAlarm,
+        dreamDlqAlarm,
+        consolidationDlqAlarm,
+        chatWorkerErrorsAlarm,
+        responseSenderErrorsAlarm,
+        dreamWorkerErrorsAlarm,
+        openaiCompatErrorsAlarm,
+      ]) {
+        alarm.addAlarmAction(snsAction);
+      }
     }
 
     // Outputs

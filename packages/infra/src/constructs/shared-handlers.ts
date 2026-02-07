@@ -16,6 +16,9 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import type * as sns from 'aws-cdk-lib/aws-sns';
 import type * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import type * as s3 from 'aws-cdk-lib/aws-s3';
 import * as path from 'path';
@@ -71,6 +74,11 @@ export interface SharedHandlersProps {
    * If not provided, one will be generated.
    */
   internalTestKey?: string;
+  /**
+   * SNS topic for CloudWatch alarm notifications.
+   * When provided, all alarms in this construct will send notifications to this topic.
+   */
+  alarmTopic?: sns.ITopic;
 }
 
 export class SharedHandlers extends Construct {
@@ -79,6 +87,12 @@ export class SharedHandlers extends Construct {
   public readonly mediaQueue: sqs.Queue;
   public readonly postQueue: sqs.Queue;
   public readonly telegramWebhook: lambda.Function;
+  public readonly messageProcessor: nodejs.NodejsFunction;
+  public readonly responseSender: nodejs.NodejsFunction;
+  public readonly mediaProcessor: nodejs.NodejsFunction;
+  public readonly tweetSender: nodejs.NodejsFunction;
+  public readonly dlq: sqs.Queue;
+  public readonly schedulerDlq: sqs.Queue;
 
   constructor(scope: Construct, id: string, props: SharedHandlersProps) {
     super(scope, id);
@@ -110,7 +124,7 @@ export class SharedHandlers extends Construct {
     // Path to handlers source files
     const handlersEntry = path.join(__dirname, '../../../handlers/src');
 
-    const dlq = new sqs.Queue(this, 'DeadLetterQueue', {
+    this.dlq = new sqs.Queue(this, 'DeadLetterQueue', {
       queueName: `swarm-${environment}${suffix}-dlq.fifo`,
       fifo: true,
       retentionPeriod: cdk.Duration.days(14),
@@ -123,7 +137,7 @@ export class SharedHandlers extends Construct {
       contentBasedDeduplication: true,
       // Must be >= the message-processor Lambda timeout to avoid duplicate deliveries.
       visibilityTimeout: cdk.Duration.seconds(180),
-      deadLetterQueue: { queue: dlq, maxReceiveCount: 3 },
+      deadLetterQueue: { queue: this.dlq, maxReceiveCount: 3 },
       encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
@@ -133,7 +147,7 @@ export class SharedHandlers extends Construct {
       contentBasedDeduplication: true,
       // Keep some headroom for retries within a single invocation.
       visibilityTimeout: cdk.Duration.seconds(180),
-      deadLetterQueue: { queue: dlq, maxReceiveCount: 3 },
+      deadLetterQueue: { queue: this.dlq, maxReceiveCount: 3 },
       encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
@@ -142,7 +156,7 @@ export class SharedHandlers extends Construct {
       fifo: true,
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.minutes(5),
-      deadLetterQueue: { queue: dlq, maxReceiveCount: 3 },
+      deadLetterQueue: { queue: this.dlq, maxReceiveCount: 3 },
       encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
@@ -152,7 +166,7 @@ export class SharedHandlers extends Construct {
       fifo: true,
       // No content-based deduplication - we need explicit dedup IDs for retries
       visibilityTimeout: cdk.Duration.seconds(120),
-      deadLetterQueue: { queue: dlq, maxReceiveCount: 5 },
+      deadLetterQueue: { queue: this.dlq, maxReceiveCount: 5 },
       encryption: sqs.QueueEncryption.SQS_MANAGED,
     });
 
@@ -249,7 +263,7 @@ export class SharedHandlers extends Construct {
       sourceMap: true,
     };
 
-    const messageProcessor = new nodejs.NodejsFunction(this, 'MessageProcessor', {
+    this.messageProcessor = new nodejs.NodejsFunction(this, 'MessageProcessor', {
       functionName: `swarm-${environment}${suffix}-message-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'message-processor.ts'),
@@ -281,12 +295,12 @@ export class SharedHandlers extends Construct {
       logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
-    messageProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.messageQueue, {
+    this.messageProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.messageQueue, {
       batchSize: 10,
       reportBatchItemFailures: true,
     }));
 
-    const responseSender = new nodejs.NodejsFunction(this, 'ResponseSender', {
+    this.responseSender = new nodejs.NodejsFunction(this, 'ResponseSender', {
       functionName: `swarm-${environment}${suffix}-response-sender`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'response-sender.ts'),
@@ -301,12 +315,12 @@ export class SharedHandlers extends Construct {
       logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
-    responseSender.addEventSource(new lambdaEventSources.SqsEventSource(this.responseQueue, {
+    this.responseSender.addEventSource(new lambdaEventSources.SqsEventSource(this.responseQueue, {
       batchSize: 10,
       reportBatchItemFailures: true,
     }));
 
-    const mediaProcessor = new nodejs.NodejsFunction(this, 'MediaProcessor', {
+    this.mediaProcessor = new nodejs.NodejsFunction(this, 'MediaProcessor', {
       functionName: `swarm-${environment}${suffix}-media-processor`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'media-processor.ts'),
@@ -321,7 +335,7 @@ export class SharedHandlers extends Construct {
       logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
-    mediaProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.mediaQueue, {
+    this.mediaProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.mediaQueue, {
       batchSize: 5,
       reportBatchItemFailures: true,
     }));
@@ -341,7 +355,7 @@ export class SharedHandlers extends Construct {
       logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
-    const schedulerDlq = new sqs.Queue(this, 'SchedulerDLQ', {
+    this.schedulerDlq = new sqs.Queue(this, 'SchedulerDLQ', {
       queueName: `swarm-${environment}${suffix}-scheduler-dlq`,
       retentionPeriod: cdk.Duration.days(14),
       encryption: sqs.QueueEncryption.SQS_MANAGED,
@@ -350,7 +364,7 @@ export class SharedHandlers extends Construct {
     new events.Rule(this, 'TwitterMentionPollSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
       targets: [new targets.LambdaFunction(twitterMentionPoller, {
-        deadLetterQueue: schedulerDlq,
+        deadLetterQueue: this.schedulerDlq,
         retryAttempts: 2,
         maxEventAge: cdk.Duration.hours(2),
       })],
@@ -376,7 +390,7 @@ export class SharedHandlers extends Construct {
     new events.Rule(this, 'AutonomousTweetSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.hours(1)),
       targets: [new targets.LambdaFunction(autonomousTweetPoster, {
-        deadLetterQueue: schedulerDlq,
+        deadLetterQueue: this.schedulerDlq,
         retryAttempts: 2,
         maxEventAge: cdk.Duration.hours(2),
       })],
@@ -402,7 +416,7 @@ export class SharedHandlers extends Construct {
     new events.Rule(this, 'MoltbookHeartbeatSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(33)),
       targets: [new targets.LambdaFunction(moltbookHeartbeat, {
-        deadLetterQueue: schedulerDlq,
+        deadLetterQueue: this.schedulerDlq,
         retryAttempts: 2,
         maxEventAge: cdk.Duration.hours(2),
       })],
@@ -410,7 +424,7 @@ export class SharedHandlers extends Construct {
 
     // Tweet Sender - Consumes POST_QUEUE for decoupled Twitter posting
     // Handles rate limiting, backoff, and content store integration
-    const tweetSender = new nodejs.NodejsFunction(this, 'TweetSender', {
+    this.tweetSender = new nodejs.NodejsFunction(this, 'TweetSender', {
       functionName: `swarm-${environment}${suffix}-tweet-sender`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'tweet-sender.ts'),
@@ -431,9 +445,146 @@ export class SharedHandlers extends Construct {
       logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
-    tweetSender.addEventSource(new lambdaEventSources.SqsEventSource(this.postQueue, {
+    this.tweetSender.addEventSource(new lambdaEventSources.SqsEventSource(this.postQueue, {
       batchSize: 5,
       reportBatchItemFailures: true,
     }));
+
+    // ========================================================================
+    // CloudWatch Alarms
+    // ========================================================================
+    const alarmPrefix = `swarm-${environment}-shared`;
+    const snsAction = props.alarmTopic ? new cw_actions.SnsAction(props.alarmTopic) : undefined;
+
+    // Queue depth alarms
+    const messageQueueDepthAlarm = new cloudwatch.Alarm(this, 'MessageQueueDepthAlarm', {
+      alarmName: `${alarmPrefix}-messages-queue-depth`,
+      metric: this.messageQueue.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 10,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const responseQueueDepthAlarm = new cloudwatch.Alarm(this, 'ResponseQueueDepthAlarm', {
+      alarmName: `${alarmPrefix}-responses-queue-depth`,
+      metric: this.responseQueue.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 10,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const mediaQueueDepthAlarm = new cloudwatch.Alarm(this, 'MediaQueueDepthAlarm', {
+      alarmName: `${alarmPrefix}-media-queue-depth`,
+      metric: this.mediaQueue.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const postQueueDepthAlarm = new cloudwatch.Alarm(this, 'PostQueueDepthAlarm', {
+      alarmName: `${alarmPrefix}-posts-queue-depth`,
+      metric: this.postQueue.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 10,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // DLQ depth alarms (threshold: 1 message — any message in DLQ is actionable)
+    const dlqDepthAlarm = new cloudwatch.Alarm(this, 'DlqDepthAlarm', {
+      alarmName: `${alarmPrefix}-dlq-depth`,
+      metric: this.dlq.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const schedulerDlqDepthAlarm = new cloudwatch.Alarm(this, 'SchedulerDlqDepthAlarm', {
+      alarmName: `${alarmPrefix}-scheduler-dlq-depth`,
+      metric: this.schedulerDlq.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // Lambda error alarms
+    const messageProcessorErrorsAlarm = new cloudwatch.Alarm(this, 'MessageProcessorErrorsAlarm', {
+      alarmName: `${alarmPrefix}-message-processor-errors`,
+      metric: this.messageProcessor.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const responseSenderErrorsAlarm = new cloudwatch.Alarm(this, 'ResponseSenderErrorsAlarm', {
+      alarmName: `${alarmPrefix}-response-sender-errors`,
+      metric: this.responseSender.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const mediaProcessorErrorsAlarm = new cloudwatch.Alarm(this, 'MediaProcessorErrorsAlarm', {
+      alarmName: `${alarmPrefix}-media-processor-errors`,
+      metric: this.mediaProcessor.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    const tweetSenderErrorsAlarm = new cloudwatch.Alarm(this, 'TweetSenderErrorsAlarm', {
+      alarmName: `${alarmPrefix}-tweet-sender-errors`,
+      metric: this.tweetSender.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // Wire all alarms to SNS topic for notifications
+    if (snsAction) {
+      for (const alarm of [
+        messageQueueDepthAlarm,
+        responseQueueDepthAlarm,
+        mediaQueueDepthAlarm,
+        postQueueDepthAlarm,
+        dlqDepthAlarm,
+        schedulerDlqDepthAlarm,
+        messageProcessorErrorsAlarm,
+        responseSenderErrorsAlarm,
+        mediaProcessorErrorsAlarm,
+        tweetSenderErrorsAlarm,
+      ]) {
+        alarm.addAlarmAction(snsAction);
+      }
+    }
   }
 }
