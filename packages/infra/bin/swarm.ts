@@ -7,14 +7,11 @@
  * 2. AdminApiStack - API Gateway, Lambda handlers (changes with code)
  * 3. AdminUiStack - CloudFront for UI (changes with UI)
  * 4. AvatarsStack - Avatar configs (changes with avatar updates)
- * 
- * Legacy SwarmStack is still available for backward compatibility.
  */
 import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { SwarmStack } from '../src/stacks/swarm-stack.js';
 import { SharedInfraStack } from '../src/stacks/shared-infra-stack.js';
 import { AdminApiStack } from '../src/stacks/admin-api-stack.js';
 import { AdminUiStack } from '../src/stacks/admin-ui-stack.js';
@@ -132,9 +129,11 @@ const secretPrefix = (secretPrefixRaw && secretPrefixRaw.trim())
   ? secretPrefixRaw.trim()
   : (nameSuffix ? `swarm${nameSuffix}` : 'swarm');
 
-// Check if we should use split stacks (new) or monolithic stack (legacy)
-// Default to false for backward compatibility during migration
-const useSplitStacks = parseBoolean(app.node.tryGetContext('splitStacks')) ?? false;
+const splitStacksContext = parseBoolean(app.node.tryGetContext('splitStacks'));
+if (splitStacksContext === false) {
+  throw new Error('splitStacks=false is no longer supported. Legacy monolithic SwarmStack has been removed.');
+}
+const useSplitStacks = true;
 
 // When migrating from the monolithic stack, shared resources may already exist.
 // This flag makes SharedInfraStack adopt/import those shared resources instead of creating them.
@@ -186,15 +185,6 @@ if (!enableSharedHandlersForDeploy) {
 // In migration mode, reuse the existing SwarmAdmin table to preserve admin data.
 const useExistingAdminTable = isMigrationSplitWithoutSuffix;
 const existingAdminTableName = getContextValue<string>('existingAdminTableName', envConfig);
-
-// When deploying to an environment where S3 buckets already exist (e.g., from a previous stack
-// deletion with RETAIN policy), import the existing buckets instead of trying to create new ones.
-const useExistingBuckets = parseBoolean(getContextValue<unknown>('useExistingBuckets', envConfig)) ?? false;
-
-// When the CNAME is locked by an orphaned CloudFront distribution (e.g., after a stack deletion),
-// skip adding domain aliases during deployment. After deployment, use `aws cloudfront associate-alias`
-// to move the CNAME to the new distribution.
-const skipDomainAliases = parseBoolean(getContextValue<unknown>('skipDomainAliases', envConfig)) ?? false;
 
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
@@ -302,56 +292,7 @@ if (useSplitStacks) {
   }
 
 } else {
-  // ============================================
-  // LEGACY: Monolithic Stack (default for now)
-  // ============================================
-  new SwarmStack(app, `SwarmStack-${environment}${nameSuffix}`, {
-    environment,
-    nameSuffix,
-    avatarsPath,
-    handlersPath,
-    enableCdn: true,
-    avatarIds,
-    adminDomain,
-    adminCertificateArn,
-    cloudflareTeamDomain,
-    adminEmails,
-    adminWallets,
-    openRouterApiKeyArn,
-    replicateApiKeyArn,
-    heliusApiKeyArn,
-    webSearchApiKeyArn,
-    webSearchProvider,
-    crossmintApiKeyArn,
-    privyAppId,
-    privyAppSecretArn,
-    privyJwtVerificationKeyArn,
-    galleryDomain,
-    galleryCertificateArn,
-    enableClaudeCode,
-    claudeCodeUseOpenRouter,
-    enableSharedHandlers,
-    secretPrefix,
-    useExistingBuckets,
-    skipDomainAliases,
-    env: stackEnv,
-    description: `Swarm AI Avatar Framework (${environment})`,
-  });
-
-  // Profile Page Stack (independent from legacy monolithic stack)
-  // Hosts public avatar profile pages at *.rati.chat subdomains
-  if (profileDomain || app.node.tryGetContext('deployProfilePage')) {
-    new ProfilePageStack(app, `SwarmProfilePage-${environment}${nameSuffix}`, {
-      environment,
-      nameSuffix,
-      profileDomain,
-      profileCertificateArn,
-      includeWildcardAliases: environment === 'prod',
-      apiUrl: profileApiUrl,
-      env: stackEnv,
-      description: `Swarm Profile Page (${environment})`,
-    });
-  }
+  throw new Error('splitStacks=false is no longer supported. Legacy monolithic SwarmStack has been removed.');
 }
 
 app.synth();

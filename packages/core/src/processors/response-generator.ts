@@ -20,6 +20,9 @@ export interface ResponseGeneratorConfig {
   defaultSystemPrompt: string;
 }
 
+/**
+ * @deprecated Use MessageProcessor for new integrations.
+ */
 export class ResponseGenerator {
   constructor(
     private readonly avatarConfig: AvatarConfig,
@@ -292,7 +295,7 @@ If the message doesn't warrant a response, use the ignore tool.
 }
 
 /**
- * Factory function
+ * @deprecated Use createMessageProcessor instead.
  */
 export function createResponseGenerator(
   avatarConfig: AvatarConfig,

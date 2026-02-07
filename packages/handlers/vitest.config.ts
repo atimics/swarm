@@ -5,7 +5,7 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     environment: 'node',
-    // Skip if no test files (handlers don't have tests yet)
+    // Keep green in focused package runs where tests may be filtered out
     passWithNoTests: true,
   },
 });
