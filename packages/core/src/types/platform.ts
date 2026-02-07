@@ -234,6 +234,7 @@ export interface LLMConfig {
   fallbackModel?: string;
   temperature: number;
   maxTokens: number;
+  timeoutMs?: number;
 }
 
 export interface VoiceConfig {

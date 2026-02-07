@@ -21,7 +21,7 @@ import type {
   ToolCall,
 } from '../../types/index.js';
 
-const OPENROUTER_TIMEOUT_MS = 20_000;
+const OPENROUTER_DEFAULT_TIMEOUT_MS = 20_000;
 const OPENROUTER_RETRY_COUNT = 2;
 
 function sleep(ms: number): Promise<void> {
@@ -183,9 +183,11 @@ export class BedrockLLMService implements LLMService {
 export class OpenRouterLLMService implements LLMService {
   private apiKey: string;
   private baseUrl = 'https://openrouter.ai/api/v1';
+  private timeoutMs: number;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, timeoutMs: number = OPENROUTER_DEFAULT_TIMEOUT_MS) {
     this.apiKey = apiKey;
+    this.timeoutMs = timeoutMs;
   }
 
   async generateResponse(params: LLMGenerateParams): Promise<LLMResponse> {
@@ -234,7 +236,7 @@ export class OpenRouterLLMService implements LLMService {
         },
         body: JSON.stringify(body),
       },
-      OPENROUTER_TIMEOUT_MS,
+      this.timeoutMs,
       OPENROUTER_RETRY_COUNT
     );
 
@@ -496,7 +498,7 @@ export function createLLMService(config: LLMConfig, secrets: Record<string, stri
       if (!openrouterKey) {
         throw new Error('OPENROUTER_API_KEY not found in secrets');
       }
-      primary = new OpenRouterLLMService(openrouterKey);
+      primary = new OpenRouterLLMService(openrouterKey, config.timeoutMs);
       break;
     }
 
@@ -519,7 +521,7 @@ export function createLLMService(config: LLMConfig, secrets: Record<string, stri
     // Use OpenRouter for fallback as it supports many models
     const openrouterKey = secrets['OPENROUTER_API_KEY'];
     if (openrouterKey) {
-      fallback = new OpenRouterLLMService(openrouterKey);
+      fallback = new OpenRouterLLMService(openrouterKey, config.timeoutMs);
       // Note: The fallback will use the fallbackModel from params when called
     }
   }

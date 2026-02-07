@@ -1,0 +1,287 @@
+name: Deploy Admin UI (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      cdk_env:
+        required: true
+        type: string
+      admin_url:
+        required: true
+        type: string
+      api_url:
+        required: true
+        type: string
+      split_stacks:
+        required: true
+        type: boolean
+      use_existing_shared_resources:
+        required: true
+        type: boolean
+      stack_hash:
+        required: false
+        type: string
+        default: ''
+      cdk_distribution:
+        required: false
+        type: string
+        default: ''
+    secrets:
+      AWS_ROLE_ARN:
+        required: true
+      AWS_ACCOUNT_ID:
+        required: false
+      VITE_CROSSMINT_PROJECT_ID:
+        required: false
+      VITE_PRIVY_APP_ID:
+        required: false
+    outputs:
+      distribution:
+        value: ${{ jobs.stack-outputs.outputs.distribution }}
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  admin-ui-build:
+    name: Build Admin UI
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Admin UI
+        run: |
+          cd packages/admin-ui
+          VITE_API_URL=/api \
+          VITE_CROSSMINT_PROJECT_ID=${{ secrets.VITE_CROSSMINT_PROJECT_ID }} \
+          VITE_PRIVY_APP_ID=${{ secrets.VITE_PRIVY_APP_ID }} \
+          pnpm build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-ui-dist
+          path: packages/admin-ui/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  stack-outputs:
+    name: Stack Outputs
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      distribution: ${{ steps.outputs.outputs.distribution }}
+
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: stack-outputs-${{ inputs.environment }}
+
+      - name: Verify AWS account for environment
+        run: |
+          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
+
+          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            if [ "${{ inputs.environment }}" = "staging" ] || [ "${{ inputs.environment }}" = "production" ]; then
+              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for ${{ inputs.environment }}"
+              exit 1
+            fi
+            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
+            exit 0
+          fi
+
+          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::error::Wrong AWS account for ${{ inputs.environment }} (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
+            exit 1
+          fi
+
+      - name: Get stack outputs
+        id: outputs
+        env:
+          SPLIT_STACKS: ${{ inputs.split_stacks && 'true' || 'false' }}
+          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources && 'true' || 'false' }}
+          STACK_HASH: ${{ inputs.stack_hash }}
+        run: |
+          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ inputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
+          STACK_HASH_SUFFIX=""
+          if [ -n "$STACK_HASH" ]; then
+            STACK_HASH_SUFFIX="-$STACK_HASH"
+          fi
+
+          STACK_ID_SUFFIX=""
+          if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
+            STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
+          fi
+
+          EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
+          if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
+            EXPORT_SUFFIX="-split"
+          fi
+
+          if [ "$SPLIT_STACKS" = "true" ]; then
+            STACK="SwarmUi-${{ inputs.cdk_env }}${STACK_ID_SUFFIX}"
+          else
+            STACK="SwarmStack-${{ inputs.cdk_env }}${STACK_ID_SUFFIX}"
+          fi
+
+          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query \"Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ inputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue\" --output text)" >> $GITHUB_OUTPUT
+
+  admin-ui-deploy:
+    name: Deploy Admin UI
+    runs-on: ubuntu-latest
+    needs: [admin-ui-build, stack-outputs]
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Download Admin UI build
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-ui-dist
+          path: dist
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-ui-${{ inputs.environment }}
+
+      - name: Verify AWS account for environment
+        run: |
+          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
+
+          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            if [ "${{ inputs.environment }}" = "staging" ] || [ "${{ inputs.environment }}" = "production" ]; then
+              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for ${{ inputs.environment }}"
+              exit 1
+            fi
+            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
+            exit 0
+          fi
+
+          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::error::Wrong AWS account for ${{ inputs.environment }} (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
+            exit 1
+          fi
+
+      - name: Deploy to S3
+        env:
+          SPLIT_STACKS: ${{ inputs.split_stacks && 'true' || 'false' }}
+          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources && 'true' || 'false' }}
+          STACK_HASH: ${{ inputs.stack_hash }}
+          CDK_ENV: ${{ inputs.cdk_env }}
+        run: |
+          if [ "$SPLIT_STACKS" = "true" ] && [ "$CDK_ENV" = "staging" ] && [ -z "$STACK_HASH" ]; then
+            USE_EXISTING_SHARED_RESOURCES="true"
+          fi
+
+          STACK_HASH_SUFFIX=""
+          if [ -n "$STACK_HASH" ]; then
+            STACK_HASH_SUFFIX="-$STACK_HASH"
+          fi
+
+          STACK_ID_SUFFIX=""
+          if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
+            STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
+          fi
+
+          EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
+          if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
+            EXPORT_SUFFIX="-split"
+          fi
+
+          if [ "$SPLIT_STACKS" = "true" ]; then
+            STACK="SwarmUi-${CDK_ENV}${STACK_ID_SUFFIX}"
+          else
+            STACK="SwarmStack-${CDK_ENV}${STACK_ID_SUFFIX}"
+          fi
+
+          BUCKET=$(aws cloudformation describe-stacks --stack-name "$STACK" \
+            --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${CDK_ENV}${EXPORT_SUFFIX}'].OutputValue" \
+            --output text)
+
+          if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ]; then
+            echo "::error::Could not get bucket name from stack $STACK"
+            exit 1
+          fi
+
+          echo "Deploying to bucket: ${BUCKET:0:20}..."
+          aws s3 sync dist s3://$BUCKET --delete --cache-control "max-age=31536000,immutable" --exclude "index.html" --exclude "*.json"
+          aws s3 cp dist/index.html s3://$BUCKET/index.html --cache-control "no-cache"
+
+      - name: Invalidate CDN
+        env:
+          SPLIT_STACKS: ${{ inputs.split_stacks && 'true' || 'false' }}
+          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources && 'true' || 'false' }}
+          STACK_HASH: ${{ inputs.stack_hash }}
+          CDK_ENV: ${{ inputs.cdk_env }}
+        run: |
+          DIST="${{ inputs.cdk_distribution || needs.stack-outputs.outputs.distribution }}"
+
+          if [ -z "$DIST" ] || [ "$DIST" = "None" ]; then
+            if [ "$SPLIT_STACKS" = "true" ] && [ "$CDK_ENV" = "staging" ] && [ -z "$STACK_HASH" ]; then
+              USE_EXISTING_SHARED_RESOURCES="true"
+            fi
+
+            STACK_HASH_SUFFIX=""
+            if [ -n "$STACK_HASH" ]; then
+              STACK_HASH_SUFFIX="-$STACK_HASH"
+            fi
+
+            STACK_ID_SUFFIX=""
+            if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
+              STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
+            fi
+
+            EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
+            if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
+              EXPORT_SUFFIX="-split"
+            fi
+
+            if [ "$SPLIT_STACKS" = "true" ]; then
+              STACK="SwarmUi-${CDK_ENV}${STACK_ID_SUFFIX}"
+            else
+              STACK="SwarmStack-${CDK_ENV}${STACK_ID_SUFFIX}"
+            fi
+
+            DIST=$(aws cloudformation describe-stacks --stack-name "$STACK" \
+              --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${CDK_ENV}${EXPORT_SUFFIX}'].OutputValue" \
+              --output text)
+          fi
+
+          if [ -n "$DIST" ] && [ "$DIST" != "None" ]; then
+            aws cloudfront create-invalidation --distribution-id $DIST --paths "/*" --no-cli-pager
+            echo "✅ CDN invalidated" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Summary
+        run: |
+          echo "## ✅ Deployed to ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **UI:** ${{ inputs.admin_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **API:** ${{ inputs.api_url }}" >> $GITHUB_STEP_SUMMARY

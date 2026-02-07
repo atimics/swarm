@@ -46,13 +46,11 @@ on:
         required: false
         default: false
         type: boolean
-
       use_hotswap:
         description: 'Use CDK hotswap fallback (faster, less prod-like)'
         required: false
         default: false
         type: boolean
-
       run_prod_smoke:
         description: 'Run lightweight production smoke checks after deploy'
         required: false
@@ -74,7 +72,6 @@ permissions:
   actions: read
 
 jobs:
-  # Shared setup job to determine environment
   setup:
     name: Setup
     runs-on: ubuntu-latest
@@ -86,6 +83,15 @@ jobs:
       cdk_env: ${{ steps.env.outputs.cdk_env }}
       api_url: ${{ steps.env.outputs.api_url }}
       admin_url: ${{ steps.env.outputs.admin_url }}
+      split_stacks: ${{ steps.env.outputs.split_stacks }}
+      use_existing_shared_resources: ${{ steps.env.outputs.use_existing_shared_resources }}
+      use_existing_buckets: ${{ steps.env.outputs.use_existing_buckets }}
+      skip_domain_aliases: ${{ steps.env.outputs.skip_domain_aliases }}
+      stack_hash: ${{ steps.env.outputs.stack_hash }}
+      stack: ${{ steps.env.outputs.stack }}
+      use_hotswap: ${{ steps.env.outputs.use_hotswap }}
+      run_browser_tests: ${{ steps.env.outputs.run_browser_tests }}
+      run_prod_smoke: ${{ steps.env.outputs.run_prod_smoke }}
 
     steps:
       - name: Checkout (for tag detection)
@@ -94,8 +100,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set environment
+      - name: Set environment and resolved options
         id: env
+        env:
+          INPUT_SPLIT_STACKS: ${{ inputs.split_stacks }}
+          INPUT_USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources }}
+          INPUT_USE_EXISTING_BUCKETS: ${{ inputs.use_existing_buckets }}
+          INPUT_SKIP_DOMAIN_ALIASES: ${{ inputs.skip_domain_aliases }}
+          INPUT_STACK_HASH: ${{ inputs.stack_hash }}
+          INPUT_STACK: ${{ inputs.stack }}
+          INPUT_USE_HOTSWAP: ${{ inputs.use_hotswap }}
+          INPUT_RUN_BROWSER_TESTS: ${{ inputs.run_browser_tests }}
+          INPUT_RUN_PROD_SMOKE: ${{ inputs.run_prod_smoke }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ENV="${{ inputs.environment }}"
@@ -112,10 +128,9 @@ jobs:
               exit 1
             fi
           fi
+
           CDK_ENV="${ENV/production/prod}"
-          
-          # Pre-compute resource names (deterministic from CDK)
-          # API is served via same-origin CloudFront proxy under /api/*
+
           if [ "$CDK_ENV" = "staging" ]; then
             ADMIN_HOST="staging-swarm.rati.chat"
           else
@@ -124,729 +139,82 @@ jobs:
 
           API_URL="https://${ADMIN_HOST}/api"
           ADMIN_URL="https://${ADMIN_HOST}"
-          
-          echo "environment=$ENV" >> $GITHUB_OUTPUT
-          echo "cdk_env=$CDK_ENV" >> $GITHUB_OUTPUT
-          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
-          echo "admin_url=$ADMIN_URL" >> $GITHUB_OUTPUT
-          echo "🚀 Deploying to **$ENV**" >> $GITHUB_STEP_SUMMARY
 
-  # CDK deployment (Lambda, API Gateway, DynamoDB, etc)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SPLIT_STACKS="${INPUT_SPLIT_STACKS:-false}"
+            USE_EXISTING_SHARED_RESOURCES="${INPUT_USE_EXISTING_SHARED_RESOURCES:-false}"
+            USE_EXISTING_BUCKETS="${INPUT_USE_EXISTING_BUCKETS:-false}"
+            SKIP_DOMAIN_ALIASES="${INPUT_SKIP_DOMAIN_ALIASES:-false}"
+            STACK_HASH="${INPUT_STACK_HASH:-}"
+            STACK="${INPUT_STACK:-}"
+            USE_HOTSWAP="${INPUT_USE_HOTSWAP:-false}"
+            RUN_BROWSER_TESTS="${INPUT_RUN_BROWSER_TESTS:-false}"
+            RUN_PROD_SMOKE="${INPUT_RUN_PROD_SMOKE:-false}"
+          else
+            if [ "$CDK_ENV" = "staging" ]; then
+              SPLIT_STACKS="true"
+            else
+              SPLIT_STACKS="false"
+            fi
+            USE_EXISTING_SHARED_RESOURCES="false"
+            USE_EXISTING_BUCKETS="false"
+            SKIP_DOMAIN_ALIASES="false"
+            STACK_HASH=""
+            STACK=""
+            USE_HOTSWAP="false"
+            RUN_BROWSER_TESTS="false"
+            RUN_PROD_SMOKE="false"
+          fi
+
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "cdk_env=$CDK_ENV" >> "$GITHUB_OUTPUT"
+          echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "admin_url=$ADMIN_URL" >> "$GITHUB_OUTPUT"
+          echo "split_stacks=$SPLIT_STACKS" >> "$GITHUB_OUTPUT"
+          echo "use_existing_shared_resources=$USE_EXISTING_SHARED_RESOURCES" >> "$GITHUB_OUTPUT"
+          echo "use_existing_buckets=$USE_EXISTING_BUCKETS" >> "$GITHUB_OUTPUT"
+          echo "skip_domain_aliases=$SKIP_DOMAIN_ALIASES" >> "$GITHUB_OUTPUT"
+          echo "stack_hash=$STACK_HASH" >> "$GITHUB_OUTPUT"
+          echo "stack=$STACK" >> "$GITHUB_OUTPUT"
+          echo "use_hotswap=$USE_HOTSWAP" >> "$GITHUB_OUTPUT"
+          echo "run_browser_tests=$RUN_BROWSER_TESTS" >> "$GITHUB_OUTPUT"
+          echo "run_prod_smoke=$RUN_PROD_SMOKE" >> "$GITHUB_OUTPUT"
+          echo "🚀 Deploying to **$ENV**" >> "$GITHUB_STEP_SUMMARY"
+
   cdk-deploy:
     name: CDK Deploy
-    runs-on: ubuntu-latest
     needs: setup
-    environment: ${{ needs.setup.outputs.environment }}
-    outputs:
-      distribution: ${{ steps.outputs.outputs.distribution }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-
-      - name: Cache Lambda Layer
-        id: layer-cache
-        uses: actions/cache@v4
-        with:
-          path: packages/layer/nodejs
-          key: layer-${{ hashFiles('packages/layer/package.json', 'packages/layer/node-fetch-shim/**', 'packages/layer/abort-controller-shim/**') }}
-
-      - name: Cache CDK output
-        uses: actions/cache@v4
-        with:
-          path: packages/infra/cdk.out
-          key: cdk-${{ needs.setup.outputs.cdk_env }}-${{ hashFiles('pnpm-lock.yaml', 'packages/infra/package.json', 'packages/infra/**/*.ts', 'packages/*/src/**/*.ts') }}
-          restore-keys: cdk-${{ needs.setup.outputs.cdk_env }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build packages
-        run: |
-          # Build layer if not cached (with Linux platform for Lambda)
-          if [ "${{ steps.layer-cache.outputs.cache-hit }}" != "true" ]; then
-            cd packages/layer && pnpm run build:layer && cd ../..
-          fi
-          pnpm -r --filter '!admin-ui' build
-
-      - name: Validate AWS environment secrets
-        run: |
-          ROLE_ARN="${{ secrets.AWS_ROLE_ARN }}"
-          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
-          ADMIN_CERTIFICATE_ARN="${{ secrets.ADMIN_CERTIFICATE_ARN }}"
-
-          if [ -z "$ROLE_ARN" ]; then
-            echo "::error::Missing required environment secret AWS_ROLE_ARN"
-            exit 1
-          fi
-
-          # Align staging with production: require account + cert secrets for both environments.
-          if [ "${{ needs.setup.outputs.environment }}" = "staging" ] || [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-            if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for ${{ needs.setup.outputs.environment }}"
-              exit 1
-            fi
-
-            if [[ "$ROLE_ARN" != arn:aws:iam::${EXPECTED_AWS_ACCOUNT_ID}:role/* ]]; then
-              echo "::error::AWS_ROLE_ARN does not match AWS_ACCOUNT_ID (role='$ROLE_ARN', expected account='${EXPECTED_AWS_ACCOUNT_ID}')"
-              exit 1
-            fi
-
-            if [ -z "$ADMIN_CERTIFICATE_ARN" ]; then
-              echo "::error::Missing required environment secret ADMIN_CERTIFICATE_ARN for ${{ needs.setup.outputs.environment }}"
-              exit 1
-            fi
-          fi
-
-      - name: Debug GitHub OIDC claims (no token)
-        if: always()
-        run: |
-          echo "Repo: $GITHUB_REPOSITORY"
-          echo "Ref: $GITHUB_REF"
-          echo "SHA: $GITHUB_SHA"
-          echo "Environment: ${{ needs.setup.outputs.environment }}"
-          echo "CDK env: ${{ needs.setup.outputs.cdk_env }}"
-
-          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ] || [ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
-            echo "OIDC token request env vars missing (check job permissions id-token: write)"
-            exit 0
-          fi
-
-          TOKEN_JSON=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
-          TOKEN=$(echo "$TOKEN_JSON" | jq -r '.value // empty')
-          if [ -z "$TOKEN" ]; then
-            echo "Failed to fetch OIDC token (empty value)"
-            exit 0
-          fi
-
-          # Decode JWT payload safely (add base64 padding).
-          PAYLOAD_B64=$(echo "$TOKEN" | cut -d '.' -f2)
-          PAD=$(( (4 - ${#PAYLOAD_B64} % 4) % 4 ))
-          if [ "$PAD" -eq 1 ]; then PAYLOAD_B64="${PAYLOAD_B64}="; fi
-          if [ "$PAD" -eq 2 ]; then PAYLOAD_B64="${PAYLOAD_B64}=="; fi
-          if [ "$PAD" -eq 3 ]; then PAYLOAD_B64="${PAYLOAD_B64}==="; fi
-          PAYLOAD_JSON=$(echo "$PAYLOAD_B64" | tr '_-' '/+' | base64 -d 2>/dev/null || true)
-
-          echo "$PAYLOAD_JSON" | jq -c '{iss,aud,sub,repository,ref,environment,job_workflow_ref,actor,repository_owner,sha,workflow}' || true
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: deploy-cdk-${{ needs.setup.outputs.environment }}
-
-      - name: Verify AWS account for environment
-        run: |
-          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
-          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
-
-          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            if [ "${{ needs.setup.outputs.environment }}" = "staging" ] || [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for ${{ needs.setup.outputs.environment }}"
-              exit 1
-            fi
-            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
-            exit 0
-          fi
-
-          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            echo "::error::Wrong AWS account for ${{ needs.setup.outputs.environment }} (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
-            exit 1
-          fi
-
-      - name: Download CDK context from S3
-        working-directory: packages/infra
-        env:
-          CDK_CONTEXT_BUCKET: ${{ secrets.SWARM_CDK_CONTEXT_BUCKET }}
-        run: |
-          if [ -z "$CDK_CONTEXT_BUCKET" ]; then
-            echo "Missing SWARM_CDK_CONTEXT_BUCKET GitHub secret (required for CDK deploy)." >&2
-            exit 1
-          fi
-
-          ENV="${{ needs.setup.outputs.cdk_env }}"
-          KEY="swarm/cdk-context/${ENV}/cdk.context.json"
-
-          echo "Downloading s3://${CDK_CONTEXT_BUCKET}/${KEY} -> cdk.context.json"
-          aws s3 cp "s3://${CDK_CONTEXT_BUCKET}/${KEY}" "cdk.context.json" --only-show-errors
-
-      - name: Ensure CDK bootstrap
-        working-directory: packages/infra
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-          if aws ssm get-parameter --name "/cdk-bootstrap/hnb659fds/version" --region "${AWS_REGION}" >/dev/null 2>&1; then
-            echo "✅ CDK bootstrap already present in ${ACCOUNT_ID}/${AWS_REGION}"
-            exit 0
-          fi
-
-          echo "⚠️  CDK bootstrap missing in ${ACCOUNT_ID}/${AWS_REGION}; bootstrapping now"
-          npx cdk bootstrap "aws://${ACCOUNT_ID}/${AWS_REGION}" --require-approval never
-
-      - name: Ensure dependency-layer SSM param (staging migration)
-        if: needs.setup.outputs.cdk_env == 'staging'
-        working-directory: packages/infra
-        env:
-          # Default to split stacks for staging on push-to-main.
-          # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
-          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && (inputs.split_stacks && 'true' || 'false') || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
-          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
-          STACK_HASH: ${{ inputs.stack_hash || '' }}
-        run: |
-          # Only needed in migration mode (split stacks + adopt legacy shared resources, no suffix).
-          if [ "$SPLIT_STACKS" != "true" ] || [ -n "$STACK_HASH" ]; then
-            exit 0
-          fi
-
-          # Auto-enable adoption mode for staging split stacks without a suffix.
-          if [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
-            USE_EXISTING_SHARED_RESOURCES="true"
-          fi
-
-          if [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
-            exit 0
-          fi
-
-          ENV="${{ needs.setup.outputs.cdk_env }}"
-          PARAM_NAME="/swarm/${ENV}/dependency-layer-arn"
-
-          if aws ssm get-parameter --name "$PARAM_NAME" --query 'Parameter.Value' --output text >/dev/null 2>&1; then
-            echo "✅ SSM param exists: $PARAM_NAME"
-            exit 0
-          fi
-
-          # Bootstrap the param from the current legacy export value.
-          EXPORT_NAME="SwarmShared-${ENV}:ExportsOutputRefDependencyLayerE4A0C25129DFB32E"
-          LAYER_ARN=$(aws cloudformation list-exports --query "Exports[?Name=='${EXPORT_NAME}'].Value" --output text)
-          if [ -z "$LAYER_ARN" ]; then
-            echo "::error::Missing CloudFormation export '${EXPORT_NAME}'. Cannot bootstrap ${PARAM_NAME}."
-            exit 1
-          fi
-
-          echo "Bootstrapping ${PARAM_NAME} from export ${EXPORT_NAME}"
-          aws ssm put-parameter --name "$PARAM_NAME" --type String --value "$LAYER_ARN" --overwrite
-
-      - name: CDK Diff
-        id: diff
-        working-directory: packages/infra
-        env:
-          # Default to split stacks for staging on push-to-main.
-          # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
-          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && (inputs.split_stacks && 'true' || 'false') || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
-          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
-          USE_EXISTING_BUCKETS: ${{ inputs.use_existing_buckets || 'false' }}
-          SKIP_DOMAIN_ALIASES: ${{ inputs.skip_domain_aliases || 'false' }}
-          STACK_HASH: ${{ inputs.stack_hash || '' }}
-          ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
-        run: |
-          # Staging uses split stacks but shares the legacy shared resources (tables/bucket/cluster).
-          # Auto-enable adoption mode when deploying staging split stacks without a suffix.
-          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
-            USE_EXISTING_SHARED_RESOURCES="true"
-          fi
-
-          IS_MIGRATION_STAGING_SPLIT="false"
-          if [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
-            IS_MIGRATION_STAGING_SPLIT="true"
-          fi
-
-          # Ensure we always use the correct admin domain + cert per environment.
-          # This prevents cross-account ACM ARNs in shared cdk.context.json from breaking prod.
-          ADMIN_DOMAIN=$(echo "${{ needs.setup.outputs.admin_url }}" | sed -E 's|^https?://||' | cut -d/ -f1)
-          EXTRA_CONTEXT_ARGS="-c adminDomain=${ADMIN_DOMAIN}"
-
-          if [ "${{ needs.setup.outputs.environment }}" = "production" ] && [ -z "$ADMIN_CERTIFICATE_ARN" ]; then
-            echo "::error::Missing required environment secret ADMIN_CERTIFICATE_ARN for production"
-            exit 1
-          fi
-
-          if [ -n "$ADMIN_CERTIFICATE_ARN" ]; then
-            EXTRA_CONTEXT_ARGS="${EXTRA_CONTEXT_ARGS} -c adminCertificateArn=${ADMIN_CERTIFICATE_ARN}"
-          fi
-
-          STACK="${{ inputs.stack }}"
-          echo "Checking for infrastructure changes..."
-          set +e
-          if [ -n "$STACK" ]; then
-            DIFF_TARGETS="$STACK"
-          elif [ "$IS_MIGRATION_STAGING_SPLIT" = "true" ]; then
-            DIFF_TARGETS="SwarmApi-${{ needs.setup.outputs.cdk_env }} SwarmUi-${{ needs.setup.outputs.cdk_env }} SwarmAvatars-${{ needs.setup.outputs.cdk_env }}"
-          else
-            DIFF_TARGETS="--all"
-          fi
-
-          # NOTE: `cdk diff` prints "There were no differences" once per stack.
-          # When diffing multiple stacks, grepping for that string is not reliable.
-          # Use `--fail` so we can safely rely on exit codes:
-          #   0 = no diffs, 1 = diffs present, >1 = error.
-          npx cdk diff --fail $DIFF_TARGETS -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
-          DIFF_EXIT=$?
-          set -e
-          
-          if [ $DIFF_EXIT -gt 1 ]; then
-            echo "::error::cdk diff failed (exit $DIFF_EXIT)"
-            cat diff-output.txt
-            exit $DIFF_EXIT
-          fi
-
-          # Check if there are no differences (exit 0)
-          if [ $DIFF_EXIT -eq 0 ]; then
-            # Don't skip deploy if the target stack does not exist (common after manual cleanup).
-            if [ -n "$STACK" ]; then
-              TARGET_STACKS="$STACK"
-            elif [ "$IS_MIGRATION_STAGING_SPLIT" = "true" ]; then
-              TARGET_STACKS="SwarmApi-${{ needs.setup.outputs.cdk_env }} SwarmUi-${{ needs.setup.outputs.cdk_env }} SwarmAvatars-${{ needs.setup.outputs.cdk_env }}"
-            else
-              STACK_SUFFIX=""
-              if [ -n "$STACK_HASH" ]; then
-                STACK_SUFFIX="-$STACK_HASH"
-              fi
-              if [ "$SPLIT_STACKS" = "true" ]; then
-                TARGET_STACKS="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
-              else
-                TARGET_STACKS="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_SUFFIX}"
-              fi
-            fi
-
-            MISSING_STACK="false"
-            for TARGET_STACK in $TARGET_STACKS; do
-              if ! aws cloudformation describe-stacks --stack-name "$TARGET_STACK" >/dev/null 2>&1; then
-                echo "Target stack '$TARGET_STACK' is missing - forcing deploy"
-                MISSING_STACK="true"
-                break
-              fi
-            done
-
-            if [ "$MISSING_STACK" = "false" ]; then
-              echo "No infrastructure changes detected - skipping deploy"
-              echo "skip=true" >> $GITHUB_OUTPUT
-            else
-              echo "skip=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "Infrastructure changes detected - proceeding with deploy"
-            cat diff-output.txt
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: CDK Deploy
-        if: steps.diff.outputs.skip != 'true'
-        working-directory: packages/infra
-        env:
-          # Default to split stacks for staging on push-to-main.
-          # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
-          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && (inputs.split_stacks && 'true' || 'false') || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
-          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
-          USE_EXISTING_BUCKETS: ${{ inputs.use_existing_buckets || 'false' }}
-          SKIP_DOMAIN_ALIASES: ${{ inputs.skip_domain_aliases || 'false' }}
-          STACK_HASH: ${{ inputs.stack_hash || '' }}
-          ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
-        run: |
-          # Staging uses split stacks but shares the legacy shared resources (tables/bucket/cluster).
-          # Auto-enable adoption mode when deploying staging split stacks without a suffix.
-          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
-            USE_EXISTING_SHARED_RESOURCES="true"
-          fi
-
-          IS_MIGRATION_STAGING_SPLIT="false"
-          if [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
-            IS_MIGRATION_STAGING_SPLIT="true"
-          fi
-
-          # Monolithic stacks create fixed-name S3 buckets. If the stack was previously deleted with
-          # RETAIN policy, those buckets still exist and CloudFormation will fail early validation
-          # when we try to recreate them. Detect this case and automatically enable bucket import.
-          if [ "$SPLIT_STACKS" != "true" ] && [ "$USE_EXISTING_BUCKETS" != "true" ]; then
-            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-            BUCKET_SUFFIX=""
-            if [ -n "$STACK_HASH" ]; then
-              BUCKET_SUFFIX="-$STACK_HASH"
-            fi
-
-            ENV_NAME="${{ needs.setup.outputs.cdk_env }}"
-            MEDIA_BUCKET="swarm-media-${ENV_NAME}${BUCKET_SUFFIX}-${ACCOUNT_ID}"
-            ADMIN_UI_BUCKET="swarm-admin-ui-${ENV_NAME}${BUCKET_SUFFIX}-${ACCOUNT_ID}"
-
-            if aws s3api head-bucket --bucket "$MEDIA_BUCKET" 2>/dev/null && aws s3api head-bucket --bucket "$ADMIN_UI_BUCKET" 2>/dev/null; then
-              echo "Detected existing S3 buckets (MEDIA_BUCKET=$MEDIA_BUCKET, ADMIN_UI_BUCKET=$ADMIN_UI_BUCKET); enabling useExistingBuckets=true"
-              USE_EXISTING_BUCKETS="true"
-            else
-              echo "S3 buckets not detected (or insufficient permissions); leaving useExistingBuckets=$USE_EXISTING_BUCKETS"
-            fi
-          fi
-
-          # Ensure we always use the correct admin domain + cert per environment.
-          ADMIN_DOMAIN=$(echo "${{ needs.setup.outputs.admin_url }}" | sed -E 's|^https?://||' | cut -d/ -f1)
-          EXTRA_CONTEXT_ARGS="-c adminDomain=${ADMIN_DOMAIN}"
-
-          if [ "${{ needs.setup.outputs.environment }}" = "production" ] && [ -z "$ADMIN_CERTIFICATE_ARN" ]; then
-            echo "::error::Missing required environment secret ADMIN_CERTIFICATE_ARN for production"
-            exit 1
-          fi
-
-          if [ -n "$ADMIN_CERTIFICATE_ARN" ]; then
-            EXTRA_CONTEXT_ARGS="${EXTRA_CONTEXT_ARGS} -c adminCertificateArn=${ADMIN_CERTIFICATE_ARN}"
-          fi
-
-          HOTSWAP=${{ github.event_name == 'workflow_dispatch' && inputs.use_hotswap && '--hotswap-fallback' || '' }}
-          STACK="${{ inputs.stack }}"
-
-          if [ -n "$STACK" ]; then
-            npx cdk deploy "$STACK" --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
-            exit 0
-          fi
-
-          if [ "$IS_MIGRATION_STAGING_SPLIT" = "true" ]; then
-            # Break the deadlock: SwarmShared-staging cannot update its dependency-layer export while
-            # SwarmApi-staging still imports it. Consumer stacks use SSM for the layer ARN; deploy them
-            # exclusively so CDK does not try to deploy SwarmShared-staging as a dependency.
-            npx cdk deploy "SwarmApi-${{ needs.setup.outputs.cdk_env }}" --exclusively --require-approval never $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
-            npx cdk deploy "SwarmUi-${{ needs.setup.outputs.cdk_env }}" --exclusively --require-approval never $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
-            npx cdk deploy "SwarmAvatars-${{ needs.setup.outputs.cdk_env }}" --exclusively --require-approval never $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
-            exit 0
-          fi
-
-          npx cdk deploy --all --require-approval never --concurrency 10 $HOTSWAP -c environment=${{ needs.setup.outputs.cdk_env }} -c splitStacks=$SPLIT_STACKS -c useExistingSharedResources=$USE_EXISTING_SHARED_RESOURCES -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS}
-
-      - name: Skip Deploy (no changes)
-        if: steps.diff.outputs.skip == 'true'
-        run: echo "✅ CDK deploy skipped - no infrastructure changes detected"
-
-      - name: Get stack outputs
-        id: outputs
-        env:
-          # Default to split stacks for staging on push-to-main.
-          # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
-          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && (inputs.split_stacks && 'true' || 'false') || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
-          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
-          STACK_HASH: ${{ inputs.stack_hash || '' }}
-        run: |
-          # In migration mode (staging split stacks without stack_hash), the infra uses a '-split'
-          # suffix for non-shared resource names/exports to avoid colliding with legacy exports.
-          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
-            USE_EXISTING_SHARED_RESOURCES="true"
-          fi
-
-          STACK_HASH_SUFFIX=""
-          if [ -n "$STACK_HASH" ]; then
-            STACK_HASH_SUFFIX="-$STACK_HASH"
-          fi
-
-          STACK_ID_SUFFIX=""
-          if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
-            STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
-          fi
-
-          EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
-          if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
-            EXPORT_SUFFIX="-split"
-          fi
-
-          # Use UI stack for split stacks, monolithic stack otherwise
-          if [ "$SPLIT_STACKS" = "true" ]; then
-            STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
-          else
-            STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
-          fi
-
-          # Get distribution ID (bucket is queried directly in deploy job to avoid secret masking)
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
-
-      - name: Associate domain alias (if skipped during deployment)
-        if: inputs.skip_domain_aliases && steps.outputs.outputs.distribution != ''
-        env:
-          DISTRIBUTION_ID: ${{ steps.outputs.outputs.distribution }}
-          ADMIN_DOMAIN: ${{ needs.setup.outputs.admin_url }}
-        run: |
-          # Extract just the hostname from the URL
-          DOMAIN=$(echo "$ADMIN_DOMAIN" | sed -E 's|^https?://||' | cut -d/ -f1)
-          
-          echo "Attempting to associate domain alias '$DOMAIN' with distribution '$DISTRIBUTION_ID'..."
-          
-          # Try to associate the alias. This moves the CNAME from any orphaned distribution.
-          if aws cloudfront associate-alias --target-distribution-id "$DISTRIBUTION_ID" --alias "$DOMAIN" 2>&1; then
-            echo "✅ Successfully associated '$DOMAIN' with distribution '$DISTRIBUTION_ID'"
-          else
-            echo "⚠️ Could not associate alias. You may need to:"
-            echo "   1. Add a TXT record '_cf-domain-ownership.$DOMAIN' with value '$DISTRIBUTION_ID'"
-            echo "   2. Or contact AWS Support to release the orphaned CNAME"
-            echo ""
-            echo "After adding the TXT record, retry with: aws cloudfront associate-alias --target-distribution-id $DISTRIBUTION_ID --alias $DOMAIN"
-          fi
-          
-          # Also try to associate the wildcard if this is production
-          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-            WILDCARD=$(echo "$DOMAIN" | sed 's/^[^.]*/*./')
-            echo "Attempting to associate wildcard alias '$WILDCARD' with distribution '$DISTRIBUTION_ID'..."
-            aws cloudfront associate-alias --target-distribution-id "$DISTRIBUTION_ID" --alias "$WILDCARD" 2>&1 || echo "⚠️ Could not associate wildcard alias"
-          fi
-
-  # Admin UI build (runs in parallel with CDK)
-  admin-ui-build:
-    name: Build Admin UI
-    runs-on: ubuntu-latest
-    needs: setup
-    environment: ${{ needs.setup.outputs.environment }}
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build Admin UI
-        run: |
-          cd packages/admin-ui
-          VITE_API_URL=/api \
-          VITE_CROSSMINT_PROJECT_ID=${{ secrets.VITE_CROSSMINT_PROJECT_ID }} \
-          VITE_PRIVY_APP_ID=${{ secrets.VITE_PRIVY_APP_ID }} \
-          pnpm build
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: admin-ui-dist
-          path: packages/admin-ui/dist
-          if-no-files-found: error
-          retention-days: 1
-
-  # Deploy Admin UI to S3 (after CDK creates/updates bucket)
-  stack-outputs:
-    name: Stack Outputs
-    runs-on: ubuntu-latest
-    needs: [setup, cdk-deploy]
-    environment: ${{ needs.setup.outputs.environment }}
-    outputs:
-      distribution: ${{ steps.outputs.outputs.distribution }}
-
-    steps:
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: stack-outputs-${{ needs.setup.outputs.environment }}
-
-      - name: Verify AWS account for environment
-        run: |
-          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
-          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
-
-          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            if [ "${{ needs.setup.outputs.environment }}" = "staging" ] || [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for ${{ needs.setup.outputs.environment }}"
-              exit 1
-            fi
-            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
-            exit 0
-          fi
-
-          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            echo "::error::Wrong AWS account for ${{ needs.setup.outputs.environment }} (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
-            exit 1
-          fi
-
-      - name: Get stack outputs
-        id: outputs
-        env:
-          # Default to split stacks for staging on push-to-main.
-          # This avoids CloudFront CNAME conflicts when SwarmUi-staging already owns the staging domain.
-          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && (inputs.split_stacks && 'true' || 'false') || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
-          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
-          STACK_HASH: ${{ inputs.stack_hash || '' }}
-        run: |
-          # In migration mode (staging split stacks without stack_hash), the infra uses a '-split'
-          # suffix for non-shared resource names/exports to avoid colliding with legacy exports.
-          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ needs.setup.outputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
-            USE_EXISTING_SHARED_RESOURCES="true"
-          fi
-
-          STACK_HASH_SUFFIX=""
-          if [ -n "$STACK_HASH" ]; then
-            STACK_HASH_SUFFIX="-$STACK_HASH"
-          fi
-
-          STACK_ID_SUFFIX=""
-          if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
-            STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
-          fi
-
-          EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
-          if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
-            EXPORT_SUFFIX="-split"
-          fi
-
-          # Use UI stack for split stacks, monolithic stack otherwise
-          if [ "$SPLIT_STACKS" = "true" ]; then
-            STACK="SwarmUi-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
-          else
-            STACK="SwarmStack-${{ needs.setup.outputs.cdk_env }}${STACK_ID_SUFFIX}"
-          fi
-
-          # Get distribution ID (bucket is queried directly in deploy job to avoid secret masking)
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ needs.setup.outputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue" --output text)" >> $GITHUB_OUTPUT
+    uses: ./.github/workflows/deploy-cdk-reusable.yml
+    with:
+      environment: ${{ needs.setup.outputs.environment }}
+      cdk_env: ${{ needs.setup.outputs.cdk_env }}
+      admin_url: ${{ needs.setup.outputs.admin_url }}
+      split_stacks: ${{ needs.setup.outputs.split_stacks == 'true' }}
+      use_existing_shared_resources: ${{ needs.setup.outputs.use_existing_shared_resources == 'true' }}
+      use_existing_buckets: ${{ needs.setup.outputs.use_existing_buckets == 'true' }}
+      skip_domain_aliases: ${{ needs.setup.outputs.skip_domain_aliases == 'true' }}
+      stack_hash: ${{ needs.setup.outputs.stack_hash }}
+      stack: ${{ needs.setup.outputs.stack }}
+      use_hotswap: ${{ needs.setup.outputs.use_hotswap == 'true' }}
+    secrets: inherit
 
   admin-ui-deploy:
     name: Deploy Admin UI
-    runs-on: ubuntu-latest
-    needs: [setup, cdk-deploy, admin-ui-build, stack-outputs]
-    environment: ${{ needs.setup.outputs.environment }}
+    needs: [setup, cdk-deploy]
     if: >-
       always() &&
-      (needs.cdk-deploy.result == 'success' || needs.cdk-deploy.result == 'skipped') &&
-      needs.admin-ui-build.result == 'success' &&
-      (needs.stack-outputs.result == 'success' || needs.stack-outputs.result == 'skipped')
-
-    steps:
-      - name: Download Admin UI build
-        uses: actions/download-artifact@v4
-        with:
-          name: admin-ui-dist
-          path: dist
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: deploy-ui-${{ needs.setup.outputs.environment }}
-
-      - name: Verify AWS account for environment
-        run: |
-          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
-          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
-
-          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            if [ "${{ needs.setup.outputs.environment }}" = "staging" ] || [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-              echo "::error::Missing required environment secret AWS_ACCOUNT_ID for ${{ needs.setup.outputs.environment }}"
-              exit 1
-            fi
-            echo "::warning::AWS_ACCOUNT_ID secret not set; skipping account guard"
-            exit 0
-          fi
-
-          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
-            echo "::error::Wrong AWS account for ${{ needs.setup.outputs.environment }} (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
-            exit 1
-          fi
-
-      - name: Deploy to S3
-        env:
-          # Default to split stacks for staging on push-to-main
-          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && (inputs.split_stacks && 'true' || 'false') || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
-          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
-          STACK_HASH: ${{ inputs.stack_hash || '' }}
-          CDK_ENV: ${{ needs.setup.outputs.cdk_env }}
-        run: |
-          # Query bucket name directly from CloudFormation to avoid GitHub Actions secret masking.
-          # GitHub masks outputs that contain secrets (like AWS account IDs in bucket names),
-          # even when base64-encoded. Direct query bypasses the output mechanism.
-          
-          # Calculate stack name and export suffix (same logic as stack-outputs job)
-          if [ "$SPLIT_STACKS" = "true" ] && [ "$CDK_ENV" = "staging" ] && [ -z "$STACK_HASH" ]; then
-            USE_EXISTING_SHARED_RESOURCES="true"
-          fi
-
-          STACK_HASH_SUFFIX=""
-          if [ -n "$STACK_HASH" ]; then
-            STACK_HASH_SUFFIX="-$STACK_HASH"
-          fi
-
-          STACK_ID_SUFFIX=""
-          if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
-            STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
-          fi
-
-          EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
-          if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
-            EXPORT_SUFFIX="-split"
-          fi
-
-          # Use UI stack for split stacks, monolithic stack otherwise
-          if [ "$SPLIT_STACKS" = "true" ]; then
-            STACK="SwarmUi-${CDK_ENV}${STACK_ID_SUFFIX}"
-          else
-            STACK="SwarmStack-${CDK_ENV}${STACK_ID_SUFFIX}"
-          fi
-
-          BUCKET=$(aws cloudformation describe-stacks --stack-name "$STACK" \
-            --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${CDK_ENV}${EXPORT_SUFFIX}'].OutputValue" \
-            --output text)
-          
-          if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ]; then
-            echo "::error::Could not get bucket name from stack $STACK"
-            exit 1
-          fi
-          
-          echo "Deploying to bucket: ${BUCKET:0:20}..." # Truncate to avoid logging full name
-          aws s3 sync dist s3://$BUCKET --delete --cache-control "max-age=31536000,immutable" --exclude "index.html" --exclude "*.json"
-          aws s3 cp dist/index.html s3://$BUCKET/index.html --cache-control "no-cache"
-
-      - name: Invalidate CDN
-        env:
-          SPLIT_STACKS: ${{ github.event_name == 'workflow_dispatch' && (inputs.split_stacks && 'true' || 'false') || (needs.setup.outputs.cdk_env == 'staging' && 'true' || 'false') }}
-          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources || 'false' }}
-          STACK_HASH: ${{ inputs.stack_hash || '' }}
-          CDK_ENV: ${{ needs.setup.outputs.cdk_env }}
-        run: |
-          # Try to get distribution from outputs first, fall back to direct query
-          DIST="${{ needs.cdk-deploy.outputs.distribution || needs.stack-outputs.outputs.distribution }}"
-          
-          if [ -z "$DIST" ] || [ "$DIST" = "None" ]; then
-            # Query CloudFormation directly (same logic as Deploy to S3 step)
-            if [ "$SPLIT_STACKS" = "true" ] && [ "$CDK_ENV" = "staging" ] && [ -z "$STACK_HASH" ]; then
-              USE_EXISTING_SHARED_RESOURCES="true"
-            fi
-
-            STACK_HASH_SUFFIX=""
-            if [ -n "$STACK_HASH" ]; then
-              STACK_HASH_SUFFIX="-$STACK_HASH"
-            fi
-
-            STACK_ID_SUFFIX=""
-            if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
-              STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
-            fi
-
-            EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
-            if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
-              EXPORT_SUFFIX="-split"
-            fi
-
-            if [ "$SPLIT_STACKS" = "true" ]; then
-              STACK="SwarmUi-${CDK_ENV}${STACK_ID_SUFFIX}"
-            else
-              STACK="SwarmStack-${CDK_ENV}${STACK_ID_SUFFIX}"
-            fi
-
-            DIST=$(aws cloudformation describe-stacks --stack-name "$STACK" \
-              --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${CDK_ENV}${EXPORT_SUFFIX}'].OutputValue" \
-              --output text)
-          fi
-          
-          if [ -n "$DIST" ] && [ "$DIST" != "None" ]; then
-            aws cloudfront create-invalidation --distribution-id $DIST --paths "/*" --no-cli-pager
-            echo "✅ CDN invalidated" >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Summary
-        run: |
-          echo "## ✅ Deployed to ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **UI:** ${{ needs.setup.outputs.admin_url }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **API:** ${{ needs.setup.outputs.api_url }}" >> $GITHUB_STEP_SUMMARY
+      (needs.cdk-deploy.result == 'success' || needs.cdk-deploy.result == 'skipped')
+    uses: ./.github/workflows/deploy-admin-ui-reusable.yml
+    with:
+      environment: ${{ needs.setup.outputs.environment }}
+      cdk_env: ${{ needs.setup.outputs.cdk_env }}
+      admin_url: ${{ needs.setup.outputs.admin_url }}
+      api_url: ${{ needs.setup.outputs.api_url }}
+      split_stacks: ${{ needs.setup.outputs.split_stacks == 'true' }}
+      use_existing_shared_resources: ${{ needs.setup.outputs.use_existing_shared_resources == 'true' }}
+      stack_hash: ${{ needs.setup.outputs.stack_hash }}
+      cdk_distribution: ${{ needs.cdk-deploy.outputs.distribution }}
+    secrets: inherit
 
   e2e:
     name: E2E (Staging)
@@ -891,13 +259,9 @@ jobs:
           fi
 
       - name: Run Telegram E2E
-        # Note: Don't set SWARM_ADMIN_API_URL here - all API tests need raw API Gateway
-        # to bypass Cloudflare Access (which protects the CloudFront domain)
         run: ./scripts/test-e2e.sh telegram "$E2E_TELEGRAM_AGENT_ID" "ci-telegram-${GITHUB_RUN_ID}" staging
 
       - name: Run Web E2E
-        # Note: Don't set SWARM_ADMIN_API_URL here - all API tests need raw API Gateway
-        # to bypass Cloudflare Access (which protects the CloudFront domain)
         run: ./scripts/test-e2e.sh web "$E2E_WEB_AGENT_ID" "ci-web-${GITHUB_RUN_ID}" staging
 
   prod-smoke:
@@ -920,7 +284,6 @@ jobs:
             local url="$1"
             local name="$2"
 
-            # Follow redirects; accept 200/301/302/401/403 as "healthy" for protected endpoints.
             local code
             code=$(curl -sS -L -o /dev/null -w "%{http_code}" --max-time 20 "$url" || echo "000")
 

@@ -498,8 +498,9 @@ async function callLLM(
     requestBody.tool_choice = 'auto';
   }
 
+  const timeoutMs = config.timeoutMs ?? LLM_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const doRequest = async (body: Record<string, unknown>) => fetch(LLM_ENDPOINT, {
