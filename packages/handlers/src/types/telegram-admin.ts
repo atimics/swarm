@@ -3,7 +3,8 @@
  * Types for the in-Telegram bot creation and admin feature
  */
 
-import type { AvatarRecord } from '@swarm/admin-api';
+/** Minimal avatar record shape for admin tool results */
+type AvatarRecord = Record<string, unknown>;
 
 // =============================================================================
 // SESSION STATES

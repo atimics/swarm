@@ -3,15 +3,30 @@
  * Entry point for admin bot messages from the webhook handler
  */
 import type { Update } from 'grammy/types';
-import { logger, type AvatarConfig, type SwarmEnvelope } from '@swarm/core';
+import { logger, type AvatarConfig, type SwarmEnvelope, type CreateAvatarFromTelegramParams } from '@swarm/core';
 import { createTelegramAdminService, type TelegramAdminService } from './telegram-admin.js';
-import {
-  createAvatarFromTelegram,
-  getAvatar,
-  updateAvatarFromTelegram,
-  type CreateAvatarFromTelegramParams,
-} from '@swarm/admin-api';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+
+// Lazy-loaded admin-api operations (avoids static dependency on @swarm/admin-api)
+let _adminOps: {
+  createAvatarFromTelegram: (params: CreateAvatarFromTelegramParams) => Promise<{ success: boolean; avatarId?: string; error?: string; message?: string }>;
+  getAvatar: (id: string) => Promise<Record<string, unknown> | null>;
+  updateAvatarFromTelegram: (id: string, updates: { name?: string; description?: string; persona?: string }, by: string) => Promise<unknown>;
+} | null = null;
+
+async function getAdminOps() {
+  if (!_adminOps) {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - dynamic import avoids static dependency on admin-api
+    const mod = await import('@swarm/admin-api');
+    _adminOps = {
+      createAvatarFromTelegram: mod.createAvatarFromTelegram,
+      getAvatar: mod.getAvatar as (id: string) => Promise<Record<string, unknown> | null>,
+      updateAvatarFromTelegram: mod.updateAvatarFromTelegram,
+    };
+  }
+  return _adminOps!;
+}
 
 const secretsClient = new SecretsManagerClient({});
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
@@ -65,7 +80,8 @@ async function getAdminService(avatarId: string, _avatarConfig: AvatarConfig): P
     adminTable: ADMIN_TABLE,
     botToken,
     createAvatar: async (params: CreateAvatarFromTelegramParams) => {
-      const result = await createAvatarFromTelegram(params);
+      const ops = await getAdminOps();
+      const result = await ops.createAvatarFromTelegram(params);
       return {
         success: result.success,
         avatarId: result.avatarId,
@@ -73,7 +89,8 @@ async function getAdminService(avatarId: string, _avatarConfig: AvatarConfig): P
       };
     },
     getAvatar: async (id: string) => {
-      const avatar = await getAvatar(id);
+      const ops = await getAdminOps();
+      const avatar = await ops.getAvatar(id) as Record<string, any> | null;
       if (!avatar) return null;
       return {
         avatarId: avatar.avatarId,
@@ -103,9 +120,8 @@ async function getAdminService(avatarId: string, _avatarConfig: AvatarConfig): P
       };
     },
     updateAvatar: async (id: string, updates: { name?: string; description?: string; persona?: string }) => {
-      // We need the telegramUserId but it's not available here
-      // For now, we'll use a placeholder - the actual session is created in updateAvatarFromTelegram
-      await updateAvatarFromTelegram(id, updates, 'admin-service');
+      const ops = await getAdminOps();
+      await ops.updateAvatarFromTelegram(id, updates, 'admin-service');
     },
   });
 

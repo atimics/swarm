@@ -32,7 +32,24 @@ import {
   getRuntimeContract,
   getRuntimeUsageSnapshot,
 } from './entitlement-enforcement.js';
-import { bagsLaunch } from '@swarm/admin-api';
+import type { BagsLaunchConfig, BagsLaunchPreflightResult, BagsLaunchResult, BagsTokenStatus } from '@swarm/core';
+
+// Lazy-loaded bags launch operations (avoids static dependency on @swarm/admin-api)
+let _bagsLaunch: {
+  preflightBagsLaunch: (avatarId: string) => Promise<BagsLaunchPreflightResult>;
+  launchBagsToken: (avatarId: string, config: BagsLaunchConfig) => Promise<BagsLaunchResult>;
+  getBagsTokenStatus: (avatarId: string) => Promise<BagsTokenStatus>;
+} | null = null;
+
+async function getBagsLaunch() {
+  if (!_bagsLaunch) {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - dynamic import avoids static dependency on admin-api
+    const mod = await import('@swarm/admin-api');
+    _bagsLaunch = mod.bagsLaunch;
+  }
+  return _bagsLaunch!;
+}
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const ADMIN_TABLE = process.env.ADMIN_TABLE || 'SwarmAdmin-prod';
@@ -944,13 +961,16 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // =========================================================================
     bags: {
       preflightLaunch: async (targetAvatarId: string) => {
-        return bagsLaunch.preflightBagsLaunch(targetAvatarId);
+        const bags = await getBagsLaunch();
+        return bags.preflightBagsLaunch(targetAvatarId);
       },
-      launchToken: async (targetAvatarId: string, launchConfig: bagsLaunch.BagsLaunchConfig) => {
-        return bagsLaunch.launchBagsToken(targetAvatarId, launchConfig);
+      launchToken: async (targetAvatarId: string, launchConfig: BagsLaunchConfig) => {
+        const bags = await getBagsLaunch();
+        return bags.launchBagsToken(targetAvatarId, launchConfig);
       },
       getTokenStatus: async (targetAvatarId: string) => {
-        return bagsLaunch.getBagsTokenStatus(targetAvatarId);
+        const bags = await getBagsLaunch();
+        return bags.getBagsTokenStatus(targetAvatarId);
       },
     },
   };
