@@ -66,6 +66,9 @@ export {
   type EvaluationResult
 } from './message-evaluator.js';
 
+/**
+ * @deprecated Use MessageProcessor instead.
+ */
 export {
   ResponseGenerator,
   createResponseGenerator,
