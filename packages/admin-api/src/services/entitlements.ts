@@ -121,6 +121,7 @@ export async function setEntitlement(params: {
   status?: EntitlementRecord['status'];
   trialEndsAt?: number;
   actorId: string;
+  entitlementSource?: EntitlementRecord['entitlementSource'];
 }): Promise<EntitlementRecord> {
   const {
     accountId,
@@ -132,6 +133,7 @@ export async function setEntitlement(params: {
     status = 'active',
     trialEndsAt,
     actorId,
+    entitlementSource,
   } = params;
 
   const now = Date.now();
@@ -149,6 +151,7 @@ export async function setEntitlement(params: {
     stripeCustomerId,
     status,
     trialEndsAt,
+    entitlementSource,
     createdAt: now,
     createdBy: actorId,
     updatedAt: now,

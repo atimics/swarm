@@ -31,8 +31,14 @@ import {
   getAscensionCost,
   getTierForBurnAmount,
 } from '@swarm/core';
-import type { AvatarRecord } from '../types.js';
+import type { AvatarRecord, PlanType } from '../types.js';
 import { getBurnStats } from './burn-stats.js';
+import { getEntitlement, setEntitlement } from './entitlements.js';
+import {
+  getEffectiveLimitsForAvatar,
+  toRuntimeLimits,
+  syncRuntimeLimitsToState,
+} from './runtime-limits.js';
 
 const TABLE_NAME = process.env.ADMIN_TABLE || 'SwarmAdminTable';
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
@@ -679,6 +685,81 @@ export async function verifyAscensionBurns(
 }
 
 // =============================================================================
+// Ascension Entitlement Upgrade
+// =============================================================================
+
+/**
+ * Plan tier hierarchy for comparison.
+ * Higher number = higher tier. Used to prevent downgrading.
+ */
+const PLAN_TIER_RANK: Record<PlanType, number> = {
+  free: 0,
+  pro: 1,
+  enterprise: 2,
+};
+
+/**
+ * Grant Pro-equivalent entitlement limits to an ascended avatar.
+ *
+ * Ascension is the web3 equivalent of "buying Pro" -- burning an Orb NFT +
+ * RATI tokens permanently grants Pro-tier limits.
+ *
+ * Downgrade protection: if the avatar already has an enterprise entitlement,
+ * this is a no-op. Only upgrades from 'free' (or no entitlement) to 'pro'.
+ *
+ * @returns The entitlement record that was created/updated, or null if
+ *          the avatar already had a higher-tier entitlement.
+ */
+export async function grantAscensionEntitlement(
+  avatarId: string,
+  walletAddress: string,
+): Promise<{ upgraded: boolean; plan: PlanType; reason: string }> {
+  const existing = await getEntitlement(avatarId);
+
+  // If the avatar already has an active entitlement at or above 'pro', skip.
+  if (existing && (existing.status === 'active' || existing.status === 'trial')) {
+    const currentRank = PLAN_TIER_RANK[existing.plan] ?? 0;
+    const proRank = PLAN_TIER_RANK.pro;
+
+    if (currentRank >= proRank) {
+      console.log(
+        `[AvatarAscend] Avatar ${avatarId} already has ${existing.plan} entitlement; skipping ascension upgrade`,
+      );
+      return { upgraded: false, plan: existing.plan, reason: `already_${existing.plan}` };
+    }
+  }
+
+  // Use the wallet address as the accountId for ascension-granted entitlements.
+  // This keeps the entitlement tied to the wallet that performed the ascension.
+  const accountId = existing?.accountId ?? walletAddress;
+
+  const entitlement = await setEntitlement({
+    accountId,
+    avatarId,
+    plan: 'pro',
+    status: 'active',
+    actorId: walletAddress,
+    entitlementSource: 'ascension',
+  });
+
+  // Push the new limits to STATE_TABLE so Lambda handlers pick them up immediately
+  const effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
+  await syncRuntimeLimitsToState({
+    avatarId,
+    runtimeLimits: toRuntimeLimits(effective.limits),
+    plan: effective.plan,
+    source: effective.source,
+    entitlementStatus: effective.entitlementStatus,
+  });
+
+  console.log(
+    `[AvatarAscend] Granted Pro entitlement to avatar ${avatarId} via ascension by ${walletAddress.slice(0, 8)}...`,
+  );
+
+  return { upgraded: true, plan: 'pro', reason: 'ascension_upgrade' };
+}
+
+// =============================================================================
 // Execute Ascension
 // =============================================================================
 
@@ -748,6 +829,20 @@ export async function executeAscension(
     }));
 
     const avatar = avatarResult.Item as AvatarRecord;
+
+    // Grant Pro-equivalent entitlement limits (ascension = web3 "buy Pro").
+    // Non-fatal: if entitlement grant fails the ascension itself still succeeded.
+    try {
+      const entitlementResult = await grantAscensionEntitlement(avatarId, walletAddress);
+      console.log(
+        `[AvatarAscend] Entitlement result for ${avatarId}: ${entitlementResult.reason} (plan=${entitlementResult.plan})`,
+      );
+    } catch (entitlementError) {
+      console.error(
+        '[AvatarAscend] Failed to grant ascension entitlement (ascension still succeeded):',
+        entitlementError,
+      );
+    }
 
     console.log(`[AvatarAscend] Avatar ${avatarId} (${avatar.name}) ascended by ${walletAddress.slice(0, 8)}...`);
 
