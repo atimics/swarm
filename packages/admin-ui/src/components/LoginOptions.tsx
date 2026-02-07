@@ -57,7 +57,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
         phantomProvider,
       });
       if (source === 'phantom' && !hasWalletAdapterSignMessage) {
-        console.log('[LoginOptions] Using Phantom provider signMessage fallback');
+        if (import.meta.env.DEV) console.log('[LoginOptions] Using Phantom provider signMessage fallback');
       }
       return signatureBytes;
     };
@@ -79,7 +79,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
       
       // Only attempt login if we haven't already tried for this wallet
       if (solanaLoginAttemptedRef.current !== publicKeyStr) {
-        console.log('[LoginOptions] 🔐 Solana wallet connected, triggering login:', publicKeyStr);
+        if (import.meta.env.DEV) console.log('[LoginOptions] Solana wallet connected, triggering login:', publicKeyStr);
         solanaLoginAttemptedRef.current = publicKeyStr;
         walletAuthLogin(effectiveSignMessage, publicKeyStr).catch((err) => {
           console.error('[LoginOptions] ❌ Solana wallet login failed:', err);

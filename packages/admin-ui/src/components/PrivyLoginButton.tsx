@@ -40,16 +40,6 @@ function getSolanaWalletAddressFromPrivyUser(user: unknown): string | null {
   if (!user || typeof user !== 'object') return null;
   const privyUser = user as PrivyUserLike;
 
-  // Debug logging for wallet extraction
-  console.log('[PrivyLoginButton] Extracting wallet from user:', {
-    hasWallet: !!privyUser?.wallet,
-    walletAddress: privyUser?.wallet?.address,
-    hasEmbeddedWallet: !!privyUser?.embeddedWallet,
-    embeddedWalletAddress: privyUser?.embeddedWallet?.address,
-    linkedAccountsCount: privyUser?.linkedAccounts?.length,
-    linked_accountsCount: (privyUser as { linked_accounts?: unknown[] })?.linked_accounts?.length,
-  });
-
   // Check direct wallet fields (embedded wallet may not have chainType set initially)
   const direct =
     privyUser?.wallet?.address ||
@@ -102,11 +92,6 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
   const lastWalletAddressRef = useRef<string | null>(null);
 
   const walletAddress = getSolanaWalletAddressFromPrivyUser(privyUser);
-
-  // Debug: log wallet extraction
-  if (ready && authenticated && privyUser && !walletAddress) {
-    console.log('[PrivyLoginButton] Wallet extraction failed. Privy user:', JSON.stringify(privyUser, null, 2));
-  }
 
   // Track if we're waiting for wallet creation
   const isWaitingForWalletCreation = ready && authenticated && privyUser && !walletAddress;
@@ -180,8 +165,6 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
 
     // The wallet should appear in privyUser when Privy finishes creating it
     // The walletAddress variable will update, triggering the sync effect above
-    // This effect just logs the waiting state for debugging
-    console.log('[PrivyLoginButton] Waiting for embedded wallet creation...');
 
     // If wallet creation/linking never completes, show a more actionable hint.
     const timeoutId = window.setTimeout(() => {

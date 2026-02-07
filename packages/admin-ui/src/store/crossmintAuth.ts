@@ -97,11 +97,9 @@ export const useCrossmintAuth = create<CrossmintAuthState>()(
         // Guard: Don't sync if already syncing or authenticated
         const state = get();
         if (state.isLoading) {
-          console.debug('[CrossmintAuth] Sync already in progress, skipping');
           return;
         }
         if (walletAddress && state.isAuthenticated && state.user?.walletAddress === walletAddress) {
-          console.debug('[CrossmintAuth] Already authenticated with this wallet');
           return;
         }
 

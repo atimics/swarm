@@ -228,31 +228,17 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Support deep-linking to /avatars/:id by selecting that avatar once avatars are loaded.
+  // Support deep-linking: select the target avatar once avatars are loaded.
+  // Handles /avatars/:id, /avatars/:id/onboarding, and /inhabit/:id.
   useEffect(() => {
-    if (!initialized || !chatAvatarId) return;
-    const hasAvatar = avatars.some((avatar) => avatar.id === chatAvatarId);
-    if (hasAvatar && activeAvatarId !== chatAvatarId) {
-      setActiveAvatar(chatAvatarId);
+    if (!initialized) return;
+    const targetId = chatAvatarId || onboardingAvatarId || inhabitAvatarId;
+    if (!targetId) return;
+    const hasAvatar = avatars.some((avatar) => avatar.id === targetId);
+    if (hasAvatar && activeAvatarId !== targetId) {
+      setActiveAvatar(targetId);
     }
-  }, [avatars, activeAvatarId, chatAvatarId, initialized, setActiveAvatar]);
-
-  // Support deep-linking to /avatars/:id/onboarding by selecting that avatar once avatars are loaded.
-  useEffect(() => {
-    if (!initialized || !onboardingAvatarId) return;
-    const hasAvatar = avatars.some((avatar) => avatar.id === onboardingAvatarId);
-    if (hasAvatar && activeAvatarId !== onboardingAvatarId) {
-      setActiveAvatar(onboardingAvatarId);
-    }
-  }, [avatars, activeAvatarId, onboardingAvatarId, initialized, setActiveAvatar]);
-
-  useEffect(() => {
-    if (!initialized || !inhabitAvatarId) return;
-    const hasAvatar = avatars.some((avatar) => avatar.id === inhabitAvatarId);
-    if (hasAvatar && activeAvatarId !== inhabitAvatarId) {
-      setActiveAvatar(inhabitAvatarId);
-    }
-  }, [avatars, activeAvatarId, inhabitAvatarId, initialized, setActiveAvatar]);
+  }, [avatars, activeAvatarId, chatAvatarId, onboardingAvatarId, inhabitAvatarId, initialized, setActiveAvatar]);
 
   const handleTwitterOAuthResult = useCallback(async (result: TwitterOAuthResult) => {
     if (result.avatarId) {

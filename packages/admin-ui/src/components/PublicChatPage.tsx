@@ -19,9 +19,6 @@ interface PublicChatPageProps {
 export function PublicChatPage({ botId }: PublicChatPageProps) {
   const { isAuthenticated, isLoading: authLoading, gateStatus } = useAuth();
 
-  // Debug: trace PublicChatPage render
-  console.log('[PublicChatPage] Rendering with botId:', botId, 'isAuthenticated:', isAuthenticated, 'authLoading:', authLoading);
-
   const [authChecked, setAuthChecked] = useState(false);
 
   const [avatarInfo, setAvatarInfo] = useState<ChannelAvatarInfo | null>(null);
@@ -211,9 +208,6 @@ export function PublicChatPage({ botId }: PublicChatPageProps) {
   // Determine if user is an Orb holder (affects message limits)
   const isOrbHolder = (gateStatus?.nftsHeld ?? 0) > 0;
   const dailyLimit = isOrbHolder ? 100 : 10;
-
-  // Debug: trace authenticated render
-  console.log('[PublicChatPage] Rendering authenticated view for botId:', botId, 'isOrbHolder:', isOrbHolder);
 
   // Authenticated - render SharedChatPanel with the public avatar
   return (

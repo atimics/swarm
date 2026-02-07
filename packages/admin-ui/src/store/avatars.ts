@@ -237,9 +237,6 @@ export const useAvatarStore = create<AvatarState>()(
               },
             ],
           },
-          avatars: state.avatars.map((a) =>
-            a.id === avatarId ? { ...a, lastActivity: Date.now() } : a
-          ),
         }));
       },
 

@@ -188,7 +188,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
           phantomProvider,
         });
         if (source === 'phantom' && !hasWalletAdapterSignMessage) {
-          console.log('[WalletLogin] Using Phantom provider signMessage fallback');
+          if (import.meta.env.DEV) console.log('[WalletLogin] Using Phantom provider signMessage fallback');
         }
         return signatureBytes;
       };
@@ -787,7 +787,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                 phantomProvider,
               });
               if (source === 'phantom' && !hasWalletAdapterSignMessage) {
-                console.log('[WalletLogin] Using Phantom provider signMessage fallback');
+                if (import.meta.env.DEV) console.log('[WalletLogin] Using Phantom provider signMessage fallback');
               }
               return signatureBytes;
             };

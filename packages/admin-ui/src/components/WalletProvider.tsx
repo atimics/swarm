@@ -18,17 +18,16 @@ export function WalletProvider({ children }: WalletProviderProps) {
 
   const notificationCallback = useMemo(
     () => ({
-      onConnect: (props: { walletName: string; shortAddress: string }) => {
-        console.log('[WalletProvider] Connected:', props.walletName, props.shortAddress);
+      onConnect: (_props: { walletName: string; shortAddress: string }) => {
+        // noop
       },
-      onConnecting: (props: { walletName: string }) => {
-        console.log('[WalletProvider] Connecting:', props.walletName);
+      onConnecting: (_props: { walletName: string }) => {
+        // noop
       },
-      onDisconnect: (props: { walletName: string }) => {
-        console.log('[WalletProvider] Disconnected:', props.walletName);
+      onDisconnect: (_props: { walletName: string }) => {
+        // noop
       },
       onNotInstalled: (props: { walletName: string }) => {
-        console.log('[WalletProvider] Not installed:', props.walletName);
         setWalletError(`${props.walletName} is not installed. Please install it and try again.`);
       },
     }),
