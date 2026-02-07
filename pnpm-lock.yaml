@@ -356,9 +356,6 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.700.0
         version: 3.966.0
-      '@swarm/admin-api':
-        specifier: workspace:*
-        version: link:../admin-api
       '@swarm/core':
         specifier: workspace:*
         version: link:../core
