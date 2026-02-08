@@ -150,11 +150,11 @@ Reference:
 Reference:
 - [docs/legacy/2026-01/proposals/proposal-unified-integrations.md](legacy/2026-01/proposals/proposal-unified-integrations.md)
 
-### BagsApp integration (irreversible on-chain actions)
+### Token launch integration (irreversible on-chain actions)
 - Defer until entitlements + approvals + audit logs are solid.
 
 Reference:
-- [docs/legacy/2026-01/proposals/design-bagsapp-mcp-integration.md](legacy/2026-01/proposals/design-bagsapp-mcp-integration.md)
+- [docs/legacy/2026-01/proposals/design-token-launch-mcp-integration.md](legacy/2026-01/proposals/design-token-launch-mcp-integration.md)
 
 ### Janus-inspired research features (lab harness, modes beyond defaults)
 - Only ship what is measurable and reduces prod risk; treat the rest as post-M1.
