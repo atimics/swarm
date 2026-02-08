@@ -64,6 +64,8 @@ export interface VanitySearchSelection<T> {
   index: number;
 }
 
+export type VanityAddressMatcher = (address: string) => VanityMatchInfo;
+
 const BASE58_PATTERN = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
 
 const DEFAULT_PATTERN = 'RATi';
@@ -105,6 +107,32 @@ export function evaluateVanityMatch(address: string, config: ResolvedVanityMintC
     return { matched: position === 'prefix' || position === 'suffix', position };
   }
   return { matched: position !== 'none', position };
+}
+
+/**
+ * Build an optimized matcher closure for repeated checks with the same config.
+ */
+export function createVanityMatcher(config: ResolvedVanityMintConfig): VanityAddressMatcher {
+  const pattern = config.pattern;
+  const strict = config.mode === 'strict';
+
+  return (address: string): VanityMatchInfo => {
+    let position: VanityMatchPosition = 'none';
+
+    if (address.startsWith(pattern)) {
+      position = 'prefix';
+    } else if (address.endsWith(pattern)) {
+      position = 'suffix';
+    } else if (address.includes(pattern)) {
+      position = 'contains';
+    }
+
+    if (!strict) {
+      return { matched: position !== 'none', position };
+    }
+
+    return { matched: position === 'prefix' || position === 'suffix', position };
+  };
 }
 
 /**
