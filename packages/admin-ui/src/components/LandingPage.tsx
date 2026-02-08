@@ -14,7 +14,10 @@ export function LandingPage() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[var(--color-bg)] flex flex-col">
+    <div className="min-h-[100dvh] bg-[var(--color-bg)] flex flex-col relative overflow-hidden">
+      {/* Background Gradient */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-brand-900/40 via-[var(--color-bg)] to-[var(--color-bg)] pointer-events-none" />
+      
       {/* Safe area spacer for iOS */}
       <div 
         className="flex-shrink-0" 
@@ -22,7 +25,7 @@ export function LandingPage() {
       />
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 z-10">
         {/* Logo and title */}
         <div className="flex items-center gap-3 mb-8">
           <img src="/swarm.svg" alt="Swarm" className="w-12 h-12" />
@@ -85,11 +88,13 @@ interface FeatureCardProps {
 
 function FeatureCard({ icon, title, description }: FeatureCardProps) {
   return (
-    <div className="flex items-start gap-4 p-4 rounded-xl bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">
-      <span className="text-2xl">{icon}</span>
-      <div>
+    <div className="flex items-start gap-4 p-4 rounded-xl bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm border border-[var(--color-border)] hover:border-brand-500/50 transition-colors">
+      <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-brand-500/10 text-xl border border-brand-500/20">
+        {icon}
+      </div>
+      <div className="flex-1">
         <h3 className="font-semibold text-[var(--color-text)] mb-1">{title}</h3>
-        <p className="text-sm text-[var(--color-text-secondary)]">{description}</p>
+        <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">{description}</p>
       </div>
     </div>
   );

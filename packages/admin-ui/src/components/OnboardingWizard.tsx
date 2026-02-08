@@ -70,15 +70,15 @@ function getActionLabel(action: OnboardingAction): string {
 
   switch (action.type) {
     case 'execute':
-      return 'Execute Step';
+      return 'Initialize System';
     case 'retry':
-      return 'Retry Step';
+      return 'Retry Process';
     case 'continue':
-      return 'Continue';
+      return 'Proceed';
     case 'skip_optional':
-      return 'Skip Optional Step';
+      return 'Skip Module';
     case 'restart':
-      return 'Restart Onboarding';
+      return 'Reboot System';
     default:
       return action.type;
   }
@@ -390,9 +390,9 @@ export function OnboardingWizard({ avatarId, onMenuClick, onBackToChat }: Onboar
               </button>
             )}
             <div className="min-w-0">
-              <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)] truncate">Avatar Onboarding</h1>
+              <h1 className="text-base lg:text-lg font-semibold text-[var(--color-text)] truncate">Avatar Genesis</h1>
               <p className="text-xs text-[var(--color-text-tertiary)] truncate">
-                {isRefreshing ? 'Refreshing status...' : 'Backend-driven setup flow'}
+                {isRefreshing ? 'Syncing status...' : 'Initialization sequence'}
               </p>
             </div>
           </div>
@@ -459,39 +459,73 @@ export function OnboardingWizard({ avatarId, onMenuClick, onBackToChat }: Onboar
             <>
               <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 lg:p-5 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <h2 className="text-base font-semibold text-[var(--color-text)]">Setup Steps</h2>
-                  <div className="text-xs text-[var(--color-text-muted)] font-mono">attempt: {status.attemptId || 'n/a'}</div>
+                  <h2 className="text-base font-semibold text-[var(--color-text)]">Initialization Sequence</h2>
+                  {import.meta.env.DEV && (
+                    <div className="text-xs text-[var(--color-text-muted)] font-mono">id: {status.attemptId || 'n/a'}</div>
+                  )}
                 </div>
 
-                <ol className="space-y-2">
+                <div className="space-y-0 relative">
+                  {/* Vertical connector line */}
+                  <div className="absolute left-[15px] top-6 bottom-6 w-0.5 bg-[var(--color-border)] z-0" />
+                  
                   {steps.map((step, index) => {
                     const isActive = activeStep?.id === step.id;
+                    const isSuccess = isStepSuccessStatus(step.status);
+                    const isFailed = isStepFailureStatus(step.status);
+                    
                     return (
-                      <li
+                      <div
                         key={step.id}
-                        className={`rounded-lg border px-3 py-2 ${
-                          isActive
-                            ? 'border-brand-500/50 bg-brand-600/10'
-                            : 'border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/60'
-                        }`}
+                        className={`relative z-10 pl-10 py-3 first:pt-0 last:pb-0 group`}
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-[var(--color-text)] truncate">
-                              {index + 1}. {step.title || step.id}
-                            </div>
-                            <div className="text-xs text-[var(--color-text-muted)]">
-                              {step.requirement || 'required'}
-                            </div>
-                          </div>
-                          <span className={`text-xs px-2 py-1 rounded-full border whitespace-nowrap ${getStepTone(step.status)}`}>
-                            {step.status}
-                          </span>
+                        {/* Status Indicator Dot */}
+                        <div className={`
+                          absolute left-0 top-3.5 w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors
+                          ${isActive 
+                            ? 'border-brand-500 bg-[var(--color-bg)] text-brand-500 shadow-[0_0_10px_rgba(var(--color-brand-rgb),0.3)]' 
+                            : isSuccess
+                              ? 'border-green-500/50 bg-green-900/20 text-green-500'
+                              : isFailed
+                                ? 'border-red-500/50 bg-red-900/20 text-red-500'
+                                : 'border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-tertiary)]'
+                          }
+                        `}>
+                          {isSuccess ? (
+                            <span className="text-lg">✓</span>
+                          ) : isFailed ? (
+                            <span className="text-lg">✕</span>
+                          ) : (
+                            <span className="text-xs font-mono">{index + 1}</span>
+                          )}
                         </div>
-                      </li>
+
+                        {/* Card Content */}
+                        <div className={`
+                          rounded-lg border px-4 py-3 transition-colors
+                          ${isActive
+                            ? 'border-brand-500/50 bg-brand-500/5'
+                            : 'border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/40 hover:bg-[var(--color-bg-tertiary)]/70'
+                          }
+                        `}>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className={`text-sm font-medium truncate ${isActive ? 'text-[var(--color-text)]' : 'text-[var(--color-text-secondary)]'}`}>
+                                {step.title || step.id}
+                              </div>
+                              <div className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                                {step.requirement || 'required'}
+                              </div>
+                            </div>
+                            <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border whitespace-nowrap ${getStepTone(step.status)}`}>
+                              {step.status.replace(/_/g, ' ')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     );
                   })}
-                </ol>
+                </div>
               </div>
 
               {activeStep && (
