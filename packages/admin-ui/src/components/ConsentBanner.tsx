@@ -50,7 +50,9 @@ export function ConsentBanner() {
         {/* Summary */}
         <div className="text-sm text-[var(--color-text-secondary)] space-y-3">
           <p>
-            Before using Swarm, please review how we handle your data:
+            Before using RATi OS, please review how we handle your data.
+            This service is operated by{' '}
+            <a href="https://cenetex.com" className="text-brand-400 hover:text-brand-300 underline" target="_blank" rel="noopener noreferrer">Cenetex Inc.</a>
           </p>
 
           <div className="space-y-2">
@@ -102,8 +104,8 @@ export function ConsentBanner() {
         {/* Contact */}
         <p className="text-xs text-[var(--color-text-muted)] text-center">
           Questions? Contact{' '}
-          <a href="mailto:privacy@rati.chat" className="underline hover:text-[var(--color-text-secondary)]">
-            privacy@rati.chat
+          <a href="mailto:privacy@cenetex.com" className="underline hover:text-[var(--color-text-secondary)]">
+            privacy@cenetex.com
           </a>
         </p>
       </div>

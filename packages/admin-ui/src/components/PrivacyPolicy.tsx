@@ -1,7 +1,9 @@
 /**
  * Privacy Policy Page
- * Comprehensive privacy policy based on platform security audit.
- * Contact: privacy@rati.chat
+ * Comprehensive privacy policy for the RATi Avatar System.
+ * Operator: Cenetex Inc. (https://cenetex.com)
+ * Software licensed from: RATi™ Open Software Foundation (https://rati.foundation)
+ * Contact: privacy@cenetex.com
  */
 
 interface PrivacyPolicyProps {
@@ -35,10 +37,20 @@ export function PrivacyPolicy({ onClose }: PrivacyPolicyProps) {
           <section>
             <h2 className="text-xl font-semibold text-[var(--color-text)] mb-3">1. Overview</h2>
             <p>
-              Swarm by Rati (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) operates the Swarm platform at{' '}
-              <strong>swarm.rati.chat</strong>, which lets users create and interact with AI avatars
-              on the Solana blockchain. This Privacy Policy explains what data we collect,
-              how we use it, who we share it with, and your rights.
+              <a href="https://cenetex.com" className="text-brand-400 hover:text-brand-300 underline" target="_blank" rel="noopener noreferrer">Cenetex Inc.</a>{' '}
+              (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) operates the RATi Avatar System
+              (&quot;RATi OS&quot;) at <strong>swarm.rati.chat</strong>, which lets users
+              create and interact with AI avatars on the Solana blockchain.
+            </p>
+            <p className="mt-2">
+              RATi OS is built on open-source software licensed from the{' '}
+              <a href="https://rati.foundation" className="text-brand-400 hover:text-brand-300 underline" target="_blank" rel="noopener noreferrer">RATi™ Open Software Foundation</a>,
+              a not-for-profit organization. Cenetex Inc. is the data controller
+              responsible for your personal data as described in this policy.
+            </p>
+            <p className="mt-2">
+              This Privacy Policy explains what data we collect, how we use it,
+              who we share it with, and your rights.
             </p>
           </section>
 
@@ -209,8 +221,8 @@ export function PrivacyPolicy({ onClose }: PrivacyPolicyProps) {
             </ul>
             <p className="mt-3">
               To exercise any of these rights, contact us at{' '}
-              <a href="mailto:privacy@rati.chat" className="text-brand-400 hover:text-brand-300 underline">
-                privacy@rati.chat
+              <a href="mailto:privacy@cenetex.com" className="text-brand-400 hover:text-brand-300 underline">
+                privacy@cenetex.com
               </a>.
             </p>
           </section>
@@ -247,11 +259,11 @@ export function PrivacyPolicy({ onClose }: PrivacyPolicyProps) {
           <section>
             <h2 className="text-xl font-semibold text-[var(--color-text)] mb-3">10. Children&apos;s Privacy</h2>
             <p>
-              Swarm is not intended for children under 13. We do not knowingly collect data
+              RATi OS is not intended for children under 13. We do not knowingly collect data
               from children. If you believe a child has provided us data, please contact us
               at{' '}
-              <a href="mailto:privacy@rati.chat" className="text-brand-400 hover:text-brand-300 underline">
-                privacy@rati.chat
+              <a href="mailto:privacy@cenetex.com" className="text-brand-400 hover:text-brand-300 underline">
+                privacy@cenetex.com
               </a>.
             </p>
           </section>
@@ -272,18 +284,41 @@ export function PrivacyPolicy({ onClose }: PrivacyPolicyProps) {
             <p>
               For privacy inquiries, data requests, or concerns:
             </p>
-            <p className="mt-2 font-medium text-[var(--color-text)]">
-              📧{' '}
-              <a href="mailto:privacy@rati.chat" className="text-brand-400 hover:text-brand-300 underline">
-                privacy@rati.chat
-              </a>
-            </p>
+            <div className="mt-3 space-y-2 text-sm">
+              <p className="font-medium text-[var(--color-text)]">
+                Cenetex Inc. (Data Controller)
+              </p>
+              <p>
+                📧{' '}
+                <a href="mailto:privacy@cenetex.com" className="text-brand-400 hover:text-brand-300 underline">
+                  privacy@cenetex.com
+                </a>
+              </p>
+              <p>
+                🌐{' '}
+                <a href="https://cenetex.com" className="text-brand-400 hover:text-brand-300 underline" target="_blank" rel="noopener noreferrer">
+                  cenetex.com
+                </a>
+              </p>
+            </div>
+            <div className="mt-4 space-y-2 text-sm">
+              <p className="font-medium text-[var(--color-text)]">
+                RATi™ Open Software Foundation (Software Licensor)
+              </p>
+              <p>
+                🌐{' '}
+                <a href="https://rati.foundation" className="text-brand-400 hover:text-brand-300 underline" target="_blank" rel="noopener noreferrer">
+                  rati.foundation
+                </a>
+              </p>
+            </div>
           </section>
         </div>
 
         {/* Footer */}
-        <div className="mt-12 pt-8 border-t border-[var(--color-border)] text-center text-sm text-[var(--color-text-muted)]">
-          <p>Swarm by Rati — Privacy Policy v1.0</p>
+        <div className="mt-12 pt-8 border-t border-[var(--color-border)] text-center text-sm text-[var(--color-text-muted)] space-y-1">
+          <p>RATi OS — Privacy Policy v1.1</p>
+          <p>Operated by <a href="https://cenetex.com" className="underline hover:text-[var(--color-text-secondary)]" target="_blank" rel="noopener noreferrer">Cenetex Inc.</a> · Licensed from <a href="https://rati.foundation" className="underline hover:text-[var(--color-text-secondary)]" target="_blank" rel="noopener noreferrer">RATi™ Open Software Foundation</a></p>
         </div>
       </div>
     </div>

@@ -68,12 +68,12 @@ export function LandingPage() {
 
       {/* Footer */}
       <footer className="py-6 text-center text-xs text-[var(--color-text-muted)] space-y-1.5 z-10">
-        <p className="flex items-center justify-center gap-1.5">
+        <p className="flex items-center justify-center gap-1.5 flex-wrap">
+          <span>Operated by</span>
+          <a href="https://cenetex.com" className="font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors" target="_blank" rel="noopener noreferrer">Cenetex Inc.</a>
+          <span className="text-[var(--color-border-secondary)]">·</span>
           <span>Powered by</span>
           <span className="font-medium text-[var(--color-text-tertiary)]">Solana</span>
-          <span className="text-[var(--color-border-secondary)]">·</span>
-          <span>Built with</span>
-          <span className="font-medium text-[var(--color-text-tertiary)]">AI</span>
         </p>
         <button
           onClick={() => setShowPrivacy(true)}
