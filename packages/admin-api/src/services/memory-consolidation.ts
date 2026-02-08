@@ -18,9 +18,11 @@ import {
   getIdentity,
   saveIdentitySnapshot,
   getMemoryStats,
+  pruneGraph,
   DEFAULT_CONFIG,
 } from './memory.js';
 import type { AvatarMemory } from '../types.js';
+import type { GraphPruneConfig } from '../types.js';
 
 // ============================================================================
 // Configuration
@@ -47,6 +49,11 @@ export interface ConsolidationResult {
     core: { decayed: number; pruned: number };
   };
   promotion: { promoted: number };
+  graph?: {
+    decayed: number;
+    pruned: number;
+    orphansRemoved: number;
+  };
   identity?: {
     generated: boolean;
     statement?: string;
@@ -73,6 +80,10 @@ export interface ConsolidationOptions {
   force?: boolean;
   /** Custom decay rate (default: 0.95) */
   decayRate?: number;
+  /** Skip graph pruning */
+  skipGraphPrune?: boolean;
+  /** Custom graph pruning config */
+  graphConfig?: Partial<GraphPruneConfig>;
 }
 
 // ============================================================================
@@ -270,6 +281,20 @@ export async function consolidateAvatar(
       }
     }
 
+    // 5. Prune memory graph (if enabled)
+    if (!options.skipGraphPrune) {
+      try {
+        result.graph = await pruneGraph(avatarId, options.graphConfig);
+      } catch (graphError) {
+        logger.warn('Graph pruning failed (non-fatal)', {
+          event: 'graph_prune_error',
+          avatarId,
+          error: graphError instanceof Error ? graphError.message : 'Unknown',
+        });
+        result.graph = { decayed: 0, pruned: 0, orphansRemoved: 0 };
+      }
+    }
+
     result.success = true;
 
     logger.info('Avatar consolidation complete', {
@@ -277,6 +302,7 @@ export async function consolidateAvatar(
       avatarId,
       decay: result.decay,
       promotion: result.promotion,
+      graph: result.graph,
       identityGenerated: result.identity?.generated ?? false,
     });
   } catch (error) {

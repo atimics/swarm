@@ -1046,6 +1046,30 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         };
       },
 
+      graphRecall: async (query: string, userId?: string) => {
+        const searchResult = await memory.graphSearch(avatarId, query, {
+          directLimit: 8,
+          maxGraphMatches: 6,
+          graphDepth: 1,
+        });
+        const mapMem = (m: { content: string; about?: string; createdAt: number; strength: number }) => ({
+          fact: m.content,
+          about: m.about,
+          userId,
+          timestamp: m.createdAt,
+          strength: m.strength,
+        });
+        // Filter by userId if provided
+        const filterByUser = (items: typeof searchResult.directMatches) =>
+          userId ? items.filter(m => !m.userId || m.userId === userId) : items;
+
+        return {
+          facts: filterByUser(searchResult.directMatches).map(mapMem),
+          associatedFacts: filterByUser(searchResult.graphMatches).map(mapMem),
+          edgesTraversed: searchResult.edgesTraversed,
+        };
+      },
+
       getEmbeddingStats: async () => {
         return memoryMigration.getEmbeddingStats(avatarId);
       },
@@ -1060,6 +1084,10 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
         return memoryConsolidation.triggerConsolidation(avatarId, {
           skipIdentity: options?.skipIdentity,
         });
+      },
+
+      getGraphStats: async () => {
+        return memory.getGraphStats(avatarId);
       },
     },
 

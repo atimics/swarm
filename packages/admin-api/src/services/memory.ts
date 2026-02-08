@@ -36,6 +36,10 @@ import type {
   MemoryQueryOptions,
   MemoryConsolidationConfig,
   AvatarIdentitySnapshot,
+  MemoryEdge,
+  MemoryEdgeType,
+  GraphPruneConfig,
+  GraphSearchResult,
 } from '../types.js';
 import {
   getEmbeddingService,
@@ -128,6 +132,14 @@ export const DEFAULT_CONFIG: MemoryConsolidationConfig = {
   decayIntervalHours: 24,
   pruneThreshold: 0.1,
   reinforcementBoost: 0.1,
+};
+
+/** Default configuration for graph pruning */
+export const DEFAULT_GRAPH_CONFIG: GraphPruneConfig = {
+  minEdgeWeight: 0.1,
+  edgeDecayRate: 0.95,
+  maxEdgesPerNode: 20,
+  maxTotalEdges: 2000,
 };
 
 // ============================================================================
@@ -753,18 +765,26 @@ export async function searchMemories(
     }
   }
 
-  // Fetch candidate memories
-  const result = await getDynamoClient().send(new QueryCommand({
-    TableName: ADMIN_TABLE,
-    KeyConditionExpression: 'pk = :pk',
-    ExpressionAttributeValues: {
-      ':pk': `MEMORY#${validAvatarId}`,
-    },
-    ScanIndexForward: false,
-    Limit: 200, // Cap initial fetch
-  }));
+  // Fetch candidate memories with pagination (no artificial ceiling)
+  const memories: AvatarMemory[] = [];
+  let lastEvaluatedKey: Record<string, unknown> | undefined;
+  const MAX_CANDIDATES = 500; // Safety limit
 
-  const memories = (result.Items || []) as AvatarMemory[];
+  do {
+    const result = await getDynamoClient().send(new QueryCommand({
+      TableName: ADMIN_TABLE,
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: {
+        ':pk': `MEMORY#${validAvatarId}`,
+      },
+      ScanIndexForward: false,
+      Limit: 200,
+      ExclusiveStartKey: lastEvaluatedKey,
+    }));
+
+    memories.push(...((result.Items || []) as AvatarMemory[]));
+    lastEvaluatedKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (lastEvaluatedKey && memories.length < MAX_CANDIDATES);
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
 
@@ -998,6 +1018,10 @@ export async function promoteImmediateToRecent(
       userId: memory.userId,
       themes: memory.themes,
       strength: memory.strength * 0.9, // Slight decay on promotion
+      // Preserve embedding on promotion (avoids re-embedding cost)
+      embedding: memory.embedding,
+      embeddingModel: memory.embeddingModel,
+      embeddingVersion: memory.embeddingVersion,
       metadata: memory.metadata,
       createdAt: now,
       updatedAt: now,
@@ -1033,6 +1057,15 @@ export async function promoteImmediateToRecent(
         ],
       }));
       promoted++;
+
+      // Create graph edge tracking the promotion lineage
+      createEdge(validAvatarId, {
+        sourceMemoryId: newId,
+        targetMemoryId: memory.id,
+        edgeType: 'promoted_from',
+        weight: 0.8,
+        retentionDays: retentionDays === -1 ? undefined : retentionDays,
+      }).catch(() => { /* Best-effort edge creation */ });
     } catch (error) {
       logger.error('Failed to promote memory', {
         event: 'memory_promotion_error',
@@ -1210,6 +1243,16 @@ export async function remember(
     about: about?.trim(),
     userId: userId?.trim(),
     retentionDays,
+  });
+
+  // Auto-link to related memories via graph edges (async, don't block)
+  autoLinkMemory(validAvatarId, memory, { retentionDays }).catch(err => {
+    logger.warn('Background auto-link failed', {
+      event: 'auto_link_background_error',
+      avatarId: validAvatarId,
+      memoryId: memory.id,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    });
   });
 
   // Check if we need to promote memories (async, don't block)
@@ -1426,5 +1469,744 @@ export async function getMemoryStats(avatarId: string): Promise<{
     },
     oldestMemory,
     newestMemory,
+  };
+}
+// ============================================================================
+// Graph RAG: Edge CRUD Operations
+// ============================================================================
+
+/**
+ * Create a graph edge between two memories.
+ *
+ * Edges are bidirectional for traversal: we store source→target and query
+ * both directions using begins_with on the sk.
+ */
+export async function createEdge(
+  avatarId: string,
+  params: {
+    sourceMemoryId: string;
+    targetMemoryId: string;
+    edgeType: MemoryEdgeType;
+    weight?: number;
+    metadata?: Record<string, unknown>;
+    retentionDays?: number;
+  }
+): Promise<MemoryEdge> {
+  const validAvatarId = validateAvatarId(avatarId);
+  const now = Date.now();
+  const weight = Math.max(0, Math.min(1, params.weight ?? 0.5));
+
+  const ttl = computeMemoryTtl(params.retentionDays);
+
+  const edge: MemoryEdge = {
+    pk: `EDGE#${validAvatarId}`,
+    sk: `${params.sourceMemoryId}#${params.targetMemoryId}`,
+    avatarId: validAvatarId,
+    sourceMemoryId: params.sourceMemoryId,
+    targetMemoryId: params.targetMemoryId,
+    edgeType: params.edgeType,
+    weight,
+    metadata: params.metadata,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const dynamoItem: Record<string, unknown> = { ...edge };
+  if (ttl !== undefined) {
+    dynamoItem.ttl = ttl;
+  }
+
+  await getDynamoClient().send(new PutCommand({
+    TableName: ADMIN_TABLE,
+    Item: dynamoItem,
+  }));
+
+  logger.info('Edge created', {
+    event: 'edge_created',
+    avatarId: validAvatarId,
+    source: params.sourceMemoryId,
+    target: params.targetMemoryId,
+    edgeType: params.edgeType,
+    weight,
+  });
+
+  return edge;
+}
+
+/**
+ * Get all edges from a source memory (outgoing)
+ */
+export async function getEdgesFrom(
+  avatarId: string,
+  memoryId: string,
+  limit: number = 50
+): Promise<MemoryEdge[]> {
+  const validAvatarId = validateAvatarId(avatarId);
+
+  const result = await getDynamoClient().send(new QueryCommand({
+    TableName: ADMIN_TABLE,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: {
+      ':pk': `EDGE#${validAvatarId}`,
+      ':prefix': `${memoryId}#`,
+    },
+    Limit: Math.min(limit, 100),
+  }));
+
+  return (result.Items || []) as MemoryEdge[];
+}
+
+/**
+ * Get all edges pointing to a target memory (incoming).
+ *
+ * This requires a filter scan since our sk is {source}#{target}.
+ * We query all edges for the avatar and filter by target.
+ */
+export async function getEdgesTo(
+  avatarId: string,
+  memoryId: string,
+  limit: number = 50
+): Promise<MemoryEdge[]> {
+  const validAvatarId = validateAvatarId(avatarId);
+
+  const result = await getDynamoClient().send(new QueryCommand({
+    TableName: ADMIN_TABLE,
+    KeyConditionExpression: 'pk = :pk',
+    FilterExpression: 'targetMemoryId = :targetId',
+    ExpressionAttributeValues: {
+      ':pk': `EDGE#${validAvatarId}`,
+      ':targetId': memoryId,
+    },
+    Limit: Math.min(limit, 100) * 3, // Over-fetch since filter is post-query
+  }));
+
+  return ((result.Items || []) as MemoryEdge[]).slice(0, limit);
+}
+
+/**
+ * Get all edges connected to a memory (both directions)
+ */
+export async function getEdgesForMemory(
+  avatarId: string,
+  memoryId: string,
+  limit: number = 50
+): Promise<MemoryEdge[]> {
+  const [outgoing, incoming] = await Promise.all([
+    getEdgesFrom(avatarId, memoryId, limit),
+    getEdgesTo(avatarId, memoryId, limit),
+  ]);
+
+  // Deduplicate (an edge could appear in both if source === target, unlikely but safe)
+  const seen = new Set<string>();
+  const combined: MemoryEdge[] = [];
+  for (const edge of [...outgoing, ...incoming]) {
+    if (!seen.has(edge.sk)) {
+      seen.add(edge.sk);
+      combined.push(edge);
+    }
+  }
+
+  return combined
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, limit);
+}
+
+/**
+ * Get all edges for an avatar (for pruning/stats)
+ */
+export async function getAllEdges(
+  avatarId: string,
+  limit: number = 2000
+): Promise<MemoryEdge[]> {
+  const validAvatarId = validateAvatarId(avatarId);
+  const edges: MemoryEdge[] = [];
+  let lastEvaluatedKey: Record<string, unknown> | undefined;
+
+  do {
+    const result = await getDynamoClient().send(new QueryCommand({
+      TableName: ADMIN_TABLE,
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: {
+        ':pk': `EDGE#${validAvatarId}`,
+      },
+      Limit: 200,
+      ExclusiveStartKey: lastEvaluatedKey,
+    }));
+
+    edges.push(...((result.Items || []) as MemoryEdge[]));
+    lastEvaluatedKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (lastEvaluatedKey && edges.length < limit);
+
+  return edges.slice(0, limit);
+}
+
+/**
+ * Reinforce an edge (increase its weight)
+ */
+export async function reinforceEdge(
+  avatarId: string,
+  sourceMemoryId: string,
+  targetMemoryId: string,
+  boost: number = 0.1
+): Promise<void> {
+  const validAvatarId = validateAvatarId(avatarId);
+  const sk = `${sourceMemoryId}#${targetMemoryId}`;
+
+  try {
+    await getDynamoClient().send(new UpdateCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: `EDGE#${validAvatarId}`,
+        sk,
+      },
+      UpdateExpression: 'SET weight = if_not_exists(weight, :half) + :boost, updatedAt = :now',
+      ConditionExpression: 'attribute_exists(pk)',
+      ExpressionAttributeValues: {
+        ':boost': Math.min(boost, 0.5),
+        ':half': 0.5,
+        ':now': Date.now(),
+      },
+    }));
+
+    // Cap at 1.0
+    await getDynamoClient().send(new UpdateCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: `EDGE#${validAvatarId}`,
+        sk,
+      },
+      UpdateExpression: 'SET weight = :max',
+      ConditionExpression: 'weight > :max',
+      ExpressionAttributeValues: { ':max': 1.0 },
+    })).catch(() => { /* already <= 1.0 */ });
+  } catch {
+    // Edge may not exist, that's fine
+  }
+}
+
+/**
+ * Delete an edge
+ */
+export async function deleteEdge(
+  avatarId: string,
+  sourceMemoryId: string,
+  targetMemoryId: string
+): Promise<void> {
+  const validAvatarId = validateAvatarId(avatarId);
+
+  await getDynamoClient().send(new DeleteCommand({
+    TableName: ADMIN_TABLE,
+    Key: {
+      pk: `EDGE#${validAvatarId}`,
+      sk: `${sourceMemoryId}#${targetMemoryId}`,
+    },
+  }));
+}
+
+/**
+ * Batch delete edges
+ */
+export async function deleteEdges(avatarId: string, edges: Array<{ source: string; target: string }>): Promise<void> {
+  if (edges.length === 0) return;
+  const validAvatarId = validateAvatarId(avatarId);
+
+  const batches: Array<Array<{ source: string; target: string }>> = [];
+  for (let i = 0; i < edges.length; i += 25) {
+    batches.push(edges.slice(i, i + 25));
+  }
+
+  for (const batch of batches) {
+    try {
+      await getDynamoClient().send(new BatchWriteCommand({
+        RequestItems: {
+          [ADMIN_TABLE]: batch.map(e => ({
+            DeleteRequest: {
+              Key: {
+                pk: `EDGE#${validAvatarId}`,
+                sk: `${e.source}#${e.target}`,
+              },
+            },
+          })),
+        },
+      }));
+    } catch (error) {
+      logger.warn('Some edge batch deletes failed', {
+        event: 'edge_batch_delete_error',
+        avatarId: validAvatarId,
+        error: error instanceof Error ? error.message : 'Unknown',
+      });
+    }
+  }
+}
+
+// ============================================================================
+// Graph RAG: Auto-Linking
+// ============================================================================
+
+/**
+ * Automatically discover and create edges between a new memory and
+ * semantically related existing memories.
+ *
+ * Called after creating a new memory. Uses the new memory's embedding
+ * to find related memories and creates edges weighted by similarity.
+ */
+export async function autoLinkMemory(
+  avatarId: string,
+  newMemory: AvatarMemory,
+  options: {
+    maxEdges?: number;
+    minSimilarity?: number;
+    retentionDays?: number;
+  } = {}
+): Promise<MemoryEdge[]> {
+  const { maxEdges = 5, minSimilarity = 0.4, retentionDays } = options;
+
+  if (!newMemory.embedding) {
+    return []; // Can't link without embeddings
+  }
+
+  // Find semantically related memories
+  const related = await searchMemories(avatarId, newMemory.content, maxEdges * 2, {
+    semanticSearch: true,
+    minSimilarity,
+  });
+
+  // Filter out self
+  const candidates = related.filter(m => m.id !== newMemory.id);
+  const edges: MemoryEdge[] = [];
+
+  for (const candidate of candidates.slice(0, maxEdges)) {
+    // Determine edge type heuristically
+    let edgeType: MemoryEdgeType = 'related_to';
+    if (candidate.about && newMemory.about && candidate.about === newMemory.about) {
+      edgeType = 'about_same';
+    } else if (newMemory.sourceMemoryIds?.includes(candidate.id)) {
+      edgeType = 'promoted_from';
+    }
+
+    // Weight is the semantic similarity (approximate via content overlap + embedding if available)
+    const weight = candidate.embedding && newMemory.embedding
+      ? cosineSimilarity(newMemory.embedding, candidate.embedding)
+      : 0.5;
+
+    if (weight >= minSimilarity) {
+      try {
+        const edge = await createEdge(avatarId, {
+          sourceMemoryId: newMemory.id,
+          targetMemoryId: candidate.id,
+          edgeType,
+          weight: Math.min(weight, 1.0),
+          retentionDays,
+        });
+        edges.push(edge);
+      } catch (error) {
+        logger.warn('Failed to create auto-link edge', {
+          event: 'auto_link_error',
+          avatarId,
+          source: newMemory.id,
+          target: candidate.id,
+          error: error instanceof Error ? error.message : 'Unknown',
+        });
+      }
+    }
+  }
+
+  if (edges.length > 0) {
+    logger.info('Auto-linked memory', {
+      event: 'memory_auto_linked',
+      avatarId,
+      memoryId: newMemory.id,
+      edgesCreated: edges.length,
+    });
+  }
+
+  return edges;
+}
+
+// ============================================================================
+// Graph RAG: Graph-Enhanced Search
+// ============================================================================
+
+/**
+ * Search memories with graph traversal.
+ *
+ * 1. Semantic search finds the top-N direct matches
+ * 2. For each direct match, traverse graph edges to surface associated memories
+ * 3. Deduplicate and rank by combined relevance
+ *
+ * This is the primary search function for the memory system.
+ */
+export async function graphSearch(
+  avatarId: string,
+  query: string,
+  options: {
+    directLimit?: number;
+    graphDepth?: number;
+    maxGraphMatches?: number;
+    minSimilarity?: number;
+    semanticSearch?: boolean;
+  } = {}
+): Promise<GraphSearchResult> {
+  const {
+    directLimit = 8,
+    graphDepth = 1,
+    maxGraphMatches = 8,
+    minSimilarity = 0.3,
+    semanticSearch = true,
+  } = options;
+
+  // Step 1: Semantic search for direct matches
+  const directMatches = await searchMemories(avatarId, query, directLimit, {
+    semanticSearch,
+    minSimilarity,
+  });
+
+  const directIds = new Set(directMatches.map(m => m.id));
+
+  // Step 2: Graph traversal from direct matches
+  const graphCandidateIds = new Set<string>();
+  let edgesTraversed = 0;
+
+  // BFS traversal up to graphDepth
+  let frontier = directMatches.map(m => m.id);
+
+  for (let depth = 0; depth < graphDepth && frontier.length > 0; depth++) {
+    const nextFrontier: string[] = [];
+
+    // Fetch edges for all frontier nodes in parallel
+    const edgeBatches = await Promise.all(
+      frontier.map(memId => getEdgesForMemory(avatarId, memId, DEFAULT_GRAPH_CONFIG.maxEdgesPerNode))
+    );
+
+    for (const edges of edgeBatches) {
+      for (const edge of edges) {
+        edgesTraversed++;
+        // Get the neighbor ID (the other end of the edge)
+        const neighborId = edge.sourceMemoryId === frontier.find(f =>
+          f === edge.sourceMemoryId || f === edge.targetMemoryId
+        ) ? edge.targetMemoryId : edge.sourceMemoryId;
+
+        if (!directIds.has(neighborId) && !graphCandidateIds.has(neighborId)) {
+          graphCandidateIds.add(neighborId);
+          nextFrontier.push(neighborId);
+        }
+      }
+    }
+
+    frontier = nextFrontier;
+  }
+
+  // Step 3: Fetch graph-discovered memories
+  const graphMatches: AvatarMemory[] = [];
+  if (graphCandidateIds.size > 0) {
+    // Fetch memories by ID (we need to search all tiers)
+    const fetchPromises = Array.from(graphCandidateIds)
+      .slice(0, maxGraphMatches * 2) // Over-fetch slightly
+      .map(id => getMemory(avatarId, id));
+
+    const results = await Promise.all(fetchPromises);
+    for (const mem of results) {
+      if (mem && graphMatches.length < maxGraphMatches) {
+        graphMatches.push(mem);
+      }
+    }
+  }
+
+  // Step 4: Combine and deduplicate
+  const seenIds = new Set<string>();
+  const combined: AvatarMemory[] = [];
+
+  // Direct matches first (higher priority)
+  for (const mem of directMatches) {
+    if (!seenIds.has(mem.id)) {
+      seenIds.add(mem.id);
+      combined.push(mem);
+    }
+  }
+
+  // Then graph matches
+  for (const mem of graphMatches) {
+    if (!seenIds.has(mem.id)) {
+      seenIds.add(mem.id);
+      combined.push(mem);
+    }
+  }
+
+  logger.info('Graph search completed', {
+    event: 'graph_search',
+    avatarId,
+    query: query.slice(0, 50),
+    directMatches: directMatches.length,
+    graphMatches: graphMatches.length,
+    edgesTraversed,
+    totalResults: combined.length,
+  });
+
+  return {
+    directMatches,
+    graphMatches,
+    combined,
+    edgesTraversed,
+  };
+}
+
+// ============================================================================
+// Graph RAG: Pruning
+// ============================================================================
+
+/**
+ * Prune the memory graph for an avatar.
+ *
+ * This is called during consolidation and performs:
+ * 1. Decay all edge weights by edgeDecayRate
+ * 2. Delete edges below minEdgeWeight
+ * 3. Delete edges pointing to non-existent memories (orphans)
+ * 4. Cap edges per node at maxEdgesPerNode (keep strongest)
+ * 5. Cap total edges at maxTotalEdges (keep strongest)
+ */
+export async function pruneGraph(
+  avatarId: string,
+  config: Partial<GraphPruneConfig> = {}
+): Promise<{ decayed: number; pruned: number; orphansRemoved: number }> {
+  const validAvatarId = validateAvatarId(avatarId);
+  const {
+    minEdgeWeight = DEFAULT_GRAPH_CONFIG.minEdgeWeight,
+    edgeDecayRate = DEFAULT_GRAPH_CONFIG.edgeDecayRate,
+    maxEdgesPerNode = DEFAULT_GRAPH_CONFIG.maxEdgesPerNode,
+    maxTotalEdges = DEFAULT_GRAPH_CONFIG.maxTotalEdges,
+  } = config;
+
+  const edges = await getAllEdges(validAvatarId, maxTotalEdges + 500);
+
+  let decayed = 0;
+  let pruned = 0;
+  let orphansRemoved = 0;
+
+  const toDelete: Array<{ source: string; target: string }> = [];
+  const toUpdate: Array<{ sk: string; newWeight: number }> = [];
+
+  // Get all existing memory IDs for orphan detection
+  const memoryResult = await getDynamoClient().send(new QueryCommand({
+    TableName: ADMIN_TABLE,
+    KeyConditionExpression: 'pk = :pk',
+    ExpressionAttributeValues: {
+      ':pk': `MEMORY#${validAvatarId}`,
+    },
+    ProjectionExpression: 'id',
+  }));
+  const existingMemoryIds = new Set(
+    (memoryResult.Items || []).map((item: Record<string, unknown>) => item.id as string)
+  );
+
+  // Step 1: Decay weights and identify pruning targets
+  for (const edge of edges) {
+    // Check for orphans
+    if (!existingMemoryIds.has(edge.sourceMemoryId) || !existingMemoryIds.has(edge.targetMemoryId)) {
+      toDelete.push({ source: edge.sourceMemoryId, target: edge.targetMemoryId });
+      orphansRemoved++;
+      continue;
+    }
+
+    // Apply decay
+    const newWeight = edge.weight * edgeDecayRate;
+    if (newWeight < minEdgeWeight) {
+      toDelete.push({ source: edge.sourceMemoryId, target: edge.targetMemoryId });
+      pruned++;
+    } else {
+      toUpdate.push({ sk: edge.sk, newWeight });
+      decayed++;
+    }
+  }
+
+  // Step 2: Enforce per-node edge limit
+  const edgesByNode = new Map<string, MemoryEdge[]>();
+  for (const edge of edges) {
+    // Skip already-deleted edges
+    if (toDelete.some(d => d.source === edge.sourceMemoryId && d.target === edge.targetMemoryId)) {
+      continue;
+    }
+
+    for (const nodeId of [edge.sourceMemoryId, edge.targetMemoryId]) {
+      const nodeEdges = edgesByNode.get(nodeId) || [];
+      nodeEdges.push(edge);
+      edgesByNode.set(nodeId, nodeEdges);
+    }
+  }
+
+  for (const [, nodeEdges] of edgesByNode) {
+    if (nodeEdges.length > maxEdgesPerNode) {
+      const sorted = nodeEdges.sort((a, b) => b.weight - a.weight);
+      for (const excess of sorted.slice(maxEdgesPerNode)) {
+        if (!toDelete.some(d => d.source === excess.sourceMemoryId && d.target === excess.targetMemoryId)) {
+          toDelete.push({ source: excess.sourceMemoryId, target: excess.targetMemoryId });
+          pruned++;
+        }
+      }
+    }
+  }
+
+  // Step 3: Enforce total edge limit
+  const surviving = edges
+    .filter(e => !toDelete.some(d => d.source === e.sourceMemoryId && d.target === e.targetMemoryId))
+    .sort((a, b) => b.weight - a.weight);
+
+  if (surviving.length > maxTotalEdges) {
+    for (const excess of surviving.slice(maxTotalEdges)) {
+      toDelete.push({ source: excess.sourceMemoryId, target: excess.targetMemoryId });
+      pruned++;
+    }
+  }
+
+  // Step 4: Apply updates
+  const now = Date.now();
+  const updateBatches: Array<Array<{ sk: string; newWeight: number }>> = [];
+  for (let i = 0; i < toUpdate.length; i += 25) {
+    updateBatches.push(toUpdate.slice(i, i + 25));
+  }
+
+  for (const batch of updateBatches) {
+    await Promise.all(
+      batch.map(({ sk, newWeight }) =>
+        getDynamoClient().send(new UpdateCommand({
+          TableName: ADMIN_TABLE,
+          Key: { pk: `EDGE#${validAvatarId}`, sk },
+          UpdateExpression: 'SET weight = :w, updatedAt = :now',
+          ExpressionAttributeValues: { ':w': newWeight, ':now': now },
+        })).catch(err => {
+          logger.warn('Failed to update edge weight', {
+            event: 'edge_decay_error',
+            sk,
+            error: err instanceof Error ? err.message : 'Unknown',
+          });
+        })
+      )
+    );
+  }
+
+  // Step 5: Delete pruned edges
+  if (toDelete.length > 0) {
+    await deleteEdges(validAvatarId, toDelete);
+  }
+
+  logger.info('Graph pruned', {
+    event: 'graph_pruned',
+    avatarId: validAvatarId,
+    totalEdges: edges.length,
+    decayed,
+    pruned,
+    orphansRemoved,
+    surviving: edges.length - toDelete.length,
+  });
+
+  return { decayed, pruned, orphansRemoved };
+}
+
+// ============================================================================
+// Enhanced Memory Context (Graph-Aware)
+// ============================================================================
+
+/**
+ * Get memory context for prompt injection using graph-enhanced search.
+ *
+ * Uses semantic search + graph RAG to surface the most relevant memories
+ * and their associations. Formats them for LLM prompt injection.
+ */
+export async function getGraphMemoryContext(
+  avatarId: string,
+  query: string,
+  options: {
+    limit?: number;
+    maxChars?: number;
+    includeGraph?: boolean;
+  } = {}
+): Promise<string> {
+  const validAvatarId = validateAvatarId(avatarId);
+  const queryText = query.trim();
+
+  if (!queryText) {
+    return getMemoryContext(validAvatarId);
+  }
+
+  const limit = Math.min(options.limit ?? 12, 25);
+  const maxChars = options.maxChars ?? 2400;
+  const includeGraph = options.includeGraph ?? true;
+
+  const [identity, searchResult] = await Promise.all([
+    getIdentity(validAvatarId),
+    includeGraph
+      ? graphSearch(validAvatarId, queryText, {
+          directLimit: Math.ceil(limit * 0.6),
+          maxGraphMatches: Math.ceil(limit * 0.4),
+          graphDepth: 1,
+        })
+      : searchMemories(validAvatarId, queryText, limit, { semanticSearch: true }).then(
+          directMatches => ({ directMatches, graphMatches: [] as AvatarMemory[], combined: directMatches, edgesTraversed: 0 })
+        ),
+  ]);
+
+  const sections: string[] = [];
+
+  // Identity section
+  if (identity.length > 0) {
+    sections.push('## Who I Am');
+    for (const mem of identity) {
+      sections.push(`- ${mem.content}`);
+    }
+  }
+
+  // Filter out identity mems from search results
+  const identityIds = new Set(identity.map(m => m.id));
+  const directPicked = searchResult.directMatches
+    .filter(m => !identityIds.has(m.id))
+    .slice(0, limit);
+
+  if (directPicked.length > 0) {
+    sections.push('\n## Relevant Memories');
+    for (const mem of directPicked) {
+      const aboutStr = mem.about ? ` (about ${mem.about})` : '';
+      sections.push(`- ${mem.content}${aboutStr}`);
+    }
+  }
+
+  // Graph-discovered associated memories
+  const graphPicked = searchResult.graphMatches
+    .filter(m => !identityIds.has(m.id) && !directPicked.some(d => d.id === m.id))
+    .slice(0, Math.ceil(limit * 0.4));
+
+  if (graphPicked.length > 0) {
+    sections.push('\n## Associated Context');
+    for (const mem of graphPicked) {
+      const aboutStr = mem.about ? ` (about ${mem.about})` : '';
+      sections.push(`- ${mem.content}${aboutStr}`);
+    }
+  }
+
+  const out = sections.length > 0 ? sections.join('\n') : '';
+  return out.length > maxChars ? out.slice(0, maxChars) : out;
+}
+
+/**
+ * Get graph statistics for an avatar
+ */
+export async function getGraphStats(avatarId: string): Promise<{
+  totalEdges: number;
+  edgesByType: Record<string, number>;
+  averageWeight: number;
+}> {
+  const validAvatarId = validateAvatarId(avatarId);
+  const edges = await getAllEdges(validAvatarId, 2000);
+
+  const edgesByType: Record<string, number> = {};
+  let totalWeight = 0;
+
+  for (const edge of edges) {
+    edgesByType[edge.edgeType] = (edgesByType[edge.edgeType] || 0) + 1;
+    totalWeight += edge.weight;
+  }
+
+  return {
+    totalEdges: edges.length,
+    edgesByType,
+    averageWeight: edges.length > 0 ? totalWeight / edges.length : 0,
   };
 }

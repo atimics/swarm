@@ -1496,6 +1496,75 @@ export interface MemoryQueryOptions {
 }
 
 // ============================================================================
+// Memory Graph (Graph RAG)
+// ============================================================================
+
+/**
+ * Edge relationship types for the memory graph
+ */
+export type MemoryEdgeType =
+  | 'related_to'      // General semantic relatedness
+  | 'caused_by'       // Causal relationship (A caused B)
+  | 'about_same'      // Same entity/topic
+  | 'contradicts'     // Conflicting information
+  | 'elaborates'      // B provides more detail about A
+  | 'temporal_next'   // B happened after A in sequence
+  | 'promoted_from';  // B was promoted/consolidated from A
+
+/**
+ * An edge in the memory graph connecting two memories.
+ *
+ * DynamoDB Key Schema:
+ * - pk: EDGE#{avatarId}
+ * - sk: {sourceMemoryId}#{targetMemoryId}
+ *
+ * GSI (reverse lookup):
+ * - pk: EDGE#{avatarId}
+ * - sk: begins_with(targetMemoryId#) via scan/filter
+ */
+export interface MemoryEdge {
+  pk: string;               // EDGE#{avatarId}
+  sk: string;               // {sourceMemoryId}#{targetMemoryId}
+  avatarId: string;
+  sourceMemoryId: string;
+  targetMemoryId: string;
+  edgeType: MemoryEdgeType;
+  weight: number;           // 0.0–1.0, strength of the relationship
+  metadata?: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+  ttl?: number;             // DynamoDB TTL (epoch seconds)
+}
+
+/**
+ * Configuration for graph pruning during consolidation
+ */
+export interface GraphPruneConfig {
+  /** Minimum edge weight to keep (edges below this are deleted). Default: 0.1 */
+  minEdgeWeight: number;
+  /** Decay multiplier applied to edge weights per consolidation cycle. Default: 0.95 */
+  edgeDecayRate: number;
+  /** Maximum edges per memory node (prune weakest above this). Default: 20 */
+  maxEdgesPerNode: number;
+  /** Maximum total edges per avatar. Default: 2000 */
+  maxTotalEdges: number;
+}
+
+/**
+ * Result of a graph-enhanced memory search
+ */
+export interface GraphSearchResult {
+  /** Directly matched memories from semantic search */
+  directMatches: AvatarMemory[];
+  /** Associated memories surfaced via graph traversal */
+  graphMatches: AvatarMemory[];
+  /** Combined and deduplicated results */
+  combined: AvatarMemory[];
+  /** Graph edges traversed */
+  edgesTraversed: number;
+}
+
+// ============================================================================
 // Entitlements & Plans (M1 Billing)
 // ============================================================================
 

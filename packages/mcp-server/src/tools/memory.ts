@@ -77,6 +77,15 @@ export interface MemoryServices {
   recall: (query: string, userId?: string) => Promise<{ facts: MemoryFact[] }>;
 
   /**
+   * Graph-enhanced recall: semantic search + graph RAG
+   */
+  graphRecall?: (query: string, userId?: string) => Promise<{
+    facts: MemoryFact[];
+    associatedFacts: MemoryFact[];
+    edgesTraversed: number;
+  }>;
+
+  /**
    * Get embedding statistics for an avatar (optional)
    */
   getEmbeddingStats?: () => Promise<EmbeddingStats>;
@@ -90,6 +99,15 @@ export interface MemoryServices {
    * Trigger memory consolidation (decay, promotion, identity evolution)
    */
   consolidate?: (options?: { skipIdentity?: boolean }) => Promise<ConsolidationResult>;
+
+  /**
+   * Get graph statistics
+   */
+  getGraphStats?: () => Promise<{
+    totalEdges: number;
+    edgesByType: Record<string, number>;
+    averageWeight: number;
+  }>;
 }
 
 // ============================================================================
@@ -132,9 +150,50 @@ export const createMemoryTools = (memory: MemoryServices) => [
     toolset: 'memory',
     inputSchema: z.object({
       query: z.string().min(1).describe('What to search for (e.g., a username, topic, or keyword)'),
+      deep: z.boolean().optional().describe('If true, also search for associated memories via graph connections (recommended for complex queries)'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
       try {
+        // Use graph-enhanced recall if available and deep search requested
+        if (input.deep && memory.graphRecall) {
+          const result = await memory.graphRecall(input.query, context.userId);
+
+          if (result.facts.length === 0 && result.associatedFacts.length === 0) {
+            return {
+              success: true,
+              data: {
+                found: false,
+                message: `No facts found about "${input.query}"`,
+                facts: [],
+                associatedFacts: [],
+              },
+            };
+          }
+
+          return {
+            success: true,
+            data: {
+              found: true,
+              count: result.facts.length,
+              associatedCount: result.associatedFacts.length,
+              facts: result.facts.map(f => ({
+                fact: f.fact,
+                about: f.about,
+                strength: f.strength,
+                savedAt: new Date(f.timestamp).toISOString(),
+              })),
+              associatedFacts: result.associatedFacts.map(f => ({
+                fact: f.fact,
+                about: f.about,
+                strength: f.strength,
+                savedAt: new Date(f.timestamp).toISOString(),
+              })),
+              edgesTraversed: result.edgesTraversed,
+            },
+          };
+        }
+
+        // Standard recall
         const result = await memory.recall(input.query, context.userId);
         
         if (result.facts.length === 0) {
@@ -311,6 +370,42 @@ export const createMemoryTools = (memory: MemoryServices) => [
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to consolidate memories',
+        };
+      }
+    },
+  }),
+
+  defineTool({
+    name: 'memory_graph_stats',
+    description: 'Get statistics about the memory graph: total edges, edge types, and average connection strength. Useful for understanding how well-connected your memories are.',
+    category: 'config',
+    toolset: 'memory',
+    inputSchema: z.object({}),
+    execute: async (_input, _context): Promise<ToolResult> => {
+      try {
+        if (!memory.getGraphStats) {
+          return {
+            success: false,
+            error: 'Graph stats not available for this avatar',
+          };
+        }
+
+        const stats = await memory.getGraphStats();
+        return {
+          success: true,
+          data: {
+            totalEdges: stats.totalEdges,
+            edgesByType: stats.edgesByType,
+            averageWeight: Math.round(stats.averageWeight * 100) / 100,
+            message: stats.totalEdges === 0
+              ? 'No graph edges yet. Memories will be automatically linked as they are created.'
+              : `${stats.totalEdges} connections across ${Object.keys(stats.edgesByType).length} relationship types (avg strength: ${(stats.averageWeight * 100).toFixed(0)}%)`,
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get graph stats',
         };
       }
     },
