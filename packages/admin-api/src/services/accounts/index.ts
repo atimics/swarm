@@ -62,18 +62,14 @@ export {
   createWalletChallenge,
   authenticateWallet,
   verifyWalletSignature,
-  // Crossmint auth
-  authenticateCrossmint,
   // Privy auth
   authenticatePrivy,
   // Identity linking
   createWalletLinkChallenge,
   verifyAndLinkWallet,
-  linkCrossmint,
   linkPrivy,
   // Types
   type AuthenticateWalletParams,
-  type AuthenticateCrossmintParams,
   type AuthenticatePrivyParams,
   type AuthenticateResult,
   type LinkWalletParams,

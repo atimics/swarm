@@ -12,7 +12,7 @@ const dynamoClient = getDynamoClient();
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
-export type IdentityType = 'wallet' | 'crossmint' | 'privy';
+export type IdentityType = 'wallet' | 'privy';
 
 export type GetOrCreateAccountForPrivyResult =
   | { success: true; accountId: string }
@@ -216,56 +216,6 @@ export async function getOrCreateAccountForWallet(walletAddress: string, deps: A
   return account.accountId;
 }
 
-export async function getOrCreateAccountForCrossmint(params: {
-  crossmintUserId: string;
-  walletAddress?: string;
-}, deps: AccountsServiceDeps = getDefaultDeps()): Promise<string> {
-  const { crossmintUserId, walletAddress } = params;
-
-  // Prefer existing wallet identity if present: this auto-merges Crossmint identity into the wallet-owned account.
-  if (walletAddress) {
-    const accountForWallet = await getAccountIdForIdentity('wallet', walletAddress, deps);
-    if (accountForWallet) {
-      await ensureIdentityLinkedToAccount({
-        accountId: accountForWallet,
-        type: 'crossmint',
-        providerId: crossmintUserId,
-      }, deps);
-      return accountForWallet;
-    }
-  }
-
-  const accountForCrossmint = await getAccountIdForIdentity('crossmint', crossmintUserId, deps);
-  if (accountForCrossmint) {
-    if (walletAddress) {
-      await ensureIdentityLinkedToAccount({
-        accountId: accountForCrossmint,
-        type: 'wallet',
-        providerId: walletAddress,
-      }, deps);
-    }
-    return accountForCrossmint;
-  }
-
-  const account = await createAccount(deps);
-
-  await ensureIdentityLinkedToAccount({
-    accountId: account.accountId,
-    type: 'crossmint',
-    providerId: crossmintUserId,
-  }, deps);
-
-  if (walletAddress) {
-    await ensureIdentityLinkedToAccount({
-      accountId: account.accountId,
-      type: 'wallet',
-      providerId: walletAddress,
-    }, deps);
-  }
-
-  return account.accountId;
-}
-
 export async function getOrCreateAccountForPrivy(params: {
   privyUserId: string;
   walletAddress?: string;
@@ -366,60 +316,6 @@ export async function getOrCreateAccountForPrivy(params: {
   }
 
   return { success: true, accountId: account.accountId };
-}
-
-/**
- * Link a Crossmint identity to an existing account (without creating a new session).
- *
- * This is used when a user is signed in via wallet and wants to add email/social (Crossmint)
- * as an additional login method for the same account.
- */
-export async function linkCrossmintIdentityToAccount(params: {
-  accountId: string;
-  crossmintUserId: string;
-  walletAddress?: string;
-}, deps: AccountsServiceDeps = getDefaultDeps()): Promise<LinkIdentityResult> {
-  const { accountId, crossmintUserId, walletAddress } = params;
-
-  const crossmintLink = await ensureIdentityLinkedToAccount({
-    accountId,
-    type: 'crossmint',
-    providerId: crossmintUserId,
-  }, deps);
-
-  if (crossmintLink.conflict && crossmintLink.existingAccountId) {
-    return {
-      success: false,
-      error: 'Crossmint identity is already linked to another account',
-      conflict: {
-        type: 'crossmint',
-        providerId: crossmintUserId,
-        existingAccountId: crossmintLink.existingAccountId,
-      },
-    };
-  }
-
-  if (walletAddress) {
-    const walletLink = await ensureIdentityLinkedToAccount({
-      accountId,
-      type: 'wallet',
-      providerId: walletAddress,
-    }, deps);
-
-    if (walletLink.conflict && walletLink.existingAccountId) {
-      return {
-        success: false,
-        error: 'Wallet is already linked to another account',
-        conflict: {
-          type: 'wallet',
-          providerId: walletAddress,
-          existingAccountId: walletLink.existingAccountId,
-        },
-      };
-    }
-  }
-
-  return { success: true };
 }
 
 /**

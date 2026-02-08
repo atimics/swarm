@@ -3,7 +3,7 @@
  *
  * Provides a single entry point for authentication that combines identity resolution,
  * session creation, and challenge verification. Replaces the scattered auth logic
- * across wallet-auth, crossmint-auth, and privy-auth handlers.
+ * across wallet-auth and privy-auth handlers.
  */
 import { randomUUID } from 'crypto';
 import nacl from 'tweetnacl';
@@ -61,15 +61,6 @@ export interface AuthenticateWalletParams {
   signature: string;
   publicKey: string;
   nonce: string;
-  userAgent?: string;
-  ipAddress?: string;
-  onboarding?: OnboardingOrchestrationContext;
-}
-
-export interface AuthenticateCrossmintParams {
-  crossmintUserId: string;
-  walletAddress?: string;
-  email?: string;
   userAgent?: string;
   ipAddress?: string;
   onboarding?: OnboardingOrchestrationContext;
@@ -363,88 +354,6 @@ export async function authenticateWallet(
 }
 
 // ============================================================================
-// Crossmint Authentication
-// ============================================================================
-
-/**
- * Authenticate a user with Crossmint credentials.
- * This should be called after Crossmint JWT verification.
- */
-export async function authenticateCrossmint(
-  params: AuthenticateCrossmintParams
-): Promise<AuthenticateResult> {
-  const {
-    crossmintUserId,
-    walletAddress,
-    userAgent,
-    ipAddress,
-    onboarding,
-  } = params;
-  const stepContext: OnboardingStepContext = {
-    state: 'authenticating',
-    step: 'crossmint_verify',
-  };
-
-  // Build identities to link
-  const primaryIdentity: Identity = { type: 'crossmint', providerId: crossmintUserId };
-  const additionalIdentities: Identity[] = [];
-
-  if (walletAddress) {
-    additionalIdentities.push({ type: 'wallet', providerId: walletAddress });
-  }
-
-  // Check NFT gate if we have a wallet
-  let nftGate: NFTGateResult | undefined;
-  if (walletAddress) {
-    nftGate = await checkNFTGate(walletAddress);
-    if (!nftGate.allowed) {
-      console.log(`[AuthOrchestrator] No Orb NFT for wallet=${walletAddress.slice(0, 8)}... (limited access)`);
-    }
-  }
-
-  // Resolve account
-  const accountResult = await resolveAccountForIdentity({
-    primaryIdentity,
-    additionalIdentities,
-    createIfNotFound: true,
-  });
-
-  if (!accountResult.success) {
-    return {
-      success: false,
-      ...buildFailureResponse(accountResult.error, onboarding, stepContext),
-      conflict: accountResult.conflict,
-    };
-  }
-
-  // Record session activity
-  await recordAccountSession(accountResult.accountId);
-
-  // Create session
-  const session = await createSession({
-    accountId: accountResult.accountId,
-    walletAddress: walletAddress || crossmintUserId, // Use crossmint ID as fallback
-    authProvider: 'crossmint',
-    authProviderId: crossmintUserId,
-    userAgent,
-    ipAddress,
-  });
-
-  // Get account summary
-  const account = await getAccountSummary(accountResult.accountId);
-
-  console.log(`[AuthOrchestrator] Crossmint auth successful for user=${crossmintUserId.slice(0, 8)}...`);
-
-  return {
-    success: true,
-    session,
-    account: account ?? undefined,
-    nftGate,
-    ...buildSuccessResponse(onboarding, stepContext),
-  };
-}
-
-// ============================================================================
 // Privy Authentication
 // ============================================================================
 
@@ -626,59 +535,6 @@ export async function verifyAndLinkWallet(params: LinkWalletParams): Promise<Lin
   const account = await getAccountSummary(accountId);
 
   console.log(`[AuthOrchestrator] Wallet linked to account=${accountId}`);
-
-  return {
-    success: true,
-    account: account ?? undefined,
-    ...buildSuccessResponse(onboarding, stepContext),
-  };
-}
-
-/**
- * Link a Crossmint identity to an existing account.
- */
-export async function linkCrossmint(
-  accountId: string,
-  crossmintUserId: string,
-  walletAddress?: string,
-  onboarding?: OnboardingOrchestrationContext
-): Promise<LinkWalletResult> {
-  const stepContext: OnboardingStepContext = {
-    state: 'linking_identity',
-    step: 'crossmint_link',
-  };
-
-  // Link Crossmint identity
-  const crossmintResult = await linkIdentity(accountId, {
-    type: 'crossmint',
-    providerId: crossmintUserId,
-  });
-
-  if (!crossmintResult.success) {
-    return {
-      success: false,
-      ...buildFailureResponse(crossmintResult.error, onboarding, stepContext),
-      conflict: crossmintResult.conflict,
-    };
-  }
-
-  // Link wallet if provided
-  if (walletAddress) {
-    const walletResult = await linkIdentity(accountId, {
-      type: 'wallet',
-      providerId: walletAddress,
-    });
-
-    if (!walletResult.success) {
-      return {
-        success: false,
-        ...buildFailureResponse(walletResult.error, onboarding, stepContext),
-        conflict: walletResult.conflict,
-      };
-    }
-  }
-
-  const account = await getAccountSummary(accountId);
 
   return {
     success: true,

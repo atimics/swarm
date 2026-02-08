@@ -129,9 +129,9 @@ describe('identity-service', () => {
         primaryIdentity: { type: 'wallet', providerId: 'wallet-1' },
       }, deps);
 
-      // Resolve with crossmint + same wallet
+      // Resolve with privy + same wallet
       const result = await resolveAccountForIdentity({
-        primaryIdentity: { type: 'crossmint', providerId: 'crossmint-1' },
+        primaryIdentity: { type: 'privy', providerId: 'privy-1' },
         additionalIdentities: [{ type: 'wallet', providerId: 'wallet-1' }],
       }, deps);
 
@@ -139,7 +139,7 @@ describe('identity-service', () => {
       if (result.success) {
         expect(result.accountId).toBe('acct-1');
         expect(result.created).toBe(false);
-        expect(result.linkedIdentities).toEqual([{ type: 'crossmint', providerId: 'crossmint-1' }]);
+        expect(result.linkedIdentities).toEqual([{ type: 'privy', providerId: 'privy-1' }]);
       }
     });
 
@@ -149,20 +149,20 @@ describe('identity-service', () => {
         primaryIdentity: { type: 'wallet', providerId: 'wallet-1' },
       }, deps);
 
-      // Create account 2 with crossmint-1
+      // Create account 2 with privy-1
       await resolveAccountForIdentity({
-        primaryIdentity: { type: 'crossmint', providerId: 'crossmint-1' },
+        primaryIdentity: { type: 'privy', providerId: 'privy-1' },
       }, deps);
 
       // Try to merge them - should fail
       const result = await resolveAccountForIdentity({
         primaryIdentity: { type: 'wallet', providerId: 'wallet-1' },
-        additionalIdentities: [{ type: 'crossmint', providerId: 'crossmint-1' }],
+        additionalIdentities: [{ type: 'privy', providerId: 'privy-1' }],
       }, deps);
 
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.conflict.identity.type).toBe('crossmint');
+        expect(result.conflict.identity.type).toBe('privy');
         expect(result.conflict.existingAccountId).toBe('acct-2');
       }
     });
@@ -176,7 +176,7 @@ describe('identity-service', () => {
       }, deps);
 
       // Link additional identity
-      const result = await linkIdentity('acct-1', { type: 'crossmint', providerId: 'crossmint-1' }, deps);
+      const result = await linkIdentity('acct-1', { type: 'privy', providerId: 'privy-1' }, deps);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -190,11 +190,11 @@ describe('identity-service', () => {
         primaryIdentity: { type: 'wallet', providerId: 'wallet-1' },
       }, deps);
       await resolveAccountForIdentity({
-        primaryIdentity: { type: 'crossmint', providerId: 'crossmint-1' },
+        primaryIdentity: { type: 'privy', providerId: 'privy-1' },
       }, deps);
 
-      // Try to link crossmint-1 to wallet-1's account
-      const result = await linkIdentity('acct-1', { type: 'crossmint', providerId: 'crossmint-1' }, deps);
+      // Try to link privy-1 to wallet-1's account
+      const result = await linkIdentity('acct-1', { type: 'privy', providerId: 'privy-1' }, deps);
 
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -209,8 +209,8 @@ describe('identity-service', () => {
       }, deps);
 
       // Link twice
-      const result1 = await linkIdentity('acct-1', { type: 'crossmint', providerId: 'crossmint-1' }, deps);
-      const result2 = await linkIdentity('acct-1', { type: 'crossmint', providerId: 'crossmint-1' }, deps);
+      const result1 = await linkIdentity('acct-1', { type: 'privy', providerId: 'privy-1' }, deps);
+      const result2 = await linkIdentity('acct-1', { type: 'privy', providerId: 'privy-1' }, deps);
 
       expect(result1.success).toBe(true);
       expect(result2.success).toBe(true);
@@ -225,16 +225,16 @@ describe('identity-service', () => {
       // Create account with two identities
       await resolveAccountForIdentity({
         primaryIdentity: { type: 'wallet', providerId: 'wallet-1' },
-        additionalIdentities: [{ type: 'crossmint', providerId: 'crossmint-1' }],
+        additionalIdentities: [{ type: 'privy', providerId: 'privy-1' }],
       }, deps);
 
-      // Unlink crossmint
-      const result = await unlinkIdentity('acct-1', { type: 'crossmint', providerId: 'crossmint-1' }, deps);
+      // Unlink privy
+      const result = await unlinkIdentity('acct-1', { type: 'privy', providerId: 'privy-1' }, deps);
 
       expect(result.success).toBe(true);
 
       // Verify it's unlinked
-      const accountId = await getAccountIdForIdentity({ type: 'crossmint', providerId: 'crossmint-1' }, deps);
+      const accountId = await getAccountIdForIdentity({ type: 'privy', providerId: 'privy-1' }, deps);
       expect(accountId).toBeNull();
     });
 
@@ -258,7 +258,7 @@ describe('identity-service', () => {
         primaryIdentity: { type: 'wallet', providerId: 'wallet-1' },
       }, deps);
 
-      const result = await unlinkIdentity('acct-1', { type: 'crossmint', providerId: 'crossmint-1' }, deps);
+      const result = await unlinkIdentity('acct-1', { type: 'privy', providerId: 'privy-1' }, deps);
 
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -271,17 +271,13 @@ describe('identity-service', () => {
     it('returns all linked identities', async () => {
       await resolveAccountForIdentity({
         primaryIdentity: { type: 'wallet', providerId: 'wallet-1' },
-        additionalIdentities: [
-          { type: 'crossmint', providerId: 'crossmint-1' },
-          { type: 'privy', providerId: 'privy-1' },
-        ],
+        additionalIdentities: [{ type: 'privy', providerId: 'privy-1' }],
       }, deps);
 
       const identities = await getAccountIdentities('acct-1', deps);
 
-      expect(identities).toHaveLength(3);
+      expect(identities).toHaveLength(2);
       expect(identities).toContainEqual({ type: 'wallet', providerId: 'wallet-1' });
-      expect(identities).toContainEqual({ type: 'crossmint', providerId: 'crossmint-1' });
       expect(identities).toContainEqual({ type: 'privy', providerId: 'privy-1' });
     });
 

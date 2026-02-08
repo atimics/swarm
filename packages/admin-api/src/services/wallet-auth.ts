@@ -45,7 +45,7 @@ export interface UserRecord {
   sessionCount: number;
 }
 
-export type AuthProvider = 'wallet' | 'crossmint' | 'privy';
+export type AuthProvider = 'wallet' | 'privy';
 
 export interface SessionRecord {
   pk: string; // SESSION#<token>

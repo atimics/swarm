@@ -23,7 +23,7 @@ const SESSION_TTL_HOURS = 24;
 // Types
 // ============================================================================
 
-export type AuthProvider = 'wallet' | 'crossmint' | 'privy';
+export type AuthProvider = 'wallet' | 'privy';
 
 export interface SessionRecord {
   pk: string; // SESSION#<token>

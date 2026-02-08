@@ -34,7 +34,7 @@ export interface PrivyUser {
 export interface AccountSummary {
   accountId: string;
   role: 'user' | 'admin';
-  identities: Array<{ type: 'wallet' | 'privy' | 'crossmint'; providerId: string }>;
+  identities: Array<{ type: 'wallet' | 'privy'; providerId: string }>;
 }
 
 interface PrivyAuthState {

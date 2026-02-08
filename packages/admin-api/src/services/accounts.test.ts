@@ -3,10 +3,8 @@ import {
   ensureIdentityLinkedToAccount,
   getAccountIdForIdentity,
   getAccountSummary,
-  getOrCreateAccountForCrossmint,
   getOrCreateAccountForPrivy,
   getOrCreateAccountForWallet,
-  linkCrossmintIdentityToAccount,
   linkPrivyIdentityToAccount,
   type AccountsServiceDeps,
 } from './accounts.js';
@@ -108,28 +106,6 @@ describe('accounts service', () => {
     expect(summary?.identities).toEqual([{ type: 'wallet', providerId: 'wallet-1' }]);
   });
 
-  it('merges Crossmint identity into an existing wallet-owned account when walletAddress is provided', async () => {
-    // Pre-seed identity mapping: wallet -> existing account
-    await ensureIdentityLinkedToAccount({ accountId: 'acct-existing', type: 'wallet', providerId: 'wallet-1' }, deps);
-    // Also create the profile record for acct-existing
-    await (deps.dynamoClient.send as any)({
-      input: {
-        TableName: deps.tableName,
-        Item: { pk: 'ACCOUNT#acct-existing', sk: 'PROFILE', accountId: 'acct-existing', role: 'user', createdAt: deps.now() },
-      },
-    });
-
-    const accountId = await getOrCreateAccountForCrossmint(
-      { crossmintUserId: 'cm-user-1', walletAddress: 'wallet-1' },
-      deps
-    );
-
-    expect(accountId).toBe('acct-existing');
-
-    const mapped = await getAccountIdForIdentity('crossmint', 'cm-user-1', deps);
-    expect(mapped).toBe('acct-existing');
-  });
-
   it('supports multiple linked wallets per account and lists them in account summary', async () => {
     const accountId = await getOrCreateAccountForWallet('wallet-1', deps);
     expect(accountId).toBe('acct-1');
@@ -139,17 +115,6 @@ describe('accounts service', () => {
     const summary = await getAccountSummary(accountId, deps);
     const wallets = (summary?.identities ?? []).filter((i) => i.type === 'wallet').map((i) => i.providerId).sort();
     expect(wallets).toEqual(['wallet-1', 'wallet-2']);
-  });
-
-  it('links Crossmint identity to an existing account (success path)', async () => {
-    // Create the account by wallet
-    const accountId = await getOrCreateAccountForWallet('wallet-1', deps);
-
-    const result = await linkCrossmintIdentityToAccount({ accountId, crossmintUserId: 'cm-user-1' }, deps);
-    expect(result).toEqual({ success: true });
-
-    const mapped = await getAccountIdForIdentity('crossmint', 'cm-user-1', deps);
-    expect(mapped).toBe(accountId);
   });
 
   it('merges Privy identity into an existing wallet-owned account when walletAddress is provided', async () => {
@@ -206,28 +171,4 @@ describe('accounts service', () => {
     expect(mapped).toBe(accountId);
   });
 
-  it('linkCrossmintIdentityToAccount returns conflict when Crossmint identity belongs to another account', async () => {
-    // Seed profile records
-    await (deps.dynamoClient.send as any)({
-      input: {
-        TableName: deps.tableName,
-        Item: { pk: 'ACCOUNT#acct-1', sk: 'PROFILE', accountId: 'acct-1', role: 'user', createdAt: deps.now() },
-      },
-    });
-    await (deps.dynamoClient.send as any)({
-      input: {
-        TableName: deps.tableName,
-        Item: { pk: 'ACCOUNT#acct-other', sk: 'PROFILE', accountId: 'acct-other', role: 'user', createdAt: deps.now() },
-      },
-    });
-
-    await ensureIdentityLinkedToAccount({ accountId: 'acct-other', type: 'crossmint', providerId: 'cm-user-1' }, deps);
-
-    const result = await linkCrossmintIdentityToAccount({ accountId: 'acct-1', crossmintUserId: 'cm-user-1' }, deps);
-
-    expect(result.success).toBe(false);
-    if (result.success === false) {
-      expect(result.conflict?.existingAccountId).toBe('acct-other');
-    }
-  });
 });

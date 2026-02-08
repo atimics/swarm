@@ -32,7 +32,7 @@ export function decideWalletConnectionDecision(params: {
   if (isLoading) return { type: 'noop' };
 
   if (isAuthenticated && currentUserWalletAddress && currentUserWalletAddress !== publicKeyStr) {
-    // If the user is authenticated via an email/social provider (Privy/Crossmint/etc)
+    // If the user is authenticated via a non-wallet provider (e.g. Privy)
     // and then connects a different wallet, do not silently log them out.
     // Instead, prompt them to Link or Switch.
     if (authProvider && authProvider !== 'wallet') {

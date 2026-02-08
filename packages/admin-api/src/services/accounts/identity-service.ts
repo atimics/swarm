@@ -2,8 +2,8 @@
  * Identity Service
  *
  * Provides a unified interface for resolving and linking identities to accounts.
- * Replaces the separate getOrCreateAccountForWallet, getOrCreateAccountForCrossmint,
- * and getOrCreateAccountForPrivy functions with a single generic implementation.
+ * Replaces the separate getOrCreateAccountForWallet and getOrCreateAccountForPrivy
+ * functions with a single generic implementation.
  */
 import {
   type DynamoDBDocumentClient,
@@ -20,7 +20,7 @@ const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 // Re-export types from accounts.ts for convenience
-export type IdentityType = 'wallet' | 'crossmint' | 'privy';
+export type IdentityType = 'wallet' | 'privy';
 
 export interface Identity {
   type: IdentityType;
@@ -325,11 +325,11 @@ export async function getAccountIdentities(
 /**
  * Resolve an account for a set of identities.
  *
- * This is the unified replacement for getOrCreateAccountForWallet,
- * getOrCreateAccountForCrossmint, and getOrCreateAccountForPrivy.
+ * This is the unified replacement for getOrCreateAccountForWallet
+ * and getOrCreateAccountForPrivy.
  *
  * @param params.primaryIdentity - The main identity to resolve (e.g., wallet for wallet auth)
- * @param params.additionalIdentities - Additional identities to link (e.g., crossmint ID)
+ * @param params.additionalIdentities - Additional identities to link (e.g., privy ID)
  * @param params.createIfNotFound - If true, creates a new account if no identity matches
  *
  * Behavior:

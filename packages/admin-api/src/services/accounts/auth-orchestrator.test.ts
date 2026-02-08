@@ -117,7 +117,7 @@ This signature will not trigger any blockchain transaction or cost any fees.`;
   // - DynamoDB operations in identity-service, challenge-service, session-service
   //
   // For full integration testing, consider:
-  // 1. Adding dependency injection to authenticateWallet, authenticateCrossmint, etc.
+  // 1. Adding dependency injection to authenticateWallet and authenticatePrivy.
   // 2. Using bun's mock.module() to mock the service imports
   // 3. Setting up integration tests with a real DynamoDB Local instance
   //
@@ -144,9 +144,9 @@ This signature will not trigger any blockchain transaction or cost any fees.`;
   //   });
   // });
   //
-  // describe('authenticateCrossmint', () => {
+  // describe('authenticatePrivy', () => {
   //   it('links wallet identity when provided', async () => {
-  //     // Verify both crossmint and wallet identities linked
+  //     // Verify both Privy and wallet identities linked
   //   });
   //
   //   it('returns conflict when wallet linked to different account', async () => {

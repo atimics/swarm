@@ -20,7 +20,7 @@ export interface WalletUser {
 export interface AccountSummary {
   accountId: string;
   role: 'user' | 'admin';
-  identities: Array<{ type: 'wallet' | 'crossmint'; providerId: string }>;
+  identities: Array<{ type: 'wallet' | 'privy'; providerId: string }>;
 }
 
 export interface NFTGateInfo {

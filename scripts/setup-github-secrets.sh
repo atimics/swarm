@@ -25,7 +25,6 @@ SECRET_NAMES=(
     "CLOUDFLARE_ZONE_ID"
     "CF_ACCESS_CLIENT_ID"
     "CF_ACCESS_CLIENT_SECRET"
-    "VITE_CROSSMINT_PROJECT_ID"
     "VITE_PRIVY_APP_ID"
 )
 
@@ -37,7 +36,6 @@ SECRET_DESCRIPTIONS=(
     "Cloudflare zone ID for rati.chat domain"
     "Cloudflare Access service token client ID"
     "Cloudflare Access service token client secret"
-    "Crossmint project ID for wallet auth"
     "Privy App ID (frontend build-time config)"
 )
 
@@ -49,12 +47,11 @@ SECRET_URLS=(
     "https://dash.cloudflare.com (Overview > Zone ID)"
     "https://one.dash.cloudflare.com (Access > Service Auth)"
     "https://one.dash.cloudflare.com (Access > Service Auth)"
-    "https://console.crossmint.com"
     "https://dashboard.privy.io"
 )
 
 # Mark required secrets (0=required, 1=optional)
-SECRET_OPTIONAL=(0 0 0 1 1 1 1 1 1)
+SECRET_OPTIONAL=(0 0 0 1 1 1 1 1)
 
 # Helper to get index of a secret by name
 get_secret_index() {

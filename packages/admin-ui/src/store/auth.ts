@@ -26,7 +26,7 @@ export interface UnifiedAuthState {
   account: {
     accountId: string;
     role: 'user' | 'admin';
-    identities: Array<{ type: 'wallet' | 'privy' | 'crossmint'; providerId: string }>;
+    identities: Array<{ type: 'wallet' | 'privy'; providerId: string }>;
   } | null;
   linkedWallets: string[];
   error: string | null;

@@ -13,7 +13,6 @@
       "heliusApiKeyArn": "arn:aws:secretsmanager:...",
       "replicateApiKeyArn": "arn:aws:secretsmanager:...",
       "webSearchApiKeyArn": "arn:aws:secretsmanager:...",
-      "crossmintApiKeyArn": "arn:aws:secretsmanager:...",
 
       "privyAppId": "cmk...",
       "privyAppSecretArn": "arn:aws:secretsmanager:...",
@@ -32,7 +31,6 @@
       "heliusApiKeyArn": "arn:aws:secretsmanager:...",
       "replicateApiKeyArn": "arn:aws:secretsmanager:...",
       "webSearchApiKeyArn": "arn:aws:secretsmanager:...",
-      "crossmintApiKeyArn": "arn:aws:secretsmanager:...",
 
       "privyAppId": "cmk...",
       "privyAppSecretArn": "arn:aws:secretsmanager:...",

@@ -14,7 +14,7 @@ function gateStatus(availableSlots: number, nftsHeld: number) {
 describe('account-gate', () => {
   it('returns nulls when account has no linked wallets', async () => {
     const result = await getAccountGateStatus('acct-1', {
-      getAccountSummary: async () => ({ accountId: 'acct-1', role: 'user', identities: [{ type: 'crossmint', providerId: 'cm-1' }] }),
+      getAccountSummary: async () => ({ accountId: 'acct-1', role: 'user', identities: [{ type: 'privy', providerId: 'privy-1' }] }),
       getGateStatus: async () => gateStatus(0, 0) as any,
     });
 

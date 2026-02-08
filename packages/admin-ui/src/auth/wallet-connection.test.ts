@@ -30,21 +30,6 @@ describe('wallet connection decision', () => {
     expect(second).toEqual({ type: 'noop' });
   });
 
-  it('prompts Link/Switch when Crossmint is authenticated and a different wallet connects', () => {
-    const decision = decideWalletConnectionDecision({
-      connected: true,
-      publicKeyStr: 'wallet-2',
-      hasSignMessage: true,
-      isLoading: false,
-      isAuthenticated: true,
-      authProvider: 'crossmint',
-      currentUserWalletAddress: 'wallet-1',
-      loginAttemptedWallet: null,
-    });
-
-    expect(decision).toEqual({ type: 'promptSwitch', walletAddress: 'wallet-2' });
-  });
-
   it('prompts Link/Switch when Privy is authenticated and a different wallet connects', () => {
     const decision = decideWalletConnectionDecision({
       connected: true,

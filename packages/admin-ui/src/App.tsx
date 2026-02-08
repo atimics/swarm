@@ -91,7 +91,7 @@ function parseTwitterOAuthResultFromLocation(location: Location): TwitterOAuthRe
 function App() {
   const { avatars, fetchAvatars, activeAvatarId, syncChatHistory, setActiveAvatar, addMessage, updateMessage } = useAvatarStore();
   const { checkAuth } = useWalletAuth();
-  // Use unified auth to check both wallet and Crossmint authentication
+  // Use unified auth to check wallet and Privy authentication
   const { isAuthenticated } = useAuth();
   const consent = useConsentStore((s) => s.consent);
   const [initialized, setInitialized] = useState(false);
