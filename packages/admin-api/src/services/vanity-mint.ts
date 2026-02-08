@@ -45,6 +45,25 @@ export interface VanityMatchInfo {
   position: VanityMatchPosition;
 }
 
+export interface VanitySearchCandidate<T> {
+  value: T;
+  address: string;
+}
+
+export interface VanitySearchSelection<T> {
+  selected: VanitySearchCandidate<T>;
+  match: VanityMatchInfo;
+  /**
+   * Whether the selected candidate satisfied the requested policy.
+   * In best-effort mode this can be false (fallback candidate).
+   */
+  satisfied: boolean;
+  /**
+   * Candidate index from the original list (0-based).
+   */
+  index: number;
+}
+
 const BASE58_PATTERN = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
 
 const DEFAULT_PATTERN = 'RATi';
@@ -86,4 +105,61 @@ export function evaluateVanityMatch(address: string, config: ResolvedVanityMintC
     return { matched: position === 'prefix' || position === 'suffix', position };
   }
   return { matched: position !== 'none', position };
+}
+
+/**
+ * Select candidate according to vanity mode.
+ *
+ * strict:
+ * - return first policy-satisfying candidate
+ * - return null if none satisfy policy
+ *
+ * best_effort:
+ * - return most recent satisfying candidate (any contains)
+ * - if none satisfy, return most recent candidate as fallback
+ */
+export function selectVanityCandidate<T>(
+  candidates: VanitySearchCandidate<T>[],
+  config: ResolvedVanityMintConfig
+): VanitySearchSelection<T> | null {
+  if (candidates.length === 0) return null;
+
+  if (config.mode === 'strict') {
+    for (let i = 0; i < candidates.length; i += 1) {
+      const match = evaluateVanityMatch(candidates[i].address, config);
+      if (match.matched) {
+        return {
+          selected: candidates[i],
+          match,
+          satisfied: true,
+          index: i,
+        };
+      }
+    }
+    return null;
+  }
+
+  let latestMatch: VanitySearchSelection<T> | null = null;
+  for (let i = 0; i < candidates.length; i += 1) {
+    const match = evaluateVanityMatch(candidates[i].address, config);
+    if (match.matched) {
+      latestMatch = {
+        selected: candidates[i],
+        match,
+        satisfied: true,
+        index: i,
+      };
+    }
+  }
+
+  if (latestMatch) return latestMatch;
+
+  const fallbackIndex = candidates.length - 1;
+  const fallback = candidates[fallbackIndex];
+  return {
+    selected: fallback,
+    match: evaluateVanityMatch(fallback.address, config),
+    satisfied: false,
+    index: fallbackIndex,
+  };
 }
