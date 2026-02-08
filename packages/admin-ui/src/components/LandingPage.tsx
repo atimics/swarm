@@ -2,9 +2,17 @@
  * Landing Page - Shown to unauthenticated users
  * Explains what the platform is and guides users to sign in
  */
+import { useState } from 'react';
 import { LoginOptions } from './LoginOptions';
+import { PrivacyPolicy } from './PrivacyPolicy';
 
 export function LandingPage() {
+  const [showPrivacy, setShowPrivacy] = useState(false);
+
+  if (showPrivacy) {
+    return <PrivacyPolicy onClose={() => setShowPrivacy(false)} />;
+  }
+
   return (
     <div className="min-h-[100dvh] bg-[var(--color-bg)] flex flex-col">
       {/* Safe area spacer for iOS */}
@@ -50,8 +58,14 @@ export function LandingPage() {
       </div>
 
       {/* Footer */}
-      <footer className="py-6 text-center text-xs text-[var(--color-text-muted)]">
+      <footer className="py-6 text-center text-xs text-[var(--color-text-muted)] space-y-1">
         <p>Powered by Solana • Built with AI</p>
+        <button
+          onClick={() => setShowPrivacy(true)}
+          className="underline hover:text-[var(--color-text-secondary)] transition-colors"
+        >
+          Privacy Policy
+        </button>
       </footer>
 
       {/* Safe area spacer for iOS home indicator */}

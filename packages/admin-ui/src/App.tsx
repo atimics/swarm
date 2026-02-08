@@ -2,10 +2,12 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useAvatarStore } from './store';
 import { useWalletAuth } from './store/walletAuth';
 import { useAuth } from './store/auth';
+import { useConsentStore, CURRENT_POLICY_VERSION } from './store/consent';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
 import { getTwitterConnectionStatus } from './api/twitter';
 import { appendSystemMessage } from './api/chat';
 import { AvatarSidebar, ChatPanel } from './components';
+import { ConsentBanner } from './components/ConsentBanner';
 
 // Lazy-load route-level components that aren't always needed
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -91,6 +93,7 @@ function App() {
   const { checkAuth } = useWalletAuth();
   // Use unified auth to check both wallet and Crossmint authentication
   const { isAuthenticated } = useAuth();
+  const consent = useConsentStore((s) => s.consent);
   const [initialized, setInitialized] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -454,6 +457,11 @@ function App() {
   // Show landing page for unauthenticated users
   if (!isAuthenticated) {
     return <Suspense fallback={<LazyFallback />}><LandingPage /></Suspense>;
+  }
+
+  // Show consent banner if user hasn't accepted privacy policy
+  if (!consent || consent.policyVersion !== CURRENT_POLICY_VERSION) {
+    return <ConsentBanner />;
   }
 
   return (
