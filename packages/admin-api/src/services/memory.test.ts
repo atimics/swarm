@@ -14,6 +14,21 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { AvatarMemory, MemoryTier } from '../types.js';
+
+// Mock entitlements module so that getRetentionDaysForAvatar (which does a
+// dynamic import of ./entitlements.js) gets a deterministic response without
+// consuming DynamoDB mock calls.
+mock.module('./entitlements.js', () => ({
+  getMemoryConfig: async () => ({
+    enabled: true,
+    retentionDays: 30,
+    consolidationEnabled: true,
+    semanticSearchEnabled: true,
+  }),
+  getEntitlement: async () => null,
+  setEntitlement: async () => {},
+}));
+
 import * as memory from './memory.js';
 import * as embedding from './embedding.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
