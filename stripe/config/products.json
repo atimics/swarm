@@ -1,0 +1,85 @@
+{
+  "products": {
+    "free": {
+      "name": "Swarm Free",
+      "description": "Get started with your AI avatar on one platform. Includes 50 messages/day, 5 media credits, 2 voice minutes, and up to 3 tool calls per message. Stateless — no persistent memory. Orb holders automatically receive boosted limits.",
+      "metadata": {
+        "plan_type": "free",
+        "daily_message_limit": "50",
+        "daily_media_credits": "5",
+        "daily_voice_minutes": "2",
+        "max_tool_calls_per_message": "3",
+        "max_platforms": "1",
+        "max_channels": "2",
+        "memory_enabled": "false",
+        "autonomous_posts_enabled": "false"
+      },
+      "monthly_price_cents": 0
+    },
+    "pro": {
+      "name": "Swarm Pro",
+      "description": "Unlock your avatar's full potential. 500 messages/day, 50 media credits, 30 voice minutes, persistent memory (30-day retention), autonomous posting, custom model selection, and multi-platform support across up to 3 platforms and 10 channels.",
+      "metadata": {
+        "plan_type": "pro",
+        "daily_message_limit": "500",
+        "daily_media_credits": "50",
+        "daily_voice_minutes": "30",
+        "max_tool_calls_per_message": "5",
+        "max_platforms": "3",
+        "max_channels": "10",
+        "memory_enabled": "true",
+        "memory_retention_days": "30",
+        "max_memories_per_tier": "100",
+        "autonomous_posts_enabled": "true",
+        "custom_model_enabled": "true"
+      },
+      "monthly_price_cents": 900
+    },
+    "enterprise": {
+      "name": "Swarm Enterprise",
+      "description": "Unlimited messaging, media, and voice for production-grade avatars. Priority processing, unlimited platforms and channels, 365-day memory retention, autonomous posting, custom models, and 10 tool calls per message. Built for teams running avatars at scale.",
+      "metadata": {
+        "plan_type": "enterprise",
+        "daily_message_limit": "-1",
+        "daily_media_credits": "-1",
+        "daily_voice_minutes": "-1",
+        "max_tool_calls_per_message": "10",
+        "max_platforms": "-1",
+        "max_channels": "-1",
+        "memory_enabled": "true",
+        "memory_retention_days": "365",
+        "max_memories_per_tier": "1000",
+        "autonomous_posts_enabled": "true",
+        "custom_model_enabled": "true",
+        "priority_processing": "true"
+      },
+      "monthly_price_cents": 2900
+    }
+  },
+  "metered_prices": {
+    "media_overage": {
+      "nickname": "Media Generation Overage",
+      "unit_amount_cents": 5,
+      "metadata": {
+        "overage_type": "media",
+        "unit": "credit"
+      }
+    },
+    "voice_overage": {
+      "nickname": "Voice Generation Overage",
+      "unit_amount_cents": 10,
+      "metadata": {
+        "overage_type": "voice",
+        "unit": "minute"
+      }
+    },
+    "video_overage": {
+      "nickname": "Video Generation Overage",
+      "unit_amount_cents": 25,
+      "metadata": {
+        "overage_type": "video",
+        "unit": "credit"
+      }
+    }
+  }
+}

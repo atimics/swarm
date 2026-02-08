@@ -1,0 +1,15 @@
+{
+  "_mode": "live",
+  "_created_at": null,
+  "_note": "Copy to stripe-ids.live.json and run scripts/setup-products.sh --live. This file is gitignored.",
+  "products": {
+    "free": { "product_id": "prod_REPLACE_ME", "price_id": "price_REPLACE_ME" },
+    "pro": { "product_id": "prod_REPLACE_ME", "price_id": "price_REPLACE_ME" },
+    "enterprise": { "product_id": "prod_REPLACE_ME", "price_id": "price_REPLACE_ME" }
+  },
+  "metered_prices": {
+    "media_overage": { "price_id": "price_REPLACE_ME", "enterprise_price_id": "price_REPLACE_ME" },
+    "voice_overage": { "price_id": "price_REPLACE_ME", "enterprise_price_id": "price_REPLACE_ME" },
+    "video_overage": { "price_id": "price_REPLACE_ME", "enterprise_price_id": "price_REPLACE_ME" }
+  }
+}

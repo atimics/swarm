@@ -1,0 +1,15 @@
+{
+  "_mode": "test",
+  "_created_at": null,
+  "_note": "Populated by scripts/setup-products.sh and scripts/setup-metered-prices.sh",
+  "products": {
+    "free": { "product_id": null, "price_id": null },
+    "pro": { "product_id": null, "price_id": null },
+    "enterprise": { "product_id": null, "price_id": null }
+  },
+  "metered_prices": {
+    "media_overage": { "price_id": null, "enterprise_price_id": null },
+    "voice_overage": { "price_id": null, "enterprise_price_id": null },
+    "video_overage": { "price_id": null, "enterprise_price_id": null }
+  }
+}

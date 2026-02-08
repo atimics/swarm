@@ -49,6 +49,9 @@ logs/
 coverage/
 .nyc_output/
 
+# Stripe (live keys are secret)
+stripe/config/stripe-ids.live.json
+
 # Secrets (never commit)
 secrets.json
 *.pem
