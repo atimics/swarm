@@ -8,6 +8,7 @@ import type {
 } from 'aws-lambda';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { v4 as uuid } from 'uuid';
 import * as mediaJobs from '../services/media-jobs.js';
 import * as gallery from '../services/gallery.js';
@@ -21,6 +22,20 @@ const sqsClient = new SQSClient({});
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET!;
 const CDN_URL = process.env.CDN_URL;
 const RESPONSE_QUEUE_URL = process.env.RESPONSE_QUEUE_URL;
+const REPLICATE_WEBHOOK_SECRET = process.env.REPLICATE_WEBHOOK_SECRET || '';
+
+function verifyWebhookSignature(jobId: string, provided: string | undefined): boolean {
+  if (!REPLICATE_WEBHOOK_SECRET || !provided) {
+    return false;
+  }
+
+  const expected = createHmac('sha256', REPLICATE_WEBHOOK_SECRET).update(jobId).digest('hex');
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+
+  return expectedBuffer.length === providedBuffer.length
+    && timingSafeEqual(expectedBuffer, providedBuffer);
+}
 
 interface ReplicatePrediction {
   id: string;
@@ -77,6 +92,11 @@ export async function handler(
     if (!jobId) {
       logger.error('No jobId in query string');
       return { statusCode: 400, body: 'Missing jobId' };
+    }
+    const signature = event.queryStringParameters?.sig;
+    if (!verifyWebhookSignature(jobId, signature)) {
+      logger.warn('Invalid replicate webhook signature', { jobId });
+      return { statusCode: 401, body: 'Unauthorized' };
     }
 
     // Parse webhook payload

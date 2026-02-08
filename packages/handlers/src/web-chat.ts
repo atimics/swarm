@@ -189,6 +189,29 @@ export async function handler(
         };
       }
 
+      const walletSignature = message.wallet.signature;
+      const signedMessage = message.wallet.signedMessage;
+      if (!walletSignature || !signedMessage) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Wallet signature required for token-gated access' }),
+        };
+      }
+
+      const signatureValid = await webAdapter.verifyWalletSignature(
+        message.wallet.address,
+        walletSignature,
+        signedMessage
+      );
+      if (!signatureValid) {
+        return {
+          statusCode: 401,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Invalid wallet signature' }),
+        };
+      }
+
       // Verify token balance
       if (avatarConfig.solana?.enabled) {
         const solanaService = createSolanaService(avatarConfig.solana);

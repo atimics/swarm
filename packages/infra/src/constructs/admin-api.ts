@@ -59,6 +59,12 @@ export interface AdminApiConstructProps {
   replicateApiKeyArn?: string;
 
   /**
+   * Secret used to authenticate Replicate webhook callbacks.
+   * If omitted, a random value is generated at synth/deploy time.
+   */
+  replicateWebhookSecret?: string;
+
+  /**
    * Helius API key for Solana RPC (NFT queries, etc.)
    * Required for NFT-gated access
    */
@@ -78,11 +84,6 @@ export interface AdminApiConstructProps {
    * Web search provider (default: serpapi)
    */
   webSearchProvider?: string;
-
-  /**
-   * Crossmint API key secret ARN (for server-side JWT verification)
-   */
-  crossmintApiKeyArn?: string;
 
   /**
    * Privy App ID (non-secret)
@@ -387,11 +388,6 @@ export class AdminApiConstruct extends Construct {
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'WebSearchApiKey', props.webSearchApiKeyArn)
       : undefined;
 
-    // Secret for Crossmint API key (optional - for server-side JWT verification)
-    const crossmintApiKey = props.crossmintApiKeyArn
-      ? secretsmanager.Secret.fromSecretCompleteArn(this, 'CrossmintApiKey', props.crossmintApiKeyArn)
-      : undefined;
-
     // Secrets for Privy (optional - required if Privy auth endpoints are enabled)
     const privyAppSecret = props.privyAppSecretArn
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'PrivyAppSecret', props.privyAppSecretArn)
@@ -416,10 +412,14 @@ export class AdminApiConstruct extends Construct {
     // Note: We'll use the raw API Gateway URL (not custom domain) since Replicate
     // webhooks need to bypass Cloudflare Access. The actual URL is set after API creation.
     let replicateWebhookUrl = ''; // Will be updated after API is created
+    const replicateWebhookSecret =
+      props.replicateWebhookSecret
+      || process.env.REPLICATE_WEBHOOK_SECRET
+      || `replicate-${Date.now()}-${Math.random().toString(36).substring(2)}`;
 
     // Internal test key for direct API testing (only in non-production)
     // Use passed key if provided, otherwise generate a random key
-    const internalTestKey = environment !== 'production' 
+    const internalTestKey = !isProd
       ? props.internalTestKey || process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`
       : '';
 
@@ -456,6 +456,7 @@ export class AdminApiConstruct extends Construct {
         MEDIA_BUCKET: mediaBucket?.bucketName || '',
         CDN_URL: cdnUrl || '',
         REPLICATE_WEBHOOK_URL: replicateWebhookUrl,
+        REPLICATE_WEBHOOK_SECRET: replicateWebhookSecret,
         REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
         RESPONSE_QUEUE_URL: responseQueue.queueUrl,
         CHAT_QUEUE_URL: chatQueue.queueUrl,
@@ -641,6 +642,7 @@ export class AdminApiConstruct extends Construct {
         MEDIA_BUCKET: mediaBucket?.bucketName || '',
         CDN_URL: cdnUrl || '',
         REPLICATE_WEBHOOK_URL: replicateWebhookUrl,
+        REPLICATE_WEBHOOK_SECRET: replicateWebhookSecret,
         REPLICATE_API_KEY_SECRET_ARN: replicateApiKey?.secretArn || '',
         RESPONSE_QUEUE_URL: responseQueue.queueUrl,
         // Twitter OAuth (for twitter_request_integration tool)
@@ -1475,8 +1477,6 @@ export class AdminApiConstruct extends Construct {
         // Helius for NFT gating - pass ARN for runtime fetch instead of inline value
         HELIUS_API_KEY_ARN: heliusApiKeySecret?.secretArn || '',
         HELIUS_API_KEY: props.heliusApiKey || '',
-        // Crossmint API key for JWT verification
-        CROSSMINT_API_KEY_ARN: crossmintApiKey?.secretArn || '',
         // Privy configuration
         PRIVY_APP_ID: props.privyAppId || '',
         PRIVY_APP_SECRET_ARN: privyAppSecret?.secretArn || '',
@@ -1501,9 +1501,6 @@ export class AdminApiConstruct extends Construct {
     );
     if (heliusApiKeySecret) {
       heliusApiKeySecret.grantRead(walletAuthHandler);
-    }
-    if (crossmintApiKey) {
-      crossmintApiKey.grantRead(walletAuthHandler);
     }
     if (privyAppSecret) {
       privyAppSecret.grantRead(walletAuthHandler);
@@ -1551,13 +1548,6 @@ export class AdminApiConstruct extends Construct {
 
     this.api.addRoutes({
       path: '/auth/link/wallet/verify',
-      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
-      integration: walletAuthIntegration,
-    });
-
-    // Crossmint auth route - for email/social login via Crossmint
-    this.api.addRoutes({
-      path: '/auth/crossmint/verify',
       methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
       integration: walletAuthIntegration,
     });
@@ -1749,6 +1739,7 @@ export class AdminApiConstruct extends Construct {
         MEDIA_BUCKET: mediaBucket?.bucketName || '',
         CDN_URL: cdnUrl || '',
         RESPONSE_QUEUE_URL: responseQueue.queueUrl,
+        REPLICATE_WEBHOOK_SECRET: replicateWebhookSecret,
         NODE_ENV: environment,
         ...activeUserLimitEnvVars,
       },

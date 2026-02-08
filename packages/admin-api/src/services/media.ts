@@ -8,6 +8,7 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } fro
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { PutCommand, QueryCommand, DeleteCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { createHmac } from 'crypto';
 import { v4 as uuid } from 'uuid';
 import {
   createModelResolver,
@@ -31,6 +32,23 @@ const MEDIA_BUCKET = process.env.MEDIA_BUCKET!;
 const MEDIA_QUEUE_URL = process.env.MEDIA_QUEUE_URL;
 const CDN_URL = process.env.CDN_URL;
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
+const REPLICATE_WEBHOOK_SECRET = process.env.REPLICATE_WEBHOOK_SECRET || '';
+
+function buildReplicateWebhookUrl(baseUrl: string, jobId: string): string {
+  try {
+    const webhook = new URL(baseUrl);
+    webhook.searchParams.set('jobId', jobId);
+
+    if (REPLICATE_WEBHOOK_SECRET) {
+      const signature = createHmac('sha256', REPLICATE_WEBHOOK_SECRET).update(jobId).digest('hex');
+      webhook.searchParams.set('sig', signature);
+    }
+
+    return webhook.toString();
+  } catch {
+    return `${baseUrl}?jobId=${jobId}`;
+  }
+}
 
 // Core resolvers - use ADMIN_TABLE for admin-api context
 const resolverConfig: ResolverConfig = {
@@ -756,7 +774,7 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
   }
 
   if (webhookUrl) {
-    requestBody.webhook = `${webhookUrl}?jobId=${jobId}`;
+    requestBody.webhook = buildReplicateWebhookUrl(webhookUrl, jobId);
     requestBody.webhook_events_filter = ['completed'];
   }
 
@@ -883,7 +901,7 @@ export async function generateVideo(options: GenerateVideoOptions): Promise<Medi
 
   // Only include webhook config when webhook URL is configured
   if (webhookUrl) {
-    requestBody.webhook = `${webhookUrl}?jobId=${jobId}`;
+    requestBody.webhook = buildReplicateWebhookUrl(webhookUrl, jobId);
     requestBody.webhook_events_filter = ['completed'];
   }
 

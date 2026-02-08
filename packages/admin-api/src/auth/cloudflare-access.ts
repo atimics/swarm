@@ -16,6 +16,11 @@ const CF_ACCESS_CERTS_URL = process.env.CF_ACCESS_CERTS_URL;
 const CF_ACCESS_TEAM_DOMAIN = process.env.CF_ACCESS_TEAM_DOMAIN;
 const CF_ACCESS_AUD = process.env.CF_ACCESS_AUD;
 
+function isProductionEnvironment(): boolean {
+  const environment = (process.env.ENVIRONMENT || process.env.NODE_ENV || '').trim().toLowerCase();
+  return environment === 'prod' || environment === 'production';
+}
+
 interface CloudflareJWK {
   kid: string;
   kty: string;
@@ -157,8 +162,7 @@ export async function authenticateRequest(
   // This header can only be set by someone with direct API Gateway access (not through Cloudflare)
   // and is verified by checking that the request comes from a known internal source
   // Internal test key bypass - NEVER allow in production
-  const environment = process.env.ENVIRONMENT || '';
-  const isProd = environment === 'prod' || environment === 'production';
+  const isProd = isProductionEnvironment();
   const internalTestKey = process.env.INTERNAL_TEST_KEY;
   const providedTestKey = event.headers['x-internal-test-key'];
   if (!isProd && internalTestKey && providedTestKey && internalTestKey === providedTestKey) {

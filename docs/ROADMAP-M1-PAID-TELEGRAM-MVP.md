@@ -20,6 +20,11 @@ An operator can:
 8) Runtime enforces plan limits (tools, media, voice, memory writes).
 9) Logs endpoint can diagnose the common failures quickly.
 
+Security gates for M1:
+10) Auth verification paths fail closed (no client-trust fallback for identity assertions).
+11) Internal test bypass keys are disabled in production.
+12) Public webhooks validate a shared secret/signature before mutating job state.
+
 Primary references:
 - Plan definition: [PLAN.md](../PLAN.md)
 - Near-term milestone summary: [ROADMAP.md](../ROADMAP.md)

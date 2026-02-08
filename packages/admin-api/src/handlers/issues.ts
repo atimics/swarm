@@ -20,6 +20,7 @@ import { z } from 'zod';
 import * as autoIssues from '../services/auto-issues.js';
 import { getCorsHeaders } from '../http/cors.js';
 import { isRequestValidationError, validateRequestBody } from '../middleware/validate.js';
+import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
 
 
 
@@ -43,6 +44,19 @@ function validateTestKey(event: APIGatewayProxyEventV2): boolean {
   if (!INTERNAL_TEST_KEY) return false;
   const providedKey = event.headers['x-internal-test-key'];
   return providedKey === INTERNAL_TEST_KEY;
+}
+
+async function isAuthorized(event: APIGatewayProxyEventV2): Promise<boolean> {
+  if (validateTestKey(event)) {
+    return true;
+  }
+
+  try {
+    const session = await authenticateRequest(event);
+    return requireAdmin(session);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -70,19 +84,17 @@ export async function handler(
   logger.setContext({ subsystem: 'issues', requestId: event.requestContext.requestId });
 
   try {
-    // Require internal test key for write operations
-    const hasTestKey = validateTestKey(event);
+    const authorized = await isAuthorized(event);
+    if (!authorized) {
+      return {
+        statusCode: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'Unauthorized' }),
+      };
+    }
 
     // POST /issues - Record a new error
     if (method === 'POST' && path === '/') {
-      if (!hasTestKey) {
-        return {
-          statusCode: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Unauthorized - x-internal-test-key required' }),
-        };
-      }
-
       const { error, stack, subsystem, category, avatarId, requestId, context } =
         await validateRequestBody(IssueCreateSchema)(event);
 
@@ -154,14 +166,6 @@ export async function handler(
 
     // PATCH /issues/{id} - Update issue status
     if (method === 'PATCH' && issueMatch) {
-      if (!hasTestKey) {
-        return {
-          statusCode: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Unauthorized' }),
-        };
-      }
-
       const issueId = issueMatch[1];
       const body = JSON.parse(event.body || '{}');
       const { status } = body;

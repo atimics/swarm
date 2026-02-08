@@ -7,7 +7,18 @@ function getCookieName(): string {
   if (explicit) return explicit;
 
   const environment = (process.env.ENVIRONMENT || '').trim().toLowerCase();
-  if (!environment || environment === 'prod' || environment === 'production') {
+  const nodeEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
+
+  if (!environment) {
+    // ENVIRONMENT drives cookie names. If absent, default to the production
+    // cookie name; NODE_ENV=production remains a safety fallback.
+    if (!nodeEnv || nodeEnv === 'production' || nodeEnv === 'prod') {
+      return DEFAULT_COOKIE_NAME;
+    }
+    return DEFAULT_COOKIE_NAME;
+  }
+
+  if (environment === 'prod' || environment === 'production') {
     return DEFAULT_COOKIE_NAME;
   }
 

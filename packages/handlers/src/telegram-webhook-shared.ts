@@ -71,6 +71,8 @@ const sqs = new SQSClient({});
 const MESSAGE_QUEUE_URL = process.env.MESSAGE_QUEUE_URL!;
 const ADMIN_TABLE = process.env.ADMIN_TABLE;
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
+const RUNTIME_ENV = (process.env.ENVIRONMENT || process.env.NODE_ENV || '').trim().toLowerCase();
+const IS_PROD = RUNTIME_ENV === 'prod' || RUNTIME_ENV === 'production';
 
 function ok(): APIGatewayProxyResultV2 {
   return { statusCode: 200, body: 'OK' };
@@ -129,25 +131,26 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       return ok();
     }
 
-    // Verify webhook secret token if configured, otherwise fall back to adapter verification
+    // Verify webhook secret token.
     // Allow bypass with internal test key for E2E testing
     const internalTestKey = headers['x-internal-test-key'];
-    const bypassAuth = INTERNAL_TEST_KEY && internalTestKey === INTERNAL_TEST_KEY;
+    const bypassAuth = !IS_PROD && INTERNAL_TEST_KEY && internalTestKey === INTERNAL_TEST_KEY;
 
     if (!bypassAuth) {
       const webhookSecret = await getWebhookSecret(avatarId);
-      if (webhookSecret) {
-        const provided = headers['x-telegram-bot-api-secret-token'];
-        if (!verifySecretToken(provided, webhookSecret)) {
-          logger.warn('Invalid webhook secret', { event: 'validation_error', reason: 'invalid_secret' });
-          return { statusCode: 401, body: 'Unauthorized' };
-        }
-      } else {
-        const isValid = await telegramAdapter.verifyRequest(body, headers);
-        if (!isValid) {
-          logger.warn('Invalid request signature', { event: 'validation_error', reason: 'invalid_signature' });
-          return { statusCode: 401, body: 'Unauthorized' };
-        }
+      if (!webhookSecret) {
+        logger.error('Missing webhook secret; refusing unauthenticated Telegram request', undefined, {
+          event: 'validation_error',
+          reason: 'missing_webhook_secret',
+          avatarId,
+        });
+        return { statusCode: 503, body: 'Webhook secret not configured' };
+      }
+
+      const provided = headers['x-telegram-bot-api-secret-token'];
+      if (!verifySecretToken(provided, webhookSecret)) {
+        logger.warn('Invalid webhook secret', { event: 'validation_error', reason: 'invalid_secret' });
+        return { statusCode: 401, body: 'Unauthorized' };
       }
     }
 
