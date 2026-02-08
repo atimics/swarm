@@ -7,14 +7,19 @@
 # includes surrounding logs for context, and tracks which
 # issues have been downloaded.
 #
+# Uses CloudWatch Logs Insights for fast parallel queries across all
+# log groups (single API call instead of N×filter-log-events).
+#
 # Usage:
-#   ./scripts/download-issues.sh [staging|prod] [--all] [--all-context] [--profile PROFILE]
+#   ./scripts/download-issues.sh [staging|prod] [--all] [--errors] [--since DURATION] [--all-context] [--profile PROFILE]
 #
 # Options:
 #   staging|prod    Environment to query (default: staging)
-#   --all           Download all issues, not just new ones
+#   --all           Download all issues (default: only since last download)
+#   --errors        Also scan for Lambda runtime errors (timeouts, crashes). Slower.
+#   --since DURATION  Time window, e.g. '1h', '6h', '7d' (default: 24h for --all)
 #   --all-context   Include context from all log groups (slower)
-#   --profile NAME  AWS CLI profile to use (useful when staging/prod are in different accounts)
+#   --profile NAME  AWS CLI profile to use
 #
 
 set -e
@@ -22,6 +27,8 @@ set -e
 ENV="${1:-staging}"
 DOWNLOAD_ALL=""
 ALL_CONTEXT=""
+SCAN_ERRORS=""
+SINCE_DURATION=""
 AWS_PROFILE_ARG=""
 
 shift 0 || true
@@ -35,6 +42,15 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --all) DOWNLOAD_ALL="--all" ;;
     --all-context) ALL_CONTEXT="--all-context" ;;
+    --errors) SCAN_ERRORS="1" ;;
+    --since)
+      shift
+      if [[ -z "${1:-}" ]]; then
+        echo "Error: --since requires a value (e.g. 1h, 6h, 7d)" >&2
+        exit 2
+      fi
+      SINCE_DURATION="$1"
+      ;;
     --profile)
       shift
       if [[ -z "${1:-}" ]]; then
@@ -45,7 +61,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown arg: $1" >&2
-      echo "Usage: ./scripts/download-issues.sh [staging|prod] [--all] [--all-context] [--profile PROFILE]" >&2
+      echo "Usage: ./scripts/download-issues.sh [staging|prod] [--all] [--errors] [--since DURATION] [--all-context] [--profile PROFILE]" >&2
       exit 2
       ;;
   esac
@@ -150,17 +166,40 @@ echo "Environment: ${ENV}"
 # Create output directory
 mkdir -p "${OUTPUT_DIR}"
 
-# Get last download timestamp
-LAST_DOWNLOAD=0
-if [[ -f "${STATE_FILE}" && -z "${DOWNLOAD_ALL}" ]]; then
-  LAST_DOWNLOAD=$(jq -r '.lastDownload // 0' "${STATE_FILE}" 2>/dev/null || echo "0")
-  echo "Last download: $(date -r $((LAST_DOWNLOAD / 1000)) 2>/dev/null || echo 'never')"
-else
-  echo "Downloading all issues..."
-fi
+# Time calculations (Insights uses epoch seconds, filter-log-events uses millis)
+NOW_SEC=$(date +%s)
+NOW=$((NOW_SEC * 1000))
 
-# Current timestamp
-NOW=$(($(date +%s) * 1000))
+# Parse --since into seconds
+parse_duration_to_seconds() {
+  local dur="$1"
+  local num unit
+  num=$(echo "${dur}" | grep -oE '[0-9]+')
+  unit=$(echo "${dur}" | grep -oE '[a-zA-Z]+')
+  case "${unit}" in
+    m|min|mins) echo $((num * 60)) ;;
+    h|hr|hrs|hour|hours) echo $((num * 3600)) ;;
+    d|day|days) echo $((num * 86400)) ;;
+    w|week|weeks) echo $((num * 604800)) ;;
+    *) echo $((num * 3600)) ;;  # default to hours
+  esac
+}
+
+# Determine start time
+LAST_DOWNLOAD_SEC=0
+if [[ -n "${SINCE_DURATION}" ]]; then
+  SINCE_SEC=$(parse_duration_to_seconds "${SINCE_DURATION}")
+  LAST_DOWNLOAD_SEC=$((NOW_SEC - SINCE_SEC))
+  echo "Searching last ${SINCE_DURATION}..."
+elif [[ -f "${STATE_FILE}" && -z "${DOWNLOAD_ALL}" ]]; then
+  LAST_DOWNLOAD_MS=$(jq -r '.lastDownload // 0' "${STATE_FILE}" 2>/dev/null || echo "0")
+  LAST_DOWNLOAD_SEC=$((LAST_DOWNLOAD_MS / 1000))
+  echo "Last download: $(date -r ${LAST_DOWNLOAD_SEC} 2>/dev/null || echo 'never')"
+else
+  # Default --all to 7 days instead of epoch (scanning all time is too slow)
+  LAST_DOWNLOAD_SEC=$((NOW_SEC - 604800))
+  echo "Downloading issues from last 7 days..."
+fi
 
 # Temporary directory for collecting issues
 ISSUES_DIR=$(mktemp -d)
@@ -183,15 +222,106 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
-echo -e "${YELLOW}Searching for issues...${NC}"
+echo -e "${YELLOW}Searching for issues across ${#LOG_GROUPS[@]} log groups...${NC}"
 
-# Paginated wrapper around filter-log-events.
-# Collects all pages into a single JSON array written to $output_file.
+# ============================================================================
+# CloudWatch Logs Insights queries (much faster than N × filter-log-events)
+# ============================================================================
+
+# Convert LOG_GROUPS array to a format aws logs start-query accepts (space-separated)
+# Insights can query up to 50 log groups at once; batch if needed.
+run_insights_query() {
+  local query="$1"
+  local label="$2"
+  local output_file="$3"
+  shift 3
+  local groups=("$@")
+
+  # Insights supports max 50 log groups per query
+  local batch_size=50
+  local batch_dir
+  batch_dir=$(mktemp -d)
+  local batch_idx=0
+
+  for ((i=0; i<${#groups[@]}; i+=batch_size)); do
+    local batch=("${groups[@]:i:batch_size}")
+    local query_id
+    query_id=$(aws logs start-query \
+      --log-group-names "${batch[@]}" \
+      --start-time "${LAST_DOWNLOAD_SEC}" \
+      --end-time "${NOW_SEC}" \
+      --query-string "${query}" \
+      --limit 1000 \
+      "${AWS_COMMON_ARGS[@]}" \
+      --output text --query 'queryId' 2>/dev/null) || continue
+
+    # Poll until complete
+    local status="Running"
+    while [[ "${status}" == "Running" || "${status}" == "Scheduled" ]]; do
+      sleep 1
+      local result
+      result=$(aws logs get-query-results --query-id "${query_id}" "${AWS_COMMON_ARGS[@]}" --output json 2>/dev/null) || break
+      status=$(echo "${result}" | jq -r '.status' 2>/dev/null)
+      if [[ "${status}" == "Complete" ]]; then
+        echo "${result}" > "${batch_dir}/batch_${batch_idx}.json"
+      fi
+    done
+    batch_idx=$((batch_idx + 1))
+  done
+
+  # Merge batch results: Insights returns results as arrays of field/value pairs.
+  # Convert to a flat array of objects.
+  if ls "${batch_dir}"/batch_*.json &>/dev/null; then
+    jq -s '[
+      .[].results[] |
+      [.[] | {(.field): .value}] | add
+    ]' "${batch_dir}"/batch_*.json > "${output_file}" 2>/dev/null || echo "[]" > "${output_file}"
+  else
+    echo "[]" > "${output_file}"
+  fi
+  rm -rf "${batch_dir}"
+
+  local count
+  count=$(jq 'length' "${output_file}" 2>/dev/null || echo 0)
+  echo "  ${label}: ${count} event(s)"
+}
+
+# Query 1: Agent-reported issues
+run_insights_query \
+  'fields @timestamp, @message, @logStream, @log | filter @message like /avatar_reported_issue/ | sort @timestamp desc' \
+  "Issues" \
+  "${ISSUES_DIR}/insights_issues.json" \
+  "${LOG_GROUPS[@]}" &
+
+# Query 2: Agent-reported feedback
+run_insights_query \
+  'fields @timestamp, @message, @logStream, @log | filter @message like /avatar_reported_feedback/ | sort @timestamp desc' \
+  "Feedback" \
+  "${ISSUES_DIR}/insights_feedback.json" \
+  "${LOG_GROUPS[@]}" &
+
+# Query 3: Runtime errors (only if --errors flag is set)
+if [[ -n "${SCAN_ERRORS}" ]]; then
+  run_insights_query \
+    'fields @timestamp, @message, @logStream, @log | filter @message like /Task timed out|Runtime\.ExitError|Runtime\.UnhandledPromiseRejection|Runtime\.HandlerNotFound|"errorType"/ | sort @timestamp desc' \
+    "Runtime errors" \
+    "${ISSUES_DIR}/insights_errors.json" \
+    "${LOG_GROUPS[@]}" &
+else
+  echo "[]" > "${ISSUES_DIR}/insights_errors.json"
+fi
+
+wait || true
+
+# ============================================================================
+# Legacy paginated search (kept for fallback / context fetching)
+# ============================================================================
+
 paginated_filter_log_events() {
   local log_group="$1"
   local filter_pattern="$2"
   local output_file="$3"
-  local tag="$4"  # tag added to each event (e.g., logGroupName)
+  local tag="$4"
 
   local token=""
   local page_dir
@@ -207,7 +337,7 @@ paginated_filter_log_events() {
     local raw_output
     raw_output=$(aws logs filter-log-events \
       --log-group-name "${log_group}" \
-      --start-time "${LAST_DOWNLOAD}" \
+      --start-time "$((LAST_DOWNLOAD_SEC * 1000))" \
       --filter-pattern "${filter_pattern}" \
       "${AWS_COMMON_ARGS[@]}" \
       "${token_arg[@]}" \
@@ -217,7 +347,6 @@ paginated_filter_log_events() {
       | jq --arg lg "${tag}" '.events // [] | map(. + {logGroupName: $lg})' \
       > "${page_dir}/page_${page_idx}.json" 2>/dev/null || true
 
-    # Extract nextToken for pagination
     token=$(echo "${raw_output}" | jq -r '.nextToken // empty' 2>/dev/null || true)
     page_idx=$((page_idx + 1))
 
@@ -226,7 +355,6 @@ paginated_filter_log_events() {
     fi
   done
 
-  # Merge all pages into a single array
   if [[ ${page_idx} -eq 0 ]]; then
     echo "[]" > "${output_file}"
   else
@@ -234,59 +362,6 @@ paginated_filter_log_events() {
   fi
   rm -rf "${page_dir}"
 }
-
-run_search_for_group() {
-  local idx="$1"
-  local log_group="$2"
-
-  echo "  Checking ${log_group}..."
-
-  # Use simple text-based filter patterns that work reliably with CloudWatch Logs.
-  # NOTE: Diagnostics tool logs use event names:
-  # - avatar_reported_issue
-  # - avatar_reported_feedback
-
-  paginated_filter_log_events \
-    "${log_group}" \
-    '"avatar_reported_issue"' \
-    "${ISSUES_DIR}/group_${idx}_issues.json" \
-    "${log_group}"
-
-  paginated_filter_log_events \
-    "${log_group}" \
-    '"avatar_reported_feedback"' \
-    "${ISSUES_DIR}/group_${idx}_feedback.json" \
-    "${log_group}"
-
-  # Also scan for Lambda runtime errors: unhandled exceptions, timeouts, OOM kills.
-  # These use CloudWatch's built-in error messages that aren't structured JSON.
-  for PATTERN in \
-    '"Task timed out"' \
-    '"Runtime.ExitError"' \
-    '"Runtime.UnhandledPromiseRejection"' \
-    '"Runtime.HandlerNotFound"' \
-    '"errorType"' \
-    '?"level":"error"'; do
-    local SAFE_PATTERN
-    SAFE_PATTERN=$(echo "${PATTERN}" | tr -d '"? ' | tr ':' '_')
-    paginated_filter_log_events \
-      "${log_group}" \
-      "${PATTERN}" \
-      "${ISSUES_DIR}/group_${idx}_error_${SAFE_PATTERN}.json" \
-      "${log_group}"
-  done
-}
-
-# Search each log group in parallel (bounded; bash 3.x compatible)
-GROUP_INDEX=0
-for LOG_GROUP in "${LOG_GROUPS[@]}"; do
-  while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${MAX_PARALLEL_SEARCH}" ]]; do
-    sleep 0.1
-  done
-  run_search_for_group "${GROUP_INDEX}" "${LOG_GROUP}" &
-  GROUP_INDEX=$((GROUP_INDEX + 1))
-done
-wait || true
 
 fetch_context_logs_for_groups() {
   local start_time="$1"
@@ -318,19 +393,31 @@ fetch_context_logs_for_groups() {
   rm -rf "${context_dir}"
 }
 
-# Merge all JSON files into one array
-MERGED_ISSUES=$(jq -s 'add // []' "${ISSUES_DIR}"/*.json 2>/dev/null || echo "[]")
+# ============================================================================
+# Normalize Insights results into a common format
+# ============================================================================
+# Insights returns: [{"@timestamp": "...", "@message": "...", "@logStream": "...", "@log": "account:group"}]
+# Normalize to: [{"timestamp": ms, "message": "...", "logStreamName": "...", "logGroupName": "..."}]
+normalize_insights() {
+  local input_file="$1"
+  jq '[
+    .[] | {
+      timestamp: (if (."@timestamp" | test("^[0-9]+$")) then (."@timestamp" | tonumber)
+                 else ((."@timestamp" // "" | sub("\\.[0-9]+$"; "") | sub(" "; "T") + "Z") | fromdateiso8601 * 1000) end),
+      message: (."@message" // ""),
+      logStreamName: (."@logStream" // ""),
+      logGroupName: ((."@log" // "") | split(":") | if length > 1 then .[1] else .[0] end),
+      eventId: (."@ptr" // (."@timestamp" + (."@message" | .[0:32])))
+    }
+  ]' "${input_file}" 2>/dev/null || echo "[]"
+}
 
-ISSUE_COUNT=$(echo "${MERGED_ISSUES}" | jq 'map(select(.message | contains("avatar_reported_issue"))) | length // 0' 2>/dev/null || echo "0")
-FEEDBACK_COUNT=$(echo "${MERGED_ISSUES}" | jq 'map(select(.message | contains("avatar_reported_feedback"))) | length // 0' 2>/dev/null || echo "0")
-# Runtime errors: everything that isn't an agent-reported issue/feedback.
-# Deduplicate by eventId since multiple error patterns can match the same log line.
-RUNTIME_ERRORS=$(echo "${MERGED_ISSUES}" | jq '
-  map(select(.message |
-    (contains("avatar_reported_issue") or contains("avatar_reported_feedback")) | not
-  ))
-  | unique_by(.eventId)
-' 2>/dev/null || echo "[]")
+MERGED_ISSUES=$(normalize_insights "${ISSUES_DIR}/insights_issues.json")
+MERGED_FEEDBACK=$(normalize_insights "${ISSUES_DIR}/insights_feedback.json")
+RUNTIME_ERRORS=$(normalize_insights "${ISSUES_DIR}/insights_errors.json")
+
+ISSUE_COUNT=$(echo "${MERGED_ISSUES}" | jq 'length // 0' 2>/dev/null || echo "0")
+FEEDBACK_COUNT=$(echo "${MERGED_FEEDBACK}" | jq 'length // 0' 2>/dev/null || echo "0")
 ERROR_COUNT=$(echo "${RUNTIME_ERRORS}" | jq 'length // 0' 2>/dev/null || echo "0")
 
 if [[ "${ISSUE_COUNT}" -eq 0 && "${FEEDBACK_COUNT}" -eq 0 && "${ERROR_COUNT}" -eq 0 ]]; then
@@ -374,8 +461,11 @@ process_event() {
     CATEGORY=$(echo "${DATA}" | jq -r '.issue.category // "unknown"')
     TITLE=$(echo "${DATA}" | jq -r '.issue.title // "No title"')
 
+    local SHORT_ID
+    SHORT_ID=$(echo -n "${EVENT_ID}" | md5 2>/dev/null || echo -n "${EVENT_ID}" | md5sum | cut -d' ' -f1)
+    SHORT_ID=${SHORT_ID:0:12}
     local ISSUE_FILE
-    ISSUE_FILE="${OUTPUT_DIR}/issue-${TIMESTAMP}-${AGENT_ID}-${EVENT_ID}-${SEVERITY}.json"
+    ISSUE_FILE="${OUTPUT_DIR}/issue-${TIMESTAMP}-${AGENT_ID}-${SHORT_ID}-${SEVERITY}.json"
 
     local SEVERITY_UPPER
     SEVERITY_UPPER=$(echo "${SEVERITY}" | tr '[:lower:]' '[:upper:]')
@@ -427,8 +517,11 @@ process_event() {
     FEATURE=$(echo "${DATA}" | jq -r '.feedback.feature // "unknown"')
     CONTENT=$(echo "${DATA}" | jq -r '.feedback.content // ""')
 
+    local SHORT_ID
+    SHORT_ID=$(echo -n "${EVENT_ID}" | md5 2>/dev/null || echo -n "${EVENT_ID}" | md5sum | cut -d' ' -f1)
+    SHORT_ID=${SHORT_ID:0:12}
     local FEEDBACK_FILE
-    FEEDBACK_FILE="${OUTPUT_DIR}/feedback-${TIMESTAMP}-${AGENT_ID}-${EVENT_ID}-${SENTIMENT}.json"
+    FEEDBACK_FILE="${OUTPUT_DIR}/feedback-${TIMESTAMP}-${AGENT_ID}-${SHORT_ID}-${SENTIMENT}.json"
 
     local SENTIMENT_UPPER
     SENTIMENT_UPPER=$(echo "${SENTIMENT}" | tr '[:lower:]' '[:upper:]')
@@ -514,8 +607,11 @@ process_runtime_error() {
   SEVERITY_UPPER=$(echo "${SEVERITY}" | tr '[:lower:]' '[:upper:]')
   echo -e "  ${RED}[${SEVERITY_UPPER}:${ERROR_TYPE}]${NC} ${SHORT_MSG} (${SOURCE})"
 
+  local SHORT_ID
+  SHORT_ID=$(echo -n "${EVENT_ID}" | md5 2>/dev/null || echo -n "${EVENT_ID}" | md5sum | cut -d' ' -f1)
+  SHORT_ID=${SHORT_ID:0:12}
   local ERROR_FILE
-  ERROR_FILE="${OUTPUT_DIR}/error-${TIMESTAMP}-${SOURCE}-${EVENT_ID}-${SEVERITY}.json"
+  ERROR_FILE="${OUTPUT_DIR}/error-${TIMESTAMP}-${SOURCE}-${SHORT_ID}-${SEVERITY}.json"
 
   local CONTEXT_MS START_TIME END_TIME
   CONTEXT_MS=$((CONTEXT_MINUTES * 60 * 1000))
@@ -559,13 +655,21 @@ process_runtime_error() {
     }' > "${ERROR_FILE}"
 }
 
-# Process agent-reported issues and feedback
+# Process agent-reported issues
 while read -r EVENT; do
   while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${MAX_PARALLEL_EVENTS}" ]]; do
     sleep 0.1
   done
   process_event "${EVENT}" &
-done < <(echo "${MERGED_ISSUES}" | jq -c 'map(select(.message | (contains("avatar_reported_issue") or contains("avatar_reported_feedback")))) | .[]' 2>/dev/null)
+done < <(echo "${MERGED_ISSUES}" | jq -c '.[]' 2>/dev/null)
+
+# Process agent-reported feedback
+while read -r EVENT; do
+  while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${MAX_PARALLEL_EVENTS}" ]]; do
+    sleep 0.1
+  done
+  process_event "${EVENT}" &
+done < <(echo "${MERGED_FEEDBACK}" | jq -c '.[]' 2>/dev/null)
 
 # Process runtime errors (deduped)
 while read -r EVENT; do
@@ -577,7 +681,7 @@ done < <(echo "${RUNTIME_ERRORS}" | jq -c '.[]' 2>/dev/null)
 
 wait || true
 
-# Update state file
+# Update state file (store millis for backward compat)
 echo "{\"lastDownload\": ${NOW}, \"issuesDownloaded\": ${ISSUE_COUNT}, \"feedbackDownloaded\": ${FEEDBACK_COUNT}, \"errorsDownloaded\": ${ERROR_COUNT}}" > "${STATE_FILE}"
 
 echo ""
