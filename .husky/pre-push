@@ -2,9 +2,9 @@
 set -e
 
 # Repo pre-push: version-tag sync + CI checks.
-# Workflow: git tag v0.1.48 && git push origin main --tags
+# Workflow: git tag v0.1.50 && git push origin main --tags
 # This hook detects the tag, updates package.json if needed,
-# amends the tagged commit, and moves the tag forward.
+# creates a new commit, and moves the tag to that commit.
 #
 # Skip with: SKIP_PREPUSH=1 git push
 if [ "${SKIP_PREPUSH:-}" = "1" ] || [ "${SKIP_PREPUSH:-}" = "true" ]; then
@@ -31,11 +31,11 @@ if [ -n "$TAG" ]; then
       fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
     "
 
-    # Amend the commit so the tag stays on HEAD with the version baked in
+    # New commit (never amend — that rewrites history and splits the DAG)
     git add package.json
-    git commit --amend --no-edit --no-verify >/dev/null 2>&1
+    git commit -m "chore: bump version to ${TAG_VERSION}" --no-verify >/dev/null 2>&1
 
-    # Move the tag to the amended commit
+    # Move the tag to the new commit
     git tag -f "$TAG" HEAD >/dev/null 2>&1
 
     echo "pre-push: package.json now ${TAG_VERSION}, tag ${TAG} updated"
