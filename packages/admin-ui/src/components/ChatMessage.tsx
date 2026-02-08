@@ -1,10 +1,41 @@
 import ReactMarkdown from 'react-markdown';
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo, useState, type ReactNode } from 'react';
 import { extractThinkingTags } from '../utils/thinkingTags';
 import type { ChatMessage as ChatMessageType, MessageSender } from '../types';
 import { useWalletAuth } from '../store';
 import { ToolPrompt } from './ToolPrompts';
 import { ImageModal } from './ImageModal';
+
+/**
+ * Safely highlight occurrences of `pattern` within `text` using React elements
+ * instead of dangerouslySetInnerHTML. Returns an array of ReactNodes where
+ * matched segments are wrapped in a styled <span>.
+ */
+function highlightPattern(text: string, pattern: string): ReactNode[] {
+  if (!pattern) return [text];
+  // Escape regex special characters in the pattern to prevent regex injection
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let regex: RegExp;
+  try {
+    regex = new RegExp(`(${escaped})`, 'gi');
+  } catch {
+    // If regex construction still fails, return plain text
+    return [text];
+  }
+  const parts = text.split(regex);
+  return parts.map((part, i) => {
+    if (regex.test(part)) {
+      // Reset lastIndex since we reuse the regex with the global flag
+      regex.lastIndex = 0;
+      return (
+        <span key={i} className="text-brand-400 font-bold">
+          {part}
+        </span>
+      );
+    }
+    return part;
+  });
+}
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -849,13 +880,10 @@ function ChatMessageInner({ message, onToolSubmit }: ChatMessageProps) {
                     }
                   };
                   
-                  // Highlight pattern in address if it's a vanity wallet
-                  const highlightedAddress = result.publicKey && result.pattern 
-                    ? result.publicKey.replace(
-                        new RegExp(`(${result.pattern})`, 'gi'), 
-                        '<span class="text-brand-400 font-bold">$1</span>'
-                      )
-                    : result.publicKey;
+                  // Highlight pattern in address if it's a vanity wallet (safe React rendering)
+                  const addressContent = result.publicKey && result.pattern
+                    ? highlightPattern(result.publicKey, result.pattern)
+                    : result.publicKey || '';
                   
                   return (
                     <div
@@ -880,10 +908,9 @@ function ChatMessageInner({ message, onToolSubmit }: ChatMessageProps) {
                       
                       <div className="bg-[var(--color-bg-primary)] rounded-md px-3 py-2 mb-2">
                         <div className="flex items-center justify-between gap-2">
-                          <code 
-                            className="text-xs font-mono text-[var(--color-text-secondary)] break-all"
-                            dangerouslySetInnerHTML={{ __html: highlightedAddress || '' }}
-                          />
+                          <code className="text-xs font-mono text-[var(--color-text-secondary)] break-all">
+                            {addressContent}
+                          </code>
                           <button
                             onClick={copyToClipboard}
                             className="flex-shrink-0 p-1.5 rounded hover:bg-[var(--color-bg-tertiary)] transition text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
