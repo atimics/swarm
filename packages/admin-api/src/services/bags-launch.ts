@@ -10,16 +10,13 @@
  * - One token per avatar (irreversible)
  */
 import {
+  type Commitment,
   Keypair,
   Connection,
   PublicKey,
   LAMPORTS_PER_SOL,
+  VersionedTransaction,
 } from '@solana/web3.js';
-import {
-  BagsSDK,
-  signAndSendTransaction,
-} from '@bagsfm/bags-sdk';
-import { deriveBagsFeeShareV2PartnerConfigPda } from '@bagsfm/bags-sdk/dist/utils/fee-share-v2/partner-config.js';
 import bs58 from 'bs58';
 import {
   UpdateCommand,
@@ -167,18 +164,310 @@ function getTwitterUsername(avatar: AvatarRecord): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// SDK Initialization
+// Bags API + Solana Helpers
 // ---------------------------------------------------------------------------
 
 /** Default Solana RPC URL (can be overridden via env) */
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
-/**
- * Create a configured BagsSDK instance
- */
-function createBagsSDK(apiKey: string): BagsSDK {
-  const connection = new Connection(SOLANA_RPC_URL);
-  return new BagsSDK(apiKey, connection, 'processed');
+/** Default Bags public API URL (can be overridden via env) */
+const BAGS_PUBLIC_API_V2_BASE_URL = process.env.BAGS_API_BASE_URL || 'https://public-api-v2.bags.fm/api/v1';
+
+/** Bags fee-share-v2 on-chain program id used for partner PDA derivation */
+const BAGS_FEE_SHARE_V2_PROGRAM_ID = 'FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK';
+
+const SOLANA_COMMITMENT: Commitment = 'processed';
+
+type BagsSupportedLaunchProvider = 'twitter' | 'tiktok' | 'kick' | 'github';
+
+type BagsApiSuccess<T> = {
+  success: true;
+  response: T;
+};
+
+type BagsApiFailure = {
+  success: false;
+  error: string;
+};
+
+type BagsApiEnvelope<T> = BagsApiSuccess<T> | BagsApiFailure;
+
+interface BagsLaunchWalletResponse {
+  provider: string;
+  platformData: unknown;
+  wallet: string;
+}
+
+interface BagsCreateTokenInfoResponse {
+  tokenMint: string;
+  tokenMetadata: string;
+}
+
+interface BagsTransactionWithBlockhash {
+  transaction: string;
+  blockhash: {
+    blockhash: string;
+    lastValidBlockHeight: number;
+  };
+}
+
+interface BagsCreateFeeShareConfigResponse {
+  needsCreation: boolean;
+  feeShareAuthority: string;
+  meteoraConfigKey?: string;
+  transactions?: BagsTransactionWithBlockhash[];
+  bundles?: BagsTransactionWithBlockhash[][];
+}
+
+interface BagsCreateFeeShareConfigParams {
+  feeClaimers: Array<{ user: PublicKey; userBps: number }>;
+  payer: PublicKey;
+  baseMint: PublicKey;
+  partner?: PublicKey;
+  partnerConfig?: PublicKey;
+  additionalLookupTables?: PublicKey[];
+}
+
+interface BagsCreateLaunchTransactionParams {
+  metadataUrl: string;
+  tokenMint: PublicKey;
+  launchWallet: PublicKey;
+  initialBuyLamports: number;
+  configKey: PublicKey;
+}
+
+interface BagsCreateFeeShareConfigResult {
+  transactions: VersionedTransaction[];
+  bundles: VersionedTransaction[][];
+  meteoraConfigKey: PublicKey;
+}
+
+function deriveBagsFeeShareV2PartnerConfigPda(partner: PublicKey): PublicKey {
+  const [partnerConfig] = PublicKey.findProgramAddressSync(
+    [Buffer.from('partner_config'), partner.toBuffer()],
+    new PublicKey(BAGS_FEE_SHARE_V2_PROGRAM_ID)
+  );
+  return partnerConfig;
+}
+
+function buildBagsApiUrl(path: string, query?: Record<string, string>): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const url = new URL(`${BAGS_PUBLIC_API_V2_BASE_URL}${normalizedPath}`);
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      url.searchParams.set(key, value);
+    }
+  }
+  return url.toString();
+}
+
+function getBagsApiErrorMessage(status: number, payload: unknown): string {
+  if (typeof payload === 'object' && payload !== null) {
+    const error = (payload as { error?: unknown }).error;
+    if (typeof error === 'string' && error.length > 0) return error;
+
+    const message = (payload as { message?: unknown }).message;
+    if (typeof message === 'string' && message.length > 0) return message;
+  }
+  return `Bags API request failed with status ${status}`;
+}
+
+async function parseBagsResponsePayload(response: Response): Promise<unknown> {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return response.json();
+  }
+  return response.text();
+}
+
+async function bagsApiRequest<T>(
+  apiKey: string,
+  path: string,
+  init: RequestInit = {},
+  query?: Record<string, string>
+): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set('x-api-key', apiKey);
+
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), 60_000);
+
+  try {
+    const response = await fetch(buildBagsApiUrl(path, query), {
+      ...init,
+      headers,
+      signal: timeoutController.signal,
+    });
+
+    const payload = await parseBagsResponsePayload(response);
+
+    if (!response.ok) {
+      throw new Error(getBagsApiErrorMessage(response.status, payload));
+    }
+
+    if (typeof payload !== 'object' || payload === null || !('success' in payload)) {
+      throw new Error('Unexpected Bags API response format');
+    }
+
+    const envelope = payload as BagsApiEnvelope<T>;
+    if (envelope.success) {
+      return envelope.response;
+    }
+
+    throw new Error(envelope.error || 'Bags API request failed');
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Bags API request timed out');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function getLaunchWalletV2(
+  apiKey: string,
+  username: string,
+  provider: BagsSupportedLaunchProvider
+): Promise<PublicKey> {
+  const response = await bagsApiRequest<BagsLaunchWalletResponse>(
+    apiKey,
+    '/token-launch/fee-share/wallet/v2',
+    { method: 'GET' },
+    { username, provider }
+  );
+  return new PublicKey(response.wallet);
+}
+
+async function createTokenInfoAndMetadata(
+  apiKey: string,
+  params: {
+    imageUrl: string;
+    name: string;
+    symbol: string;
+    description: string;
+    twitter?: string;
+    website?: string;
+    telegram?: string;
+  }
+): Promise<BagsCreateTokenInfoResponse> {
+  const form = new FormData();
+  form.append('imageUrl', params.imageUrl);
+  form.append('name', params.name);
+  form.append('symbol', params.symbol);
+  form.append('description', params.description);
+
+  if (params.twitter) form.append('twitter', params.twitter);
+  if (params.website) form.append('website', params.website);
+  if (params.telegram) form.append('telegram', params.telegram);
+
+  return bagsApiRequest<BagsCreateTokenInfoResponse>(apiKey, '/token-launch/create-token-info', {
+    method: 'POST',
+    body: form,
+  });
+}
+
+async function createBagsFeeShareConfig(
+  apiKey: string,
+  params: BagsCreateFeeShareConfigParams
+): Promise<BagsCreateFeeShareConfigResult> {
+  const totalBps = params.feeClaimers.reduce((sum, claimer) => sum + claimer.userBps, 0);
+  if (totalBps !== 10000) {
+    throw new Error(`Total BPS must be 10000, got ${totalBps}`);
+  }
+
+  if ((params.partner && !params.partnerConfig) || (!params.partner && params.partnerConfig)) {
+    throw new Error('partner and partnerConfig must be provided together');
+  }
+
+  const response = await bagsApiRequest<BagsCreateFeeShareConfigResponse>(
+    apiKey,
+    '/fee-share/config',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        basisPointsArray: params.feeClaimers.map((claimer) => claimer.userBps),
+        payer: params.payer.toBase58(),
+        baseMint: params.baseMint.toBase58(),
+        partner: params.partner?.toBase58(),
+        partnerConfig: params.partnerConfig?.toBase58(),
+        claimersArray: params.feeClaimers.map((claimer) => claimer.user.toBase58()),
+        additionalLookupTables: params.additionalLookupTables?.map((lookupTable) => lookupTable.toBase58()),
+      }),
+    }
+  );
+
+  if (!response.needsCreation) {
+    throw new Error('Config already exists');
+  }
+
+  if (!response.meteoraConfigKey) {
+    throw new Error('Bags API response missing meteoraConfigKey');
+  }
+
+  return {
+    transactions: (response.transactions ?? []).map(({ transaction }) =>
+      VersionedTransaction.deserialize(bs58.decode(transaction))
+    ),
+    bundles: (response.bundles ?? []).map((bundle) =>
+      bundle.map(({ transaction }) => VersionedTransaction.deserialize(bs58.decode(transaction)))
+    ),
+    meteoraConfigKey: new PublicKey(response.meteoraConfigKey),
+  };
+}
+
+async function createLaunchTransaction(
+  apiKey: string,
+  params: BagsCreateLaunchTransactionParams
+): Promise<VersionedTransaction> {
+  const encodedTransaction = await bagsApiRequest<string>(
+    apiKey,
+    '/token-launch/create-launch-transaction',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ipfs: params.metadataUrl,
+        tokenMint: params.tokenMint.toBase58(),
+        wallet: params.launchWallet.toBase58(),
+        initialBuyLamports: params.initialBuyLamports,
+        configKey: params.configKey.toBase58(),
+      }),
+    }
+  );
+
+  return VersionedTransaction.deserialize(bs58.decode(encodedTransaction));
+}
+
+async function signAndSendTransaction(
+  connection: Connection,
+  commitment: Commitment,
+  transaction: VersionedTransaction,
+  keypair: Keypair
+): Promise<string> {
+  transaction.sign([keypair]);
+
+  const latestBlockhash = await connection.getLatestBlockhash(commitment);
+  const signature = await connection.sendTransaction(transaction, {
+    skipPreflight: true,
+    maxRetries: 0,
+  });
+
+  const confirmed = await connection.confirmTransaction(
+    {
+      blockhash: latestBlockhash.blockhash,
+      lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+      signature,
+    },
+    commitment
+  );
+
+  if (confirmed.value.err) {
+    throw new Error(`Transaction failed: ${JSON.stringify(confirmed.value.err)}`);
+  }
+
+  return signature;
 }
 
 // ---------------------------------------------------------------------------
@@ -350,18 +639,16 @@ export async function launchBagsToken(
     // Get credentials
     const apiKey = (await getBagsApiKey(avatarId))!;
     const keypair = await getAvatarSolanaKeypair(avatarId);
-    const sdk = createBagsSDK(apiKey);
-    const commitment = sdk.state.getCommitment();
+    const commitment = SOLANA_COMMITMENT;
     const connection = new Connection(SOLANA_RPC_URL);
 
     console.log(`[BagsLaunch] Avatar wallet: ${keypair.publicKey.toBase58()}`);
 
-    // Step 1: Look up avatar's Twitter account wallet on Bags using SDK
+    // Step 1: Look up avatar's Twitter account wallet on Bags API
     console.log(`[BagsLaunch] Looking up Bags wallet for @${twitterUsername}...`);
     let avatarBagsWallet: PublicKey;
     try {
-      const feeShareWallet = await sdk.state.getLaunchWalletV2(twitterUsername, 'twitter');
-      avatarBagsWallet = feeShareWallet.wallet;
+      avatarBagsWallet = await getLaunchWalletV2(apiKey, twitterUsername, 'twitter');
       console.log(`[BagsLaunch] Found Bags wallet: ${avatarBagsWallet.toBase58()}`);
     } catch (err) {
       console.error(`[BagsLaunch] Failed to find Bags wallet for @${twitterUsername}:`, err);
@@ -373,7 +660,7 @@ export async function launchBagsToken(
       };
     }
 
-    // Step 2: Create token metadata using SDK
+    // Step 2: Create token metadata using Bags API
     console.log('[BagsLaunch] Creating token metadata...');
     const avatar = (await getAvatar(avatarId))!;
     const profileUrl = typeof avatar.profileImage === 'string'
@@ -409,7 +696,7 @@ export async function launchBagsToken(
     // Use avatar description as fallback for token description
     const tokenDescription = config.description || avatar.description || `${config.name} - launched by @${twitterUsername}`;
 
-    const tokenInfo = await sdk.tokenLaunch.createTokenInfoAndMetadata({
+    const tokenInfo = await createTokenInfoAndMetadata(apiKey, {
       imageUrl,
       name: config.name.trim(),
       description: tokenDescription,
@@ -449,7 +736,7 @@ export async function launchBagsToken(
       console.log(`[BagsLaunch] Partner config PDA: ${partnerConfig.toBase58()}`);
     }
 
-    const configResult = await sdk.config.createBagsFeeShareConfig({
+    const configResult = await createBagsFeeShareConfig(apiKey, {
       payer: keypair.publicKey,
       baseMint: tokenMint,
       feeClaimers,
@@ -476,11 +763,11 @@ export async function launchBagsToken(
 
     console.log(`[BagsLaunch] Config key: ${configResult.meteoraConfigKey.toBase58()}`);
 
-    // Step 4: Create and sign launch transaction using SDK
+    // Step 4: Create launch transaction using Bags API
     console.log('[BagsLaunch] Creating launch transaction...');
     const initialBuyLamports = Math.floor((config.initialBuySol || 0.01) * LAMPORTS_PER_SOL);
 
-    const launchTx = await sdk.tokenLaunch.createLaunchTransaction({
+    const launchTx = await createLaunchTransaction(apiKey, {
       metadataUrl: tokenInfo.tokenMetadata,
       tokenMint,
       launchWallet: keypair.publicKey,
