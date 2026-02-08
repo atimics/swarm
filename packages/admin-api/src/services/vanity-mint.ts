@@ -73,6 +73,13 @@ const DEFAULT_MODE: VanityMintMode = 'best_effort';
 const DEFAULT_MAX_SEARCH_MS = 15_000;
 const DEFAULT_MAX_ATTEMPTS = 11_316_496; // 58^4, expected trials for 4-char suffix
 
+function classifyVanityPosition(address: string, pattern: string): VanityMatchPosition {
+  // Fast constant-time boundary checks avoid full scans for common strict cases.
+  if (address.startsWith(pattern)) return 'prefix';
+  if (address.endsWith(pattern)) return 'suffix';
+  return address.includes(pattern) ? 'contains' : 'none';
+}
+
 export function resolveVanityMintConfig(config?: VanityMintConfig): ResolvedVanityMintConfig | null {
   if (!config) return null;
 
@@ -95,16 +102,11 @@ export function resolveVanityMintConfig(config?: VanityMintConfig): ResolvedVani
 }
 
 export function getVanityMatchPosition(address: string, pattern: string): VanityMatchPosition {
-  const firstIndex = address.indexOf(pattern);
-  if (firstIndex < 0) return 'none';
-
-  if (firstIndex === 0) return 'prefix';
-  if (address.lastIndexOf(pattern) === address.length - pattern.length) return 'suffix';
-  return 'contains';
+  return classifyVanityPosition(address, pattern);
 }
 
 export function evaluateVanityMatch(address: string, config: ResolvedVanityMintConfig): VanityMatchInfo {
-  const position = getVanityMatchPosition(address, config.pattern);
+  const position = classifyVanityPosition(address, config.pattern);
   if (config.mode === 'strict') {
     return { matched: position === 'prefix' || position === 'suffix', position };
   }
@@ -116,24 +118,13 @@ export function evaluateVanityMatch(address: string, config: ResolvedVanityMintC
  */
 export function createVanityMatcher(config: ResolvedVanityMintConfig): VanityAddressMatcher {
   const pattern = config.pattern;
-  const patternLen = pattern.length;
   const strict = config.mode === 'strict';
 
   return (address: string): VanityMatchInfo => {
-    const firstIndex = address.indexOf(pattern);
-    if (firstIndex < 0) {
-      return { matched: false, position: 'none' };
-    }
-
-    let position: VanityMatchPosition = 'contains';
-    if (firstIndex === 0) {
-      position = 'prefix';
-    } else if (address.lastIndexOf(pattern) === address.length - patternLen) {
-      position = 'suffix';
-    }
+    const position = classifyVanityPosition(address, pattern);
 
     if (!strict) {
-      return { matched: true, position };
+      return { matched: position !== 'none', position };
     }
     return { matched: position === 'prefix' || position === 'suffix', position };
   };
@@ -155,10 +146,11 @@ export function selectVanityCandidate<T>(
   config: ResolvedVanityMintConfig
 ): VanitySearchSelection<T> | null {
   if (candidates.length === 0) return null;
+  const matcher = createVanityMatcher(config);
 
   if (config.mode === 'strict') {
     for (let i = 0; i < candidates.length; i += 1) {
-      const match = evaluateVanityMatch(candidates[i].address, config);
+      const match = matcher(candidates[i].address);
       if (match.matched) {
         return {
           selected: candidates[i],
@@ -171,26 +163,30 @@ export function selectVanityCandidate<T>(
     return null;
   }
 
-  let latestMatch: VanitySearchSelection<T> | null = null;
+  let latestMatchIndex = -1;
+  let latestMatchInfo: VanityMatchInfo | null = null;
   for (let i = 0; i < candidates.length; i += 1) {
-    const match = evaluateVanityMatch(candidates[i].address, config);
+    const match = matcher(candidates[i].address);
     if (match.matched) {
-      latestMatch = {
-        selected: candidates[i],
-        match,
-        satisfied: true,
-        index: i,
-      };
+      latestMatchIndex = i;
+      latestMatchInfo = match;
     }
   }
 
-  if (latestMatch) return latestMatch;
+  if (latestMatchIndex >= 0 && latestMatchInfo) {
+    return {
+      selected: candidates[latestMatchIndex],
+      match: latestMatchInfo,
+      satisfied: true,
+      index: latestMatchIndex,
+    };
+  }
 
   const fallbackIndex = candidates.length - 1;
   const fallback = candidates[fallbackIndex];
   return {
     selected: fallback,
-    match: evaluateVanityMatch(fallback.address, config),
+    match: matcher(fallback.address),
     satisfied: false,
     index: fallbackIndex,
   };
