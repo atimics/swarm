@@ -1,6 +1,6 @@
 {
   "name": "aws-swarm",
-  "version": "1.0.1",
+  "version": "0.1.47",
   "description": "Social media avatar swarm framework for AWS",
   "private": true,
   "type": "module",
@@ -26,7 +26,8 @@
     "test:persona": "node scripts/test-persona.mjs",
     "test:browser": "node scripts/test-browser.mjs",
     "canary:telegram": "bun run scripts/telegram-canary.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "version:bump": "node -e \"const p=require('./package.json');const [a,b,c]=p.version.split('.').map(Number);p.version=[a,b,c+1].join('.');require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n');console.log('Bumped to '+p.version)\""
   },
   "keywords": [
     "aws",

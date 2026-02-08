@@ -1,0 +1,30 @@
+#!/usr/bin/env sh
+
+# Auto-tag on version bump.
+# When package.json "version" changes in a commit, create a git tag vX.Y.Z.
+# Skip with: SKIP_AUTOTAG=1 git commit
+
+if [ "${SKIP_AUTOTAG:-}" = "1" ] || [ "${SKIP_AUTOTAG:-}" = "true" ]; then
+  exit 0
+fi
+
+# Only fire if package.json was part of this commit
+if ! git diff-tree --no-commit-id --name-only -r HEAD | grep -q '^package\.json$'; then
+  exit 0
+fi
+
+VERSION=$(node -p "require('./package.json').version")
+
+if [ -z "$VERSION" ]; then
+  exit 0
+fi
+
+TAG="v${VERSION}"
+
+# Don't tag if it already exists
+if git rev-parse "$TAG" >/dev/null 2>&1; then
+  exit 0
+fi
+
+git tag "$TAG"
+echo "post-commit: created tag $TAG"
