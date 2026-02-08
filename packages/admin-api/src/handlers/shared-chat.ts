@@ -203,7 +203,6 @@ export interface ChannelAvatarInfo {
   name: string;
   description?: string;
   profileImageUrl?: string;
-  persona?: string;
 }
 
 // Request schemas
@@ -258,7 +257,6 @@ async function getChannelAvatarInfo(channelId: string): Promise<ChannelAvatarInf
     name: avatar.name,
     description: avatar.description,
     profileImageUrl: avatar.profileImage?.url,
-    persona: avatar.persona,
   };
 }
 

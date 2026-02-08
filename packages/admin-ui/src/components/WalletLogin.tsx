@@ -541,7 +541,7 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
                 <div className="text-xs text-[var(--color-text-muted)]">
                   Signed in via{' '}
                   <span className="text-[var(--color-text)] font-medium">
-                    {authProvider === 'wallet' ? 'Wallet' : authProvider === 'privy' ? 'Privy' : 'Crossmint'}
+                    {authProvider === 'wallet' ? 'Wallet' : 'Privy'}
                   </span>
                   <span className="text-[var(--color-text-muted)]">
                     {authProvider === 'wallet' ? ' (SIWS)' : ' (email/social)'}

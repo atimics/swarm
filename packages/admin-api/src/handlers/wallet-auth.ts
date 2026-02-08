@@ -42,7 +42,6 @@ import {
 } from '../services/runtime-limits.js';
 import { getAvatar } from '../services/avatars.js';
 import { checkNFTGate } from '../services/nft-gate.js';
-import { handleCrossmintAuth } from './crossmint-auth.js';
 import { handlePrivyAuth } from './privy-auth.js';
 import {
   preflightAscend,
@@ -55,7 +54,7 @@ import {
 // NEVER active in production
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
 const IS_PROD = (() => {
-  const env = process.env.ENVIRONMENT || '';
+  const env = (process.env.ENVIRONMENT || process.env.NODE_ENV || '').trim().toLowerCase();
   return env === 'prod' || env === 'production';
 })();
 
@@ -1156,11 +1155,6 @@ export async function handleWalletAuth(
   // Handle preflight for all auth routes
   if (method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
-  }
-
-  // Route Crossmint auth to separate handler
-  if (path.startsWith('/auth/crossmint')) {
-    return handleCrossmintAuth(event);
   }
 
   // Route Privy auth to separate handler

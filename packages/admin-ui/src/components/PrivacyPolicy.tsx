@@ -63,7 +63,7 @@ export function PrivacyPolicy({ onClose }: PrivacyPolicyProps) {
             </h3>
             <ul className="list-disc pl-6 space-y-1">
               <li><strong>Wallet addresses</strong> — your Solana public key(s), collected on every login.</li>
-              <li><strong>Email addresses</strong> — if you sign in via Privy (email/social) or Crossmint.</li>
+              <li><strong>Email addresses</strong> — if you sign in via Privy (email/social).</li>
               <li><strong>Session metadata</strong> — IP address, User-Agent, and timestamps stored in session records (24-hour TTL).</li>
             </ul>
 
@@ -96,7 +96,7 @@ export function PrivacyPolicy({ onClose }: PrivacyPolicyProps) {
               2.5 Local Storage
             </h3>
             <ul className="list-disc pl-6 space-y-1">
-              <li>Authentication state (wallet-auth, privy-auth, crossmint-auth)</li>
+              <li>Authentication state (wallet-auth, privy-auth)</li>
               <li>UI preferences (theme, avatar list cache)</li>
               <li>Consent status (this policy acceptance)</li>
             </ul>
@@ -140,11 +140,6 @@ export function PrivacyPolicy({ onClose }: PrivacyPolicyProps) {
                     <td className="py-2 pr-4 font-medium">Privy</td>
                     <td className="py-2 pr-4">Access tokens, linked account data</td>
                     <td className="py-2">Email/social authentication</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2 pr-4 font-medium">Crossmint</td>
-                    <td className="py-2 pr-4">JWT tokens, user ID, wallet addresses</td>
-                    <td className="py-2">Wallet-based authentication</td>
                   </tr>
                   <tr>
                     <td className="py-2 pr-4 font-medium">Helius / Solana RPC</td>

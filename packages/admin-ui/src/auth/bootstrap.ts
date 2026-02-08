@@ -1,5 +1,4 @@
 import { useWalletAuth } from '../store/walletAuth';
-import { useCrossmintAuth } from '../store/crossmintAuth';
 import { usePrivyAuth } from '../store/privyAuth';
 
 /**
@@ -15,12 +14,10 @@ export async function bootstrapAuthFromBackendSession(): Promise<void> {
 
     const walletState = useWalletAuth.getState();
     if (!walletState.isAuthenticated) {
-      useCrossmintAuth.getState().resetLocal();
       usePrivyAuth.getState().resetLocal();
     }
   } catch (err) {
     console.error('[bootstrapAuth] Auth bootstrap failed:', err);
-    useCrossmintAuth.getState().resetLocal();
     usePrivyAuth.getState().resetLocal();
   }
 }

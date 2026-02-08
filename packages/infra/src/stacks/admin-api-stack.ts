@@ -86,11 +86,6 @@ export interface AdminApiStackProps extends cdk.StackProps {
   webSearchProvider?: string;
 
   /**
-   * Crossmint API key secret ARN
-   */
-  crossmintApiKeyArn?: string;
-
-  /**
    * Privy App ID
    */
   privyAppId?: string;
@@ -174,7 +169,6 @@ export class AdminApiStack extends cdk.Stack {
       heliusApiKeyArn,
       webSearchApiKeyArn,
       webSearchProvider,
-      crossmintApiKeyArn,
       privyAppId,
       privyAppSecretArn,
       privyJwtVerificationKeyArn,
@@ -278,7 +272,6 @@ export class AdminApiStack extends cdk.Stack {
         heliusApiKeyArn,
         webSearchApiKeyArn,
         webSearchProvider,
-        crossmintApiKeyArn,
         privyAppId,
         privyAppSecretArn,
         privyJwtVerificationKeyArn,

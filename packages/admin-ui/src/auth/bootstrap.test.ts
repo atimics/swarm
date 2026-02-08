@@ -41,7 +41,7 @@ describe('auth bootstrap reliability', () => {
     globalThis.fetch = originalFetch;
   });
 
-  test('clears persisted Crossmint auth when backend session is unauthenticated', async () => {
+  test('clears persisted Privy auth when backend session is unauthenticated', async () => {
     globalThis.fetch = mock(async () => {
       return new Response(JSON.stringify({ authenticated: false }), {
         status: 200,
@@ -49,37 +49,37 @@ describe('auth bootstrap reliability', () => {
       });
     });
 
-    const { useCrossmintAuth } = await import('../store/crossmintAuth');
+    const { usePrivyAuth } = await import('../store/privyAuth');
     const { bootstrapAuthFromBackendSession } = await import('./bootstrap');
 
-    useCrossmintAuth.setState({
+    usePrivyAuth.setState({
       isAuthenticated: true,
       user: { id: 'u1', walletAddress: 'wallet1', email: 'a@b.com' },
     } as never);
 
     await bootstrapAuthFromBackendSession();
 
-    const state = useCrossmintAuth.getState();
+    const state = usePrivyAuth.getState();
     expect(state.isAuthenticated).toBe(false);
     expect(state.user).toBe(null);
   });
 
-  test('clears persisted Crossmint auth when /auth/me fails (e.g., network/401)', async () => {
+  test('clears persisted Privy auth when /auth/me fails (e.g., network/401)', async () => {
     globalThis.fetch = mock(async () => {
       return new Response('oops', { status: 401 });
     });
 
-    const { useCrossmintAuth } = await import('../store/crossmintAuth');
+    const { usePrivyAuth } = await import('../store/privyAuth');
     const { bootstrapAuthFromBackendSession } = await import('./bootstrap');
 
-    useCrossmintAuth.setState({
+    usePrivyAuth.setState({
       isAuthenticated: true,
       user: { id: 'u1', walletAddress: 'wallet1' },
     } as never);
 
     await bootstrapAuthFromBackendSession();
 
-    const state = useCrossmintAuth.getState();
+    const state = usePrivyAuth.getState();
     expect(state.isAuthenticated).toBe(false);
     expect(state.user).toBe(null);
   });

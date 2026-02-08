@@ -291,7 +291,6 @@ ENV_SECRET_NAMES=(
     "helius-api-key"
     "replicate-api-key"
     "web-search-api-key"
-    "crossmint-api-key"
     "privy-app-secret"
     "privy-jwt-verification-key"
 )
@@ -301,7 +300,6 @@ ENV_SECRET_DESCRIPTIONS=(
     "Helius API key for Solana RPC and NFT queries"
     "Replicate API key for AI image/video generation"
     "SerpAPI key for web search functionality"
-    "Crossmint server API key for JWT verification"
     "Privy app secret (server-side API access)"
     "Privy JWT verification key (verify access tokens server-side)"
 )
@@ -311,16 +309,15 @@ ENV_SECRET_URLS=(
     "https://dev.helius.xyz/dashboard/app"
     "https://replicate.com/account/api-tokens"
     "https://serpapi.com/manage-api-key"
-    "https://console.crossmint.com"
     "https://dashboard.privy.io"
     "https://dashboard.privy.io"
 )
 
 # Some secrets are easiest to paste as multi-line (e.g. PEM/JWK material)
-ENV_SECRET_IS_MULTILINE=(false false false false false false true)
+ENV_SECRET_IS_MULTILINE=(false false false false false true)
 
 # 0 = required, 1 = optional
-ENV_SECRET_OPTIONAL=(0 0 1 1 1 1 1)
+ENV_SECRET_OPTIONAL=(0 0 1 1 1 1)
 
 GLOBAL_SECRET_NAMES=("twitter-app-credentials")
 GLOBAL_SECRET_DESCRIPTIONS=("Twitter/X OAuth app credentials")
@@ -439,7 +436,7 @@ echo ""
 
 # List created secrets
 echo -e "${GREEN}Environment secrets (${ENV}):${NC}"
-for secret in openrouter-api-key helius-api-key replicate-api-key web-search-api-key crossmint-api-key privy-app-secret privy-jwt-verification-key; do
+for secret in openrouter-api-key helius-api-key replicate-api-key web-search-api-key privy-app-secret privy-jwt-verification-key; do
     full_name="${PREFIX}/${ENV}/${secret}"
     if aws secretsmanager describe-secret --secret-id "$full_name" &>/dev/null 2>&1; then
         arn=$(aws secretsmanager describe-secret --secret-id "$full_name" --query ARN --output text)
@@ -473,12 +470,11 @@ if [ -f "$CDK_CONTEXT_JSON_PATH" ]; then
     HELIUS_ARN=""
     REPLICATE_ARN=""
     WEBSEARCH_ARN=""
-    CROSSMINT_ARN=""
     PRIVY_APP_SECRET_ARN=""
     PRIVY_JWT_VERIFICATION_KEY_ARN=""
     TWITTER_ARN=""
 
-    for secret in openrouter-api-key helius-api-key replicate-api-key web-search-api-key crossmint-api-key privy-app-secret privy-jwt-verification-key; do
+    for secret in openrouter-api-key helius-api-key replicate-api-key web-search-api-key privy-app-secret privy-jwt-verification-key; do
         full_name="${PREFIX}/${ENV}/${secret}"
         if aws secretsmanager describe-secret --secret-id "$full_name" &>/dev/null 2>&1; then
             arn=$(aws secretsmanager describe-secret --secret-id "$full_name" --query ARN --output text)
@@ -487,7 +483,6 @@ if [ -f "$CDK_CONTEXT_JSON_PATH" ]; then
                 helius-api-key) HELIUS_ARN="$arn" ;;
                 replicate-api-key) REPLICATE_ARN="$arn" ;;
                 web-search-api-key) WEBSEARCH_ARN="$arn" ;;
-                crossmint-api-key) CROSSMINT_ARN="$arn" ;;
                 privy-app-secret) PRIVY_APP_SECRET_ARN="$arn" ;;
                 privy-jwt-verification-key) PRIVY_JWT_VERIFICATION_KEY_ARN="$arn" ;;
             esac
@@ -502,7 +497,7 @@ if [ -f "$CDK_CONTEXT_JSON_PATH" ]; then
 
     # Merge ARNs into cdk.context.json (keeps private config out of git)
     node - "$CDK_CONTEXT_JSON_PATH" "$ENV" \
-        "$OPENROUTER_ARN" "$HELIUS_ARN" "$REPLICATE_ARN" "$WEBSEARCH_ARN" "$CROSSMINT_ARN" \
+        "$OPENROUTER_ARN" "$HELIUS_ARN" "$REPLICATE_ARN" "$WEBSEARCH_ARN" \
         "$PRIVY_APP_SECRET_ARN" "$PRIVY_JWT_VERIFICATION_KEY_ARN" \
         "$TWITTER_ARN" <<'NODE'
 const fs = require('fs');
@@ -512,7 +507,6 @@ const [,, path, env,
   heliusApiKeyArn,
   replicateApiKeyArn,
   webSearchApiKeyArn,
-  crossmintApiKeyArn,
   privyAppSecretArn,
   privyJwtVerificationKeyArn,
   twitterAppCredentialsArn,
@@ -527,7 +521,6 @@ const updates = {
   heliusApiKeyArn,
   replicateApiKeyArn,
   webSearchApiKeyArn,
-  crossmintApiKeyArn,
   privyAppSecretArn,
   privyJwtVerificationKeyArn,
   twitterAppCredentialsArn,

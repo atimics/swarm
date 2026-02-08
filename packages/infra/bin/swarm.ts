@@ -99,7 +99,6 @@ const replicateApiKeyArn = getContextValue<string>('replicateApiKeyArn', envConf
 const heliusApiKeyArn = getContextValue<string>('heliusApiKeyArn', envConfig);
 const webSearchApiKeyArn = getContextValue<string>('webSearchApiKeyArn', envConfig);
 const webSearchProvider = getContextValue<string>('webSearchProvider', envConfig);
-const crossmintApiKeyArn = getContextValue<string>('crossmintApiKeyArn', envConfig);
 const privyAppId = getContextValue<string>('privyAppId', envConfig);
 const privyAppSecretArn = getContextValue<string>('privyAppSecretArn', envConfig);
 const privyJwtVerificationKeyArn = getContextValue<string>('privyJwtVerificationKeyArn', envConfig);
@@ -233,7 +232,6 @@ if (useSplitStacks) {
     heliusApiKeyArn,
     webSearchApiKeyArn,
     webSearchProvider,
-    crossmintApiKeyArn,
     privyAppId,
     privyAppSecretArn,
     privyJwtVerificationKeyArn,
