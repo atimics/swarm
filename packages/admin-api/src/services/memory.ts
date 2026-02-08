@@ -97,6 +97,7 @@ export function computeMemoryTtl(retentionDays?: number): number | undefined {
  * This import is done lazily to avoid circular dependency issues.
  */
 export async function getRetentionDaysForAvatar(avatarId: string): Promise<number> {
+  if (_retentionDaysOverride) return _retentionDaysOverride(avatarId);
   try {
     const { getMemoryConfig } = await import('./entitlements.js');
     const config = await getMemoryConfig(avatarId);
@@ -140,6 +141,14 @@ function getDynamoClient(): DynamoDBDocumentClient {
 // For testing - allows injecting a mock client
 export function _setDynamoClient(client: DynamoDBDocumentClient | null): void {
   _setSharedDynamoClient(client);
+}
+
+// For testing - allows overriding getRetentionDaysForAvatar to avoid
+// the dynamic import('./entitlements.js') which interacts poorly with
+// bun:test's process-global mock.module.
+let _retentionDaysOverride: ((avatarId: string) => Promise<number>) | null = null;
+export function _setRetentionDaysOverride(fn: ((avatarId: string) => Promise<number>) | null): void {
+  _retentionDaysOverride = fn;
 }
 
 // ============================================================================

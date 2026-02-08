@@ -14,21 +14,6 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { AvatarMemory, MemoryTier } from '../types.js';
-
-// Mock entitlements module so that getRetentionDaysForAvatar (which does a
-// dynamic import of ./entitlements.js) gets a deterministic response without
-// consuming DynamoDB mock calls.
-mock.module('./entitlements.js', () => ({
-  getMemoryConfig: async () => ({
-    enabled: true,
-    retentionDays: 30,
-    consolidationEnabled: true,
-    semanticSearchEnabled: true,
-  }),
-  getEntitlement: async () => null,
-  setEntitlement: async () => {},
-}));
-
 import * as memory from './memory.js';
 import * as embedding from './embedding.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -49,6 +34,11 @@ describe('Memory Service', () => {
     mockSend.mockReset();
     transactionCalls.length = 0;
     memory._setDynamoClient(mockClient);
+
+    // Override getRetentionDaysForAvatar to avoid the dynamic
+    // import('./entitlements.js') which conflicts with bun:test's
+    // process-global mock.module in other test files.
+    memory._setRetentionDaysOverride(async () => 30);
 
     // Avoid external calls during tests (Bedrock/OpenRouter).
     // Memory service should remain deterministic and fast.
@@ -71,6 +61,7 @@ describe('Memory Service', () => {
 
   afterEach(() => {
     memory._setDynamoClient(null);
+    memory._setRetentionDaysOverride(null);
     embedding._resetEmbeddingService();
     embeddingServiceSpy?.mockRestore();
     transactionSendSpy?.mockRestore();
