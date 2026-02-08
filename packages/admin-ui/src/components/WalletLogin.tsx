@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useUnifiedWalletContext } from '@jup-ag/wallet-adapter';
+import { useUnifiedWalletContext } from './unified-wallet';
 import { usePrivy } from '@privy-io/react-auth';
 import { useWalletAuth } from '../store/walletAuth';
 import { usePrivyAuth } from '../store/privyAuth';

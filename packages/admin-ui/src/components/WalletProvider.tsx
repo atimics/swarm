@@ -1,12 +1,12 @@
 /**
  * Solana Wallet Provider
- * Uses Jupiter's Unified Wallet Kit for better wallet integration UX
- * Built on top of @solana/wallet-adapter-* for compatibility
+ * Uses a local unified wallet wrapper over @solana/wallet-adapter
  *
- * See: https://github.com/TeamRaccoons/Unified-Wallet-Kit
+ * This keeps the existing app API (`UnifiedWalletProvider` + `useUnifiedWalletContext`)
+ * without depending on Jupiter's adapter package.
  */
 import { type ReactNode, useMemo } from 'react';
-import { UnifiedWalletProvider } from '@jup-ag/wallet-adapter';
+import { UnifiedWalletProvider } from './unified-wallet';
 import { useWalletUi } from '../store/walletUi';
 
 interface WalletProviderProps {
@@ -36,7 +36,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
 
   return (
     <UnifiedWalletProvider
-      wallets={[]} // Empty = auto-detect via Wallet Standard (works better with Jupiter's kit)
+      wallets={[]} // Empty = use provider defaults from the local unified wrapper
       config={{
         autoConnect: false,
         env: 'mainnet-beta',
@@ -48,9 +48,6 @@ export function WalletProvider({ children }: WalletProviderProps) {
         },
         theme: 'dark',
         lang: 'en',
-        walletlistExplanation: {
-          href: 'https://station.jup.ag/docs/additional-topics/wallet-list',
-        },
         notificationCallback,
       }}
     >
