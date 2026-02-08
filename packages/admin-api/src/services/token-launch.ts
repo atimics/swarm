@@ -1,13 +1,8 @@
 /**
- * Bags Token Launch Service
+ * Token Launch Service
  *
- * Enables avatars with Twitter accounts to launch tokens on Bags.fm
- *
- * Design principles:
- * - Only avatars with a configured Twitter username can launch
- * - The avatar's Twitter account becomes the fee claimer on Bags
- * - Platform gets 20% (2000 bps), avatar's Twitter account gets 80% (8000 bps)
- * - One token per avatar (irreversible)
+ * Enables avatars with Twitter accounts to launch tokens through the configured
+ * token launch provider API.
  */
 import {
   type Commitment,
@@ -77,7 +72,7 @@ const dynamoClient = getDynamoClient();
 // Types
 // ---------------------------------------------------------------------------
 
-export interface BagsLaunchConfig {
+export interface TokenLaunchConfig {
   /** Token name (max 32 chars) */
   name: string;
   /** Token symbol (max 10 chars) */
@@ -106,7 +101,7 @@ export interface BagsLaunchConfig {
   mintVanity?: VanityMintConfig;
 }
 
-export interface BagsLaunchResult {
+export interface TokenLaunchResult {
   success: boolean;
   avatarId: string;
   tokenMint?: string;
@@ -114,9 +109,9 @@ export interface BagsLaunchResult {
   name?: string;
   signature?: string;
   metadataUrl?: string;
-  bagsUrl?: string;
+  launchUrl?: string;
   error?: string;
-  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE' | 'LAUNCH_FAILED' | 'TWITTER_NOT_ON_BAGS' | 'INSUFFICIENT_TIER';
+  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE' | 'LAUNCH_FAILED' | 'TWITTER_NOT_REGISTERED' | 'INSUFFICIENT_TIER';
   /** Current burn tier (0-5) */
   tier?: number;
   /** RATI needed to burn to unlock token launch */
@@ -133,24 +128,24 @@ export interface BagsLaunchResult {
   vanityNote?: string;
 }
 
-export interface BagsTokenInfo {
+export interface TokenLaunchInfo {
   mint: string;
   symbol: string;
   name: string;
   launchedAt: number;
   signature: string;
   metadataUrl: string;
-  bagsUrl: string;
+  launchUrl: string;
 }
 
-export interface BagsLaunchPreflightResult {
+export interface TokenLaunchPreflightResult {
   canLaunch: boolean;
   avatarId: string;
   twitterUsername?: string;
   hasProfileImage: boolean;
   hasWallet: boolean;
   hasApiKey: boolean;
-  existingToken?: BagsTokenInfo;
+  existingToken?: TokenLaunchInfo;
   error?: string;
   errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE' | 'INSUFFICIENT_TIER';
   /** Current burn tier (0-5) */
@@ -174,18 +169,18 @@ async function getAvatarSolanaKeypair(avatarId: string): Promise<Keypair> {
   return Keypair.fromSecretKey(secretBytes);
 }
 
-async function getBagsApiKey(avatarId: string): Promise<string | null> {
+async function getLaunchApiKey(avatarId: string): Promise<string | null> {
   // Try avatar-specific key first, then fall back to global
-  let apiKey = await _getSecretValueInternal(avatarId, 'bags_api_key', 'default');
+  let apiKey = await _getSecretValueInternal(avatarId, 'token_launch_api_key', 'default');
   if (!apiKey) {
-    apiKey = await _getSecretValueInternal(null, 'bags_api_key', 'default');
+    apiKey = await _getSecretValueInternal(null, 'token_launch_api_key', 'default');
   }
   return apiKey;
 }
 
-async function getBagsPartnerKey(): Promise<string | null> {
+async function getLaunchPartnerKey(): Promise<string | null> {
   // Partner key is global only (platform-level)
-  return _getSecretValueInternal(null, 'bags_partner_key', 'default');
+  return _getSecretValueInternal(null, 'token_launch_partner_key', 'default');
 }
 
 function getTwitterUsername(avatar: AvatarRecord): string | null {
@@ -193,50 +188,54 @@ function getTwitterUsername(avatar: AvatarRecord): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Bags API + Solana Helpers
+// Token launch API + Solana Helpers
 // ---------------------------------------------------------------------------
 
 /** Default Solana RPC URL (can be overridden via env) */
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
-/** Default Bags public API URL (can be overridden via env) */
-const BAGS_PUBLIC_API_V2_BASE_URL = process.env.BAGS_API_BASE_URL || 'https://public-api-v2.bags.fm/api/v1';
+/** Token launch provider API base URL */
+const TOKEN_LAUNCH_API_BASE_URL = process.env.TOKEN_LAUNCH_API_BASE_URL;
+/** Public token page base URL */
+const TOKEN_LAUNCH_WEB_BASE_URL = (process.env.TOKEN_LAUNCH_WEB_BASE_URL || 'https://solscan.io/token').replace(/\/+$/, '');
 
-/** Bags fee-share-v2 on-chain program id used for partner PDA derivation */
-const BAGS_FEE_SHARE_V2_PROGRAM_ID = 'FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK';
+/** Token launch fee-share-v2 on-chain program id used for partner PDA derivation */
+const TOKEN_LAUNCH_FEE_SHARE_V2_PROGRAM_ID = 'FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK';
 
 const SOLANA_COMMITMENT: Commitment = 'processed';
-const TOKEN_LAUNCH_ENGINE = process.env.TOKEN_LAUNCH_ENGINE || 'bags_external';
-const BAGS_DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
-const BAGS_VANITY_MAX_REQUEST_TIMEOUT_MS = 12_000;
+const TOKEN_LAUNCH_ENGINE = process.env.TOKEN_LAUNCH_ENGINE || 'external';
+const TOKEN_LAUNCH_DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+const TOKEN_LAUNCH_VANITY_MAX_REQUEST_TIMEOUT_MS = 12_000;
 const EXTERNAL_VANITY_MAX_ATTEMPTS_CAP = 120;
+const EXTERNAL_VANITY_STRICT_CONCURRENCY = 2;
+const EXTERNAL_VANITY_BEST_EFFORT_CONCURRENCY = 4;
 
-type BagsSupportedLaunchProvider = 'twitter' | 'tiktok' | 'kick' | 'github';
+type LaunchProvider = 'twitter' | 'tiktok' | 'kick' | 'github';
 
-type BagsApiSuccess<T> = {
+type LaunchApiSuccess<T> = {
   success: true;
   response: T;
 };
 
-type BagsApiFailure = {
+type LaunchApiFailure = {
   success: false;
   error: string;
 };
 
-type BagsApiEnvelope<T> = BagsApiSuccess<T> | BagsApiFailure;
+type LaunchApiEnvelope<T> = LaunchApiSuccess<T> | LaunchApiFailure;
 
-interface BagsLaunchWalletResponse {
+interface LaunchWalletResponse {
   provider: string;
   platformData: unknown;
   wallet: string;
 }
 
-interface BagsCreateTokenInfoResponse {
+interface CreateTokenInfoResponse {
   tokenMint: string;
   tokenMetadata: string;
 }
 
-interface BagsCreateTokenInfoParams {
+interface CreateTokenInfoParams {
   imageUrl: string;
   name: string;
   symbol: string;
@@ -247,14 +246,32 @@ interface BagsCreateTokenInfoParams {
 }
 
 interface VanityTokenInfoResult {
-  tokenInfo: BagsCreateTokenInfoResponse;
+  tokenInfo: CreateTokenInfoResponse;
   match: VanityMatchInfo | null;
   note?: string;
   attempts: number;
   elapsedMs: number;
 }
 
-interface BagsTransactionWithBlockhash {
+interface VanityAttemptSuccess {
+  attempt: number;
+  tokenInfo: CreateTokenInfoResponse;
+  match: VanityMatchInfo;
+}
+
+interface VanityAttemptFailure {
+  attempt: number;
+  error: Error;
+  aborted: boolean;
+}
+
+interface InFlightVanityAttempt {
+  attempt: number;
+  controller: AbortController;
+  promise: Promise<VanityAttemptSuccess | VanityAttemptFailure>;
+}
+
+interface TransactionWithBlockhash {
   transaction: string;
   blockhash: {
     blockhash: string;
@@ -262,15 +279,15 @@ interface BagsTransactionWithBlockhash {
   };
 }
 
-interface BagsCreateFeeShareConfigResponse {
+interface CreateFeeShareConfigResponse {
   needsCreation: boolean;
   feeShareAuthority: string;
   meteoraConfigKey?: string;
-  transactions?: BagsTransactionWithBlockhash[];
-  bundles?: BagsTransactionWithBlockhash[][];
+  transactions?: TransactionWithBlockhash[];
+  bundles?: TransactionWithBlockhash[][];
 }
 
-interface BagsCreateFeeShareConfigParams {
+interface CreateFeeShareConfigParams {
   feeClaimers: Array<{ user: PublicKey; userBps: number }>;
   payer: PublicKey;
   baseMint: PublicKey;
@@ -279,7 +296,7 @@ interface BagsCreateFeeShareConfigParams {
   additionalLookupTables?: PublicKey[];
 }
 
-interface BagsCreateLaunchTransactionParams {
+interface CreateLaunchTransactionParams {
   metadataUrl: string;
   tokenMint: PublicKey;
   launchWallet: PublicKey;
@@ -287,23 +304,26 @@ interface BagsCreateLaunchTransactionParams {
   configKey: PublicKey;
 }
 
-interface BagsCreateFeeShareConfigResult {
+interface CreateFeeShareConfigResult {
   transactions: VersionedTransaction[];
   bundles: VersionedTransaction[][];
   meteoraConfigKey: PublicKey;
 }
 
-function deriveBagsFeeShareV2PartnerConfigPda(partner: PublicKey): PublicKey {
+function deriveFeeShareV2PartnerConfigPda(partner: PublicKey): PublicKey {
   const [partnerConfig] = PublicKey.findProgramAddressSync(
     [Buffer.from('partner_config'), partner.toBuffer()],
-    new PublicKey(BAGS_FEE_SHARE_V2_PROGRAM_ID)
+    new PublicKey(TOKEN_LAUNCH_FEE_SHARE_V2_PROGRAM_ID)
   );
   return partnerConfig;
 }
 
-function buildBagsApiUrl(path: string, query?: Record<string, string>): string {
+function buildLaunchApiUrl(path: string, query?: Record<string, string>): string {
+  if (!TOKEN_LAUNCH_API_BASE_URL) {
+    throw new Error('TOKEN_LAUNCH_API_BASE_URL is not configured');
+  }
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const url = new URL(`${BAGS_PUBLIC_API_V2_BASE_URL}${normalizedPath}`);
+  const url = new URL(`${TOKEN_LAUNCH_API_BASE_URL}${normalizedPath}`);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       url.searchParams.set(key, value);
@@ -312,7 +332,7 @@ function buildBagsApiUrl(path: string, query?: Record<string, string>): string {
   return url.toString();
 }
 
-function getBagsApiErrorMessage(status: number, payload: unknown): string {
+function getLaunchApiErrorMessage(status: number, payload: unknown): string {
   if (typeof payload === 'object' && payload !== null) {
     const error = (payload as { error?: unknown }).error;
     if (typeof error === 'string' && error.length > 0) return error;
@@ -320,10 +340,10 @@ function getBagsApiErrorMessage(status: number, payload: unknown): string {
     const message = (payload as { message?: unknown }).message;
     if (typeof message === 'string' && message.length > 0) return message;
   }
-  return `Bags API request failed with status ${status}`;
+  return `Token launch API request failed with status ${status}`;
 }
 
-async function parseBagsResponsePayload(response: Response): Promise<unknown> {
+async function parseLaunchResponsePayload(response: Response): Promise<unknown> {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
     return response.json();
@@ -331,58 +351,70 @@ async function parseBagsResponsePayload(response: Response): Promise<unknown> {
   return response.text();
 }
 
-async function bagsApiRequest<T>(
+async function launchApiRequest<T>(
   apiKey: string,
   path: string,
   init: RequestInit = {},
   query?: Record<string, string>,
-  timeoutMs: number = BAGS_DEFAULT_REQUEST_TIMEOUT_MS
+  timeoutMs: number = TOKEN_LAUNCH_DEFAULT_REQUEST_TIMEOUT_MS,
+  externalSignal?: AbortSignal
 ): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('x-api-key', apiKey);
 
   const timeoutController = new AbortController();
+  const onExternalAbort = () => timeoutController.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      timeoutController.abort();
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
   const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
 
   try {
-    const response = await fetch(buildBagsApiUrl(path, query), {
+    const response = await fetch(buildLaunchApiUrl(path, query), {
       ...init,
       headers,
       signal: timeoutController.signal,
     });
 
-    const payload = await parseBagsResponsePayload(response);
+    const payload = await parseLaunchResponsePayload(response);
 
     if (!response.ok) {
-      throw new Error(getBagsApiErrorMessage(response.status, payload));
+      throw new Error(getLaunchApiErrorMessage(response.status, payload));
     }
 
     if (typeof payload !== 'object' || payload === null || !('success' in payload)) {
-      throw new Error('Unexpected Bags API response format');
+      throw new Error('Unexpected Token launch API response format');
     }
 
-    const envelope = payload as BagsApiEnvelope<T>;
+    const envelope = payload as LaunchApiEnvelope<T>;
     if (envelope.success) {
       return envelope.response;
     }
 
-    throw new Error(envelope.error || 'Bags API request failed');
+    throw new Error(envelope.error || 'Token launch API request failed');
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Bags API request timed out');
+      throw new Error('Token launch API request timed out');
     }
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
   }
 }
 
 async function getLaunchWalletV2(
   apiKey: string,
   username: string,
-  provider: BagsSupportedLaunchProvider
+  provider: LaunchProvider
 ): Promise<PublicKey> {
-  const response = await bagsApiRequest<BagsLaunchWalletResponse>(
+  const response = await launchApiRequest<LaunchWalletResponse>(
     apiKey,
     '/token-launch/fee-share/wallet/v2',
     { method: 'GET' },
@@ -393,9 +425,10 @@ async function getLaunchWalletV2(
 
 async function createTokenInfoAndMetadata(
   apiKey: string,
-  params: BagsCreateTokenInfoParams,
-  timeoutMs?: number
-): Promise<BagsCreateTokenInfoResponse> {
+  params: CreateTokenInfoParams,
+  timeoutMs?: number,
+  signal?: AbortSignal
+): Promise<CreateTokenInfoResponse> {
   const form = new FormData();
   form.append('imageUrl', params.imageUrl);
   form.append('name', params.name);
@@ -406,28 +439,48 @@ async function createTokenInfoAndMetadata(
   if (params.website) form.append('website', params.website);
   if (params.telegram) form.append('telegram', params.telegram);
 
-  return bagsApiRequest<BagsCreateTokenInfoResponse>(apiKey, '/token-launch/create-token-info', {
+  return launchApiRequest<CreateTokenInfoResponse>(apiKey, '/token-launch/create-token-info', {
     method: 'POST',
     body: form,
-  }, undefined, timeoutMs);
+  }, undefined, timeoutMs, signal);
 }
 
 function getEffectiveVanityMaxAttempts(config: ResolvedVanityMintConfig): number {
-  if (TOKEN_LAUNCH_ENGINE !== 'bags_external') {
+  if (TOKEN_LAUNCH_ENGINE !== 'external') {
     return config.maxAttempts;
   }
   return Math.min(config.maxAttempts, EXTERNAL_VANITY_MAX_ATTEMPTS_CAP);
 }
 
+function getVanityConcurrency(config: ResolvedVanityMintConfig): number {
+  if (TOKEN_LAUNCH_ENGINE !== 'external') {
+    return 1;
+  }
+  return config.mode === 'strict'
+    ? EXTERNAL_VANITY_STRICT_CONCURRENCY
+    : EXTERNAL_VANITY_BEST_EFFORT_CONCURRENCY;
+}
+
 function getVanityRequestTimeoutMs(deadlineMs: number): number {
   const remainingMs = deadlineMs - Date.now();
   if (remainingMs <= 0) return 1_000;
-  return Math.max(1_000, Math.min(remainingMs, BAGS_VANITY_MAX_REQUEST_TIMEOUT_MS));
+  return Math.max(1_000, Math.min(remainingMs, TOKEN_LAUNCH_VANITY_MAX_REQUEST_TIMEOUT_MS));
+}
+
+function toError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  return new Error(String(error));
+}
+
+function isVanityAttemptSuccess(
+  attempt: VanityAttemptSuccess | VanityAttemptFailure
+): attempt is VanityAttemptSuccess {
+  return 'tokenInfo' in attempt;
 }
 
 async function createTokenInfoWithVanityPolicy(
   apiKey: string,
-  params: BagsCreateTokenInfoParams,
+  params: CreateTokenInfoParams,
   vanityConfig: ResolvedVanityMintConfig | null
 ): Promise<VanityTokenInfoResult> {
   if (!vanityConfig) {
@@ -443,28 +496,94 @@ async function createTokenInfoWithVanityPolicy(
 
   const maxAttempts = getEffectiveVanityMaxAttempts(vanityConfig);
   const deadlineMs = Date.now() + vanityConfig.maxSearchMs;
+  const concurrency = getVanityConcurrency(vanityConfig);
   const matcher = createVanityMatcher(vanityConfig);
 
-  let attempts = 0;
-  let latestCandidate: BagsCreateTokenInfoResponse | null = null;
-  let latestMatch: { tokenInfo: BagsCreateTokenInfoResponse; match: VanityMatchInfo; attempt: number } | null = null;
+  let attemptsLaunched = 0;
+  let latestCandidate: VanityAttemptSuccess | null = null;
+  let latestBestEffortMatch: VanityAttemptSuccess | null = null;
+  let strictMatch: VanityAttemptSuccess | null = null;
+  let stopScheduling = false;
   const startedAt = Date.now();
+  const inFlight: InFlightVanityAttempt[] = [];
 
-  while (attempts < maxAttempts && Date.now() < deadlineMs) {
-    attempts += 1;
-    const tokenInfo = await createTokenInfoAndMetadata(
+  const scheduleNextAttempt = (): void => {
+    attemptsLaunched += 1;
+    const attempt = attemptsLaunched;
+    const controller = new AbortController();
+    const timeoutMs = getVanityRequestTimeoutMs(deadlineMs);
+
+    const promise = createTokenInfoAndMetadata(
       apiKey,
       params,
-      getVanityRequestTimeoutMs(deadlineMs)
-    );
-    latestCandidate = tokenInfo;
+      timeoutMs,
+      controller.signal
+    )
+      .then((tokenInfo): VanityAttemptSuccess => ({
+        attempt,
+        tokenInfo,
+        match: matcher(tokenInfo.tokenMint),
+      }))
+      .catch((error): VanityAttemptFailure => ({
+        attempt,
+        error: toError(error),
+        aborted: controller.signal.aborted,
+      }));
 
-    const match = matcher(tokenInfo.tokenMint);
-    if (match.matched) {
-      latestMatch = { tokenInfo, match, attempt: attempts };
-      if (vanityConfig.mode === 'strict') {
+    inFlight.push({ attempt, controller, promise });
+  };
+
+  while (inFlight.length > 0 || !stopScheduling) {
+    while (!stopScheduling && inFlight.length < concurrency) {
+      if (attemptsLaunched >= maxAttempts || Date.now() >= deadlineMs) {
+        stopScheduling = true;
         break;
       }
+      scheduleNextAttempt();
+    }
+
+    if (inFlight.length === 0) break;
+
+    const settled = await Promise.race(
+      inFlight.map((attempt) => attempt.promise.then((result) => ({ attempt, result })))
+    );
+
+    const settledIndex = inFlight.findIndex((attempt) => attempt.attempt === settled.attempt.attempt);
+    if (settledIndex >= 0) {
+      inFlight.splice(settledIndex, 1);
+    }
+
+    if (!isVanityAttemptSuccess(settled.result)) {
+      if (settled.result.aborted && strictMatch) {
+        continue;
+      }
+      for (const pending of inFlight) {
+        pending.controller.abort();
+      }
+      throw settled.result.error;
+    }
+
+    const successfulAttempt = settled.result;
+    if (!latestCandidate || successfulAttempt.attempt > latestCandidate.attempt) {
+      latestCandidate = successfulAttempt;
+    }
+
+    if (vanityConfig.mode === 'strict') {
+      if (!strictMatch && successfulAttempt.match.matched) {
+        strictMatch = successfulAttempt;
+        stopScheduling = true;
+        for (const pending of inFlight) {
+          pending.controller.abort();
+        }
+      }
+      continue;
+    }
+
+    if (
+      successfulAttempt.match.matched &&
+      (!latestBestEffortMatch || successfulAttempt.attempt > latestBestEffortMatch.attempt)
+    ) {
+      latestBestEffortMatch = successfulAttempt;
     }
   }
 
@@ -474,51 +593,51 @@ async function createTokenInfoWithVanityPolicy(
   }
 
   if (vanityConfig.mode === 'strict') {
-    if (!latestMatch) {
+    if (!strictMatch) {
       throw new Error(
         `No mint matched strict vanity policy "${vanityConfig.pattern}" ` +
-        `within ${attempts} attempt(s) over ${elapsedMs}ms`
+        `within ${attemptsLaunched} attempt(s) over ${elapsedMs}ms`
       );
     }
 
     return {
-      tokenInfo: latestMatch.tokenInfo,
-      match: latestMatch.match,
-      attempts,
+      tokenInfo: strictMatch.tokenInfo,
+      match: strictMatch.match,
+      attempts: attemptsLaunched,
       elapsedMs,
       note:
-        `Mint matched strict vanity policy at attempt ${latestMatch.attempt} ` +
-        `of ${attempts} (${elapsedMs}ms).`,
+        `Mint matched strict vanity policy at attempt ${strictMatch.attempt} ` +
+        `of ${attemptsLaunched} (${elapsedMs}ms).`,
     };
   }
 
-  if (latestMatch) {
+  if (latestBestEffortMatch) {
     return {
-      tokenInfo: latestMatch.tokenInfo,
-      match: latestMatch.match,
-      attempts,
+      tokenInfo: latestBestEffortMatch.tokenInfo,
+      match: latestBestEffortMatch.match,
+      attempts: attemptsLaunched,
       elapsedMs,
       note:
-        `Mint matched best-effort vanity policy at attempt ${latestMatch.attempt} ` +
-        `of ${attempts} (${elapsedMs}ms).`,
+        `Mint matched best-effort vanity policy at attempt ${latestBestEffortMatch.attempt} ` +
+        `of ${attemptsLaunched} (${elapsedMs}ms).`,
     };
   }
 
   return {
-    tokenInfo: latestCandidate,
-    match: matcher(latestCandidate.tokenMint),
-    attempts,
+    tokenInfo: latestCandidate.tokenInfo,
+    match: latestCandidate.match,
+    attempts: attemptsLaunched,
     elapsedMs,
     note:
-      `No mint matched "${vanityConfig.pattern}" in ${attempts} attempt(s) over ${elapsedMs}ms. ` +
+      `No mint matched "${vanityConfig.pattern}" in ${attemptsLaunched} attempt(s) over ${elapsedMs}ms. ` +
       'Launch continued with the most recent mint due to best-effort policy.',
   };
 }
 
-async function createBagsFeeShareConfig(
+async function createFeeShareConfig(
   apiKey: string,
-  params: BagsCreateFeeShareConfigParams
-): Promise<BagsCreateFeeShareConfigResult> {
+  params: CreateFeeShareConfigParams
+): Promise<CreateFeeShareConfigResult> {
   const totalBps = params.feeClaimers.reduce((sum, claimer) => sum + claimer.userBps, 0);
   if (totalBps !== 10000) {
     throw new Error(`Total BPS must be 10000, got ${totalBps}`);
@@ -528,7 +647,7 @@ async function createBagsFeeShareConfig(
     throw new Error('partner and partnerConfig must be provided together');
   }
 
-  const response = await bagsApiRequest<BagsCreateFeeShareConfigResponse>(
+  const response = await launchApiRequest<CreateFeeShareConfigResponse>(
     apiKey,
     '/fee-share/config',
     {
@@ -551,7 +670,7 @@ async function createBagsFeeShareConfig(
   }
 
   if (!response.meteoraConfigKey) {
-    throw new Error('Bags API response missing meteoraConfigKey');
+    throw new Error('Token launch API response missing meteoraConfigKey');
   }
 
   return {
@@ -567,9 +686,9 @@ async function createBagsFeeShareConfig(
 
 async function createLaunchTransaction(
   apiKey: string,
-  params: BagsCreateLaunchTransactionParams
+  params: CreateLaunchTransactionParams
 ): Promise<VersionedTransaction> {
-  const encodedTransaction = await bagsApiRequest<string>(
+  const encodedTransaction = await launchApiRequest<string>(
     apiKey,
     '/token-launch/create-launch-transaction',
     {
@@ -625,7 +744,7 @@ async function signAndSendTransaction(
 /**
  * Check if an avatar can launch a token
  */
-export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchPreflightResult> {
+export async function preflightTokenLaunch(avatarId: string): Promise<TokenLaunchPreflightResult> {
   const avatar = await getAvatar(avatarId);
   if (!avatar) {
     return {
@@ -639,14 +758,14 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
   }
 
   // Check for existing token
-  if (avatar.bagsToken) {
+  if (avatar.tokenLaunch) {
     return {
       canLaunch: false,
       avatarId,
       hasProfileImage: true,
       hasWallet: true,
       hasApiKey: true,
-      existingToken: avatar.bagsToken as BagsTokenInfo,
+      existingToken: avatar.tokenLaunch as TokenLaunchInfo,
       error: 'Avatar has already launched a token',
       errorCode: 'ALREADY_LAUNCHED',
     };
@@ -661,7 +780,7 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
       hasProfileImage: false,
       hasWallet: false,
       hasApiKey: false,
-      error: 'Avatar must have a Twitter account configured to launch on Bags',
+      error: 'Avatar must have a Twitter account configured to launch on Token launch',
       errorCode: 'NO_TWITTER',
     };
   }
@@ -686,8 +805,8 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
   // Check Solana wallet
   const hasWallet = await secretExists(avatarId, 'solana_wallet_key', 'default');
 
-  // Check Bags API key
-  const apiKey = await getBagsApiKey(avatarId);
+  // Check Token launch API key
+  const apiKey = await getLaunchApiKey(avatarId);
   const hasApiKey = !!apiKey;
 
   if (!hasWallet) {
@@ -711,7 +830,7 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
       hasProfileImage: true,
       hasWallet: true,
       hasApiKey: false,
-      error: 'Bags API key not configured',
+      error: 'Token launch API key not configured',
       errorCode: 'NO_API_KEY',
     };
   }
@@ -748,23 +867,23 @@ export async function preflightBagsLaunch(avatarId: string): Promise<BagsLaunchP
 }
 
 /**
- * Launch a token for an avatar on Bags
+ * Launch a token for an avatar on Token launch
  *
  * Requirements:
  * - Avatar must have Twitter username configured
  * - Avatar must have Solana wallet (solana_wallet_key secret)
- * - Bags API key must be configured (avatar or global)
+ * - Token launch API key must be configured (avatar or global)
  * - Avatar must not have already launched a token
  *
  * Fee distribution:
  * - 20% (2000 bps) to platform wallet (7xprTy9L24qT6agsqpHrFDUnUTFEWF2RijPzSxnroJwc)
- * - 80% (8000 bps) to avatar's Twitter account wallet on Bags
+ * - 80% (8000 bps) to avatar's Twitter account wallet on Token launch
  */
-export async function launchBagsToken(
+export async function launchToken(
   avatarId: string,
-  config: BagsLaunchConfig
-): Promise<BagsLaunchResult> {
-  console.log(`[BagsLaunch] Starting token launch for avatar=${avatarId}`);
+  config: TokenLaunchConfig
+): Promise<TokenLaunchResult> {
+  console.log(`[TokenLaunch] Starting token launch for avatar=${avatarId}`);
 
   let vanityConfig: ResolvedVanityMintConfig | null = null;
   try {
@@ -779,9 +898,9 @@ export async function launchBagsToken(
   }
 
   // Run preflight checks (includes tier requirement check)
-  const preflight = await preflightBagsLaunch(avatarId);
+  const preflight = await preflightTokenLaunch(avatarId);
   if (!preflight.canLaunch) {
-    console.log(`[BagsLaunch] Preflight failed: ${preflight.error}`);
+    console.log(`[TokenLaunch] Preflight failed: ${preflight.error}`);
     return {
       success: false,
       avatarId,
@@ -795,37 +914,37 @@ export async function launchBagsToken(
   }
 
   const twitterUsername = preflight.twitterUsername!;
-  console.log(`[BagsLaunch] Twitter username: @${twitterUsername}`);
+  console.log(`[TokenLaunch] Twitter username: @${twitterUsername}`);
 
   try {
     // Get credentials
-    const apiKey = (await getBagsApiKey(avatarId))!;
+    const apiKey = (await getLaunchApiKey(avatarId))!;
     const keypair = await getAvatarSolanaKeypair(avatarId);
     const commitment = SOLANA_COMMITMENT;
     const connection = new Connection(SOLANA_RPC_URL);
 
-    console.log(`[BagsLaunch] Avatar wallet: ${keypair.publicKey.toBase58()}`);
+    console.log(`[TokenLaunch] Avatar wallet: ${keypair.publicKey.toBase58()}`);
 
-    // Step 1: Look up avatar's Twitter account wallet on Bags API
-    console.log(`[BagsLaunch] Looking up Bags wallet for @${twitterUsername}...`);
-    let avatarBagsWallet: PublicKey;
+    // Step 1: Look up avatar's Twitter account wallet on Token launch API
+    console.log(`[TokenLaunch] Looking up launch wallet for @${twitterUsername}...`);
+    let avatarLaunchWallet: PublicKey;
     try {
-      avatarBagsWallet = await getLaunchWalletV2(apiKey, twitterUsername, 'twitter');
-      console.log(`[BagsLaunch] Found Bags wallet: ${avatarBagsWallet.toBase58()}`);
+      avatarLaunchWallet = await getLaunchWalletV2(apiKey, twitterUsername, 'twitter');
+      console.log(`[TokenLaunch] Found launch wallet: ${avatarLaunchWallet.toBase58()}`);
     } catch (err) {
-      console.error(`[BagsLaunch] Failed to find Bags wallet for @${twitterUsername}:`, err);
+      console.error(`[TokenLaunch] Failed to find launch wallet for @${twitterUsername}:`, err);
       return {
         success: false,
         avatarId,
-        error: `Twitter account @${twitterUsername} is not registered on Bags.fm. The account must be linked to Bags first.`,
-        errorCode: 'TWITTER_NOT_ON_BAGS',
+        error: `Twitter account @${twitterUsername} is not registered on token launch provider. The account must be linked to Token launch first.`,
+        errorCode: 'TWITTER_NOT_REGISTERED',
         vanityPattern: vanityConfig?.pattern,
         vanityMode: vanityConfig?.mode,
       };
     }
 
-    // Step 2: Create token metadata using Bags API
-    console.log('[BagsLaunch] Creating token metadata...');
+    // Step 2: Create token metadata using Token launch API
+    console.log('[TokenLaunch] Creating token metadata...');
     const avatar = (await getAvatar(avatarId))!;
     const profileUrl = typeof avatar.profileImage === 'string'
       ? avatar.profileImage
@@ -877,47 +996,47 @@ export async function launchBagsToken(
     const tokenInfo = tokenInfoResult.tokenInfo;
 
     const tokenMint = new PublicKey(tokenInfo.tokenMint);
-    console.log(`[BagsLaunch] Token mint: ${tokenMint.toBase58()}`);
-    console.log(`[BagsLaunch] Metadata URL: ${tokenInfo.tokenMetadata}`);
+    console.log(`[TokenLaunch] Token mint: ${tokenMint.toBase58()}`);
+    console.log(`[TokenLaunch] Metadata URL: ${tokenInfo.tokenMetadata}`);
     if (vanityConfig) {
       console.log(
-        `[BagsLaunch] Vanity search completed: attempts=${tokenInfoResult.attempts} ` +
+        `[TokenLaunch] Vanity search completed: attempts=${tokenInfoResult.attempts} ` +
         `elapsedMs=${tokenInfoResult.elapsedMs} engine=${TOKEN_LAUNCH_ENGINE}`
       );
     }
     const vanityMatch = tokenInfoResult.match;
     const vanityNote = tokenInfoResult.note;
     if (vanityNote) {
-      console.log(`[BagsLaunch] ${vanityNote}`);
+      console.log(`[TokenLaunch] ${vanityNote}`);
     }
 
     // Step 3: Create fee share config with proper distribution
     // - Platform wallet: 2000 bps (20%)
-    // - Avatar's Twitter Bags wallet: 8000 bps (80%)
-    // - Partner receives additional fees from Bags (separate from above)
-    console.log('[BagsLaunch] Creating fee share configuration...');
+    // - Avatar's Twitter launch wallet: 8000 bps (80%)
+    // - Partner receives additional fees from Token launch (separate from above)
+    console.log('[TokenLaunch] Creating fee share configuration...');
     console.log(`  - Platform (${PLATFORM_WALLET}): ${PLATFORM_FEE_BPS / 100}%`);
-    console.log(`  - Avatar @${twitterUsername} (${avatarBagsWallet.toBase58()}): ${AVATAR_FEE_BPS / 100}%`);
+    console.log(`  - Avatar @${twitterUsername} (${avatarLaunchWallet.toBase58()}): ${AVATAR_FEE_BPS / 100}%`);
 
     const platformWallet = new PublicKey(PLATFORM_WALLET);
     const feeClaimers = [
-      { user: avatarBagsWallet, userBps: AVATAR_FEE_BPS },   // 80% to avatar's Twitter wallet
+      { user: avatarLaunchWallet, userBps: AVATAR_FEE_BPS },   // 80% to avatar's Twitter wallet
       { user: platformWallet, userBps: PLATFORM_FEE_BPS },   // 20% to platform
     ];
 
     // Get partner key if configured (for platform-level partner fees)
-    const partnerKeyStr = await getBagsPartnerKey();
+    const partnerKeyStr = await getLaunchPartnerKey();
     let partner: PublicKey | undefined;
     let partnerConfig: PublicKey | undefined;
     
     if (partnerKeyStr) {
       partner = new PublicKey(partnerKeyStr);
-      partnerConfig = deriveBagsFeeShareV2PartnerConfigPda(partner);
-      console.log(`[BagsLaunch] Using partner key: ${partner.toBase58()}`);
-      console.log(`[BagsLaunch] Partner config PDA: ${partnerConfig.toBase58()}`);
+      partnerConfig = deriveFeeShareV2PartnerConfigPda(partner);
+      console.log(`[TokenLaunch] Using partner key: ${partner.toBase58()}`);
+      console.log(`[TokenLaunch] Partner config PDA: ${partnerConfig.toBase58()}`);
     }
 
-    const configResult = await createBagsFeeShareConfig(apiKey, {
+    const configResult = await createFeeShareConfig(apiKey, {
       payer: keypair.publicKey,
       baseMint: tokenMint,
       feeClaimers,
@@ -932,7 +1051,7 @@ export async function launchBagsToken(
 
     // Handle bundles if present (for large fee claimer sets)
     if (configResult.bundles && configResult.bundles.length > 0) {
-      console.log(`[BagsLaunch] Sending ${configResult.bundles.length} bundle(s)...`);
+      console.log(`[TokenLaunch] Sending ${configResult.bundles.length} bundle(s)...`);
       for (const bundle of configResult.bundles) {
         for (const tx of bundle) {
           tx.sign([keypair]);
@@ -942,10 +1061,10 @@ export async function launchBagsToken(
       }
     }
 
-    console.log(`[BagsLaunch] Config key: ${configResult.meteoraConfigKey.toBase58()}`);
+    console.log(`[TokenLaunch] Config key: ${configResult.meteoraConfigKey.toBase58()}`);
 
-    // Step 4: Create launch transaction using Bags API
-    console.log('[BagsLaunch] Creating launch transaction...');
+    // Step 4: Create launch transaction using Token launch API
+    console.log('[TokenLaunch] Creating launch transaction...');
     const initialBuyLamports = Math.floor((config.initialBuySol || 0.01) * LAMPORTS_PER_SOL);
 
     const launchTx = await createLaunchTransaction(apiKey, {
@@ -957,43 +1076,43 @@ export async function launchBagsToken(
     });
 
     // Step 5: Sign and send launch transaction
-    console.log('[BagsLaunch] Signing and broadcasting transaction...');
+    console.log('[TokenLaunch] Signing and broadcasting transaction...');
     const signature = await signAndSendTransaction(connection, commitment, launchTx, keypair);
-    console.log(`[BagsLaunch] Transaction confirmed: ${signature}`);
+    console.log(`[TokenLaunch] Transaction confirmed: ${signature}`);
 
     // Step 6: Store token info on avatar record
-    const bagsToken: BagsTokenInfo = {
+    const tokenLaunch: TokenLaunchInfo = {
       mint: tokenInfo.tokenMint,
       symbol: sanitizedSymbol,
       name: config.name.trim(),
       launchedAt: Date.now(),
       signature,
       metadataUrl: tokenInfo.tokenMetadata,
-      bagsUrl: `https://bags.fm/${tokenInfo.tokenMint}`,
+      launchUrl: `${TOKEN_LAUNCH_WEB_BASE_URL}/${tokenInfo.tokenMint}`,
     };
 
     await dynamoClient.send(new UpdateCommand({
       TableName: ADMIN_TABLE,
       Key: { pk: `AVATAR#${avatarId}`, sk: 'CONFIG' },
-      UpdateExpression: 'SET bagsToken = :token, updatedAt = :now',
+      UpdateExpression: 'SET tokenLaunch = :token, updatedAt = :now',
       ExpressionAttributeValues: {
-        ':token': bagsToken,
+        ':token': tokenLaunch,
         ':now': Date.now(),
       },
     }));
 
-    console.log(`[BagsLaunch] ✅ Token launched successfully!`);
-    console.log(`[BagsLaunch] View at: ${bagsToken.bagsUrl}`);
+    console.log(`[TokenLaunch] ✅ Token launched successfully!`);
+    console.log(`[TokenLaunch] View at: ${tokenLaunch.launchUrl}`);
 
     return {
       success: true,
       avatarId,
-      tokenMint: bagsToken.mint,
-      symbol: bagsToken.symbol,
-      name: bagsToken.name,
-      signature: bagsToken.signature,
-      metadataUrl: bagsToken.metadataUrl,
-      bagsUrl: bagsToken.bagsUrl,
+      tokenMint: tokenLaunch.mint,
+      symbol: tokenLaunch.symbol,
+      name: tokenLaunch.name,
+      signature: tokenLaunch.signature,
+      metadataUrl: tokenLaunch.metadataUrl,
+      launchUrl: tokenLaunch.launchUrl,
       vanityPattern: vanityConfig?.pattern,
       vanityMode: vanityConfig?.mode,
       vanityMatched: vanityMatch?.matched,
@@ -1001,7 +1120,7 @@ export async function launchBagsToken(
       vanityNote,
     };
   } catch (error) {
-    console.error('[BagsLaunch] Launch failed:', error);
+    console.error('[TokenLaunch] Launch failed:', error);
     return {
       success: false,
       avatarId,
@@ -1016,9 +1135,9 @@ export async function launchBagsToken(
 /**
  * Get token status for an avatar
  */
-export async function getBagsTokenStatus(avatarId: string): Promise<{
+export async function getTokenStatus(avatarId: string): Promise<{
   hasToken: boolean;
-  token?: BagsTokenInfo;
+  token?: TokenLaunchInfo;
   twitterUsername?: string;
   canLaunch: boolean;
 }> {
@@ -1029,16 +1148,16 @@ export async function getBagsTokenStatus(avatarId: string): Promise<{
 
   const twitterUsername = getTwitterUsername(avatar);
 
-  if (avatar.bagsToken) {
+  if (avatar.tokenLaunch) {
     return {
       hasToken: true,
-      token: avatar.bagsToken as BagsTokenInfo,
+      token: avatar.tokenLaunch as TokenLaunchInfo,
       twitterUsername: twitterUsername || undefined,
       canLaunch: false,
     };
   }
 
-  const preflight = await preflightBagsLaunch(avatarId);
+  const preflight = await preflightTokenLaunch(avatarId);
 
   return {
     hasToken: false,

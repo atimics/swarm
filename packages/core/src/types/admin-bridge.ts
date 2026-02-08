@@ -7,7 +7,7 @@
  */
 
 // =============================================================================
-// Bags Token Launch Types
+// Token Launch Types
 // =============================================================================
 
 export type VanityMintMode = 'best_effort' | 'strict';
@@ -39,7 +39,7 @@ export interface VanityMintConfig {
   maxAttempts?: number;
 }
 
-export interface BagsLaunchConfig {
+export interface TokenLaunchConfig {
   /** Token name (max 32 chars) */
   name: string;
   /** Token symbol (max 10 chars) */
@@ -60,7 +60,7 @@ export interface BagsLaunchConfig {
   mintVanity?: VanityMintConfig;
 }
 
-export interface BagsLaunchResult {
+export interface TokenLaunchResult {
   success: boolean;
   avatarId: string;
   tokenMint?: string;
@@ -68,9 +68,9 @@ export interface BagsLaunchResult {
   name?: string;
   signature?: string;
   metadataUrl?: string;
-  bagsUrl?: string;
+  launchUrl?: string;
   error?: string;
-  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE' | 'LAUNCH_FAILED' | 'TWITTER_NOT_ON_BAGS' | 'INSUFFICIENT_TIER';
+  errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE' | 'LAUNCH_FAILED' | 'TWITTER_NOT_REGISTERED' | 'INSUFFICIENT_TIER';
   /** Current burn tier (0-5) */
   tier?: number;
   /** RATI needed to burn to unlock token launch */
@@ -87,24 +87,24 @@ export interface BagsLaunchResult {
   vanityNote?: string;
 }
 
-export interface BagsTokenInfo {
+export interface TokenLaunchInfo {
   mint: string;
   symbol: string;
   name: string;
   launchedAt: number;
   signature: string;
   metadataUrl: string;
-  bagsUrl: string;
+  launchUrl: string;
 }
 
-export interface BagsLaunchPreflightResult {
+export interface TokenLaunchPreflightResult {
   canLaunch: boolean;
   avatarId: string;
   twitterUsername?: string;
   hasProfileImage: boolean;
   hasWallet: boolean;
   hasApiKey: boolean;
-  existingToken?: BagsTokenInfo;
+  existingToken?: TokenLaunchInfo;
   error?: string;
   errorCode?: 'NO_TWITTER' | 'ALREADY_LAUNCHED' | 'NO_WALLET' | 'NO_API_KEY' | 'NO_PROFILE_IMAGE' | 'INSUFFICIENT_TIER';
   /** Current burn tier (0-5) */
@@ -115,21 +115,21 @@ export interface BagsLaunchPreflightResult {
   burnNeeded?: number;
 }
 
-export interface BagsTokenStatus {
+export interface TokenLaunchStatus {
   hasToken: boolean;
-  token?: BagsTokenInfo;
+  token?: TokenLaunchInfo;
   twitterUsername?: string;
   canLaunch: boolean;
 }
 
 /**
- * Interface for Bags token launch operations.
+ * Interface for token launch operations.
  * Implementations live in admin-api; handlers depends only on this interface.
  */
-export interface BagsService {
-  preflightBagsLaunch: (avatarId: string) => Promise<BagsLaunchPreflightResult>;
-  launchBagsToken: (avatarId: string, config: BagsLaunchConfig) => Promise<BagsLaunchResult>;
-  getBagsTokenStatus: (avatarId: string) => Promise<BagsTokenStatus>;
+export interface TokenLaunchService {
+  preflightTokenLaunch: (avatarId: string) => Promise<TokenLaunchPreflightResult>;
+  launchToken: (avatarId: string, config: TokenLaunchConfig) => Promise<TokenLaunchResult>;
+  getTokenStatus: (avatarId: string) => Promise<TokenLaunchStatus>;
 }
 
 // =============================================================================

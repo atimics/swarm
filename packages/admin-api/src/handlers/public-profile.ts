@@ -58,7 +58,7 @@ export interface AvatarPublicProfile {
     mint: string;
     symbol: string;
     name: string;
-    bagsUrl: string;
+    launchUrl: string;
     launchedAt: number;
   };
 
@@ -216,19 +216,19 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     };
 
     // Add token info if launched
-    if (avatar.bagsToken) {
-      const token = avatar.bagsToken as {
+    if (avatar.tokenLaunch) {
+      const token = avatar.tokenLaunch as {
         mint: string;
         symbol: string;
         name: string;
-        bagsUrl: string;
+        launchUrl: string;
         launchedAt: number;
       };
       profile.token = {
         mint: token.mint,
         symbol: token.symbol,
         name: token.name,
-        bagsUrl: token.bagsUrl,
+        launchUrl: token.launchUrl,
         launchedAt: token.launchedAt,
       };
     }

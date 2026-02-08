@@ -47,7 +47,7 @@ import { validateReplicateApiKey } from '../services/replicate.js';
 import * as integrations from '../services/integrations.js';
 import type { IntegrationType, AICapability } from '../services/integrations.js';
 import { getModelsForCapability, AVAILABLE_MODELS } from '../services/models-registry.js';
-import * as bagsLaunch from '../services/bags-launch.js';
+import * as tokenLaunch from '../services/token-launch.js';
 
 // Timeout for external API calls
 const API_TIMEOUT_MS = 10_000;
@@ -2039,17 +2039,17 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
     moltbook: createMoltbookServices(_avatarId, session),
 
     // =========================================================================
-    // Bags Token Launch Services
+    // Token Launch Services
     // =========================================================================
-    bags: {
+    tokenLaunch: {
       preflightLaunch: async (avatarId: string) => {
-        return bagsLaunch.preflightBagsLaunch(avatarId);
+        return tokenLaunch.preflightTokenLaunch(avatarId);
       },
-      launchToken: async (avatarId: string, config: bagsLaunch.BagsLaunchConfig) => {
-        return bagsLaunch.launchBagsToken(avatarId, config);
+      launchToken: async (avatarId: string, config: tokenLaunch.TokenLaunchConfig) => {
+        return tokenLaunch.launchToken(avatarId, config);
       },
       getTokenStatus: async (avatarId: string) => {
-        return bagsLaunch.getBagsTokenStatus(avatarId);
+        return tokenLaunch.getTokenStatus(avatarId);
       },
     },
   };

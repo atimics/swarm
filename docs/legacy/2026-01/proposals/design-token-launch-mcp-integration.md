@@ -1,4 +1,4 @@
-# BagsApp MCP Integration Design Document
+# Token Launch MCP Integration Design Document
 
 **Status:** Proposal (defer until after M1)
 
@@ -16,7 +16,7 @@ MVP sequencing reference:
 
 ## Executive Summary
 
-This document proposes integrating the Bags API into AWS Swarm as a first-class integration, following the existing pattern used for Telegram, Twitter, Solana, and other integrations.
+This document proposes integrating the Token Launch API into AWS Swarm as a first-class integration, following the existing pattern used for Telegram, Twitter, Solana, and other integrations.
 
 **V1 MVP Scope:** Configuration-driven token setup with three admin tools. No trading, no auto-claiming, no autonomous operations.
 
@@ -85,9 +85,9 @@ This document proposes integrating the Bags API into AWS Swarm as a first-class 
 
 | Tool | Purpose | Risk |
 |------|---------|------|
-| `bags_configure` | Set up link or launch config | Low |
-| `bags_launch` | Execute the token launch | High |
-| `bags_status` | Check token/launch status | Low |
+| `token_launch_` | Set up link or launch config | Low |
+| `token_launch_` | Execute the token launch | High |
+| `token_launch_` | Check token/launch status | Low |
 
 ---
 
@@ -99,7 +99,7 @@ This document proposes integrating the Bags API into AWS Swarm as a first-class 
 # avatars/{avatar}/config.yaml
 
 integrations:
-  bagsapp:
+  token_launch:
     enabled: true
     mode: 'link' | 'launch'
 
@@ -108,7 +108,7 @@ integrations:
       mint: "ABC123..."
       symbol: "VIBE"
 
-    # For mode: 'launch' (will create via Bags)
+    # For mode: 'launch' (will create via Token Launch)
     launch:
       name: "Vibe Token"
       symbol: "VIBE"
@@ -125,7 +125,7 @@ integrations:
     ownerWallet: "8xYZ..."  # If not set, avatar gets all claimable fees
 
 secrets:
-  - BAGS_API_KEY
+  - TOKEN_LAUNCH_API_KEY
   - SOLANA_PRIVATE_KEY
 ```
 
@@ -133,7 +133,7 @@ secrets:
 
 ```yaml
 integrations:
-  bagsapp:
+  token_launch:
     enabled: true
     mode: 'launch'
     token:
@@ -141,7 +141,7 @@ integrations:
       symbol: "VIBE"
       name: "Vibe Token"
       launchedAt: "2026-01-19T14:30:00Z"
-      bagsUrl: "https://bags.fm/ABC123..."
+      launchUrl: "https://token launch provider/ABC123..."
       launchSignature: "5xYZ..."
     launch:
       # Original config preserved
@@ -151,17 +151,17 @@ integrations:
 ### 3.3 Integration Metadata
 
 ```typescript
-bagsapp: {
-  type: 'bagsapp',
-  name: 'Bags',
-  description: 'Token launch and management via Bags.fm',
-  icon: 'bags',
+token_launch: {
+  type: 'token_launch',
+  name: 'Token Launch',
+  description: 'Token launch and management via Token Launch.fm',
+  icon: 'token-launch',
   category: 'blockchain',
-  requiredSecrets: ['bags_api_key'],
+  requiredSecrets: ['token_launch_api_key'],
   optionalSecrets: [],
   capabilities: ['token_link', 'token_launch'],
   configurable: true,
-  docsUrl: 'https://docs.bags.fm',
+  docsUrl: 'https://docs.token launch provider',
 }
 ```
 
@@ -169,12 +169,12 @@ bagsapp: {
 
 ## 4. Tool Definitions
 
-### 4.1 `bags_configure`
+### 4.1 `token_launch_`
 
 ```typescript
 {
-  name: 'bags_configure',
-  description: 'Configure Bags integration. Link existing token or set up for launch.',
+  name: 'token_launch_',
+  description: 'Configure Token Launch integration. Link existing token or set up for launch.',
   inputSchema: z.object({
     avatarId: z.string(),
     mode: z.enum(['link', 'launch']),
@@ -193,11 +193,11 @@ bagsapp: {
 }
 ```
 
-### 4.2 `bags_launch`
+### 4.2 `token_launch_`
 
 ```typescript
 {
-  name: 'bags_launch',
+  name: 'token_launch_',
   description: 'Launch the configured token. Can only be done ONCE per avatar.',
   inputSchema: z.object({
     avatarId: z.string(),
@@ -206,12 +206,12 @@ bagsapp: {
 }
 ```
 
-### 4.3 `bags_status`
+### 4.3 `token_launch_`
 
 ```typescript
 {
-  name: 'bags_status',
-  description: 'Get Bags integration status for an avatar.',
+  name: 'token_launch_',
+  description: 'Get Token Launch integration status for an avatar.',
   inputSchema: z.object({
     avatarId: z.string(),
   }),
@@ -277,7 +277,7 @@ PLATFORM_PARTNER_CONFIG_PDA=9aBC...
 
 | Secret | Scope | Storage |
 |--------|-------|---------|
-| `bags_api_key` | Per-avatar | AWS Secrets Manager |
+| `token_launch_api_key` | Per-avatar | AWS Secrets Manager |
 | `solana_private_key` | Per-avatar | AWS Secrets Manager |
 | `PLATFORM_PARTNER_WALLET` | Platform | Environment/SSM |
 
@@ -296,20 +296,20 @@ PLATFORM_PARTNER_CONFIG_PDA=9aBC...
 |------|-------|
 | Add type definitions | `packages/admin-api/src/types.ts` |
 | Register integration metadata | `packages/admin-api/src/services/integrations.ts` |
-| Create service skeleton | `packages/admin-api/src/services/bagsapp.ts` |
+| Create service skeleton | `packages/admin-api/src/services/token-launch.ts` |
 
 ### Phase 2: Core Implementation
 | Task | Files |
 |------|-------|
-| Implement configure/status/launch | `packages/admin-api/src/services/bagsapp.ts` |
-| Create tool definitions | `packages/mcp-server/src/tools/bagsapp.ts` |
+| Implement configure/status/launch | `packages/admin-api/src/services/token-launch.ts` |
+| Create tool definitions | `packages/mcp-server/src/tools/token-launch.ts` |
 | Register tools | `packages/mcp-server/src/tools/index.ts` |
 
 ### Phase 3: Testing & Polish
 | Task | Description |
 |------|-------------|
-| Platform partner wallet | One-time Bags partner config creation |
-| Avatar template | Add bagsapp integration example |
+| Platform partner wallet | One-time Token Launch partner config creation |
+| Avatar template | Add token_launch integration example |
 | Integration testing | Test full flow with devnet |
 
 ---
@@ -327,7 +327,7 @@ System: Configuring Vibe for token launch...
         - Initial buy: 0.5 SOL
         - Fee share: Platform 25%, Avatar 37.5%, Owner 37.5%
         
-        Configuration saved. Use bags_launch to execute.
+        Configuration saved. Use token_launch_ to execute.
 ```
 
 ### 8.2 Execute Launch
@@ -340,7 +340,7 @@ System: Launching $VIBE...
         Pre-flight checks:
         ✓ Avatar not already launched
         ✓ Wallet balance: 2.5 SOL (need 0.6 SOL)
-        ✓ Bags API key configured
+        ✓ Token Launch API key configured
         
         Fee distribution:
         - Platform: 25%
@@ -359,7 +359,7 @@ System: Launching...
         🎉 $VIBE launched\!
         
         Token: ABC123...
-        View: https://bags.fm/ABC123...
+        View: https://token launch provider/ABC123...
         Tx: https://solscan.io/tx/XYZ...
 ```
 
@@ -378,21 +378,21 @@ Admin: REX
 
 System: Linked $REX to Rex avatar.
         Token: 7xKXabc123...
-        View: https://bags.fm/7xKXabc123...
+        View: https://token launch provider/7xKXabc123...
 ```
 
 ### 8.4 Check Status
 
 ```
-Admin: Whats the Bags status for Vibe?
+Admin: Whats the Token Launch status for Vibe?
 
-System: Bags Integration Status: Vibe
+System: Token Launch Integration Status: Vibe
         
         Status: Launched ✓
         Token: $VIBE
         Mint: ABC123...
         Launched: 2026-01-19
-        Bags URL: https://bags.fm/ABC123...
+        Token Launch URL: https://token launch provider/ABC123...
         
         Fee Share:
         - Platform: 25%
@@ -412,13 +412,13 @@ System: Bags Integration Status: Vibe
 - Avatar announces on connected platforms
 
 ### 9.2 Fee Management (V2)
-- `bags_get_claimable_fees` - View accumulated fees
-- `bags_claim_fees` - Claim to avatar/owner wallets
+- `token_launch_` - View accumulated fees
+- `token_launch_` - Claim to avatar/owner wallets
 - Auto-claim on schedule
 
 ### 9.3 Trading (V3)
-- `bags_get_quote` - Get swap quotes
-- `bags_execute_swap` - Execute trades
+- `token_launch_` - Get swap quotes
+- `token_launch_` - Execute trades
 - Portfolio tracking
 
 ### 9.4 NFT Collections (V3)
@@ -428,7 +428,7 @@ System: Bags Integration Status: Vibe
 
 ---
 
-## Appendix A: Bags API Endpoints Used
+## Appendix A: Token Launch API Endpoints Used
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
@@ -447,4 +447,4 @@ System: Bags Integration Status: Vibe
 
 ---
 
-*Document generated for AWS Swarm BagsApp Integration - V1 MVP*
+*Document generated for AWS Swarm Token Launch Integration - V1 MVP*

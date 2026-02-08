@@ -47,9 +47,9 @@ export const SecretType = z.enum([
   'solana_wallet_key',
   'ethereum_wallet_key',
   'moltbook_api_key',
-  'bags_api_key',
-  'bags_partner_key',
-  'bags_referral_code',
+  'token_launch_api_key',
+  'token_launch_partner_key',
+  'token_launch_referral_code',
   'custom',
 ]);
 
@@ -479,15 +479,15 @@ export interface AvatarRecord {
   activatedAt?: number;           // When the avatar was explicitly activated
   activatedBy?: string;           // Who activated it (wallet or email)
 
-  // Bags.fm token launch
-  bagsToken?: {
+  // Token launch
+  tokenLaunch?: {
     mint: string;           // Token mint address
     symbol: string;         // Token symbol
     name: string;           // Token name
     launchedAt: number;     // Timestamp of launch
     signature: string;      // Launch transaction signature
     metadataUrl: string;    // IPFS metadata URL
-    bagsUrl: string;        // https://bags.fm/{mint}
+    launchUrl: string;
   };
 
   // ==========================================================================

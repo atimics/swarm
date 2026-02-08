@@ -85,7 +85,7 @@ export interface ToolDefinition<TInput = any, TOutput = unknown> {
   /** Human-readable description for LLM */
   description: string;
   /** Optional category for organization */
-  category?: 'media' | 'wallet' | 'profile' | 'config' | 'gallery' | 'secrets' | 'readonly' | 'diagnostics' | 'telegram' | 'property' | 'nft' | 'moltbook' | 'bags';
+  category?: 'media' | 'wallet' | 'profile' | 'config' | 'gallery' | 'secrets' | 'readonly' | 'diagnostics' | 'telegram' | 'property' | 'nft' | 'moltbook' | 'token-launch';
   /** Toolset grouping for routing */
   toolset?: ToolsetId;
   /** Tags for discovery/routing */

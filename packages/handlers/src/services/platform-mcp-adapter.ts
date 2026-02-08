@@ -31,24 +31,24 @@ import {
   getRuntimeContract,
   getRuntimeUsageSnapshot,
 } from './entitlement-enforcement.js';
-import type { BagsLaunchConfig, BagsLaunchPreflightResult, BagsLaunchResult, BagsTokenStatus } from '@swarm/core';
+import type { TokenLaunchConfig, TokenLaunchPreflightResult, TokenLaunchResult, TokenLaunchStatus } from '@swarm/core';
 import { getDynamoClient } from './dynamo-client.js';
 
-// Lazy-loaded bags launch operations (avoids static dependency on @swarm/admin-api)
-let _bagsLaunch: {
-  preflightBagsLaunch: (avatarId: string) => Promise<BagsLaunchPreflightResult>;
-  launchBagsToken: (avatarId: string, config: BagsLaunchConfig) => Promise<BagsLaunchResult>;
-  getBagsTokenStatus: (avatarId: string) => Promise<BagsTokenStatus>;
+// Lazy-loaded token launch operations (avoids static dependency on @swarm/admin-api)
+let _tokenLaunch: {
+  preflightTokenLaunch: (avatarId: string) => Promise<TokenLaunchPreflightResult>;
+  launchToken: (avatarId: string, config: TokenLaunchConfig) => Promise<TokenLaunchResult>;
+  getTokenStatus: (avatarId: string) => Promise<TokenLaunchStatus>;
 } | null = null;
 
-async function getBagsLaunch() {
-  if (!_bagsLaunch) {
+async function getTokenLaunch() {
+  if (!_tokenLaunch) {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore - dynamic import avoids static dependency on admin-api
     const mod = await import('@swarm/admin-api');
-    _bagsLaunch = mod.bagsLaunch;
+    _tokenLaunch = mod.tokenLaunch;
   }
-  return _bagsLaunch!;
+  return _tokenLaunch!;
 }
 
 const dynamoClient = getDynamoClient();
@@ -957,20 +957,20 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     } : {}),
 
     // =========================================================================
-    // Bags Token Launch Services
+    // Token Launch Services
     // =========================================================================
-    bags: {
+    tokenLaunch: {
       preflightLaunch: async (targetAvatarId: string) => {
-        const bags = await getBagsLaunch();
-        return bags.preflightBagsLaunch(targetAvatarId);
+        const tokenLaunch = await getTokenLaunch();
+        return tokenLaunch.preflightTokenLaunch(targetAvatarId);
       },
-      launchToken: async (targetAvatarId: string, launchConfig: BagsLaunchConfig) => {
-        const bags = await getBagsLaunch();
-        return bags.launchBagsToken(targetAvatarId, launchConfig);
+      launchToken: async (targetAvatarId: string, launchConfig: TokenLaunchConfig) => {
+        const tokenLaunch = await getTokenLaunch();
+        return tokenLaunch.launchToken(targetAvatarId, launchConfig);
       },
       getTokenStatus: async (targetAvatarId: string) => {
-        const bags = await getBagsLaunch();
-        return bags.getBagsTokenStatus(targetAvatarId);
+        const tokenLaunch = await getTokenLaunch();
+        return tokenLaunch.getTokenStatus(targetAvatarId);
       },
     },
   };

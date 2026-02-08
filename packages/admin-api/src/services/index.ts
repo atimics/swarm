@@ -33,8 +33,8 @@ export * from './chat-voting.js';
 export * as twitterOAuth from './twitter-oauth.js';
 export * as discord from './discord.js';
 export * as propertyResearch from './property-research.js';
-// Bags token launch service
-export * as bagsLaunch from './bags-launch.js';
+// Token launch service
+export * as tokenLaunch from './token-launch.js';
 
 // RATI burn stats and tier system
 export * as burnStats from './burn-stats.js';

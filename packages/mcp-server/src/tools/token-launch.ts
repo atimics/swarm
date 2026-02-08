@@ -1,11 +1,11 @@
 /**
- * Bags.fm Token Launch Tools
+ * Token Launch Tools
  *
- * Tools for launching tokens on Bags.fm
+ * Tools for launching avatar tokens through the configured launch provider.
  * Requires:
  * - Twitter account configured on the avatar
- * - Solana wallet (solana_wallet_key secret)
- * - Bags API key (bags_api_key secret)
+ * - Solana wallet (`solana_wallet_key` secret)
+ * - Token launch API key (`token_launch_api_key` secret)
  */
 import { z } from 'zod';
 import { defineTool, type ToolResult } from '../registry.js';
@@ -14,24 +14,24 @@ import { defineTool, type ToolResult } from '../registry.js';
 // Service Interface
 // ============================================================================
 
-export interface BagsTokenInfo {
+export interface TokenLaunchInfo {
   mint: string;
   symbol: string;
   name: string;
   launchedAt: number;
   signature: string;
   metadataUrl: string;
-  bagsUrl: string;
+  launchUrl: string;
 }
 
-export interface BagsLaunchPreflightResult {
+export interface TokenLaunchPreflightResult {
   canLaunch: boolean;
   avatarId: string;
   twitterUsername?: string;
   hasWallet: boolean;
   hasApiKey: boolean;
   hasProfileImage?: boolean;
-  existingToken?: BagsTokenInfo;
+  existingToken?: TokenLaunchInfo;
   error?: string;
   errorCode?: string;
   /** Current burn tier (0-5) */
@@ -42,7 +42,7 @@ export interface BagsLaunchPreflightResult {
   burnNeeded?: number;
 }
 
-export interface BagsLaunchConfig {
+export interface TokenLaunchConfig {
   name: string;
   symbol: string;
   description?: string;
@@ -59,7 +59,7 @@ export interface BagsLaunchConfig {
   };
 }
 
-export interface BagsLaunchResult {
+export interface TokenLaunchResult {
   success: boolean;
   avatarId: string;
   tokenMint?: string;
@@ -67,7 +67,7 @@ export interface BagsLaunchResult {
   name?: string;
   signature?: string;
   metadataUrl?: string;
-  bagsUrl?: string;
+  launchUrl?: string;
   error?: string;
   errorCode?: string;
   /** Current burn tier (0-5) */
@@ -81,12 +81,12 @@ export interface BagsLaunchResult {
   vanityNote?: string;
 }
 
-export interface BagsServices {
-  preflightLaunch: (avatarId: string) => Promise<BagsLaunchPreflightResult>;
-  launchToken: (avatarId: string, config: BagsLaunchConfig) => Promise<BagsLaunchResult>;
+export interface TokenLaunchServices {
+  preflightLaunch: (avatarId: string) => Promise<TokenLaunchPreflightResult>;
+  launchToken: (avatarId: string, config: TokenLaunchConfig) => Promise<TokenLaunchResult>;
   getTokenStatus: (avatarId: string) => Promise<{
     hasToken: boolean;
-    token?: BagsTokenInfo;
+    token?: TokenLaunchInfo;
     twitterUsername?: string;
     canLaunch: boolean;
   }>;
@@ -96,18 +96,18 @@ export interface BagsServices {
 // Context Builder
 // ============================================================================
 
-export async function buildBagsContext(
-  services: BagsServices,
+export async function buildTokenLaunchContext(
+  services: TokenLaunchServices,
   avatarId: string
 ): Promise<string | undefined> {
   const status = await services.getTokenStatus(avatarId);
 
   if (status.hasToken && status.token) {
-    return `My token: $${status.token.symbol} (${status.token.name}) - ${status.token.bagsUrl}`;
+    return `My token: $${status.token.symbol} (${status.token.name}) - ${status.token.launchUrl}`;
   }
 
   if (status.canLaunch) {
-    return `No token launched yet. Can launch on Bags.fm via @${status.twitterUsername}`;
+    return `No token launched yet. Can launch via @${status.twitterUsername}`;
   }
 
   return undefined;
@@ -117,14 +117,14 @@ export async function buildBagsContext(
 // Tool Definitions
 // ============================================================================
 
-export const createBagsTools = (services: BagsServices) => [
+export const createTokenLaunchTools = (services: TokenLaunchServices) => [
   defineTool({
-    name: 'bags_status',
-    description: 'Check my Bags.fm token status. Shows if I have launched a token or if I can launch one.',
-    category: 'bags',
+    name: 'token_launch_status',
+    description: 'Check my token launch status. Shows whether I already launched a token or can launch one.',
+    category: 'token-launch',
     inputSchema: z.object({}),
     contextBuilder: async (context) => {
-      return buildBagsContext(services, context.avatarId);
+      return buildTokenLaunchContext(services, context.avatarId);
     },
     execute: async (_input, context): Promise<ToolResult> => {
       const status = await services.getTokenStatus(context.avatarId);
@@ -138,7 +138,7 @@ export const createBagsTools = (services: BagsServices) => [
               mint: status.token.mint,
               symbol: status.token.symbol,
               name: status.token.name,
-              bagsUrl: status.token.bagsUrl,
+              launchUrl: status.token.launchUrl,
               launchedAt: new Date(status.token.launchedAt).toISOString(),
             },
             canLaunch: false,
@@ -168,12 +168,12 @@ export const createBagsTools = (services: BagsServices) => [
   }),
 
   defineTool({
-    name: 'bags_launch',
+    name: 'token_launch',
     description:
-      'Launch my token on Bags.fm. IMPORTANT: This is irreversible - I can only launch ONE token ever. ' +
-      'Requires: Twitter account configured, Solana wallet, Bags API key. ' +
-      'Fee distribution: 80% to my Twitter account\'s Bags wallet, 20% to platform.',
-    category: 'bags',
+      'Launch my token. IMPORTANT: This is irreversible - I can only launch ONE token ever. ' +
+      'Requires: Twitter account configured, Solana wallet, token launch API key. ' +
+      'Fee distribution: 80% to my Twitter account wallet, 20% to platform.',
+    category: 'token-launch',
     inputSchema: z.object({
       name: z
         .string()
@@ -260,7 +260,7 @@ export const createBagsTools = (services: BagsServices) => [
               ? {
                   mint: preflight.existingToken.mint,
                   symbol: preflight.existingToken.symbol,
-                  bagsUrl: preflight.existingToken.bagsUrl,
+                  launchUrl: preflight.existingToken.launchUrl,
                 }
               : undefined,
           },
@@ -302,7 +302,7 @@ export const createBagsTools = (services: BagsServices) => [
             mint: result.tokenMint,
             symbol: result.symbol,
             name: result.name,
-            bagsUrl: result.bagsUrl,
+            launchUrl: result.launchUrl,
             signature: result.signature,
           },
           vanity: result.vanityPattern
@@ -314,18 +314,18 @@ export const createBagsTools = (services: BagsServices) => [
                 note: result.vanityNote,
               }
             : undefined,
-          message: `🚀 Token $${result.symbol} launched successfully! View at ${result.bagsUrl}`,
+          message: `🚀 Token $${result.symbol} launched successfully! View at ${result.launchUrl}`,
         },
       };
     },
   }),
 
   defineTool({
-    name: 'bags_preflight',
+    name: 'token_launch_preflight',
     description:
-      'Check if I can launch a token on Bags.fm without actually launching. ' +
+      'Check if I can launch a token without actually launching. ' +
       'Shows requirements status: Twitter account, Solana wallet, API key, and burn tier.',
-    category: 'bags',
+    category: 'token-launch',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
       const preflight = await services.preflightLaunch(context.avatarId);
@@ -345,7 +345,7 @@ export const createBagsTools = (services: BagsServices) => [
             solanaWallet: {
               configured: preflight.hasWallet,
             },
-            bagsApiKey: {
+            launchApiKey: {
               configured: preflight.hasApiKey,
             },
             burnTier: {
@@ -361,7 +361,7 @@ export const createBagsTools = (services: BagsServices) => [
             ? {
                 mint: preflight.existingToken.mint,
                 symbol: preflight.existingToken.symbol,
-                bagsUrl: preflight.existingToken.bagsUrl,
+                launchUrl: preflight.existingToken.launchUrl,
               }
             : null,
           error: preflight.error,
@@ -372,4 +372,4 @@ export const createBagsTools = (services: BagsServices) => [
   }),
 ];
 
-export default createBagsTools;
+export default createTokenLaunchTools;
