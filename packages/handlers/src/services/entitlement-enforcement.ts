@@ -9,14 +9,12 @@
  * entitlement daily limit is exhausted, acting as a "burst" mechanism.
  * Enterprise avatars (limit = -1) never touch the energy pool.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { logger } from '@swarm/core';
+import { getDynamoClient } from './dynamo-client.js';
 
 // Use STATE_TABLE for usage tracking (handlers don't have ADMIN_TABLE)
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 // Default plan limits for free tier (stateless)
 const FREE_TIER_LIMITS = {

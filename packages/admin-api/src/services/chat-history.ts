@@ -2,14 +2,11 @@
  * Chat History Service
  * Persists chat history per user/avatar for cross-device sync
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { AdminChatMessage, UserSession } from '../types.js';
 import { createChatHistoryStore, type ChatHistoryRecord } from './chat-history-store.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 const CHAT_HISTORY_TTL_HOURS_RAW = Number(process.env.CHAT_HISTORY_TTL_HOURS || '24');

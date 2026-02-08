@@ -10,9 +10,7 @@
  * - Atomic counter increment to prevent race conditions
  * - Job tracking for observability
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
   UpdateCommand,
@@ -21,10 +19,9 @@ import {
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
 import type { DreamJob, DailyCounter } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 const sqsClient = new SQSClient({});
 

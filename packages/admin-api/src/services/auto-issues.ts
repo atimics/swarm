@@ -9,19 +9,16 @@
  * - sk: META
  * - Additional records: ISSUE#{issueId} / OCCURRENCE#{timestamp}
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
   UpdateCommand,
   GetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { createHash } from 'crypto';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 

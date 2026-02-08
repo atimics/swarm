@@ -6,19 +6,13 @@ import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
-import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
-  DEFAULT_LLM_MAX_TOKENS,
-  DEFAULT_LLM_MODEL,
   logger,
   // Import shared tool/prompt building from core
   buildDynamicSystemPrompt,
   extractThinking,
   detectEnabledCategories,
-  resolveAllowedToolsets,
   type ToolCategory,
   type ProcessorAvatarConfig,
 } from '@swarm/core';
@@ -26,12 +20,10 @@ import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js'
 import { getCorsHeaders } from '../http/cors.js';
 import * as chatHistory from '../services/chat-history.js';
 import { createChatJob, createJobId } from '../services/chat-jobs.js';
-import { OpenRouter, fromChatMessages, hasExecuteFunction, toChatMessage, stepCountIs, type Tool } from '@openrouter/sdk';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { fromChatMessages, hasExecuteFunction, toChatMessage, stepCountIs } from '@openrouter/sdk';
 import {
   ChatRequestSchema,
   type AdminChatMessage,
-  type ToolCall,
   type ToolResult,
   type UserSession,
 } from '../types.js';
@@ -43,8 +35,6 @@ import {
   ToolRegistry,
   registerAllTools,
   type ToolContext,
-  type ToolResult as McpToolResult,
-  type AllServices,
 } from '@swarm/mcp-server';
 import { createMCPServices } from '../services/mcp-adapter.js';
 import { isPauseForInputTool } from '../tools/index.js';
@@ -56,17 +46,46 @@ import { configureIntegration } from '../services/integrations.js';
 import { syncAvatarConfig } from '../services/config-sync.js';
 import { resolveChatModel } from '../services/llm-model-resolution.js';
 import { mapAdminChatHandlerError } from './chat-error-mapping.js';
-import { isProbablyPrivateMediaUrl, redactMediaUrlsFromText } from '../utils/redact-media-urls.js';
+import { redactMediaUrlsFromText } from '../utils/redact-media-urls.js';
 import { getGateStatus } from '../services/nft-gate.js';
 
-const LLM_API_KEY_SECRET_ARN = process.env.LLM_API_KEY_SECRET_ARN;
-const LLM_MODEL = process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
-const LLM_MAX_TOKENS = Number.isFinite(Number.parseInt(process.env.LLM_MAX_TOKENS ?? '', 10))
-  ? Number.parseInt(process.env.LLM_MAX_TOKENS ?? '', 10)
-  : DEFAULT_LLM_MAX_TOKENS;
-
-const NODE_ENV = process.env.NODE_ENV || 'development';
-const isProdLike = NODE_ENV === 'production' || NODE_ENV === 'staging';
+// Extracted modules
+import {
+  LLM_MODEL,
+  LLM_MAX_TOKENS,
+  LLM_MAX_RETRIES,
+  LLM_MAX_STEPS,
+  LLM_TOOL_MAX_TOKENS,
+  getOpenRouterClient,
+  callLlmDirectFallback,
+  normalizeUsage,
+  logLlmMetrics,
+  sleep,
+  getRetryDelayMs,
+  isRetryableLlmError,
+  type LlmUsage,
+} from './chat-llm.js';
+import {
+  sanitizeMessages,
+  sanitizeToolError,
+  stringifyToolResultForModel,
+  buildOpenRouterTools,
+  executeUiTool,
+  buildModelSelectorPayload,
+  buildFeatureTogglePayload,
+  buildPendingToolResponse,
+  extractMediaFromToolResults,
+  toSdkMessages,
+  toAdminToolCall,
+  type MediaItem,
+  type SdkToolCall,
+} from './chat-tool-helpers.js';
+import {
+  checkPublicRateLimit,
+  recordPublicRateLimit,
+  PUBLIC_RATE_LIMIT_ORB_HOLDERS,
+  type PublicRateLimitResult,
+} from './chat-rate-limiting.js';
 
 const DREAMS_ENABLED = process.env.DREAMS_ENABLED === 'true';
 
@@ -84,460 +103,8 @@ function parseIntEnv(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function clampIntMinMax(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, Math.trunc(value)));
-}
-
-// Timeout/retry settings
-// IMPORTANT: `/chat` is served behind API Gateway (and sometimes CloudFront), which effectively
-// caps end-to-end response time (typically ~29s). Keep defaults within that budget.
-const LLM_TIMEOUT_MS = parseIntEnv('LLM_TIMEOUT_MS', isProdLike ? 27_000 : 60_000);
-const LLM_MAX_RETRIES = parseIntEnv('LLM_MAX_RETRIES', isProdLike ? 0 : 2); // total attempts = 1 + retries
-const LLM_MAX_STEPS = clampIntMinMax(parseIntEnv('LLM_MAX_STEPS', isProdLike ? 4 : 10), 1, 20);
-const LLM_TOOL_MAX_TOKENS = clampIntMinMax(parseIntEnv('LLM_TOOL_MAX_TOKENS', isProdLike ? 1200 : 2048), 256, 8192);
-const LLM_RETRY_BASE_DELAY_MS = 250;
-const LLM_RETRY_MAX_DELAY_MS = 2_000;
-
 // Context window management - limit messages sent to LLM for efficiency
 const MAX_CONTEXT_MESSAGES = parseIntEnv('MAX_CONTEXT_MESSAGES', 20);
-
-// Rate limiting configuration for public access mode (daily limits)
-const PUBLIC_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
-const PUBLIC_RATE_LIMIT_DEFAULT = 10; // Non-Orb holders: 10 messages/day
-const PUBLIC_RATE_LIMIT_ORB_HOLDERS = 100; // Orb holders: 100 messages/day
-const PUBLIC_RATE_LIMIT_TTL_SECONDS = 25 * 60 * 60; // TTL for rate limit records (25 hours)
-
-// DynamoDB client for rate limiting
-const ADMIN_TABLE = process.env.ADMIN_TABLE || 'SwarmAdminTable';
-const rateLimitDynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
-
-interface PublicRateLimitResult {
-  limited: boolean;
-  retryAfter?: number;
-  remaining: number;
-  limit: number;
-  isOrbHolder: boolean;
-}
-
-/**
- * Check if user is rate limited (for public access mode)
- * Uses daily limits based on Orb ownership (10/day default, 100/day for Orb holders)
- */
-async function checkPublicRateLimit(
-  walletAddress: string,
-  avatarId: string,
-  hasOrb: boolean
-): Promise<PublicRateLimitResult> {
-  const now = Date.now();
-  const windowStart = now - PUBLIC_RATE_LIMIT_WINDOW_MS;
-  const rateLimitKey = `RATE_LIMIT#${avatarId}#${walletAddress}`;
-  const maxMessages = hasOrb ? PUBLIC_RATE_LIMIT_ORB_HOLDERS : PUBLIC_RATE_LIMIT_DEFAULT;
-
-  try {
-    const result = await rateLimitDynamoClient.send(new GetCommand({
-      TableName: ADMIN_TABLE,
-      Key: {
-        pk: rateLimitKey,
-        sk: 'CHAT_MESSAGES_DAILY',
-      },
-    }));
-
-    if (!result.Item) {
-      return { limited: false, remaining: maxMessages, limit: maxMessages, isOrbHolder: hasOrb };
-    }
-
-    const timestamps: number[] = result.Item.timestamps || [];
-    const recentTimestamps = timestamps.filter(ts => ts > windowStart);
-    const remaining = Math.max(0, maxMessages - recentTimestamps.length);
-
-    if (recentTimestamps.length >= maxMessages) {
-      // Calculate when the oldest message in the window will expire
-      const oldestInWindow = Math.min(...recentTimestamps);
-      const retryAfter = Math.ceil((oldestInWindow + PUBLIC_RATE_LIMIT_WINDOW_MS - now) / 1000);
-      return {
-        limited: true,
-        retryAfter: Math.max(1, retryAfter),
-        remaining: 0,
-        limit: maxMessages,
-        isOrbHolder: hasOrb,
-      };
-    }
-
-    return { limited: false, remaining, limit: maxMessages, isOrbHolder: hasOrb };
-  } catch (error) {
-    // On error, allow the request (fail open for rate limiting)
-    logger.warn('Rate limit check failed, allowing request', {
-      subsystem: 'chat',
-      avatarId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return { limited: false, remaining: maxMessages, limit: maxMessages, isOrbHolder: hasOrb };
-  }
-}
-
-/**
- * Record a message for rate limiting (for public access mode)
- */
-async function recordPublicRateLimit(
-  walletAddress: string,
-  avatarId: string
-): Promise<void> {
-  const now = Date.now();
-  const windowStart = now - PUBLIC_RATE_LIMIT_WINDOW_MS;
-  const rateLimitKey = `RATE_LIMIT#${avatarId}#${walletAddress}`;
-  const ttl = Math.floor((now + PUBLIC_RATE_LIMIT_TTL_SECONDS * 1000) / 1000);
-
-  try {
-    // Get existing timestamps
-    const result = await rateLimitDynamoClient.send(new GetCommand({
-      TableName: ADMIN_TABLE,
-      Key: {
-        pk: rateLimitKey,
-        sk: 'CHAT_MESSAGES_DAILY',
-      },
-    }));
-
-    const existingTimestamps: number[] = result.Item?.timestamps || [];
-    // Keep only recent timestamps + new one
-    const timestamps = [...existingTimestamps.filter(ts => ts > windowStart), now];
-
-    await rateLimitDynamoClient.send(new UpdateCommand({
-      TableName: ADMIN_TABLE,
-      Key: {
-        pk: rateLimitKey,
-        sk: 'CHAT_MESSAGES_DAILY',
-      },
-      UpdateExpression: 'SET timestamps = :timestamps, #ttl = :ttl',
-      ExpressionAttributeNames: {
-        '#ttl': 'ttl',
-      },
-      ExpressionAttributeValues: {
-        ':timestamps': timestamps,
-        ':ttl': ttl,
-      },
-    }));
-  } catch (error) {
-    // Non-critical, just log
-    logger.warn('Failed to record message for rate limit', {
-      subsystem: 'chat',
-      avatarId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function getRetryDelayMs(attemptNumber: number): number {
-  // attemptNumber is 1-based (1 = first retry)
-  const exp = Math.min(LLM_RETRY_MAX_DELAY_MS, LLM_RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attemptNumber - 1)));
-  const jitter = Math.floor(Math.random() * 150);
-  return exp + jitter;
-}
-
-function isRetryableLlmError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const name = error instanceof Error ? error.name : '';
-
-  // Abort/timeouts
-  if (name === 'AbortError' || message.toLowerCase().includes('timeout')) return true;
-
-  // Network-ish
-  const lowered = message.toLowerCase();
-  if (
-    lowered.includes('fetch failed') ||
-    lowered.includes('econnreset') ||
-    lowered.includes('enotfound') ||
-    lowered.includes('eai_again') ||
-    lowered.includes('socket')
-  ) {
-    return true;
-  }
-
-  // Rate limiting / transient upstream
-  if (lowered.includes('http 429') || lowered.includes('rate limit')) return true;
-
-  return false;
-}
-
-// Cache the API key after first fetch
-let cachedApiKey: string | null = null;
-
-async function getLlmApiKey(): Promise<string> {
-  if (cachedApiKey) return cachedApiKey;
-  
-  if (!LLM_API_KEY_SECRET_ARN) {
-    throw new Error('LLM_API_KEY_SECRET_ARN not configured');
-  }
-
-  const client = new SecretsManagerClient({});
-  const response = await client.send(new GetSecretValueCommand({
-    SecretId: LLM_API_KEY_SECRET_ARN,
-  }));
-
-  if (!response.SecretString) {
-    throw new Error('Secret value is empty');
-  }
-
-  // Parse JSON secret (handles {"api_key": "..."} format)
-  try {
-    const parsed = JSON.parse(response.SecretString);
-    cachedApiKey = parsed.api_key || parsed.apiKey || parsed.API_KEY;
-    if (!cachedApiKey) {
-      logger.error('LLM API key not found in parsed secret', undefined, { keysAvailable: Object.keys(parsed) });
-      throw new Error('api_key not found in secret');
-    }
-  } catch (e) {
-    // Plain string secret - check if it looks like an API key
-    if (response.SecretString.startsWith('sk-')) {
-      cachedApiKey = response.SecretString;
-    } else {
-      logger.error('Failed to parse LLM secret', e);
-      throw new Error('Invalid LLM API key format');
-    }
-  }
-
-  logger.info('LLM API key loaded', { keyPrefix: cachedApiKey.substring(0, 10) });
-  return cachedApiKey!;
-}
-
-let cachedOpenRouter: OpenRouter | null = null;
-
-function getOpenRouterClient(): OpenRouter {
-  if (!cachedOpenRouter) {
-    cachedOpenRouter = new OpenRouter({
-      apiKey: getLlmApiKey,
-      httpReferer: 'https://swarm.admin',
-      xTitle: 'Swarm Admin',
-      timeoutMs: LLM_TIMEOUT_MS,
-    });
-  }
-  return cachedOpenRouter;
-}
-
-type LlmUsage = {
-  promptTokens?: number;
-  completionTokens?: number;
-  totalTokens?: number;
-};
-
-function normalizeUsage(raw?: {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-  input_tokens?: number;
-  output_tokens?: number;
-}): LlmUsage | undefined {
-  if (!raw) return undefined;
-  const promptTokens = raw.prompt_tokens ?? raw.input_tokens;
-  const completionTokens = raw.completion_tokens ?? raw.output_tokens;
-  const totalTokens = raw.total_tokens ?? (promptTokens && completionTokens
-    ? promptTokens + completionTokens
-    : undefined);
-  return {
-    promptTokens,
-    completionTokens,
-    totalTokens,
-  };
-}
-
-function logLlmMetrics(params: {
-  avatarId?: string;
-  model: string;
-  latencyMs: number;
-  usage?: LlmUsage;
-  toolCalls: number;
-  finishReason?: string;
-  mode: 'sdk' | 'fallback';
-  step?: number;
-}): void {
-  logger.info('LLM call completed', {
-    subsystem: 'llm',
-    event: 'llm_call_completed',
-    avatarId: params.avatarId,
-    model: params.model,
-    latencyMs: params.latencyMs,
-    promptTokens: params.usage?.promptTokens,
-    completionTokens: params.usage?.completionTokens,
-    totalTokens: params.usage?.totalTokens,
-    toolCalls: params.toolCalls,
-    finishReason: params.finishReason,
-    mode: params.mode,
-    step: params.step,
-  });
-}
-
-/**
- * Fallback direct API call when SDK streaming validation fails
- * Uses non-streaming API to avoid SDK's Zod validation issues with null usage fields
- */
-async function callLlmDirectFallback(
-  model: string,
-  messages: Array<{ role: string; content: string | { type: string; text?: string; image_url?: unknown }[] }>,
-  maxTokens: number,
-  tools?: unknown[]
-): Promise<{
-  content: string;
-  toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
-  usage?: LlmUsage;
-  latencyMs: number;
-}> {
-  const apiKey = await getLlmApiKey();
-  const start = Date.now();
-  
-  const body: Record<string, unknown> = {
-    model,
-    messages,
-    max_tokens: maxTokens,
-    stream: false, // Disable streaming to avoid SDK validation issues
-  };
-  
-  if (tools && tools.length > 0) {
-    // Convert SDK tools to OpenAI format
-    body.tools = tools.map((t: unknown) => {
-      const tool = t as {
-        function?: {
-          name?: string;
-          description?: string;
-          parameters?: unknown;
-          inputSchema?: unknown;
-        };
-      };
-      const parameters = tool.function?.parameters
-        || (tool.function?.inputSchema
-          ? zodToJsonSchema(tool.function.inputSchema as Parameters<typeof zodToJsonSchema>[0], { target: 'openApi3' })
-          : undefined);
-      return {
-        type: 'function',
-        function: {
-          name: tool.function?.name,
-          description: tool.function?.description,
-          parameters,
-        },
-      };
-    });
-  }
-  
-  let response: Response | null = null;
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt <= LLM_MAX_RETRIES; attempt++) {
-    try {
-      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://swarm.admin',
-          'X-Title': 'Swarm Admin',
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
-      });
-
-      if (response.ok) {
-        break;
-      }
-
-      const shouldRetry = response.status === 429 || response.status >= 500;
-      if (!shouldRetry || attempt >= LLM_MAX_RETRIES) {
-        const errorText = await response.text();
-        throw new Error(`OpenRouter API error: ${response.status} ${errorText}`);
-      }
-
-      lastError = new Error(`OpenRouter API retryable error: HTTP ${response.status}`);
-    } catch (err) {
-      lastError = err;
-      if (!isRetryableLlmError(err) || attempt >= LLM_MAX_RETRIES) {
-        throw err;
-      }
-    }
-
-    await sleep(getRetryDelayMs(attempt + 1));
-  }
-
-  if (!response || !response.ok) {
-    throw (lastError instanceof Error ? lastError : new Error('OpenRouter API request failed'));
-  }
-  
-  const data = await response.json() as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-        tool_calls?: Array<{
-          id: string;
-          function: { name: string; arguments: string };
-        }>;
-      };
-    }>;
-    usage?: {
-      prompt_tokens?: number;
-      completion_tokens?: number;
-      total_tokens?: number;
-      input_tokens?: number;
-      output_tokens?: number;
-    };
-  };
-  
-  const choice = data.choices?.[0]?.message;
-  const content = choice?.content || '';
-  const toolCalls = (choice?.tool_calls || []).map(tc => ({
-    id: tc.id,
-    name: tc.function.name,
-    arguments: JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>,
-  }));
-  
-  return { content, toolCalls, usage: normalizeUsage(data.usage), latencyMs: Date.now() - start };
-}
-
-/**
- * Sanitize conversation history to ensure valid message format
- * Removes orphaned tool results and ensures proper message structure
- */
-function sanitizeMessages(messages: AdminChatMessage[]): AdminChatMessage[] {
-  const sanitized: AdminChatMessage[] = [];
-  const validToolCallIds = new Set<string>();
-
-  // First pass: collect valid tool call IDs from assistant messages
-  for (const msg of messages) {
-    if (msg.role === 'assistant' && msg.tool_calls) {
-      for (const tc of msg.tool_calls) {
-        if (tc.id) {
-          validToolCallIds.add(tc.id);
-        }
-      }
-    }
-  }
-
-  // Second pass: filter and validate messages
-  for (const msg of messages) {
-    if (msg.role === 'tool') {
-      // Only include tool results that have a matching tool call
-      const toolCallId = (msg as ToolResult).tool_call_id;
-      if (!toolCallId || !validToolCallIds.has(toolCallId)) {
-        logger.info('Skipping orphaned tool result', { toolCallId });
-        continue;
-      }
-    }
-
-    if (msg.role === 'assistant' && typeof msg.content === 'string') {
-      const { cleanContent } = extractThinking(msg.content);
-      if (cleanContent !== msg.content) {
-        sanitized.push({ ...msg, content: cleanContent });
-        continue;
-      }
-    }
-
-    sanitized.push(msg);
-  }
-
-  return sanitized;
-}
 
 interface AvatarContext {
   id: string;
@@ -565,338 +132,12 @@ function buildSystemPrompt(avatar?: AvatarContext): string {
       persona: avatar.persona,
       enabledCategories: categories,
     };
-    
+
     return buildDynamicSystemPrompt(avatarConfig, 'admin-ui');
   }
 
   // Fallback for no avatar context
   return `You are a Swarm avatar assistant. Please select an avatar to chat with.`;
-}
-
-// CATEGORY_TOOLSETS and resolveAllowedToolsets are now imported from @swarm/core
-
-function sanitizeToolError(value: unknown): string {
-  if (typeof value !== 'string') {
-    return value instanceof Error ? value.message : 'Tool failed';
-  }
-
-  const raw = value.trim();
-  if (!raw) return 'Tool failed';
-
-  // Try to extract a readable message from JSON error bodies (common for provider APIs).
-  if (raw.startsWith('{') || raw.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === 'object') {
-        const obj = parsed as Record<string, unknown>;
-        const detail = typeof obj.detail === 'string' ? obj.detail : undefined;
-        const title = typeof obj.title === 'string' ? obj.title : undefined;
-        const error = typeof obj.error === 'string' ? obj.error : undefined;
-        const message = typeof obj.message === 'string' ? obj.message : undefined;
-        const candidate = detail || error || message || title;
-        if (candidate && candidate.trim()) return candidate.trim();
-      }
-    } catch {
-      // fall through
-    }
-  }
-
-  // Avoid dumping long JSON/stack traces into user-visible chat.
-  if (raw.length > 300) return `${raw.slice(0, 300)}…`;
-  return raw;
-}
-
-function stringifyToolResultForModel(result: unknown): string {
-  if (typeof result === 'string') return result;
-  if (!result || typeof result !== 'object') return JSON.stringify({ data: result });
-
-  const obj = { ...(result as Record<string, unknown>) };
-  if (typeof obj.error === 'string') obj.error = sanitizeToolError(obj.error);
-  if (typeof obj.message === 'string') obj.message = sanitizeToolError(obj.message);
-  return JSON.stringify(obj);
-}
-
-function normalizeToolResult(result: McpToolResult, toolName: string): Record<string, unknown> {
-  const payload: Record<string, unknown> = {
-    success: result.success,
-  };
-
-  if (result.error) {
-    payload.error = sanitizeToolError(result.error);
-  }
-
-  if (result.data !== undefined) {
-    if (typeof result.data === 'object' && result.data !== null) {
-      Object.assign(payload, result.data as Record<string, unknown>);
-      payload.data = result.data;
-    } else {
-      payload.data = result.data;
-    }
-  }
-
-  if (result.media?.url && payload.url === undefined) {
-    payload.url = result.media.url;
-    payload.type = payload.type ?? result.media.type;
-  }
-
-  if (result.pendingJob) {
-    payload._pendingJob = result.pendingJob;
-    payload.jobId = payload.jobId ?? result.pendingJob.jobId;
-    payload.status = payload.status ?? result.pendingJob.status ?? 'pending';
-  }
-
-  if (result.uiAction?.payload && payload.type === undefined && result.uiAction.type === 'upload_widget') {
-    payload.type = 'upload_url';
-  }
-
-  if (!result.success && !payload.message) {
-    payload.message = `Tool ${toolName} failed${result.error ? `: ${sanitizeToolError(result.error)}` : ''}`;
-  }
-
-  return payload;
-}
-
-async function buildOpenRouterTools(
-  registry: ToolRegistry,
-  context: ToolContext,
-  options: { enabledCategories?: ToolCategory[] } = {}
-): Promise<Tool[]> {
-  const toolDefs = registry.getForPlatform(context.platform);
-  const allowedToolsets = resolveAllowedToolsets(options.enabledCategories);
-  // Include all tools from allowed toolsets - no keyword-based routing
-  const toolsetFiltered = allowedToolsets
-    ? toolDefs.filter(tool => allowedToolsets.includes(tool.toolset || 'core'))
-    : toolDefs;
-
-  // Filter out tools where shouldShow returns false
-  const visibilityChecks = await Promise.all(
-    toolsetFiltered.map(async (tool) => {
-      if (tool.shouldShow) {
-        try {
-          return await tool.shouldShow(context);
-        } catch {
-          return true; // Show on error
-        }
-      }
-      return true; // No shouldShow = always visible
-    })
-  );
-  const filtered = toolsetFiltered.filter((_, index) => visibilityChecks[index]);
-
-  return Promise.all(filtered.map(async (toolDef) => {
-    let description = toolDef.description;
-    if (toolDef.contextBuilder) {
-      const contextStr = await toolDef.contextBuilder(context);
-      if (contextStr) {
-        description = `${description}\n\n📌 ${contextStr}`;
-      }
-    }
-
-    const toolFn: Record<string, unknown> = {
-      name: toolDef.name,
-      description,
-      inputSchema: toolDef.inputSchema,
-    };
-
-    if (toolDef.execute !== false) {
-      toolFn.execute = async (params: Record<string, unknown>) => {
-        const result = await registry.execute(toolDef.name, params, context);
-        return normalizeToolResult(result, toolDef.name);
-      };
-    }
-
-    return {
-      type: 'function',
-      function: toolFn,
-    } as unknown as Tool;
-  }));
-}
-
-async function executeUiTool(
-  toolName: string,
-  args: Record<string, unknown>,
-  tools: Tool[]
-): Promise<Record<string, unknown>> {
-  const tool = tools.find(candidate => candidate.function.name === toolName);
-  if (!tool || !hasExecuteFunction(tool)) {
-    throw new Error(`Tool ${toolName} is manual or not available`);
-  }
-  const validator = tool.function.inputSchema as unknown as {
-    safeParse: (value: unknown) =>
-      | { success: true; data: Record<string, unknown> }
-      | { success: false; error: { message: string } };
-  };
-  const parsedArgs = validator.safeParse(args);
-  if (!parsedArgs.success) {
-    throw new Error(`Invalid input for tool ${toolName}: ${parsedArgs.error.message}`);
-  }
-  return await tool.function.execute(parsedArgs.data) as Record<string, unknown>;
-}
-
-async function buildModelSelectorPayload(
-  services: AllServices['models'],
-  avatarId: string,
-  family?: string
-): Promise<Record<string, unknown>> {
-  const models = await services.listModels(family);
-  const config = await services.getConfig(avatarId);
-  const currentModel = config?.model;
-
-  return {
-    type: 'model_selector',
-    models: models.map(model => ({
-      id: model.id,
-      name: model.name,
-      pricing: model.pricing ? {
-        prompt: Number(model.pricing.prompt),
-        completion: Number(model.pricing.completion),
-      } : undefined,
-      contextLength: (model as { context_length?: number }).context_length ?? model.contextLength,
-      provider: (model as { provider?: string }).provider || model.id.split('/')[0] || 'other',
-    })),
-    currentModel,
-    ...(family ? { instructions: `Showing models filtered by "${family}".` } : {}),
-  };
-}
-
-async function buildFeatureTogglePayload(
-  avatarId: string,
-  args: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const feature = args.feature as 'media' | 'voice' | 'twitter' | 'telegram' | 'discord';
-  const label = args.label as string;
-  const description = args.description as string | undefined;
-  const config = await avatars.getAvatar(avatarId);
-
-  let currentState = false;
-  const avatarConfig = config as Record<string, unknown> | null | undefined;
-  if (avatarConfig) {
-    switch (feature) {
-      case 'media':
-        currentState = Boolean((avatarConfig.mediaConfig as Record<string, unknown> | undefined)?.enabled);
-        break;
-      case 'voice':
-        currentState = Boolean((avatarConfig.voiceConfig as Record<string, unknown> | undefined)?.enabled);
-        break;
-      case 'twitter':
-      case 'telegram': {
-        const platforms = avatarConfig.platforms as Record<string, { enabled?: boolean }> | undefined;
-        currentState = Boolean(platforms?.[feature]?.enabled);
-        break;
-      }
-      case 'discord': {
-        const platforms = avatarConfig.platforms as Record<string, { enabled?: boolean }> | undefined;
-        currentState = Boolean(platforms?.[feature]?.enabled);
-        break;
-      }
-    }
-  }
-
-  return {
-    type: 'feature_toggle',
-    feature,
-    currentState,
-    label,
-    description,
-  };
-}
-
-function buildPendingToolResponse(toolName: string, args: Record<string, unknown>): string {
-  if (toolName === 'configure_integration') {
-    if (args.integration === 'twitter') {
-      return ''; // TwitterConnectPrompt renders its own UI
-    }
-    return ''; // IntegrationConfigPrompt renders its own UI
-  }
-  if (toolName === 'request_model_selection') {
-    return 'Please select a model:';
-  }
-  if (toolName === 'request_feature_toggle') {
-    return 'Please choose your preference below:';
-  }
-  if (toolName === 'request_secret') {
-    const label = typeof args.label === 'string'
-      ? args.label
-      : typeof args.secretType === 'string'
-        ? args.secretType.replace(/_/g, ' ')
-        : 'the requested secret';
-    return `Please enter ${label}.`;
-  }
-  if (toolName === 'request_twitter_connection' || toolName === 'twitter_request_integration') {
-    return ''; // TwitterConnectPrompt renders its own UI
-  }
-  if (toolName === 'request_property_research') {
-    return 'Please grant property research access:';
-  }
-  if (
-    toolName === 'get_profile_upload_url' ||
-    toolName === 'get_reference_image_upload_url' ||
-    toolName === 'get_character_reference_upload_url' ||
-    toolName === 'set_profile_image' ||
-    toolName === 'set_character_reference'
-  ) {
-    return 'Please upload your image:';
-  }
-  return 'Please provide the requested input.';
-}
-
-// The SDK returns ParsedToolCall with unknown types - we need to handle that
-type SdkToolCall = {
-  id: unknown;
-  name: unknown;
-  arguments: unknown;
-};
-
-type MessageContent = string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
-
-function toSdkMessages(messages: AdminChatMessage[]): Array<{ role: 'user' | 'assistant' | 'system' | 'tool'; content: MessageContent; toolCallId?: string }> {
-  return messages.map(message => {
-    if (message.role === 'tool') {
-      return {
-        role: 'tool' as const,
-        content: typeof message.content === 'string' ? redactMediaUrlsFromText(message.content) : message.content,
-        toolCallId: message.tool_call_id,
-      };
-    }
-
-    // If a message has media (generated images/videos shown in UI), include image URLs as multimodal parts.
-    // This makes vision-capable models able to see what they previously generated.
-    const mediaImages = (message.media || []).filter(m => m.type === 'image' && typeof m.url === 'string');
-    const modelSafeImages = mediaImages.filter(img => !isProbablyPrivateMediaUrl(img.url));
-    if (modelSafeImages.length > 0) {
-      const baseText = Array.isArray(message.content)
-        ? (message.content.find(p => p.type === 'text') as { text?: string } | undefined)?.text || ''
-        : String(message.content || '');
-      const sanitizedBaseText = redactMediaUrlsFromText(baseText);
-
-      return {
-        role: message.role,
-        content: [
-          { type: 'text', text: sanitizedBaseText },
-          ...modelSafeImages.map(img => ({
-            type: 'image_url',
-            image_url: { url: img.url },
-          })),
-        ],
-      };
-    }
-
-    return {
-      role: message.role,
-      content: (() => {
-        const raw = message.content as MessageContent;
-        if (typeof raw === 'string') return redactMediaUrlsFromText(raw);
-        if (Array.isArray(raw)) {
-          return raw.map((part: { type: string; text?: string; image_url?: { url: string } }) => (
-            part.type === 'text' && typeof part.text === 'string'
-              ? { ...part, text: redactMediaUrlsFromText(part.text) }
-              : part
-          ));
-        }
-        return raw;
-      })(),
-    };
-  });
 }
 
 function buildModelInput(systemPrompt: string, messages: AdminChatMessage[]) {
@@ -920,121 +161,9 @@ function buildModelInput(systemPrompt: string, messages: AdminChatMessage[]) {
   return fromChatMessages(toSdkMessages(inputMessages) as any);
 }
 
-function toAdminToolCall(toolCall: SdkToolCall): ToolCall {
-  return {
-    id: String(toolCall.id),
-    type: 'function',
-    function: {
-      name: String(toolCall.name),
-      arguments: JSON.stringify(toolCall.arguments ?? {}),
-    },
-  };
-}
-
-/** Media item generated during chat */
-interface MediaItem {
-  type: 'image' | 'video' | 'sticker' | 'audio';
-  url: string;
-  prompt?: string;
-  id?: string;
-}
-
-/**
- * Extract media URLs from tool results
- */
-function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
-  const media: MediaItem[] = [];
-
-  const isAudioUrl = (url: string) => {
-    const lowerUrl = url.toLowerCase();
-    return (
-      lowerUrl.includes('.mp3') ||
-      lowerUrl.includes('.wav') ||
-      lowerUrl.includes('.ogg') ||
-      lowerUrl.includes('.opus') ||
-      lowerUrl.includes('/audio/') ||
-      lowerUrl.includes('/voice/')
-    );
-  };
-
-  for (const result of toolResults) {
-    try {
-      const parsed = JSON.parse(result.content);
-
-      // Get URL from either 'url' or 'resultUrl' field
-      const mediaUrl = parsed.url || parsed.resultUrl;
-
-      // Direct image/media generation result (check for success + url/resultUrl)
-      // Also check for status === 'completed' as alternative success indicator
-      const isSuccess = parsed.success || (parsed.status === 'completed' && mediaUrl);
-
-      // Skip Twitter/X URLs - these are tweet links, not media
-      const isTwitterUrl = mediaUrl && typeof mediaUrl === 'string' &&
-        (mediaUrl.includes('x.com/') || mediaUrl.includes('twitter.com/'));
-
-      if (isSuccess && mediaUrl && typeof mediaUrl === 'string' && !isTwitterUrl) {
-        // Determine type from context, parsed.type, or file extension
-        let mediaType: 'image' | 'video' | 'sticker' | 'audio' = parsed.type || 'image';
-
-        if (isAudioUrl(mediaUrl)) {
-          mediaType = 'audio';
-        } else if (mediaUrl.includes('.mp4') || mediaUrl.includes('.webm') || mediaUrl.includes('/video')) {
-          mediaType = 'video';
-        } else if (mediaUrl.includes('/sticker')) {
-          mediaType = 'sticker';
-        }
-
-        media.push({
-          type: mediaType,
-          url: mediaUrl,
-          prompt: parsed.prompt,
-          id: parsed.id || parsed.jobId,
-        });
-      }
-
-      // Gallery items (can be in .items or .data array)
-      const itemsArray = Array.isArray(parsed.items) ? parsed.items
-        : Array.isArray(parsed.data) ? parsed.data
-        : null;
-      if (itemsArray) {
-        for (const item of itemsArray) {
-          if (item.url) {
-            media.push({
-              type: (isAudioUrl(String(item.url)) ? 'audio' : (item.type || 'image')),
-              url: item.url,
-              prompt: item.prompt,
-              id: item.id,
-            });
-          }
-        }
-      }
-
-      // Voice tool results have URLs nested in data (introUrl, previewUrl, url)
-      // Handle { success: true, data: { introUrl, previewUrl, url, ... } }
-      if (isSuccess && parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)) {
-        const dataObj = parsed.data as Record<string, unknown>;
-        // Check for voice-specific URLs
-        const voiceUrls = [dataObj.introUrl, dataObj.previewUrl, dataObj.url].filter(
-          (u): u is string => typeof u === 'string' && u.length > 0
-        );
-        for (const voiceUrl of voiceUrls) {
-          const isTwitter = voiceUrl.includes('x.com/') || voiceUrl.includes('twitter.com/');
-          if (!isTwitter) {
-            media.push({
-              type: isAudioUrl(voiceUrl) ? 'audio' : 'image',
-              url: voiceUrl,
-              prompt: typeof dataObj.message === 'string' ? dataObj.message : undefined,
-              id: typeof dataObj.assetId === 'string' ? dataObj.assetId : undefined,
-            });
-          }
-        }
-      }
-    } catch {
-      // Not JSON, skip
-    }
-  }
-
-  return media;
+function clampInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
 }
 
 interface ProcessChatOptions {
@@ -1042,11 +171,6 @@ interface ProcessChatOptions {
   attachments?: Array<{ type: 'image' | 'file' | 'audio'; data: string; name?: string }>;
   model?: string; // Override default LLM model
   maxTokens?: number; // Override default max output tokens
-}
-
-function clampInt(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, Math.trunc(value)));
 }
 
 /**
@@ -1106,7 +230,7 @@ export async function processChat(
   const allMedia: MediaItem[] = [];
   const pendingJobs: Array<{ jobId: string; type: 'image' | 'video' | 'sticker'; prompt?: string; purpose?: string }> = [];
   const avatarUpdates: { profileImageUrl?: string; name?: string } = {};
-  
+
   // Use custom system prompt if provided (for e.g. browser automation avatars)
   let systemPrompt = options?.customSystemPrompt || buildSystemPrompt(avatar);
 
@@ -1224,7 +348,7 @@ export async function processChat(
           { role: 'user' as const, content: userMessageContent as string },
         ]
       : messages;
-  
+
   const input = buildModelInput(systemPrompt, messagesWithAttachments);
 
   // Use provided model or fall back to default
@@ -1244,7 +368,7 @@ export async function processChat(
   // Try SDK first, fallback to direct API if SDK's Zod validation fails.
   // Retries are done ONLY before any tool execution to avoid duplicating side effects.
   let toolCalls: SdkToolCall[] = [];
-  let adminToolCalls: ToolCall[] = [];
+  let adminToolCalls: ReturnType<typeof toAdminToolCall>[] = [];
   let modelResult: ReturnType<typeof getOpenRouterClient.prototype.callModel> | null = null;
   let usedFallback = false;
   let fallbackResponse = '';
@@ -1585,7 +709,7 @@ export async function processChat(
   }
 
   const toolResults: ToolResult[] = [];
-  
+
   // When using fallback, we need to manually execute tools since we don't have the SDK's streaming interface
   if (toolCalls.length > 0 && usedFallback) {
     const MAX_FALLBACK_TOOL_STEPS = LLM_MAX_STEPS;
@@ -1760,14 +884,14 @@ export async function processChat(
       }
     }
   }
-  
+
   // When using SDK, process the tool execution stream
   if (toolCalls.length > 0 && modelResult && !usedFallback) {
     logger.info('Processing tool execution stream', { toolCallCount: toolCalls.length });
     let streamItemCount = 0;
     for await (const item of modelResult.getNewMessagesStream()) {
       streamItemCount++;
-      logger.info('Stream item received', { 
+      logger.info('Stream item received', {
         itemType: typeof item === 'object' && item !== null && 'type' in item ? (item as { type: string }).type : 'unknown',
         hasItem: !!item,
       });
@@ -1946,7 +1070,7 @@ export async function processChat(
     if (result.content && typeof result.content === 'string') {
       try {
         const parsed = JSON.parse(result.content);
-        
+
         // Profile image updates
         if (toolName === 'set_profile_image' || toolName === 'save_uploaded_profile_image') {
           if (parsed.success && (parsed.data?.url || parsed.url || parsed.resultUrl)) {
@@ -1954,7 +1078,7 @@ export async function processChat(
             logger.info('Profile image updated', { profileImageUrl: avatarUpdates.profileImageUrl });
           }
         }
-        
+
         // Name updates from update_my_profile
         if (toolName === 'update_my_profile') {
           if (parsed.success && parsed.data?.updated?.includes('name')) {
@@ -1974,16 +1098,16 @@ export async function processChat(
     }
   }
 
-  logger.info('Final response', { 
-    mediaCount: allMedia.length, 
+  logger.info('Final response', {
+    mediaCount: allMedia.length,
     pendingJobCount: pendingJobs.length,
     hasPendingToolCall: !!pendingToolCall,
     pendingToolCallName: pendingToolCall?.name,
   });
-  return { 
-    response, 
-    history: messages, 
-    media: allMedia.length > 0 ? allMedia : undefined, 
+  return {
+    response,
+    history: messages,
+    media: allMedia.length > 0 ? allMedia : undefined,
     pendingJobs: pendingJobs.length > 0 ? pendingJobs : undefined,
     avatarUpdates: (avatarUpdates.profileImageUrl || avatarUpdates.name) ? avatarUpdates : undefined,
     pendingToolCall,
@@ -2033,7 +1157,7 @@ export async function handler(
     // Authenticate the request
     const session = await authenticateRequest(event);
     const requestId = event.requestContext.requestId;
-    
+
     // Set logging context for this handler
     logger.setContext({ subsystem: 'chat', requestId });
 
@@ -2073,7 +1197,7 @@ export async function handler(
           ...(mergedThinking.length > 0 ? { thinking: mergedThinking } : {}),
         };
       });
-      
+
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -2383,11 +1507,11 @@ export async function handler(
     }).catch(() => {
       // Ignore recording failures
     });
-    
+
     return {
       statusCode,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         error: mapped.publicError,
         message: errorMessage,
       }),

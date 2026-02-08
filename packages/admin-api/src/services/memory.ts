@@ -19,7 +19,7 @@ import {
   TransactWriteItemsCommand,
 } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
+  type DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
   DeleteCommand,
@@ -27,6 +27,7 @@ import {
   BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { marshall } from '@aws-sdk/util-dynamodb';
+import { getDynamoClient as getSharedDynamoClient, _setDynamoClient as _setSharedDynamoClient } from './dynamo-client.js';
 import { logger } from '@swarm/core';
 import type {
   AvatarMemory,
@@ -132,20 +133,13 @@ export const DEFAULT_CONFIG: MemoryConsolidationConfig = {
 // DynamoDB Client
 // ============================================================================
 
-let _dynamoClient: DynamoDBDocumentClient | null = null;
-
 function getDynamoClient(): DynamoDBDocumentClient {
-  if (!_dynamoClient) {
-    _dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-      marshallOptions: { removeUndefinedValues: true },
-    });
-  }
-  return _dynamoClient;
+  return getSharedDynamoClient();
 }
 
 // For testing - allows injecting a mock client
 export function _setDynamoClient(client: DynamoDBDocumentClient | null): void {
-  _dynamoClient = client;
+  _setSharedDynamoClient(client);
 }
 
 // ============================================================================

@@ -1,11 +1,10 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { createHash, randomBytes } from 'crypto';
+import { getDynamoClient } from './services/dynamo-client.js';
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE || 'SwarmAdmin-prod';
 
-const dynamoClient = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(dynamoClient);
+const docClient = getDynamoClient();
 
 function generateApiKey() {
   const keyBytes = randomBytes(32);

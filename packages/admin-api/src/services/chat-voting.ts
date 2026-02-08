@@ -5,9 +5,7 @@
  * All bots in a chat must unanimously approve before changes are made.
  * Rate limited to once per week per modification type.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -21,10 +19,9 @@ import type {
   ChatModificationStatus,
 } from '../types.js';
 import * as telegram from './telegram.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 // Rate limit: once per week (7 days in ms)

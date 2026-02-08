@@ -2,10 +2,8 @@
  * Voice Service
  * Handles transcription, voice profile creation, and TTS generation.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
 } from '@aws-sdk/lib-dynamodb';
@@ -18,10 +16,9 @@ import { syncAvatarConfig } from './config-sync.js';
 import { getAvatar } from './avatars.js';
 import * as credits from './credits.js';
 import { DEFAULT_MODELS } from './models-registry.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const s3Client = new S3Client({});
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;

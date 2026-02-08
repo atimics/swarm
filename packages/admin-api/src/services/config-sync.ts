@@ -4,15 +4,12 @@
  * so that Lambda handlers can access them at runtime.
  */
 import {
-  DynamoDBClient,
-} from '@aws-sdk/client-dynamodb';
-import {
-  DynamoDBDocumentClient,
   PutCommand,
   DeleteCommand,
   GetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { AvatarRecord } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 // Core AvatarConfig type (matches @swarm/core)
 interface AvatarConfig {
@@ -133,9 +130,7 @@ interface AvatarConfig {
   secrets: string[];
 }
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const STATE_TABLE = process.env.STATE_TABLE;
 const ADMIN_TABLE = process.env.ADMIN_TABLE;
 

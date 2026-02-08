@@ -2,9 +2,7 @@
  * Privy Authentication Service
  * Handles authentication for users signing in via Privy (email/social)
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   UpdateCommand,
@@ -22,10 +20,9 @@ import {
   type OnboardingAuthOutcome,
 } from './accounts/onboarding-auth-resolver.js';
 import { upsertActiveUserSlotOnLogin } from './active-user-limit.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 const secretsClient = new SecretsManagerClient({});
 

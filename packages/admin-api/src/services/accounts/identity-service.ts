@@ -5,19 +5,17 @@
  * Replaces the separate getOrCreateAccountForWallet, getOrCreateAccountForCrossmint,
  * and getOrCreateAccountForPrivy functions with a single generic implementation.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
+  type DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   QueryCommand,
   DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { randomUUID } from 'crypto';
+import { getDynamoClient } from '../dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
@@ -318,7 +316,7 @@ export async function getAccountIdentities(
     })
   );
 
-  return (result.Items ?? []).map((item) => ({
+  return (result.Items ?? []).map((item: Record<string, unknown>) => ({
     type: item.identityType as IdentityType,
     providerId: item.providerId as string,
   }));

@@ -2,8 +2,7 @@
  * Integrations Service
  * Unified configuration and status management for all integrations.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { UpdateExpressionBuilder } from '@swarm/core';
 import type {
   IntegrationType,
@@ -19,10 +18,9 @@ import { getAvatar } from './avatars.js';
 import { _getSecretValueInternal, secretExists, storeSecret } from './secrets.js';
 import { getDefaultModel, getModelsForCapability, type ModelInfo } from './models-registry.js';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 // =============================================================================

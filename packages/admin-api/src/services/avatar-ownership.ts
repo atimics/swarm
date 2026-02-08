@@ -14,9 +14,7 @@
  * - Inhabitant mapping: pk=AVATAR#<id>, sk=INHABITANT#<wallet>
  * - GSI1 query: sk=INHABITANT#<wallet> → returns pk=AVATAR#<id>
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   QueryCommand,
   TransactWriteCommand,
@@ -25,15 +23,13 @@ import type { AvatarRecord } from '../types.js';
 import { getGateStatus, type GateStatus } from './nft-gate.js';
 import { verifyGateBurn } from './lineage-nft.js';
 import { canInhabitAscendedAvatar } from './avatar-ascend.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 const TABLE_NAME = process.env.ADMIN_TABLE || 'SwarmAdminTable';
 const GSI1_NAME = 'GSI1';
 const WALLET_MAPPING_SK = 'INHABITS';
 
-const client = new DynamoDBClient({});
-const ddb = DynamoDBDocumentClient.from(client, {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const ddb = getDynamoClient();
 
 export interface InhabitResult {
   success: boolean;

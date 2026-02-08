@@ -17,15 +17,14 @@ import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 import { getClearSessionCookies, getSessionFromCookie } from '../auth/session-cookie.js';
 import { getCorsHeaders } from '../http/cors.js';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { MessageSender } from '../types.js';
 import * as avatarService from '../services/avatars.js';
 import { createSharedChatProcessor } from '../services/processor-adapter.js';
+import { getDynamoClient } from '../services/dynamo-client.js';
 
 const TABLE_NAME = process.env.ADMIN_TABLE || 'SwarmAdminTable';
 const MAX_MESSAGES_PER_CHANNEL = 100;
@@ -39,9 +38,7 @@ const RATE_LIMIT_TTL_SECONDS = 120; // TTL for rate limit records (2 minutes)
 // Typing indicator TTL
 const TYPING_INDICATOR_TTL_MS = 30_000; // 30 seconds
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 // In-memory typing indicators (for Lambda warm instances)
 // In production, you'd want to use DynamoDB or Redis for cross-instance state

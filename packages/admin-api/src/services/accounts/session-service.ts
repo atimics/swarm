@@ -4,19 +4,17 @@
  * Manages user sessions with support for multiple auth providers.
  * Extracted from wallet-auth.ts to provide a unified session interface.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
+  type DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   UpdateCommand,
   DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { randomBytes } from 'crypto';
+import { getDynamoClient } from '../dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const SESSION_TTL_HOURS = 24;

@@ -2,9 +2,7 @@
  * Telegram Admin Session Service
  * Manages user sessions for the in-Telegram bot creation and admin feature
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   UpdateCommand,
@@ -17,10 +15,9 @@ import type {
   AdminSessionState,
   TelegramUserBotRecord,
 } from '../types/telegram-admin.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 // Session TTLs
 const SESSION_TTL_SECONDS = 24 * 60 * 60; // 24 hours for active sessions

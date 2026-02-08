@@ -187,6 +187,11 @@ mock.module('@swarm/core', () => ({
   toolsToCategories: () => ['messaging'],
 }));
 
+mock.module('../dynamo-client.js', () => ({
+  getDynamoClient: () => ({ send: mockDynamoSend }),
+  _setDynamoClient: () => {},
+}));
+
 mock.module('../../telegram-webhook-shared.js', () => ({
   isAllowedDmUserById: mock(() => Promise.resolve(false)),
 }));

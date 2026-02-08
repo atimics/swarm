@@ -5,8 +5,7 @@
  * This is a shared handler that routes responses to the appropriate avatar.
  */
 import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import {
   TelegramAdapter,
   TwitterAdapter,
@@ -20,10 +19,9 @@ import {
   type ResponseAction,
 } from '@swarm/core';
 import { extractAvatarConfigFromStateItem } from './utils/extract-avatar-config.js';
+import { getDynamoClient } from './services/dynamo-client.js';
 
-const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamo = getDynamoClient();
 
 const STATE_TABLE = process.env.STATE_TABLE!;
 

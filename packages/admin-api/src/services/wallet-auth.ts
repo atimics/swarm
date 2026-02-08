@@ -2,9 +2,7 @@
  * Wallet Authentication Service
  * Handles Solana wallet sign-in (SIWS - Sign In With Solana)
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
   DeleteCommand,
@@ -16,10 +14,9 @@ import { randomBytes } from 'crypto';
 import { checkNFTGate, type NFTGateResult } from './nft-gate.js';
 import { getOrCreateAccountForWallet, recordAccountSession } from './accounts.js';
 import { upsertActiveUserSlotOnLogin } from './active-user-limit.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 // Session configuration

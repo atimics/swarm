@@ -15,17 +15,14 @@
  *   - TTL auto-deletes old entries
  *   - CloudWatch remains source of truth for long-term audit
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
   BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE || 'swarm-admin';
 
 // Log TTL: 24 hours (logs are for real-time debugging, CloudWatch has long-term)

@@ -10,15 +10,14 @@
  *   gsi1pk: EVENTS#<type>  (for cross-avatar queries)
  *   gsi1sk: <timestamp>
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE || 'swarm-admin';
 
 // Event TTL: 30 days

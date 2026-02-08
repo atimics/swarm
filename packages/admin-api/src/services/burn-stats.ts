@@ -4,9 +4,7 @@
  * Tracks RATI burn statistics per avatar for the tier system.
  * Burns are recorded on-chain (Solana) and cached in DynamoDB for fast access.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   UpdateCommand,
@@ -19,12 +17,11 @@ import {
   getProgressToNextTier,
   type BurnTier,
 } from '@swarm/core';
+import { getDynamoClient } from './dynamo-client.js';
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 // =============================================================================
 // Types

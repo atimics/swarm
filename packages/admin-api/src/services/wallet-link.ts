@@ -1,6 +1,5 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
+  type DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
   DeleteCommand,
@@ -12,10 +11,9 @@ import {
   getAccountIdForIdentity,
   type IdentityType,
 } from './accounts.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const LINK_CHALLENGE_TTL_MINUTES = 5;

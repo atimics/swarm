@@ -8,9 +8,7 @@
  * - Response triggers: direct engagement, message threshold, conversation gap
  * - Responds to CHANNEL with full context, not individual messages
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   UpdateCommand,
@@ -23,10 +21,9 @@ import type {
   SharedChannelMessage,
   SharedChannelHistoryRecord,
 } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 // === CONFIGURATION ===

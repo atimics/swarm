@@ -17,9 +17,7 @@
  * 7. Client submits NFT mint address to finalize ascension
  */
 import { Connection, type VersionedTransactionResponse } from '@solana/web3.js';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   UpdateCommand,
   PutCommand,
@@ -39,6 +37,7 @@ import {
   toRuntimeLimits,
   syncRuntimeLimitsToState,
 } from './runtime-limits.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 const TABLE_NAME = process.env.ADMIN_TABLE || 'SwarmAdminTable';
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
@@ -50,9 +49,7 @@ const HELIUS_TX_URL = HELIUS_API_KEY
   : null;
 
 const connection = new Connection(HELIUS_RPC_URL, 'confirmed');
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 // =============================================================================
 // Types

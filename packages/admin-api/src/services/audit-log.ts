@@ -12,12 +12,12 @@
  *
  * TTL: 90 days (audit events have longer retention than operational logs).
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
+  type DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { getDynamoClient } from './dynamo-client.js';
 
 // Audit TTL: 90 days
 const AUDIT_TTL_SECONDS = 90 * 24 * 60 * 60;
@@ -72,9 +72,7 @@ let _defaultDeps: AuditLogDeps | null = null;
 function getDefaultDeps(): AuditLogDeps {
   if (!_defaultDeps) {
     _defaultDeps = {
-      dynamoClient: DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-        marshallOptions: { removeUndefinedValues: true },
-      }),
+      dynamoClient: getDynamoClient(),
       tableName: process.env.ADMIN_TABLE || 'swarm-admin',
     };
   }

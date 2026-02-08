@@ -5,9 +5,8 @@
  * Base values come from the avatar's burn tier (more RATI burned = higher tier).
  * Bonus: +0.5 energy/hour per 1M tokens held by owner (capped at +2/hour)
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
+  type DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   UpdateCommand,
@@ -16,11 +15,10 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { BURN_TIERS, ASCENSION_ENERGY_BOOST } from '@swarm/core';
 import type { CreditBucket, AvatarRecord } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 // Default DynamoDB clients
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 // =============================================================================

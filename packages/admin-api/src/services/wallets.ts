@@ -6,16 +6,13 @@ import { Keypair, Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.j
 import bs58 from 'bs58';
 import { Wallet, JsonRpcProvider, formatEther } from 'ethers';
 import {
-  DynamoDBClient,
-} from '@aws-sdk/client-dynamodb';
-import {
-  DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
   GetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { storeSecret as storeSecretDefault, _getSecretValueInternal as _getSecretValueInternalDefault } from './secrets.js';
 import type { WalletInfo, UserSession } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 /**
  * Dependencies interface for wallet service (for testing)
@@ -64,9 +61,7 @@ export interface WalletServiceDeps {
 }
 
 // Default dependencies using real imports
-const defaultDynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const defaultDynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 // Default Solana RPC - avatar can configure their own Helius key

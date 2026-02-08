@@ -21,8 +21,7 @@ import type {
   PostMedia,
 } from '@swarm/core';
 import { TwitterAdapter, createContentStoreService, enqueuePost, isPostQueueConfigured, getPostQueueUrl, enqueueMediaJob, isMediaQueueConfigured, getMediaQueueUrl } from '@swarm/core';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
 import {
   checkMediaLimit,
@@ -33,6 +32,7 @@ import {
   getRuntimeUsageSnapshot,
 } from './entitlement-enforcement.js';
 import type { BagsLaunchConfig, BagsLaunchPreflightResult, BagsLaunchResult, BagsTokenStatus } from '@swarm/core';
+import { getDynamoClient } from './dynamo-client.js';
 
 // Lazy-loaded bags launch operations (avoids static dependency on @swarm/admin-api)
 let _bagsLaunch: {
@@ -51,7 +51,7 @@ async function getBagsLaunch() {
   return _bagsLaunch!;
 }
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE || 'SwarmAdmin-prod';
 
 export interface PlatformServicesConfig {

@@ -10,10 +10,6 @@
  */
 import { TwitterApi } from 'twitter-api-v2';
 import {
-  DynamoDBClient,
-} from '@aws-sdk/client-dynamodb';
-import {
-  DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
   DeleteCommand,
@@ -24,6 +20,7 @@ import {
 } from '@aws-sdk/client-secrets-manager';
 import * as secretsServiceDefault from './secrets.js';
 import type { UserSession } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 /**
  * Dependencies interface for Twitter OAuth service (for testing)
@@ -48,9 +45,7 @@ export interface TwitterOAuthServiceDeps {
   appCredentialsArn: string;
 }
 
-const defaultDynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const defaultDynamoClient = getDynamoClient();
 const defaultSecretsClient = new SecretsManagerClient({});
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;

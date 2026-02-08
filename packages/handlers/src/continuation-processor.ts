@@ -13,8 +13,7 @@
 import type { SQSEvent, Context, SQSBatchResponse } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { randomUUID } from 'node:crypto';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { logger, extractCorrelationIdFromSqsRecord } from '@swarm/core';
 import type {
@@ -25,11 +24,10 @@ import {
   shouldTriggerAvatarLoop,
   isProgressUpdate,
 } from '@swarm/core';
+import { getDynamoClient } from './services/dynamo-client.js';
 
 const sqsClient = new SQSClient({});
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const secretsClient = new SecretsManagerClient({});
 
 // Environment variables

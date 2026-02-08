@@ -10,14 +10,13 @@
  * entitlement daily limit is exhausted, acting as a "burst" mechanism.
  * Enterprise avatars (limit = -1) never touch the energy pool.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { CreditBucket } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 // Re-export energy functions from the new energy service
 export {
@@ -70,9 +69,7 @@ export async function consumeEnergy(
   return consumeEnergySimple(avatarId, cost);
 }
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 /**

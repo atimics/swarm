@@ -1,17 +1,14 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { getGateStatus } from './nft-gate.js';
 import type { AvatarRecord } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 const TABLE_NAME = process.env.ADMIN_TABLE || 'SwarmAdminTable';
 
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const ddb = getDynamoClient();
 
 const ORB_SLOT_SK = 'SLOT';
 

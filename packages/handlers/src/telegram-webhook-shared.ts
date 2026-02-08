@@ -10,788 +10,67 @@
  */
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, QueryCommand, GetCommand, DeleteCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { randomUUID, timingSafeEqual } from 'crypto';
+import { randomUUID } from 'crypto';
 import {
-  TelegramAdapter,
   createMessageEvaluator,
-  createStateService,
   logger,
   CORRELATION_ID_ATTR,
   extractCorrelationIdFromApiEvent,
-  type AvatarConfig,
 } from '@swarm/core';
 
+// --- Extracted modules ---
+import {
+  getAllowedDmUserIdsForAdmin,
+  isAllowedDmUserById,
+  isAllowedDmUser,
+  isTelegramUserOwnerOfAvatar,
+  upsertTelegramUserMapping,
+  isTelegramSuperadmin,
+  mergeAllowedChats,
+  buildRedirectMessage,
+  buildDmRedirectMessage,
+  isTelegramChatAllowed,
+  resolveTelegramUsername,
+  type HomeChannelChecker,
+} from './webhook-chat-access.js';
+
+import {
+  cleanupChannelState,
+  registerHomeChannelFromWebhook,
+  updateAvatarHomeChannel,
+  createHomeChannelChecker,
+  activateAvatarInChatFromWebhook,
+  maybeBootstrapHomeChannelFromGroupEngagement,
+} from './webhook-home-channel.js';
+
+import {
+  initialize,
+  getStateService,
+  getWebhookSecret,
+  verifySecretToken,
+  getAvatarConfig,
+  invalidateAvatarConfigCache,
+  getAvatarStatus,
+  getTelegramAdapter,
+} from './webhook-security.js';
+
+// --- Re-exports for external consumers ---
+export {
+  getAllowedDmUserIdsForAdmin,
+  isAllowedDmUserById,
+  mergeAllowedChats,
+  buildDmRedirectMessage,
+  isTelegramChatAllowed,
+  resolveTelegramUsername,
+  maybeBootstrapHomeChannelFromGroupEngagement,
+};
+export type { HomeChannelChecker };
+
 const sqs = new SQSClient({});
-const secretsClient = new SecretsManagerClient({});
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
 
 const MESSAGE_QUEUE_URL = process.env.MESSAGE_QUEUE_URL!;
-const STATE_TABLE = process.env.STATE_TABLE!;
 const ADMIN_TABLE = process.env.ADMIN_TABLE;
-const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
-
-// Lazy-initialized services
-let stateService: ReturnType<typeof createStateService>;
-
-// Per-avatar caches
-const avatarConfigCache = new Map<string, { value: AvatarConfig; expiresAt: number }>();
-const telegramAdapterCache = new Map<string, { value: TelegramAdapter; expiresAt: number }>();
-const botTokenCache = new Map<string, { value: string; expiresAt: number }>();
-const webhookSecretCache = new Map<string, { value: string; expiresAt: number }>();
-
-const CONFIG_TTL_MS = 60_000;
-const TOKEN_TTL_MS = 5 * 60_000;
-const WEBHOOK_SECRET_TTL_MS = 5 * 60_000;
-const HOME_CHANNEL_CACHE_TTL_MS = 60_000;
-
-// Home channel cache (set of chat IDs that are home channels)
-let homeChannelCache: { ids: Set<string>; expiresAt: number } | null = null;
-
-// Default values for redirect message
-const DEFAULT_HOME_CHANNEL_URL = 'https://t.me/ratichat';
-const DEFAULT_COIN_SYMBOL = '$RATiOS';
-const DEFAULT_COIN_ADDRESS = '281Qdc3ZcPQtn8odD9p4GyhzBSko1r5jmQrNU1dQBAGS';
-
-const DEFAULT_SUPERADMIN_TELEGRAM_USERNAMES = ['ratimics'];
-
-function getSuperadminTelegramUsernames(): string[] {
-  const raw = process.env.TELEGRAM_SUPERADMIN_USERNAMES;
-  if (!raw) return DEFAULT_SUPERADMIN_TELEGRAM_USERNAMES;
-  const parsed = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => s.replace(/^@/, '').toLowerCase());
-  return parsed.length > 0 ? parsed : DEFAULT_SUPERADMIN_TELEGRAM_USERNAMES;
-}
-
-function isTelegramSuperadmin(username?: string): boolean {
-  if (!username) return false;
-  const u = username.replace(/^@/, '').toLowerCase();
-  return getSuperadminTelegramUsernames().includes(u);
-}
-
-export function getAllowedDmUserIdsForAdmin(telegramCfg: {
-  allowedDmUserIds?: string[];
-  allowedDmUsers?: Array<{ userId: string | number }>;
-} | undefined): string[] {
-  if (!telegramCfg) return [];
-
-  // New format takes precedence if present (even if empty).
-  if ('allowedDmUsers' in telegramCfg) {
-    return telegramCfg.allowedDmUsers?.map((u) => String(u.userId)) || [];
-  }
-
-  return telegramCfg.allowedDmUserIds || [];
-}
-
-/**
- * Check if a user ID is in the allowed DM users list.
- * Used by response-sender for defense-in-depth when we don't have the sender's username.
- * Handles both numeric user IDs and usernames in the allowlist by resolving usernames to IDs.
- */
-export async function isAllowedDmUserById(
-  userId: string,
-  telegramCfg: {
-    allowedDmUserIds?: string[];
-    allowedDmUsers?: Array<{ userId: string | number }>;
-  } | undefined
-): Promise<boolean> {
-  const allowedDmUserIds = getAllowedDmUserIdsForAdmin(telegramCfg);
-  
-  logger.info('DM allowlist check (response-sender)', {
-    event: 'dm_allowlist_check_response_sender',
-    userId,
-    allowedDmUserIds,
-    hasAdminTable: !!process.env.ADMIN_TABLE,
-  });
-  
-  // Fast path: check if user ID is directly in the list
-  if (allowedDmUserIds.includes(userId)) {
-    return true;
-  }
-
-  // Slow path: resolve non-numeric entries (usernames) to user IDs
-  for (const entry of allowedDmUserIds) {
-    // Skip numeric entries (already checked above)
-    if (/^\d+$/.test(entry)) continue;
-
-    // Try to resolve username to user ID
-    const resolvedUserId = await resolveTelegramUsername(entry);
-    logger.info('Username resolution attempt', {
-      event: 'username_resolution',
-      username: entry,
-      resolvedUserId,
-      targetUserId: userId,
-      matched: resolvedUserId === userId,
-    });
-    if (resolvedUserId && resolvedUserId === userId) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-async function isTelegramUserOwnerOfAvatar(telegramUserId: string, avatarId: string): Promise<boolean> {
-  // Read at runtime to support response-sender
-  const adminTable = process.env.ADMIN_TABLE;
-  if (!adminTable) return false;
-
-  // New format: one record per avatar.
-  // Key: pk=TELEGRAM_USER#{telegramUserId}, sk=CREATED_BOT#{avatarId}
-  // Legacy format (back-compat): pk=TELEGRAM_USER#{telegramUserId}, sk=CREATED_BOT
-  const newKeyResult = await dynamoClient.send(
-    new GetCommand({
-      TableName: adminTable,
-      Key: {
-        pk: `TELEGRAM_USER#${telegramUserId}`,
-        sk: `CREATED_BOT#${avatarId}`,
-      },
-      ProjectionExpression: 'avatarId, avatarIds',
-    })
-  );
-
-  if (newKeyResult.Item) return true;
-
-  const legacyResult = await dynamoClient.send(
-    new GetCommand({
-      TableName: adminTable,
-      Key: {
-        pk: `TELEGRAM_USER#${telegramUserId}`,
-        sk: 'CREATED_BOT',
-      },
-      ProjectionExpression: 'avatarId, avatarIds',
-    })
-  );
-
-  const legacy = legacyResult.Item as { avatarId?: string; avatarIds?: string[] } | undefined;
-  if (!legacy) return false;
-
-  if (legacy.avatarId) return legacy.avatarId === avatarId;
-  if (Array.isArray(legacy.avatarIds)) return legacy.avatarIds.includes(avatarId);
-  return false;
-}
-
-/**
- * Store a mapping from Telegram username to user ID.
- * This allows the system to resolve usernames entered in the admin UI to actual user IDs.
- * Record format: pk=TELEGRAM_USERNAME#{lowercase_username}, sk=IDENTITY
- */
-async function upsertTelegramUserMapping(userId: string, username?: string, displayName?: string): Promise<void> {
-  if (!ADMIN_TABLE || !username) return;
-
-  const normalizedUsername = username.replace(/^@/, '').toLowerCase();
-  if (!normalizedUsername) return;
-
-  try {
-    await dynamoClient.send(new PutCommand({
-      TableName: ADMIN_TABLE,
-      Item: {
-        pk: `TELEGRAM_USERNAME#${normalizedUsername}`,
-        sk: 'IDENTITY',
-        userId: userId,
-        username: username.replace(/^@/, ''),  // Store original case
-        displayName: displayName || username,
-        updatedAt: Date.now(),
-      },
-    }));
-  } catch (err) {
-    // Non-critical, log and continue
-    logger.warn('Failed to upsert Telegram user mapping', {
-      userId,
-      username,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
-
-/**
- * Resolve a Telegram username to a user ID.
- * Returns the user ID if found, or null if not found.
- */
-export async function resolveTelegramUsername(username: string): Promise<string | null> {
-  // Read at runtime to support response-sender which may set ADMIN_TABLE after module load
-  const adminTable = process.env.ADMIN_TABLE;
-  if (!adminTable) {
-    logger.warn('ADMIN_TABLE not set, cannot resolve username', { username });
-    return null;
-  }
-
-  const normalizedUsername = username.replace(/^@/, '').toLowerCase();
-  if (!normalizedUsername) return null;
-
-  try {
-    const result = await dynamoClient.send(new GetCommand({
-      TableName: adminTable,
-      Key: {
-        pk: `TELEGRAM_USERNAME#${normalizedUsername}`,
-        sk: 'IDENTITY',
-      },
-      ProjectionExpression: 'userId',
-    }));
-
-    return (result.Item?.userId as string) || null;
-  } catch (err) {
-    logger.warn('Failed to resolve Telegram username', {
-      username,
-      adminTable,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
-}
-
-/**
- * Check if a sender is in the allowed DM users list.
- * Handles both numeric user IDs and usernames in the allowlist.
- */
-async function isAllowedDmUser(
-  senderId: string,
-  senderUsername: string | undefined,
-  allowedDmUserIds: string[]
-): Promise<boolean> {
-  // Fast path: check if sender ID is directly in the list
-  if (allowedDmUserIds.includes(senderId)) {
-    return true;
-  }
-
-  // Check if sender's username (lowercase) matches any entry that looks like a username
-  if (senderUsername) {
-    const normalizedSenderUsername = senderUsername.replace(/^@/, '').toLowerCase();
-    for (const entry of allowedDmUserIds) {
-      // If entry is non-numeric, it might be a username
-      if (!/^\d+$/.test(entry)) {
-        const normalizedEntry = entry.replace(/^@/, '').toLowerCase();
-        if (normalizedEntry === normalizedSenderUsername) {
-          return true;
-        }
-      }
-    }
-  }
-
-  // Slow path: resolve non-numeric entries (usernames) to user IDs
-  for (const entry of allowedDmUserIds) {
-    // Skip numeric entries (already checked above)
-    if (/^\d+$/.test(entry)) continue;
-
-    // Try to resolve username to user ID
-    const resolvedUserId = await resolveTelegramUsername(entry);
-    if (resolvedUserId && resolvedUserId === senderId) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-export function mergeAllowedChats(
-  params: {
-    existingAllowedChats?: Array<{ chatId: string; username?: string; title?: string }>;
-    existingAllowedChatIds?: string[];
-    add: { chatId: string; username?: string; title?: string };
-  }
-): {
-  allowedChats: Array<{ chatId: string; username?: string; title?: string }>;
-  allowedChatIds: string[];
-} {
-  const seen = new Map<string, { chatId: string; username?: string; title?: string }>();
-
-  for (const id of params.existingAllowedChatIds || []) {
-    const chatId = String(id);
-    if (!seen.has(chatId)) seen.set(chatId, { chatId });
-  }
-
-  for (const c of params.existingAllowedChats || []) {
-    const chatId = String(c.chatId);
-    const existing = seen.get(chatId);
-    if (existing) {
-      seen.set(chatId, {
-        chatId,
-        username: existing.username ?? c.username,
-        title: existing.title ?? c.title,
-      });
-    } else {
-      seen.set(chatId, { chatId, username: c.username, title: c.title });
-    }
-  }
-
-  {
-    const chatId = String(params.add.chatId);
-    const existing = seen.get(chatId);
-    if (existing) {
-      seen.set(chatId, {
-        chatId,
-        username: params.add.username ?? existing.username,
-        title: params.add.title ?? existing.title,
-      });
-    } else {
-      seen.set(chatId, { chatId, username: params.add.username, title: params.add.title });
-    }
-  }
-
-  const allowedChats = Array.from(seen.values());
-  const allowedChatIds = allowedChats.map((c) => c.chatId);
-  return { allowedChats, allowedChatIds };
-}
-
-async function activateAvatarInChatFromWebhook(
-  avatarId: string,
-  chat: { chatId: string; username?: string; title?: string }
-): Promise<void> {
-  if (!STATE_TABLE) return;
-
-  const avatarConfig = await getAvatarConfig(avatarId);
-  if (!avatarConfig) throw new Error(`Avatar not found: ${avatarId}`);
-
-  const telegramCfg = avatarConfig.platforms.telegram;
-  const merged = mergeAllowedChats({
-    existingAllowedChats: telegramCfg?.allowedChats,
-    existingAllowedChatIds: telegramCfg?.allowedChatIds,
-    add: { chatId: chat.chatId, username: chat.username, title: chat.title },
-  });
-
-  await dynamoClient.send(
-    new UpdateCommand({
-      TableName: STATE_TABLE,
-      Key: {
-        pk: `AVATAR#${avatarId}`,
-        sk: 'CONFIG',
-      },
-      UpdateExpression: 'SET #config.#platforms.#telegram.#allowedChats = :allowedChats, #config.#platforms.#telegram.#allowedChatIds = :allowedChatIds',
-      ExpressionAttributeNames: {
-        '#config': 'config',
-        '#platforms': 'platforms',
-        '#telegram': 'telegram',
-        '#allowedChats': 'allowedChats',
-        '#allowedChatIds': 'allowedChatIds',
-      },
-      ExpressionAttributeValues: {
-        ':allowedChats': merged.allowedChats,
-        ':allowedChatIds': merged.allowedChatIds,
-      },
-    })
-  );
-
-  // Propagate to ADMIN_TABLE (stores fields at platforms.telegram.* directly)
-  if (ADMIN_TABLE) {
-    try {
-      await dynamoClient.send(
-        new UpdateCommand({
-          TableName: ADMIN_TABLE,
-          Key: {
-            pk: `AVATAR#${avatarId}`,
-            sk: 'CONFIG',
-          },
-          UpdateExpression: 'SET #platforms.#telegram.#allowedChats = :allowedChats, #platforms.#telegram.#allowedChatIds = :allowedChatIds',
-          ExpressionAttributeNames: {
-            '#platforms': 'platforms',
-            '#telegram': 'telegram',
-            '#allowedChats': 'allowedChats',
-            '#allowedChatIds': 'allowedChatIds',
-          },
-          ExpressionAttributeValues: {
-            ':allowedChats': merged.allowedChats,
-            ':allowedChatIds': merged.allowedChatIds,
-          },
-        })
-      );
-    } catch (err) {
-      logger.warn('Failed to propagate allowedChats to ADMIN_TABLE', {
-        avatarId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  avatarConfigCache.delete(avatarId);
-}
-
-/**
- * Build redirect message for blocked channels.
- * Uses avatar-specific config if available, otherwise falls back to defaults.
- */
-function buildRedirectMessage(telegramCfg?: {
-  homeChannelUrl?: string;
-  homeChannelUsername?: string;
-  coinSymbol?: string;
-  coinAddress?: string;
-}): string {
-  const homeChannelUrl = telegramCfg?.homeChannelUrl
-    || (telegramCfg?.homeChannelUsername ? `https://t.me/${telegramCfg.homeChannelUsername}` : DEFAULT_HOME_CHANNEL_URL);
-  const coinSymbol = telegramCfg?.coinSymbol || DEFAULT_COIN_SYMBOL;
-  const coinAddress = telegramCfg?.coinAddress || DEFAULT_COIN_ADDRESS;
-
-  return `I can only chat in my home channel! Join us:
-
-🌐 https://swarm.rati.chat/
-💬 ${homeChannelUrl}
-🪙 ${coinSymbol}: ${coinAddress}`;
-}
-
-export function buildDmRedirectMessage(telegramCfg?: {
-  homeChannelUrl?: string;
-  homeChannelUsername?: string;
-}): {
-  text: string;
-  replyMarkup: {
-    inline_keyboard: Array<Array<{ text: string; url: string }>>;
-  };
-} {
-  const homeChannelUrl = telegramCfg?.homeChannelUrl
-    || (telegramCfg?.homeChannelUsername
-      ? `https://t.me/${telegramCfg.homeChannelUsername}`
-      : DEFAULT_HOME_CHANNEL_URL);
-
-  return {
-    text: `I can’t chat in DMs.
-
-Use RATi Chat to create a new bot or manage your account:
-${homeChannelUrl}`,
-    replyMarkup: {
-      inline_keyboard: [
-        [{ text: 'Open RATi Chat', url: homeChannelUrl }],
-        [{ text: 'New Bot', url: `${homeChannelUrl}?start=new_bot` }],
-      ],
-    },
-  };
-}
-
-
-/**
- * Clean up channel state when bot is removed from a channel.
- * Deletes the channel state record from both STATE_TABLE and ADMIN_TABLE.
- */
-async function cleanupChannelState(avatarId: string, chatId: string): Promise<void> {
-  const deletePromises: Promise<unknown>[] = [];
-
-  // Delete from STATE_TABLE (core channel state)
-  if (STATE_TABLE) {
-    deletePromises.push(
-      dynamoClient.send(new DeleteCommand({
-        TableName: STATE_TABLE,
-        Key: {
-          pk: `AVATAR#${avatarId}`,
-          sk: `CHANNEL#${chatId}#STATE`,
-        },
-      })).catch(err => {
-        logger.warn('Failed to delete channel state from STATE_TABLE', {
-          avatarId,
-          chatId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      })
-    );
-  }
-
-  // Delete from ADMIN_TABLE (admin-api channel state)
-  if (ADMIN_TABLE) {
-    deletePromises.push(
-      dynamoClient.send(new DeleteCommand({
-        TableName: ADMIN_TABLE,
-        Key: {
-          pk: `CHANNEL#${avatarId}#${chatId}`,
-          sk: 'STATE',
-        },
-      })).catch(err => {
-        logger.warn('Failed to delete channel state from ADMIN_TABLE', {
-          avatarId,
-          chatId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      })
-    );
-  }
-
-  await Promise.all(deletePromises);
-  logger.info('Cleaned up channel state after bot removal', { avatarId, chatId });
-}
-
-/**
- * Register a home channel from the webhook handler.
- * This is a lightweight version that writes directly to ADMIN_TABLE.
- */
-async function registerHomeChannelFromWebhook(
-  avatarId: string,
-  chatId: string,
-  botUsername: string,
-  channelUsername?: string,
-  channelTitle?: string
-): Promise<void> {
-  if (!ADMIN_TABLE) return;
-
-  const now = Date.now();
-
-  await dynamoClient.send(new PutCommand({
-    TableName: ADMIN_TABLE,
-    Item: {
-      pk: 'HOME_CHANNELS',
-      sk: chatId,
-      chatId,
-      avatarId,
-      botUsername,
-      channelUsername,
-      channelTitle,
-      registeredAvatars: [{ avatarId, botUsername }],
-      registeredAt: now,
-      updatedAt: now,
-    },
-  }));
-}
-
-/**
- * Update avatar config with home channel info.
- * Uses UpdateCommand to only modify the home channel fields.
- */
-async function updateAvatarHomeChannel(
-  avatarId: string,
-  chatId: string,
-  channelUsername?: string,
-  _channelTitle?: string // Unused but kept for potential future use
-): Promise<void> {
-  if (!STATE_TABLE) return;
-
-  // Build the update expression dynamically for STATE_TABLE (config is nested under `config` attr)
-  const stateUpdateParts: string[] = [
-    '#config.#platforms.#telegram.#homeChannelId = :chatId',
-  ];
-  const stateExprNames: Record<string, string> = {
-    '#config': 'config',
-    '#platforms': 'platforms',
-    '#telegram': 'telegram',
-    '#homeChannelId': 'homeChannelId',
-  };
-  const expressionValues: Record<string, unknown> = {
-    ':chatId': chatId,
-  };
-
-  // ADMIN_TABLE update parts (no `config` nesting)
-  const adminUpdateParts: string[] = [
-    '#platforms.#telegram.#homeChannelId = :chatId',
-  ];
-  const adminExprNames: Record<string, string> = {
-    '#platforms': 'platforms',
-    '#telegram': 'telegram',
-    '#homeChannelId': 'homeChannelId',
-  };
-
-  if (channelUsername) {
-    stateUpdateParts.push('#config.#platforms.#telegram.#homeChannelUsername = :username');
-    stateExprNames['#homeChannelUsername'] = 'homeChannelUsername';
-    expressionValues[':username'] = channelUsername;
-
-    stateUpdateParts.push('#config.#platforms.#telegram.#homeChannelUrl = :url');
-    stateExprNames['#homeChannelUrl'] = 'homeChannelUrl';
-    expressionValues[':url'] = `https://t.me/${channelUsername}`;
-
-    adminUpdateParts.push('#platforms.#telegram.#homeChannelUsername = :username');
-    adminExprNames['#homeChannelUsername'] = 'homeChannelUsername';
-
-    adminUpdateParts.push('#platforms.#telegram.#homeChannelUrl = :url');
-    adminExprNames['#homeChannelUrl'] = 'homeChannelUrl';
-  }
-
-  await dynamoClient.send(new UpdateCommand({
-    TableName: STATE_TABLE,
-    Key: {
-      pk: `AVATAR#${avatarId}`,
-      sk: 'CONFIG',
-    },
-    UpdateExpression: `SET ${stateUpdateParts.join(', ')}`,
-    ExpressionAttributeNames: stateExprNames,
-    ExpressionAttributeValues: expressionValues,
-  }));
-
-  // Propagate to ADMIN_TABLE (stores fields at platforms.telegram.* directly)
-  if (ADMIN_TABLE) {
-    try {
-      await dynamoClient.send(new UpdateCommand({
-        TableName: ADMIN_TABLE,
-        Key: {
-          pk: `AVATAR#${avatarId}`,
-          sk: 'CONFIG',
-        },
-        UpdateExpression: `SET ${adminUpdateParts.join(', ')}`,
-        ExpressionAttributeNames: adminExprNames,
-        ExpressionAttributeValues: expressionValues,
-      }));
-    } catch (err) {
-      logger.warn('Failed to propagate home channel to ADMIN_TABLE', {
-        avatarId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  // Invalidate the avatar config cache
-  avatarConfigCache.delete(avatarId);
-}
-
-/**
- * Get all home channel IDs from the registry.
- * Uses in-memory caching with 60 second TTL.
- */
-async function getHomeChannelIds(): Promise<Set<string>> {
-  if (!ADMIN_TABLE) {
-    // ADMIN_TABLE not configured, home channel feature disabled
-    return new Set();
-  }
-
-  const now = Date.now();
-  if (homeChannelCache && homeChannelCache.expiresAt > now) {
-    return homeChannelCache.ids;
-  }
-
-  try {
-    const result = await dynamoClient.send(new QueryCommand({
-      TableName: ADMIN_TABLE,
-      KeyConditionExpression: 'pk = :pk',
-      ExpressionAttributeValues: {
-        ':pk': 'HOME_CHANNELS',
-      },
-      ProjectionExpression: 'sk', // sk = chatId
-    }));
-
-    const ids = new Set<string>();
-    for (const item of result.Items || []) {
-      if (item.sk) {
-        ids.add(item.sk as string);
-      }
-    }
-
-    homeChannelCache = { ids, expiresAt: now + HOME_CHANNEL_CACHE_TTL_MS };
-    return ids;
-  } catch (err) {
-    logger.warn('Failed to fetch home channels', { error: err instanceof Error ? err.message : String(err) });
-    return new Set();
-  }
-}
-
-/**
- * Create a home channel checker for a specific avatar.
- * Checks if a chat ID is a registered home channel.
- */
-function createHomeChannelChecker(): HomeChannelChecker {
-  return {
-    async isHomeChannel(chatId: string, avatarHomeChannelId?: string): Promise<boolean> {
-      // Fast path: check if it's the avatar's own home channel
-      if (avatarHomeChannelId && chatId === avatarHomeChannelId) {
-        return true;
-      }
-
-      // Check against all registered home channels
-      const homeChannelIds = await getHomeChannelIds();
-      if (homeChannelIds.has(chatId)) {
-        return true;
-      }
-
-      return false;
-    },
-  };
-}
-
-/**
- * Interface for home channel checking (dependency injection).
- * This allows the webhook handler to check home channels without depending on admin-api.
- */
-export interface HomeChannelChecker {
-  isHomeChannel: (chatId: string, avatarHomeChannelId?: string) => Promise<boolean>;
-}
-
-/**
- * Check if a Telegram chat is allowed for this avatar.
- *
- * For DMs (private chats): Uses allowedDmUserIds allowlist, or allowAllDms for admin bots.
- * For groups/channels: Uses home channel logic if homeChannelChecker is provided.
- *                      If allowedChatIds is configured, those chats are treated as home channels.
- *                      If homeChannelChecker is not provided, falls back to allowedChatIds allowlist.
- *
- * @param envelope - The message envelope with chat info
- * @param telegramCfg - The avatar's Telegram configuration
- * @param homeChannelChecker - Optional: checker for home channel validation
- * @returns true if the chat is allowed, false otherwise
- */
-export function isTelegramChatAllowed(
-  envelope: {
-    conversationId: string;
-    sender: { id: string | number; platformUserId?: string | number; username?: string };
-    metadata: { chatType?: string };
-  },
-  telegramCfg: {
-    allowedChatIds?: string[];
-    allowedChats?: Array<{ chatId: string }>;
-    homeChannelId?: string;
-    /** Allow all DMs (intended for admin/system bots only). */
-    allowAllDms?: boolean;
-    /** @deprecated Prefer allowedDmUsers for richer display info */
-    allowedDmUserIds?: string[];
-    allowedDmUsers?: Array<{ userId: string | number }>;
-  } | undefined,
-  homeChannelChecker?: HomeChannelChecker
-): boolean | Promise<boolean> {
-  const getAllowedChatIds = (): string[] | undefined => {
-    // New format takes precedence if present (even if empty).
-    if (telegramCfg && 'allowedChats' in telegramCfg) {
-      return telegramCfg.allowedChats?.map((c) => String(c.chatId)) || [];
-    }
-    return telegramCfg?.allowedChatIds;
-  };
-
-  const getAllowedDmUserIds = (): string[] | undefined => {
-    // New format takes precedence if present (even if empty).
-    if (telegramCfg && 'allowedDmUsers' in telegramCfg) {
-      return telegramCfg.allowedDmUsers?.map((u) => String(u.userId)) || [];
-    }
-    return telegramCfg?.allowedDmUserIds;
-  };
-
-  if (envelope.metadata.chatType === 'private') {
-    if (telegramCfg?.allowAllDms) return true;
-
-    const allowedDmUserIds = getAllowedDmUserIds();
-    const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
-    const senderUsername = envelope.sender.username;
-
-    if (!allowedDmUserIds || allowedDmUserIds.length === 0) {
-      return false;
-    }
-
-    // Use the async isAllowedDmUser which handles username resolution
-    return isAllowedDmUser(senderId, senderUsername, allowedDmUserIds);
-  }
-
-  // Groups/channels: use home channel logic if checker is provided
-  if (homeChannelChecker) {
-    const allowedChatIds = getAllowedChatIds();
-    if (allowedChatIds && allowedChatIds.length > 0 && allowedChatIds.includes(envelope.conversationId)) {
-      return true;
-    }
-
-    return homeChannelChecker.isHomeChannel(
-      envelope.conversationId,
-      telegramCfg?.homeChannelId
-    );
-  }
-
-  // Fallback: optional allowlist by chat ID (legacy behavior)
-  const allowedChatIds = getAllowedChatIds();
-  if (allowedChatIds && allowedChatIds.length > 0) {
-    return allowedChatIds.includes(envelope.conversationId);
-  }
-
-  return true;
-}
-
-async function initialize(): Promise<void> {
-  if (stateService) return;
-  stateService = createStateService(STATE_TABLE);
-}
 
 function ok(): APIGatewayProxyResultV2 {
   return { statusCode: 200, body: 'OK' };
@@ -803,179 +82,6 @@ function lowerHeaders(headers: Record<string, string | undefined> | undefined): 
     out[k.toLowerCase()] = v || '';
   }
   return out;
-}
-
-async function getWebhookSecret(avatarId: string): Promise<string | null> {
-  const now = Date.now();
-  const cached = webhookSecretCache.get(avatarId);
-  if (cached && cached.expiresAt > now) return cached.value;
-
-  const secretName = `${SECRET_PREFIX}/${avatarId}/telegram_webhook_secret/default`;
-  try {
-    const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
-    const value = response.SecretString || '';
-    if (!value) return null;
-    webhookSecretCache.set(avatarId, { value, expiresAt: now + WEBHOOK_SECRET_TTL_MS });
-    return value;
-  } catch {
-    return null;
-  }
-}
-
-function verifySecretToken(provided: string | undefined, expected: string): boolean {
-  const providedBuf = Buffer.from(provided || '');
-  const expectedBuf = Buffer.from(expected);
-  return providedBuf.length === expectedBuf.length && timingSafeEqual(providedBuf, expectedBuf);
-}
-
-async function getAvatarConfig(avatarId: string): Promise<AvatarConfig | null> {
-  const now = Date.now();
-  const cached = avatarConfigCache.get(avatarId);
-  if (cached && cached.expiresAt > now) return cached.value;
-
-  const config = await stateService.getAvatarConfig(avatarId);
-  if (!config) return null;
-
-  avatarConfigCache.set(avatarId, { value: config, expiresAt: now + CONFIG_TTL_MS });
-  return config;
-}
-
-type AvatarStatus = 'draft' | 'active' | 'paused' | 'deleted';
-const avatarStatusCache = new Map<string, { value: AvatarStatus; expiresAt: number }>();
-
-async function getAvatarStatus(avatarId: string): Promise<AvatarStatus> {
-  const now = Date.now();
-  const cached = avatarStatusCache.get(avatarId);
-  if (cached && cached.expiresAt > now) return cached.value;
-
-  const result = await stateService.getAvatarConfigWithStatus(avatarId);
-  const status = result?.status || 'draft';
-
-  avatarStatusCache.set(avatarId, { value: status, expiresAt: now + CONFIG_TTL_MS });
-  return status;
-}
-
-async function getBotToken(avatarId: string): Promise<string | null> {
-  const now = Date.now();
-  const cached = botTokenCache.get(avatarId);
-  if (cached && cached.expiresAt > now) return cached.value;
-
-  // Use direct Secrets Manager path (same pattern as getWebhookSecret)
-  const secretName = `${SECRET_PREFIX}/${avatarId}/telegram_bot_token/default`;
-  try {
-    logger.info('Fetching bot token from Secrets Manager', { avatarId, secretName });
-    const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretName }));
-    const token = response.SecretString || '';
-    if (!token) {
-      logger.warn('Bot token secret is empty', { avatarId, secretName });
-      return null;
-    }
-    logger.info('Successfully retrieved bot token', { avatarId, tokenLength: token.length });
-    botTokenCache.set(avatarId, { value: token, expiresAt: now + TOKEN_TTL_MS });
-    return token;
-  } catch (error: unknown) {
-    const err = error as { name?: string; message?: string; code?: string; $metadata?: unknown };
-    logger.error('Failed to get bot token from Secrets Manager', undefined, {
-      avatarId,
-      secretName,
-      errorMessage: err.message || 'Unknown error',
-      errorName: err.name || 'Unknown',
-      errorCode: err.code,
-      metadata: err.$metadata ? JSON.stringify(err.$metadata) : undefined,
-    });
-    return null;
-  }
-}
-
-async function getTelegramAdapter(avatarId: string, avatarConfig: AvatarConfig): Promise<TelegramAdapter | null> {
-  const now = Date.now();
-  const cached = telegramAdapterCache.get(avatarId);
-  if (cached && cached.expiresAt > now) return cached.value;
-
-  const token = await getBotToken(avatarId);
-  if (!token) return null;
-
-  const adapter = new TelegramAdapter(avatarConfig, token);
-  telegramAdapterCache.set(avatarId, { value: adapter, expiresAt: now + TOKEN_TTL_MS });
-  return adapter;
-}
-
-export async function maybeBootstrapHomeChannelFromGroupEngagement(
-  params: {
-  avatarId: string;
-  avatarConfig: AvatarConfig;
-  envelope: {
-    conversationId: string;
-    metadata: {
-      chatType?: string;
-      chatTitle?: string;
-      isMention?: boolean;
-      isReplyToBot?: boolean;
-    };
-  };
-  },
-  deps: {
-    registerHomeChannelFromWebhook: typeof registerHomeChannelFromWebhook;
-    updateAvatarHomeChannel: typeof updateAvatarHomeChannel;
-    logger?: {
-      info: (message: string, meta?: Record<string, unknown>) => void;
-      warn: (message: string, meta?: Record<string, unknown>) => void;
-    };
-  } = {
-    registerHomeChannelFromWebhook,
-    updateAvatarHomeChannel,
-    logger,
-  }
-): Promise<boolean> {
-  const { avatarId, avatarConfig, envelope } = params;
-  const log = deps.logger || logger;
-
-  if (!ADMIN_TABLE || !STATE_TABLE) return false;
-  const chatType = envelope.metadata.chatType;
-  if (chatType !== 'group' && chatType !== 'supergroup' && chatType !== 'channel') return false;
-
-  const isEngaged = Boolean(envelope.metadata.isMention || envelope.metadata.isReplyToBot);
-  if (!isEngaged) return false;
-
-  const hasHomeChannel = Boolean(avatarConfig.platforms.telegram?.homeChannelId);
-  if (hasHomeChannel) return false;
-
-  const botUsername = avatarConfig.platforms.telegram?.botUsername || '';
-  if (!botUsername) return false;
-
-  try {
-    await deps.registerHomeChannelFromWebhook(
-      avatarId,
-      envelope.conversationId,
-      botUsername,
-      undefined,
-      envelope.metadata.chatTitle
-    );
-
-    await deps.updateAvatarHomeChannel(
-      avatarId,
-      envelope.conversationId,
-      undefined,
-      envelope.metadata.chatTitle
-    );
-
-    log.info('Bootstrapped home channel from group engagement', {
-      event: 'home_channel_bootstrapped',
-      avatarId,
-      chatId: envelope.conversationId,
-      chatType,
-    });
-    return true;
-  } catch (err) {
-    log.warn('Failed to bootstrap home channel from group engagement', {
-      event: 'home_channel_bootstrap_failed',
-      avatarId,
-      chatId: envelope.conversationId,
-      chatType,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  }
 }
 
 export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
@@ -992,6 +98,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
   try {
     await initialize();
+    const stateService = getStateService();
 
     if (!avatarId || !/^[a-zA-Z0-9_-]+$/.test(avatarId)) {
       logger.warn('Invalid avatarId');
@@ -1026,7 +133,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     // Allow bypass with internal test key for E2E testing
     const internalTestKey = headers['x-internal-test-key'];
     const bypassAuth = INTERNAL_TEST_KEY && internalTestKey === INTERNAL_TEST_KEY;
-    
+
     if (!bypassAuth) {
       const webhookSecret = await getWebhookSecret(avatarId);
       if (webhookSecret) {
@@ -1130,6 +237,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
                 chatTitle
               );
 
+              // Invalidate config cache after update
+              invalidateAvatarConfigCache(avatarId);
+
               logger.info('Auto-registered home channel', {
                 event: 'home_channel_auto_registered',
                 avatarId,
@@ -1219,6 +329,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
             chatId,
             username: chatUsername,
             title: chatTitle,
+          }, {
+            getAvatarConfig,
+            invalidateAvatarConfigCache,
           });
 
           await bot.api.sendMessage(
@@ -1242,7 +355,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     // Use home channel checker for groups/channels if ADMIN_TABLE is configured
     const homeChecker = ADMIN_TABLE ? createHomeChannelChecker() : undefined;
 
-    // Track username → userId mapping for any user we see (for username-based allowlist resolution)
+    // Track username -> userId mapping for any user we see (for username-based allowlist resolution)
     const senderId = String(envelope.sender.platformUserId ?? envelope.sender.id);
     const senderUsername = envelope.sender.username;
     const senderDisplayName = envelope.sender.displayName;
@@ -1393,6 +506,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
             chatId: envelope.conversationId,
             username: chatUsername,
             title: chatTitle,
+          }, {
+            getAvatarConfig,
+            invalidateAvatarConfigCache,
           });
           chatAllowed = true;
           logger.info('Superadmin auto-activated avatar in chat', {
@@ -1428,6 +544,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
               chatId: envelope.conversationId,
               username: chatUsername,
               title: chatTitle,
+            }, {
+              getAvatarConfig,
+              invalidateAvatarConfigCache,
             });
             chatAllowed = true;
             logger.info('DM allowlist user auto-activated avatar in chat', {

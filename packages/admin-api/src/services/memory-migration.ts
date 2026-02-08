@@ -7,12 +7,12 @@
  * @module memory-migration
  */
 import {
-  DynamoDBDocumentClient,
+  type DynamoDBDocumentClient,
   UpdateCommand,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { logger } from '@swarm/core';
+import { getDynamoClient as getSharedDynamoClient } from './dynamo-client.js';
 import {
   getEmbeddingService,
   EMBEDDING_VERSION,
@@ -29,15 +29,8 @@ const ADMIN_TABLE = process.env.ADMIN_TABLE || 'swarm-admin-table';
 // DynamoDB Client
 // ============================================================================
 
-let _dynamoClient: DynamoDBDocumentClient | null = null;
-
 function getDynamoClient(): DynamoDBDocumentClient {
-  if (!_dynamoClient) {
-    _dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-      marshallOptions: { removeUndefinedValues: true },
-    });
-  }
-  return _dynamoClient;
+  return getSharedDynamoClient();
 }
 
 // ============================================================================

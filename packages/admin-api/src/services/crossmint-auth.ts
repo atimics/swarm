@@ -2,9 +2,7 @@
  * Crossmint Authentication Service
  * Handles authentication for users signing in via Crossmint (email/social)
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
   UpdateCommand,
@@ -19,10 +17,9 @@ import {
   type OnboardingAuthOutcome,
 } from './accounts/onboarding-auth-resolver.js';
 import { upsertActiveUserSlotOnLogin } from './active-user-limit.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const CROSSMINT_API_KEY = process.env.CROSSMINT_API_KEY;
 

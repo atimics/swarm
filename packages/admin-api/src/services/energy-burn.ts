@@ -1,6 +1,4 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import {
@@ -15,12 +13,11 @@ import bs58 from 'bs58';
 
 import { _getSecretValueInternal } from './secrets.js';
 import { addEnergyBankCredits } from './energy.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 export interface BurnToEnergyConfig {
   allowedMints: string[];

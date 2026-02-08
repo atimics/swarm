@@ -6,12 +6,12 @@
  * 1. HOLDING = Permission to create avatars (1 NFT held = 1 creation slot)
  * 2. BURNING = Permission to abandon an inhabited avatar
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
 } from '@aws-sdk/client-secrets-manager';
+import { getDynamoClient } from './dynamo-client.js';
 
 // Required collection for access (Orb/Gate NFTs)
 const GATE_COLLECTION = '8GCAyy5L2o2ZPdQKo3EtYAYNKYT8Y6sqGHweintLTSJ';
@@ -64,9 +64,7 @@ async function getHeliusRpcUrl(): Promise<string | null> {
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const CREATOR_STATS_SK = 'STATS';
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 function creatorStatsKey(walletAddress: string): { pk: string; sk: string } {
   return {

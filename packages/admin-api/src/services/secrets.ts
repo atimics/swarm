@@ -13,21 +13,16 @@ import {
   type CreateSecretCommandInput,
 } from '@aws-sdk/client-secrets-manager';
 import {
-  DynamoDBClient,
-} from '@aws-sdk/client-dynamodb';
-import {
-  DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
   QueryCommand,
   DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { SecretMetadata, SecretType, UserSession } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 const secretsClient = new SecretsManagerClient({});
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 const SECRETS_TABLE = process.env.ADMIN_TABLE!;
 const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';

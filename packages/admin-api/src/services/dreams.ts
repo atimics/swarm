@@ -14,18 +14,15 @@
  * memories that resonate with the dream content and reinforce them. This creates
  * emergent memory consolidation - weak memories can be "saved" by appearing in dreams.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { searchMemories, reinforceMemory } from './memory.js';
 import { enqueueDreamJob } from './dream-jobs.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 const STATE_TABLE = process.env.STATE_TABLE;
 const ADMIN_TABLE = process.env.ADMIN_TABLE;

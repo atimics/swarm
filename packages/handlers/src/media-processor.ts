@@ -4,8 +4,7 @@
  */
 import type { SQSEvent, Context } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand } from '@aws-sdk/lib-dynamodb';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { logger, DEFAULT_LLM_MODEL } from '@swarm/core';
@@ -24,6 +23,7 @@ import {
 } from '@swarm/core/types';
 import { ensureReplicateKey } from './utils/system-replicate-key.js';
 import { checkMediaWithEnergyFallback } from './services/entitlement-enforcement.js';
+import { getDynamoClient } from './services/dynamo-client.js';
 
 // Schema for media queue items
 const MediaQueueItemSchema = z.object({
@@ -37,9 +37,7 @@ const MediaQueueItemSchema = z.object({
 });
 
 const sqs = new SQSClient({});
-const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamo = getDynamoClient();
 
 const IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
 

@@ -26,8 +26,7 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { z } from 'zod';
 import { createHash, randomBytes } from 'crypto';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { logger } from '@swarm/core';
 import type { ToolCategory } from '@swarm/core';
 import { processChat } from './chat.js';
@@ -36,6 +35,7 @@ import * as avatars from '../services/avatars.js';
 import * as voice from '../services/voice.js';
 import * as energy from '../services/energy.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { getDynamoClient } from '../services/dynamo-client.js';
 
 // =============================================================================
 // Configuration
@@ -43,8 +43,7 @@ import { getCorsHeaders } from '../http/cors.js';
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
-const dynamoClient = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(dynamoClient);
+const docClient = getDynamoClient();
 
 // =============================================================================
 // OpenAI-Compatible Types

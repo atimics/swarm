@@ -2,16 +2,13 @@
  * Avatar Templates Service - Import/Export avatar configurations
  */
 import {
-  DynamoDBClient,
-} from '@aws-sdk/client-dynamodb';
-import {
-  DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { AvatarRecord, UserSession } from '../types.js';
 import * as avatarsDefault from './avatars.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 /**
  * Dependencies interface for template service (for testing)
@@ -28,9 +25,7 @@ export interface TemplateServiceDeps {
 }
 
 // Default dependencies
-const defaultDynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const defaultDynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 const defaultDeps: TemplateServiceDeps = {

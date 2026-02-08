@@ -4,9 +4,7 @@
  * Manages property research jobs using web search to gather data.
  * No external API keys required - uses web search to find public information.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   UpdateCommand,
@@ -27,6 +25,7 @@ import type {
   SchoolInfo,
   AssessorInfo,
 } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 /**
  * Dependencies interface for property research service (for testing)
@@ -42,14 +41,9 @@ export interface PropertyResearchDeps {
 
 const TABLE_NAME = process.env.ADMIN_TABLE || 'SwarmAdminTable';
 
-const client = new DynamoDBClient({});
-const defaultDdb = DynamoDBDocumentClient.from(client, {
-  marshallOptions: { removeUndefinedValues: true },
-});
-
 // Default dependencies
 const defaultDeps: PropertyResearchDeps = {
-  dynamoClient: defaultDdb,
+  dynamoClient: getDynamoClient(),
   tableName: TABLE_NAME,
   generateId: randomUUID,
 };

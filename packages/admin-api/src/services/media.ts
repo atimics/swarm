@@ -7,8 +7,7 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand, QueryCommand, DeleteCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand, QueryCommand, DeleteCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuid } from 'uuid';
 import {
   createModelResolver,
@@ -22,12 +21,11 @@ import * as credits from './credits.js';
 import { _getSecretValueInternal } from './secrets.js';
 import { getReplicateVersion } from './models-registry.js';
 import type { MediaJob, GalleryItem, SecretType, AICapability } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 const s3Client = new S3Client({});
 const sqsClient = new SQSClient({});
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET!;
 const MEDIA_QUEUE_URL = process.env.MEDIA_QUEUE_URL;

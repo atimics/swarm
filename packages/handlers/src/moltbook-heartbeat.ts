@@ -10,8 +10,8 @@
  * 3. Update lastMoltbookHeartbeat timestamp
  */
 import type { ScheduledHandler, Context } from 'aws-lambda';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import {
   createStateService,
   createSecretsService,
@@ -20,6 +20,7 @@ import {
   type LLMConfig,
 } from '@swarm/core';
 import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
+import { getDynamoClient } from './services/dynamo-client.js';
 
 const STATE_TABLE = process.env.STATE_TABLE!;
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
@@ -38,9 +39,7 @@ async function initialize(): Promise<void> {
   if (stateService) return;
   stateService = createStateService(STATE_TABLE);
   secretsService = createSecretsService();
-  adminDocClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-    marshallOptions: { removeUndefinedValues: true },
-  });
+  adminDocClient = getDynamoClient();
 }
 
 /**

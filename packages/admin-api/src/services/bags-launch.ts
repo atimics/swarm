@@ -21,9 +21,7 @@ import {
 } from '@bagsfm/bags-sdk';
 import { deriveBagsFeeShareV2PartnerConfigPda } from '@bagsfm/bags-sdk/dist/utils/fee-share-v2/partner-config.js';
 import bs58 from 'bs58';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 
@@ -32,6 +30,7 @@ import { getAvatar } from './avatars.js';
 import { canLaunchToken } from './burn-stats.js';
 import { BURN_TIERS } from '@swarm/core';
 import type { AvatarRecord } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
 // ---------------------------------------------------------------------------
 // Tier Helper
@@ -66,9 +65,7 @@ if (TOTAL_BPS !== 10000) {
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 // ---------------------------------------------------------------------------
 // Types

@@ -4,18 +4,16 @@
  * Admin API writes a compact, runtime-friendly copy of an avatar's effective limits
  * into STATE_TABLE so Lambda handlers can enforce limits without needing ADMIN_TABLE.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   type EntitlementRecord,
   type PlanLimits,
   type PlanType,
   PLAN_DEFAULTS,
 } from '../types.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 export interface RuntimeLimits {
   memoryEnabled: boolean;

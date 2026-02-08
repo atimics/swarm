@@ -5,9 +5,7 @@
  * Enables multi-avatar coordination by tracking which avatars are active
  * in a given chat.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
   UpdateCommand,
@@ -15,10 +13,9 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import type { SharedChannelRecord } from '../types.js';
 import { generateAvatarStats } from './avatar-stats.js';
+import { getDynamoClient } from './dynamo-client.js';
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 

@@ -1,0 +1,510 @@
+/**
+ * Chat Tool Helpers Module
+ * Handles tool building, execution, media extraction, pending tool UI responses,
+ * and message sanitization for the admin chat handler.
+ */
+import {
+  logger,
+  extractThinking,
+  resolveAllowedToolsets,
+  type ToolCategory,
+} from '@swarm/core';
+import {
+  ToolRegistry,
+  type ToolContext,
+  type ToolResult as McpToolResult,
+  type AllServices,
+} from '@swarm/mcp-server';
+import { hasExecuteFunction, type Tool } from '@openrouter/sdk';
+import type {
+  AdminChatMessage,
+  ToolCall,
+  ToolResult,
+} from '../types.js';
+import { isProbablyPrivateMediaUrl, redactMediaUrlsFromText } from '../utils/redact-media-urls.js';
+import * as avatars from '../services/avatars.js';
+
+/**
+ * Sanitize conversation history to ensure valid message format
+ * Removes orphaned tool results and ensures proper message structure
+ */
+export function sanitizeMessages(messages: AdminChatMessage[]): AdminChatMessage[] {
+  const sanitized: AdminChatMessage[] = [];
+  const validToolCallIds = new Set<string>();
+
+  // First pass: collect valid tool call IDs from assistant messages
+  for (const msg of messages) {
+    if (msg.role === 'assistant' && msg.tool_calls) {
+      for (const tc of msg.tool_calls) {
+        if (tc.id) {
+          validToolCallIds.add(tc.id);
+        }
+      }
+    }
+  }
+
+  // Second pass: filter and validate messages
+  for (const msg of messages) {
+    if (msg.role === 'tool') {
+      // Only include tool results that have a matching tool call
+      const toolCallId = (msg as ToolResult).tool_call_id;
+      if (!toolCallId || !validToolCallIds.has(toolCallId)) {
+        logger.info('Skipping orphaned tool result', { toolCallId });
+        continue;
+      }
+    }
+
+    if (msg.role === 'assistant' && typeof msg.content === 'string') {
+      const { cleanContent } = extractThinking(msg.content);
+      if (cleanContent !== msg.content) {
+        sanitized.push({ ...msg, content: cleanContent });
+        continue;
+      }
+    }
+
+    sanitized.push(msg);
+  }
+
+  return sanitized;
+}
+
+export function sanitizeToolError(value: unknown): string {
+  if (typeof value !== 'string') {
+    return value instanceof Error ? value.message : 'Tool failed';
+  }
+
+  const raw = value.trim();
+  if (!raw) return 'Tool failed';
+
+  // Try to extract a readable message from JSON error bodies (common for provider APIs).
+  if (raw.startsWith('{') || raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        const obj = parsed as Record<string, unknown>;
+        const detail = typeof obj.detail === 'string' ? obj.detail : undefined;
+        const title = typeof obj.title === 'string' ? obj.title : undefined;
+        const error = typeof obj.error === 'string' ? obj.error : undefined;
+        const message = typeof obj.message === 'string' ? obj.message : undefined;
+        const candidate = detail || error || message || title;
+        if (candidate && candidate.trim()) return candidate.trim();
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  // Avoid dumping long JSON/stack traces into user-visible chat.
+  if (raw.length > 300) return `${raw.slice(0, 300)}…`;
+  return raw;
+}
+
+export function stringifyToolResultForModel(result: unknown): string {
+  if (typeof result === 'string') return result;
+  if (!result || typeof result !== 'object') return JSON.stringify({ data: result });
+
+  const obj = { ...(result as Record<string, unknown>) };
+  if (typeof obj.error === 'string') obj.error = sanitizeToolError(obj.error);
+  if (typeof obj.message === 'string') obj.message = sanitizeToolError(obj.message);
+  return JSON.stringify(obj);
+}
+
+export function normalizeToolResult(result: McpToolResult, toolName: string): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    success: result.success,
+  };
+
+  if (result.error) {
+    payload.error = sanitizeToolError(result.error);
+  }
+
+  if (result.data !== undefined) {
+    if (typeof result.data === 'object' && result.data !== null) {
+      Object.assign(payload, result.data as Record<string, unknown>);
+      payload.data = result.data;
+    } else {
+      payload.data = result.data;
+    }
+  }
+
+  if (result.media?.url && payload.url === undefined) {
+    payload.url = result.media.url;
+    payload.type = payload.type ?? result.media.type;
+  }
+
+  if (result.pendingJob) {
+    payload._pendingJob = result.pendingJob;
+    payload.jobId = payload.jobId ?? result.pendingJob.jobId;
+    payload.status = payload.status ?? result.pendingJob.status ?? 'pending';
+  }
+
+  if (result.uiAction?.payload && payload.type === undefined && result.uiAction.type === 'upload_widget') {
+    payload.type = 'upload_url';
+  }
+
+  if (!result.success && !payload.message) {
+    payload.message = `Tool ${toolName} failed${result.error ? `: ${sanitizeToolError(result.error)}` : ''}`;
+  }
+
+  return payload;
+}
+
+export async function buildOpenRouterTools(
+  registry: ToolRegistry,
+  context: ToolContext,
+  options: { enabledCategories?: ToolCategory[] } = {}
+): Promise<Tool[]> {
+  const toolDefs = registry.getForPlatform(context.platform);
+  const allowedToolsets = resolveAllowedToolsets(options.enabledCategories);
+  // Include all tools from allowed toolsets - no keyword-based routing
+  const toolsetFiltered = allowedToolsets
+    ? toolDefs.filter(tool => allowedToolsets.includes(tool.toolset || 'core'))
+    : toolDefs;
+
+  // Filter out tools where shouldShow returns false
+  const visibilityChecks = await Promise.all(
+    toolsetFiltered.map(async (tool) => {
+      if (tool.shouldShow) {
+        try {
+          return await tool.shouldShow(context);
+        } catch {
+          return true; // Show on error
+        }
+      }
+      return true; // No shouldShow = always visible
+    })
+  );
+  const filtered = toolsetFiltered.filter((_, index) => visibilityChecks[index]);
+
+  return Promise.all(filtered.map(async (toolDef) => {
+    let description = toolDef.description;
+    if (toolDef.contextBuilder) {
+      const contextStr = await toolDef.contextBuilder(context);
+      if (contextStr) {
+        description = `${description}\n\n📌 ${contextStr}`;
+      }
+    }
+
+    const toolFn: Record<string, unknown> = {
+      name: toolDef.name,
+      description,
+      inputSchema: toolDef.inputSchema,
+    };
+
+    if (toolDef.execute !== false) {
+      toolFn.execute = async (params: Record<string, unknown>) => {
+        const result = await registry.execute(toolDef.name, params, context);
+        return normalizeToolResult(result, toolDef.name);
+      };
+    }
+
+    return {
+      type: 'function',
+      function: toolFn,
+    } as unknown as Tool;
+  }));
+}
+
+export async function executeUiTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  tools: Tool[]
+): Promise<Record<string, unknown>> {
+  const tool = tools.find(candidate => candidate.function.name === toolName);
+  if (!tool || !hasExecuteFunction(tool)) {
+    throw new Error(`Tool ${toolName} is manual or not available`);
+  }
+  const validator = tool.function.inputSchema as unknown as {
+    safeParse: (value: unknown) =>
+      | { success: true; data: Record<string, unknown> }
+      | { success: false; error: { message: string } };
+  };
+  const parsedArgs = validator.safeParse(args);
+  if (!parsedArgs.success) {
+    throw new Error(`Invalid input for tool ${toolName}: ${parsedArgs.error.message}`);
+  }
+  return await tool.function.execute(parsedArgs.data) as Record<string, unknown>;
+}
+
+export async function buildModelSelectorPayload(
+  services: AllServices['models'],
+  avatarId: string,
+  family?: string
+): Promise<Record<string, unknown>> {
+  const models = await services.listModels(family);
+  const config = await services.getConfig(avatarId);
+  const currentModel = config?.model;
+
+  return {
+    type: 'model_selector',
+    models: models.map(model => ({
+      id: model.id,
+      name: model.name,
+      pricing: model.pricing ? {
+        prompt: Number(model.pricing.prompt),
+        completion: Number(model.pricing.completion),
+      } : undefined,
+      contextLength: (model as { context_length?: number }).context_length ?? model.contextLength,
+      provider: (model as { provider?: string }).provider || model.id.split('/')[0] || 'other',
+    })),
+    currentModel,
+    ...(family ? { instructions: `Showing models filtered by "${family}".` } : {}),
+  };
+}
+
+export async function buildFeatureTogglePayload(
+  avatarId: string,
+  args: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const feature = args.feature as 'media' | 'voice' | 'twitter' | 'telegram' | 'discord';
+  const label = args.label as string;
+  const description = args.description as string | undefined;
+  const config = await avatars.getAvatar(avatarId);
+
+  let currentState = false;
+  const avatarConfig = config as Record<string, unknown> | null | undefined;
+  if (avatarConfig) {
+    switch (feature) {
+      case 'media':
+        currentState = Boolean((avatarConfig.mediaConfig as Record<string, unknown> | undefined)?.enabled);
+        break;
+      case 'voice':
+        currentState = Boolean((avatarConfig.voiceConfig as Record<string, unknown> | undefined)?.enabled);
+        break;
+      case 'twitter':
+      case 'telegram': {
+        const platforms = avatarConfig.platforms as Record<string, { enabled?: boolean }> | undefined;
+        currentState = Boolean(platforms?.[feature]?.enabled);
+        break;
+      }
+      case 'discord': {
+        const platforms = avatarConfig.platforms as Record<string, { enabled?: boolean }> | undefined;
+        currentState = Boolean(platforms?.[feature]?.enabled);
+        break;
+      }
+    }
+  }
+
+  return {
+    type: 'feature_toggle',
+    feature,
+    currentState,
+    label,
+    description,
+  };
+}
+
+export function buildPendingToolResponse(toolName: string, args: Record<string, unknown>): string {
+  if (toolName === 'configure_integration') {
+    if (args.integration === 'twitter') {
+      return ''; // TwitterConnectPrompt renders its own UI
+    }
+    return ''; // IntegrationConfigPrompt renders its own UI
+  }
+  if (toolName === 'request_model_selection') {
+    return 'Please select a model:';
+  }
+  if (toolName === 'request_feature_toggle') {
+    return 'Please choose your preference below:';
+  }
+  if (toolName === 'request_secret') {
+    const label = typeof args.label === 'string'
+      ? args.label
+      : typeof args.secretType === 'string'
+        ? args.secretType.replace(/_/g, ' ')
+        : 'the requested secret';
+    return `Please enter ${label}.`;
+  }
+  if (toolName === 'request_twitter_connection' || toolName === 'twitter_request_integration') {
+    return ''; // TwitterConnectPrompt renders its own UI
+  }
+  if (toolName === 'request_property_research') {
+    return 'Please grant property research access:';
+  }
+  if (
+    toolName === 'get_profile_upload_url' ||
+    toolName === 'get_reference_image_upload_url' ||
+    toolName === 'get_character_reference_upload_url' ||
+    toolName === 'set_profile_image' ||
+    toolName === 'set_character_reference'
+  ) {
+    return 'Please upload your image:';
+  }
+  return 'Please provide the requested input.';
+}
+
+/** Media item generated during chat */
+export interface MediaItem {
+  type: 'image' | 'video' | 'sticker' | 'audio';
+  url: string;
+  prompt?: string;
+  id?: string;
+}
+
+/**
+ * Extract media URLs from tool results
+ */
+export function extractMediaFromToolResults(toolResults: ToolResult[]): MediaItem[] {
+  const media: MediaItem[] = [];
+
+  const isAudioUrl = (url: string) => {
+    const lowerUrl = url.toLowerCase();
+    return (
+      lowerUrl.includes('.mp3') ||
+      lowerUrl.includes('.wav') ||
+      lowerUrl.includes('.ogg') ||
+      lowerUrl.includes('.opus') ||
+      lowerUrl.includes('/audio/') ||
+      lowerUrl.includes('/voice/')
+    );
+  };
+
+  for (const result of toolResults) {
+    try {
+      const parsed = JSON.parse(result.content);
+
+      // Get URL from either 'url' or 'resultUrl' field
+      const mediaUrl = parsed.url || parsed.resultUrl;
+
+      // Direct image/media generation result (check for success + url/resultUrl)
+      // Also check for status === 'completed' as alternative success indicator
+      const isSuccess = parsed.success || (parsed.status === 'completed' && mediaUrl);
+
+      // Skip Twitter/X URLs - these are tweet links, not media
+      const isTwitterUrl = mediaUrl && typeof mediaUrl === 'string' &&
+        (mediaUrl.includes('x.com/') || mediaUrl.includes('twitter.com/'));
+
+      if (isSuccess && mediaUrl && typeof mediaUrl === 'string' && !isTwitterUrl) {
+        // Determine type from context, parsed.type, or file extension
+        let mediaType: 'image' | 'video' | 'sticker' | 'audio' = parsed.type || 'image';
+
+        if (isAudioUrl(mediaUrl)) {
+          mediaType = 'audio';
+        } else if (mediaUrl.includes('.mp4') || mediaUrl.includes('.webm') || mediaUrl.includes('/video')) {
+          mediaType = 'video';
+        } else if (mediaUrl.includes('/sticker')) {
+          mediaType = 'sticker';
+        }
+
+        media.push({
+          type: mediaType,
+          url: mediaUrl,
+          prompt: parsed.prompt,
+          id: parsed.id || parsed.jobId,
+        });
+      }
+
+      // Gallery items (can be in .items or .data array)
+      const itemsArray = Array.isArray(parsed.items) ? parsed.items
+        : Array.isArray(parsed.data) ? parsed.data
+        : null;
+      if (itemsArray) {
+        for (const item of itemsArray) {
+          if (item.url) {
+            media.push({
+              type: (isAudioUrl(String(item.url)) ? 'audio' : (item.type || 'image')),
+              url: item.url,
+              prompt: item.prompt,
+              id: item.id,
+            });
+          }
+        }
+      }
+
+      // Voice tool results have URLs nested in data (introUrl, previewUrl, url)
+      // Handle { success: true, data: { introUrl, previewUrl, url, ... } }
+      if (isSuccess && parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)) {
+        const dataObj = parsed.data as Record<string, unknown>;
+        // Check for voice-specific URLs
+        const voiceUrls = [dataObj.introUrl, dataObj.previewUrl, dataObj.url].filter(
+          (u): u is string => typeof u === 'string' && u.length > 0
+        );
+        for (const voiceUrl of voiceUrls) {
+          const isTwitter = voiceUrl.includes('x.com/') || voiceUrl.includes('twitter.com/');
+          if (!isTwitter) {
+            media.push({
+              type: isAudioUrl(voiceUrl) ? 'audio' : 'image',
+              url: voiceUrl,
+              prompt: typeof dataObj.message === 'string' ? dataObj.message : undefined,
+              id: typeof dataObj.assetId === 'string' ? dataObj.assetId : undefined,
+            });
+          }
+        }
+      }
+    } catch {
+      // Not JSON, skip
+    }
+  }
+
+  return media;
+}
+
+type MessageContent = string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+
+export function toSdkMessages(messages: AdminChatMessage[]): Array<{ role: 'user' | 'assistant' | 'system' | 'tool'; content: MessageContent; toolCallId?: string }> {
+  return messages.map(message => {
+    if (message.role === 'tool') {
+      return {
+        role: 'tool' as const,
+        content: typeof message.content === 'string' ? redactMediaUrlsFromText(message.content) : message.content,
+        toolCallId: message.tool_call_id,
+      };
+    }
+
+    // If a message has media (generated images/videos shown in UI), include image URLs as multimodal parts.
+    // This makes vision-capable models able to see what they previously generated.
+    const mediaImages = (message.media || []).filter(m => m.type === 'image' && typeof m.url === 'string');
+    const modelSafeImages = mediaImages.filter(img => !isProbablyPrivateMediaUrl(img.url));
+    if (modelSafeImages.length > 0) {
+      const baseText = Array.isArray(message.content)
+        ? (message.content.find(p => p.type === 'text') as { text?: string } | undefined)?.text || ''
+        : String(message.content || '');
+      const sanitizedBaseText = redactMediaUrlsFromText(baseText);
+
+      return {
+        role: message.role,
+        content: [
+          { type: 'text', text: sanitizedBaseText },
+          ...modelSafeImages.map(img => ({
+            type: 'image_url',
+            image_url: { url: img.url },
+          })),
+        ],
+      };
+    }
+
+    return {
+      role: message.role,
+      content: (() => {
+        const raw = message.content as MessageContent;
+        if (typeof raw === 'string') return redactMediaUrlsFromText(raw);
+        if (Array.isArray(raw)) {
+          return raw.map((part: { type: string; text?: string; image_url?: { url: string } }) => (
+            part.type === 'text' && typeof part.text === 'string'
+              ? { ...part, text: redactMediaUrlsFromText(part.text) }
+              : part
+          ));
+        }
+        return raw;
+      })(),
+    };
+  });
+}
+
+// The SDK returns ParsedToolCall with unknown types - we need to handle that
+export type SdkToolCall = {
+  id: unknown;
+  name: unknown;
+  arguments: unknown;
+};
+
+export function toAdminToolCall(toolCall: SdkToolCall): ToolCall {
+  return {
+    id: String(toolCall.id),
+    type: 'function',
+    function: {
+      name: String(toolCall.name),
+      arguments: JSON.stringify(toolCall.arguments ?? {}),
+    },
+  };
+}

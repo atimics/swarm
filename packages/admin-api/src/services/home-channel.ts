@@ -9,26 +9,26 @@
  *   pk: "HOME_CHANNELS"
  *   sk: "{chatId}" (e.g., "-1001234567890")
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
+  type DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   DeleteCommand,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { HomeChannelRecord } from '../types.js';
+import { getDynamoClient, _setDynamoClient as _setSharedDynamoClient } from './dynamo-client.js';
 
-let dynamoClient: DynamoDBDocumentClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+let dynamoClient: DynamoDBDocumentClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 
 /** @internal Test-only: inject a mock DynamoDB client. Pass null to restore the default. */
 export function _setDynamoClient(client: DynamoDBDocumentClient | null): void {
-  dynamoClient = client ?? DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-    marshallOptions: { removeUndefinedValues: true },
-  });
+  if (client) {
+    dynamoClient = client;
+  } else {
+    dynamoClient = getDynamoClient();
+  }
 }
 
 // In-memory cache for home channels (60 second TTL)

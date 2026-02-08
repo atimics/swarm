@@ -3,8 +3,7 @@
  * Sends generated responses to platforms
  */
 import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { randomUUID } from 'crypto';
 import {
@@ -25,11 +24,10 @@ import {
 } from '@swarm/core';
 import { isAllowedDmUserById } from './telegram-webhook-shared.js';
 import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
+import { getDynamoClient } from './services/dynamo-client.js';
 
 const sqs = new SQSClient({});
-const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamo = getDynamoClient();
 
 // Environment variables
 const MEDIA_QUEUE_URL = process.env.MEDIA_QUEUE_URL;

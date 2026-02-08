@@ -1,7 +1,5 @@
 import { createHash } from 'crypto';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
   UpdateCommand,
@@ -19,6 +17,7 @@ import {
   createInitialOnboardingState,
   normalizeOnboardingStateSnapshot,
 } from './state-machine.js';
+import { getDynamoClient } from '../dynamo-client.js';
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const STATE_SK = 'ONBOARDING#STATE' as const;
@@ -27,9 +26,7 @@ const IDEMPOTENCY_RETENTION_MS = 24 * 60 * 60 * 1000;
 const IDEMPOTENCY_IN_FLIGHT_MS = 30 * 1000;
 const TRANSITION_LOCK_MS = 15 * 1000;
 
-const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+const dynamoClient = getDynamoClient();
 
 function avatarPk(avatarId: string): string {
   return `AVATAR#${avatarId}`;
