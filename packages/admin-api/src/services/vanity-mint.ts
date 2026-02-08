@@ -95,10 +95,12 @@ export function resolveVanityMintConfig(config?: VanityMintConfig): ResolvedVani
 }
 
 export function getVanityMatchPosition(address: string, pattern: string): VanityMatchPosition {
-  if (address.startsWith(pattern)) return 'prefix';
-  if (address.endsWith(pattern)) return 'suffix';
-  if (address.includes(pattern)) return 'contains';
-  return 'none';
+  const firstIndex = address.indexOf(pattern);
+  if (firstIndex < 0) return 'none';
+
+  if (firstIndex === 0) return 'prefix';
+  if (address.lastIndexOf(pattern) === address.length - pattern.length) return 'suffix';
+  return 'contains';
 }
 
 export function evaluateVanityMatch(address: string, config: ResolvedVanityMintConfig): VanityMatchInfo {
@@ -110,27 +112,29 @@ export function evaluateVanityMatch(address: string, config: ResolvedVanityMintC
 }
 
 /**
- * Build an optimized matcher closure for repeated checks with the same config.
+ * Build an optimized matcher closure for repeated checks.
  */
 export function createVanityMatcher(config: ResolvedVanityMintConfig): VanityAddressMatcher {
   const pattern = config.pattern;
+  const patternLen = pattern.length;
   const strict = config.mode === 'strict';
 
   return (address: string): VanityMatchInfo => {
-    let position: VanityMatchPosition = 'none';
+    const firstIndex = address.indexOf(pattern);
+    if (firstIndex < 0) {
+      return { matched: false, position: 'none' };
+    }
 
-    if (address.startsWith(pattern)) {
+    let position: VanityMatchPosition = 'contains';
+    if (firstIndex === 0) {
       position = 'prefix';
-    } else if (address.endsWith(pattern)) {
+    } else if (address.lastIndexOf(pattern) === address.length - patternLen) {
       position = 'suffix';
-    } else if (address.includes(pattern)) {
-      position = 'contains';
     }
 
     if (!strict) {
-      return { matched: position !== 'none', position };
+      return { matched: true, position };
     }
-
     return { matched: position === 'prefix' || position === 'suffix', position };
   };
 }

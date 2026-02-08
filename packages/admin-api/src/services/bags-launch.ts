@@ -22,8 +22,10 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import {
-  evaluateVanityMatch,
+  createVanityMatcher,
   resolveVanityMintConfig,
+  type ResolvedVanityMintConfig,
+  type VanityMatchInfo,
   type VanityMatchPosition,
   type VanityMintConfig,
   type VanityMintMode,
@@ -205,6 +207,9 @@ const BAGS_FEE_SHARE_V2_PROGRAM_ID = 'FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gq
 
 const SOLANA_COMMITMENT: Commitment = 'processed';
 const TOKEN_LAUNCH_ENGINE = process.env.TOKEN_LAUNCH_ENGINE || 'bags_external';
+const BAGS_DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+const BAGS_VANITY_MAX_REQUEST_TIMEOUT_MS = 12_000;
+const EXTERNAL_VANITY_MAX_ATTEMPTS_CAP = 120;
 
 type BagsSupportedLaunchProvider = 'twitter' | 'tiktok' | 'kick' | 'github';
 
@@ -229,6 +234,24 @@ interface BagsLaunchWalletResponse {
 interface BagsCreateTokenInfoResponse {
   tokenMint: string;
   tokenMetadata: string;
+}
+
+interface BagsCreateTokenInfoParams {
+  imageUrl: string;
+  name: string;
+  symbol: string;
+  description: string;
+  twitter?: string;
+  website?: string;
+  telegram?: string;
+}
+
+interface VanityTokenInfoResult {
+  tokenInfo: BagsCreateTokenInfoResponse;
+  match: VanityMatchInfo | null;
+  note?: string;
+  attempts: number;
+  elapsedMs: number;
 }
 
 interface BagsTransactionWithBlockhash {
@@ -312,13 +335,14 @@ async function bagsApiRequest<T>(
   apiKey: string,
   path: string,
   init: RequestInit = {},
-  query?: Record<string, string>
+  query?: Record<string, string>,
+  timeoutMs: number = BAGS_DEFAULT_REQUEST_TIMEOUT_MS
 ): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('x-api-key', apiKey);
 
   const timeoutController = new AbortController();
-  const timeoutId = setTimeout(() => timeoutController.abort(), 60_000);
+  const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
 
   try {
     const response = await fetch(buildBagsApiUrl(path, query), {
@@ -369,15 +393,8 @@ async function getLaunchWalletV2(
 
 async function createTokenInfoAndMetadata(
   apiKey: string,
-  params: {
-    imageUrl: string;
-    name: string;
-    symbol: string;
-    description: string;
-    twitter?: string;
-    website?: string;
-    telegram?: string;
-  }
+  params: BagsCreateTokenInfoParams,
+  timeoutMs?: number
 ): Promise<BagsCreateTokenInfoResponse> {
   const form = new FormData();
   form.append('imageUrl', params.imageUrl);
@@ -392,7 +409,110 @@ async function createTokenInfoAndMetadata(
   return bagsApiRequest<BagsCreateTokenInfoResponse>(apiKey, '/token-launch/create-token-info', {
     method: 'POST',
     body: form,
-  });
+  }, undefined, timeoutMs);
+}
+
+function getEffectiveVanityMaxAttempts(config: ResolvedVanityMintConfig): number {
+  if (TOKEN_LAUNCH_ENGINE !== 'bags_external') {
+    return config.maxAttempts;
+  }
+  return Math.min(config.maxAttempts, EXTERNAL_VANITY_MAX_ATTEMPTS_CAP);
+}
+
+function getVanityRequestTimeoutMs(deadlineMs: number): number {
+  const remainingMs = deadlineMs - Date.now();
+  if (remainingMs <= 0) return 1_000;
+  return Math.max(1_000, Math.min(remainingMs, BAGS_VANITY_MAX_REQUEST_TIMEOUT_MS));
+}
+
+async function createTokenInfoWithVanityPolicy(
+  apiKey: string,
+  params: BagsCreateTokenInfoParams,
+  vanityConfig: ResolvedVanityMintConfig | null
+): Promise<VanityTokenInfoResult> {
+  if (!vanityConfig) {
+    const startedAt = Date.now();
+    const tokenInfo = await createTokenInfoAndMetadata(apiKey, params);
+    return {
+      tokenInfo,
+      match: null,
+      attempts: 1,
+      elapsedMs: Date.now() - startedAt,
+    };
+  }
+
+  const maxAttempts = getEffectiveVanityMaxAttempts(vanityConfig);
+  const deadlineMs = Date.now() + vanityConfig.maxSearchMs;
+  const matcher = createVanityMatcher(vanityConfig);
+
+  let attempts = 0;
+  let latestCandidate: BagsCreateTokenInfoResponse | null = null;
+  let latestMatch: { tokenInfo: BagsCreateTokenInfoResponse; match: VanityMatchInfo; attempt: number } | null = null;
+  const startedAt = Date.now();
+
+  while (attempts < maxAttempts && Date.now() < deadlineMs) {
+    attempts += 1;
+    const tokenInfo = await createTokenInfoAndMetadata(
+      apiKey,
+      params,
+      getVanityRequestTimeoutMs(deadlineMs)
+    );
+    latestCandidate = tokenInfo;
+
+    const match = matcher(tokenInfo.tokenMint);
+    if (match.matched) {
+      latestMatch = { tokenInfo, match, attempt: attempts };
+      if (vanityConfig.mode === 'strict') {
+        break;
+      }
+    }
+  }
+
+  const elapsedMs = Date.now() - startedAt;
+  if (!latestCandidate) {
+    throw new Error('Failed to create token metadata during vanity search');
+  }
+
+  if (vanityConfig.mode === 'strict') {
+    if (!latestMatch) {
+      throw new Error(
+        `No mint matched strict vanity policy "${vanityConfig.pattern}" ` +
+        `within ${attempts} attempt(s) over ${elapsedMs}ms`
+      );
+    }
+
+    return {
+      tokenInfo: latestMatch.tokenInfo,
+      match: latestMatch.match,
+      attempts,
+      elapsedMs,
+      note:
+        `Mint matched strict vanity policy at attempt ${latestMatch.attempt} ` +
+        `of ${attempts} (${elapsedMs}ms).`,
+    };
+  }
+
+  if (latestMatch) {
+    return {
+      tokenInfo: latestMatch.tokenInfo,
+      match: latestMatch.match,
+      attempts,
+      elapsedMs,
+      note:
+        `Mint matched best-effort vanity policy at attempt ${latestMatch.attempt} ` +
+        `of ${attempts} (${elapsedMs}ms).`,
+    };
+  }
+
+  return {
+    tokenInfo: latestCandidate,
+    match: matcher(latestCandidate.tokenMint),
+    attempts,
+    elapsedMs,
+    note:
+      `No mint matched "${vanityConfig.pattern}" in ${attempts} attempt(s) over ${elapsedMs}ms. ` +
+      'Launch continued with the most recent mint due to best-effort policy.',
+  };
 }
 
 async function createBagsFeeShareConfig(
@@ -658,22 +778,6 @@ export async function launchBagsToken(
     };
   }
 
-  if (vanityConfig?.mode === 'strict' && TOKEN_LAUNCH_ENGINE !== 'swarm_native') {
-    return {
-      success: false,
-      avatarId,
-      error:
-        'Strict vanity mint policy requires native launch engine. ' +
-        `Current engine: ${TOKEN_LAUNCH_ENGINE}`,
-      errorCode: 'LAUNCH_FAILED',
-      vanityPattern: vanityConfig.pattern,
-      vanityMode: vanityConfig.mode,
-      vanityMatched: false,
-      vanityPosition: 'none',
-      vanityNote: 'Strict mode is only supported on the native launch engine.',
-    };
-  }
-
   // Run preflight checks (includes tier requirement check)
   const preflight = await preflightBagsLaunch(avatarId);
   if (!preflight.canLaunch) {
@@ -760,7 +864,7 @@ export async function launchBagsToken(
     // Use avatar description as fallback for token description
     const tokenDescription = config.description || avatar.description || `${config.name} - launched by @${twitterUsername}`;
 
-    const tokenInfo = await createTokenInfoAndMetadata(apiKey, {
+    const tokenInfoResult = await createTokenInfoWithVanityPolicy(apiKey, {
       imageUrl,
       name: config.name.trim(),
       description: tokenDescription,
@@ -768,19 +872,21 @@ export async function launchBagsToken(
       twitter: config.twitterUrl,
       website: config.websiteUrl,
       telegram: config.telegramUrl,
-    });
+    }, vanityConfig);
+
+    const tokenInfo = tokenInfoResult.tokenInfo;
 
     const tokenMint = new PublicKey(tokenInfo.tokenMint);
     console.log(`[BagsLaunch] Token mint: ${tokenMint.toBase58()}`);
     console.log(`[BagsLaunch] Metadata URL: ${tokenInfo.tokenMetadata}`);
-    const vanityMatch = vanityConfig ? evaluateVanityMatch(tokenInfo.tokenMint, vanityConfig) : null;
-    const vanityNote = vanityConfig
-      ? vanityMatch?.matched
-        ? `Mint matched vanity policy (${vanityConfig.mode}).`
-        : vanityConfig.mode === 'best_effort'
-          ? `Mint did not match "${vanityConfig.pattern}". Launch continued due to best-effort policy.`
-          : undefined
-      : undefined;
+    if (vanityConfig) {
+      console.log(
+        `[BagsLaunch] Vanity search completed: attempts=${tokenInfoResult.attempts} ` +
+        `elapsedMs=${tokenInfoResult.elapsedMs} engine=${TOKEN_LAUNCH_ENGINE}`
+      );
+    }
+    const vanityMatch = tokenInfoResult.match;
+    const vanityNote = tokenInfoResult.note;
     if (vanityNote) {
       console.log(`[BagsLaunch] ${vanityNote}`);
     }
