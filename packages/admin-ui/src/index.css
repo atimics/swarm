@@ -164,6 +164,15 @@ body {
 /* ============================================
    Animations
    ============================================ */
+@keyframes brand-glow {
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(var(--color-brand-rgb), 0.3)); }
+  50% { filter: drop-shadow(0 0 16px rgba(var(--color-brand-rgb), 0.5)); }
+}
+
+.animate-brand-glow {
+  animation: brand-glow 4s ease-in-out infinite;
+}
+
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }

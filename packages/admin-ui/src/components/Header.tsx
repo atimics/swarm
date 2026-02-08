@@ -9,8 +9,8 @@ export function Header({ onClear }: HeaderProps) {
         <div className="flex items-center gap-3">
           <img src="/swarm.svg" alt="Swarm" className="w-8 h-8" />
           <div>
-            <h1 className="text-lg font-semibold text-[var(--color-text)]">Swarm Admin</h1>
-            <p className="text-xs text-[var(--color-text-tertiary)]">Avatar Configuration Console</p>
+            <h1 className="text-lg font-semibold text-[var(--color-text)]">Swarm</h1>
+            <p className="text-xs text-[var(--color-text-tertiary)]">Avatar Command Center</p>
           </div>
         </div>
         <div className="flex items-center gap-3">

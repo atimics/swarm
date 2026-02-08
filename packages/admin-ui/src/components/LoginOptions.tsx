@@ -323,7 +323,7 @@ export function LoginOptions({ className = '', variant = 'full' }: LoginOptionsP
 
       {/* Social login hint */}
       <p className="text-xs text-[var(--color-text-muted)] text-center">
-        Sign in with Google, Twitter, or email
+        Use Google, X, email, or any Solana wallet
       </p>
 
       {/* Error display */}
