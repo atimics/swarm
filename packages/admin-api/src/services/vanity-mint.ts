@@ -22,13 +22,13 @@ export interface VanityMintConfig {
    */
   mode?: VanityMintMode;
   /**
-   * Planned for native engine key grinding.
-   * Currently ignored by the external Bags-backed path.
+   * Search budget in milliseconds for vanity mint attempts.
+   * External providers may enforce their own upper caps.
    */
   maxSearchMs?: number;
   /**
-   * Planned for native engine key grinding.
-   * Currently ignored by the external Bags-backed path.
+   * Search budget in attempts for vanity mint selection.
+   * External providers may enforce their own upper caps.
    */
   maxAttempts?: number;
 }

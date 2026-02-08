@@ -232,13 +232,13 @@ export const createBagsTools = (services: BagsServices) => [
             .int()
             .positive()
             .optional()
-            .describe('Native engine search budget in milliseconds'),
+            .describe('Vanity search budget in milliseconds (provider may cap)'),
           maxAttempts: z
             .number()
             .int()
             .positive()
             .optional()
-            .describe('Native engine search budget in attempts'),
+            .describe('Vanity search budget in attempts (provider may cap)'),
         })
         .optional()
         .describe('Optional vanity mint policy'),

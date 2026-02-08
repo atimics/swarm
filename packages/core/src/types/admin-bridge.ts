@@ -28,13 +28,13 @@ export interface VanityMintConfig {
    */
   mode?: VanityMintMode;
   /**
-   * Native engine budget (milliseconds) for searching vanity mints.
-   * Ignored by external launch providers.
+   * Search budget in milliseconds for vanity mint attempts.
+   * External launch providers may enforce their own upper caps.
    */
   maxSearchMs?: number;
   /**
-   * Native engine budget (attempt count) for searching vanity mints.
-   * Ignored by external launch providers.
+   * Search budget in attempts for vanity mint selection.
+   * External launch providers may enforce their own upper caps.
    */
   maxAttempts?: number;
 }
