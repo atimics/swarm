@@ -618,6 +618,7 @@ export class AdminApiConstruct extends Construct {
       handler: 'handler',
       timeout: cdk.Duration.seconds(600),
       memorySize: 1024,
+      reservedConcurrentExecutions: 10,
       layers: dependencyLayer ? [dependencyLayer] : undefined,
       environment: {
         ADMIN_TABLE: this.table.tableName,
@@ -1321,6 +1322,7 @@ export class AdminApiConstruct extends Construct {
       handler: 'handler',
       timeout: cdk.Duration.seconds(120), // Longer timeout for chat completions
       memorySize: 1024,
+      reservedConcurrentExecutions: 5,
       layers: dependencyLayer ? [dependencyLayer] : undefined,
       environment: {
         ADMIN_TABLE: this.table.tableName,
@@ -1627,7 +1629,7 @@ export class AdminApiConstruct extends Construct {
       handler: 'handler',
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
-      reservedConcurrentExecutions: 1,
+      reservedConcurrentExecutions: 5,
       layers: dependencyLayer ? [dependencyLayer] : undefined,
       environment: {
         ADMIN_TABLE: this.table.tableName,
