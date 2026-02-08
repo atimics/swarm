@@ -2,7 +2,7 @@ import { type ReactNode, createContext, useContext, useMemo } from 'react';
 import { clusterApiUrl } from '@solana/web3.js';
 import type { WalletAdapter } from '@solana/wallet-adapter-base';
 import { ConnectionProvider, WalletProvider as SolanaWalletProvider } from '@solana/wallet-adapter-react';
-import { WalletModal, WalletModalProvider, useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { WalletModalProvider, useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import '@solana/wallet-adapter-react-ui/styles.css';
 
@@ -60,7 +60,6 @@ function UnifiedWalletContextBridge({ children }: { children: ReactNode }) {
   return (
     <UnifiedWalletContext.Provider value={contextValue}>
       {children}
-      <WalletModal />
     </UnifiedWalletContext.Provider>
   );
 }
