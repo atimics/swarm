@@ -766,7 +766,7 @@ export async function launchBagsToken(
 ): Promise<BagsLaunchResult> {
   console.log(`[BagsLaunch] Starting token launch for avatar=${avatarId}`);
 
-  let vanityConfig;
+  let vanityConfig: ResolvedVanityMintConfig | null = null;
   try {
     vanityConfig = resolveVanityMintConfig(config.mintVanity);
   } catch (error) {

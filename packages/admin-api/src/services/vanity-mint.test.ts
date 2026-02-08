@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  createVanityMatcher,
   evaluateVanityMatch,
   getVanityMatchPosition,
   resolveVanityMintConfig,
+  selectVanityCandidate,
 } from './vanity-mint.js';
 
 describe('vanity-mint', () => {
@@ -79,6 +81,58 @@ describe('vanity-mint', () => {
     it('matches best_effort when pattern appears anywhere', () => {
       const match = evaluateVanityMatch('abcRATixyz', bestEffortConfig);
       expect(match).toEqual({ matched: true, position: 'contains' });
+    });
+  });
+
+  describe('createVanityMatcher', () => {
+    it('returns suffix for strict mode even if pattern also appears earlier', () => {
+      const matcher = createVanityMatcher({
+        pattern: 'RATi',
+        mode: 'strict',
+        maxSearchMs: 15000,
+        maxAttempts: 11316496,
+      });
+      const match = matcher('fooRATibarRATi');
+      expect(match).toEqual({ matched: true, position: 'suffix' });
+    });
+  });
+
+  describe('selectVanityCandidate', () => {
+    it('best_effort selects the most recent matching candidate', () => {
+      const selected = selectVanityCandidate(
+        [
+          { value: 1, address: 'abc123' },
+          { value: 2, address: 'abcRATixyz' },
+          { value: 3, address: 'fooRATibar' },
+        ],
+        {
+          pattern: 'RATi',
+          mode: 'best_effort',
+          maxSearchMs: 15000,
+          maxAttempts: 11316496,
+        }
+      );
+
+      expect(selected?.selected.value).toBe(3);
+      expect(selected?.match.position).toBe('contains');
+      expect(selected?.satisfied).toBe(true);
+    });
+
+    it('strict returns null when no prefix/suffix candidate exists', () => {
+      const selected = selectVanityCandidate(
+        [
+          { value: 1, address: 'abcRATixyz' },
+          { value: 2, address: 'fooRATibar' },
+        ],
+        {
+          pattern: 'RATi',
+          mode: 'strict',
+          maxSearchMs: 15000,
+          maxAttempts: 11316496,
+        }
+      );
+
+      expect(selected).toBeNull();
     });
   });
 });
