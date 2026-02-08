@@ -22,8 +22,8 @@ import {
 import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
 import { getDynamoClient } from './services/dynamo-client.js';
 
-const STATE_TABLE = process.env.STATE_TABLE!;
-const ADMIN_TABLE = process.env.ADMIN_TABLE!;
+const STATE_TABLE = process.env.STATE_TABLE;
+const ADMIN_TABLE = process.env.ADMIN_TABLE;
 const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
 const MOLTBOOK_BASE_URL = 'https://www.moltbook.com/api/v1';
 const API_TIMEOUT_MS = 15_000;
@@ -37,6 +37,8 @@ let adminDocClient: DynamoDBDocumentClient;
 
 async function initialize(): Promise<void> {
   if (stateService) return;
+  if (!STATE_TABLE) throw new Error('STATE_TABLE environment variable is required');
+  if (!ADMIN_TABLE) throw new Error('ADMIN_TABLE environment variable is required');
   stateService = createStateService(STATE_TABLE);
   secretsService = createSecretsService();
   adminDocClient = getDynamoClient();

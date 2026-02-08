@@ -304,6 +304,15 @@ export class AdminApiStack extends cdk.Stack {
         'Environment.Variables.ADMIN_TABLE',
         this.adminApi.table.tableName
       );
+
+      // Add ADMIN_TABLE env var to the Moltbook heartbeat Lambda
+      // (scans ADMIN_TABLE for avatars with moltbook enabled in mcpConfig)
+      this.adminApi.table.grantReadData(this.sharedHandlers.moltbookHeartbeat);
+      const cfnMoltbookHeartbeat = this.sharedHandlers.moltbookHeartbeat.node.defaultChild as lambda.CfnFunction;
+      cfnMoltbookHeartbeat.addPropertyOverride(
+        'Environment.Variables.ADMIN_TABLE',
+        this.adminApi.table.tableName
+      );
     }
 
     // Create Claude Code worker if enabled

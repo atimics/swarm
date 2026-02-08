@@ -734,7 +734,7 @@ export async function processChat(
       if (msg.role === 'assistant' && msg.tool_calls) {
         baseApiMessages.push({
           role: 'assistant',
-          content: msg.content ?? '',
+          content: msg.content || null,
           tool_calls: msg.tool_calls,
         });
         continue;

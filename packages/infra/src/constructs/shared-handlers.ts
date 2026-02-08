@@ -91,6 +91,7 @@ export class SharedHandlers extends Construct {
   public readonly responseSender: nodejs.NodejsFunction;
   public readonly mediaProcessor: nodejs.NodejsFunction;
   public readonly tweetSender: nodejs.NodejsFunction;
+  public readonly moltbookHeartbeat: nodejs.NodejsFunction;
   public readonly dlq: sqs.Queue;
   public readonly schedulerDlq: sqs.Queue;
 
@@ -400,7 +401,7 @@ export class SharedHandlers extends Construct {
 
     // Moltbook Heartbeat - runs every 33 minutes, manages per-avatar timing internally
     // Each avatar with Moltbook enabled gets feed checks and optional engagement
-    const moltbookHeartbeat = new nodejs.NodejsFunction(this, 'MoltbookHeartbeat', {
+    this.moltbookHeartbeat = new nodejs.NodejsFunction(this, 'MoltbookHeartbeat', {
       functionName: `swarm-${environment}${suffix}-moltbook-heartbeat`,
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(handlersEntry, 'moltbook-heartbeat.ts'),
@@ -417,7 +418,7 @@ export class SharedHandlers extends Construct {
 
     new events.Rule(this, 'MoltbookHeartbeatSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(33)),
-      targets: [new targets.LambdaFunction(moltbookHeartbeat, {
+      targets: [new targets.LambdaFunction(this.moltbookHeartbeat, {
         deadLetterQueue: this.schedulerDlq,
         retryAttempts: 2,
         maxEventAge: cdk.Duration.hours(2),

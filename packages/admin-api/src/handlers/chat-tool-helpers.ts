@@ -54,11 +54,24 @@ export function sanitizeMessages(messages: AdminChatMessage[]): AdminChatMessage
       }
     }
 
-    if (msg.role === 'assistant' && typeof msg.content === 'string') {
-      const { cleanContent } = extractThinking(msg.content);
-      if (cleanContent !== msg.content) {
-        sanitized.push({ ...msg, content: cleanContent });
+    if (msg.role === 'assistant') {
+      // Ensure assistant messages have non-empty content.
+      // Some providers (e.g. Moonshot AI via OpenRouter) reject empty assistant messages.
+      const rawContent = msg.content;
+      const isEmpty = rawContent === null || rawContent === undefined || rawContent === '';
+
+      if (isEmpty && msg.tool_calls && msg.tool_calls.length > 0) {
+        // Tool-call-only assistant turn: use a null sentinel that OpenAI/OpenRouter accept
+        sanitized.push({ ...msg, content: null as unknown as string });
         continue;
+      }
+
+      if (typeof rawContent === 'string') {
+        const { cleanContent } = extractThinking(rawContent);
+        if (cleanContent !== rawContent) {
+          sanitized.push({ ...msg, content: cleanContent });
+          continue;
+        }
       }
     }
 
