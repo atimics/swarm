@@ -21,6 +21,13 @@ import bs58 from 'bs58';
 import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+import {
+  evaluateVanityMatch,
+  resolveVanityMintConfig,
+  type VanityMatchPosition,
+  type VanityMintConfig,
+  type VanityMintMode,
+} from './vanity-mint.js';
 
 import { _getSecretValueInternal, secretExists } from './secrets.js';
 import { getAvatar } from './avatars.js';
@@ -85,6 +92,16 @@ export interface BagsLaunchConfig {
   websiteUrl?: string;
   /** Telegram URL for token page */
   telegramUrl?: string;
+  /**
+   * Optional vanity mint policy.
+   *
+   * strict:
+   * - requires mint to start or end with pattern
+   *
+   * best_effort:
+   * - attempts to match pattern anywhere
+   */
+  mintVanity?: VanityMintConfig;
 }
 
 export interface BagsLaunchResult {
@@ -102,6 +119,16 @@ export interface BagsLaunchResult {
   tier?: number;
   /** RATI needed to burn to unlock token launch */
   burnNeeded?: number;
+  /** Vanity pattern evaluated against the resulting mint (if requested) */
+  vanityPattern?: string;
+  /** Vanity policy used (if requested) */
+  vanityMode?: VanityMintMode;
+  /** Whether resulting mint satisfied vanity policy */
+  vanityMatched?: boolean;
+  /** Where the pattern matched in resulting mint */
+  vanityPosition?: VanityMatchPosition;
+  /** Additional note about vanity execution */
+  vanityNote?: string;
 }
 
 export interface BagsTokenInfo {
@@ -177,6 +204,7 @@ const BAGS_PUBLIC_API_V2_BASE_URL = process.env.BAGS_API_BASE_URL || 'https://pu
 const BAGS_FEE_SHARE_V2_PROGRAM_ID = 'FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK';
 
 const SOLANA_COMMITMENT: Commitment = 'processed';
+const TOKEN_LAUNCH_ENGINE = process.env.TOKEN_LAUNCH_ENGINE || 'bags_external';
 
 type BagsSupportedLaunchProvider = 'twitter' | 'tiktok' | 'kick' | 'github';
 
@@ -618,6 +646,34 @@ export async function launchBagsToken(
 ): Promise<BagsLaunchResult> {
   console.log(`[BagsLaunch] Starting token launch for avatar=${avatarId}`);
 
+  let vanityConfig;
+  try {
+    vanityConfig = resolveVanityMintConfig(config.mintVanity);
+  } catch (error) {
+    return {
+      success: false,
+      avatarId,
+      error: error instanceof Error ? error.message : 'Invalid vanity mint config',
+      errorCode: 'LAUNCH_FAILED',
+    };
+  }
+
+  if (vanityConfig?.mode === 'strict' && TOKEN_LAUNCH_ENGINE !== 'swarm_native') {
+    return {
+      success: false,
+      avatarId,
+      error:
+        'Strict vanity mint policy requires native launch engine. ' +
+        `Current engine: ${TOKEN_LAUNCH_ENGINE}`,
+      errorCode: 'LAUNCH_FAILED',
+      vanityPattern: vanityConfig.pattern,
+      vanityMode: vanityConfig.mode,
+      vanityMatched: false,
+      vanityPosition: 'none',
+      vanityNote: 'Strict mode is only supported on the native launch engine.',
+    };
+  }
+
   // Run preflight checks (includes tier requirement check)
   const preflight = await preflightBagsLaunch(avatarId);
   if (!preflight.canLaunch) {
@@ -629,6 +685,8 @@ export async function launchBagsToken(
       errorCode: preflight.errorCode,
       tier: preflight.tier,
       burnNeeded: preflight.burnNeeded,
+      vanityPattern: vanityConfig?.pattern,
+      vanityMode: vanityConfig?.mode,
     };
   }
 
@@ -657,6 +715,8 @@ export async function launchBagsToken(
         avatarId,
         error: `Twitter account @${twitterUsername} is not registered on Bags.fm. The account must be linked to Bags first.`,
         errorCode: 'TWITTER_NOT_ON_BAGS',
+        vanityPattern: vanityConfig?.pattern,
+        vanityMode: vanityConfig?.mode,
       };
     }
 
@@ -675,6 +735,8 @@ export async function launchBagsToken(
         avatarId,
         error: 'Avatar must have a profile image set before launching a token. Use the profile image tool first.',
         errorCode: 'LAUNCH_FAILED',
+        vanityPattern: vanityConfig?.pattern,
+        vanityMode: vanityConfig?.mode,
       };
     }
 
@@ -690,6 +752,8 @@ export async function launchBagsToken(
         avatarId,
         error: 'Token symbol must be 1-10 alphanumeric characters',
         errorCode: 'LAUNCH_FAILED',
+        vanityPattern: vanityConfig?.pattern,
+        vanityMode: vanityConfig?.mode,
       };
     }
 
@@ -709,6 +773,17 @@ export async function launchBagsToken(
     const tokenMint = new PublicKey(tokenInfo.tokenMint);
     console.log(`[BagsLaunch] Token mint: ${tokenMint.toBase58()}`);
     console.log(`[BagsLaunch] Metadata URL: ${tokenInfo.tokenMetadata}`);
+    const vanityMatch = vanityConfig ? evaluateVanityMatch(tokenInfo.tokenMint, vanityConfig) : null;
+    const vanityNote = vanityConfig
+      ? vanityMatch?.matched
+        ? `Mint matched vanity policy (${vanityConfig.mode}).`
+        : vanityConfig.mode === 'best_effort'
+          ? `Mint did not match "${vanityConfig.pattern}". Launch continued due to best-effort policy.`
+          : undefined
+      : undefined;
+    if (vanityNote) {
+      console.log(`[BagsLaunch] ${vanityNote}`);
+    }
 
     // Step 3: Create fee share config with proper distribution
     // - Platform wallet: 2000 bps (20%)
@@ -813,6 +888,11 @@ export async function launchBagsToken(
       signature: bagsToken.signature,
       metadataUrl: bagsToken.metadataUrl,
       bagsUrl: bagsToken.bagsUrl,
+      vanityPattern: vanityConfig?.pattern,
+      vanityMode: vanityConfig?.mode,
+      vanityMatched: vanityMatch?.matched,
+      vanityPosition: vanityMatch?.position,
+      vanityNote,
     };
   } catch (error) {
     console.error('[BagsLaunch] Launch failed:', error);
@@ -821,6 +901,8 @@ export async function launchBagsToken(
       avatarId,
       error: error instanceof Error ? error.message : String(error),
       errorCode: 'LAUNCH_FAILED',
+      vanityPattern: vanityConfig?.pattern,
+      vanityMode: vanityConfig?.mode,
     };
   }
 }

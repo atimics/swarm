@@ -51,6 +51,12 @@ export interface BagsLaunchConfig {
   twitterUrl?: string;
   websiteUrl?: string;
   telegramUrl?: string;
+  mintVanity?: {
+    pattern?: string;
+    mode?: 'best_effort' | 'strict';
+    maxSearchMs?: number;
+    maxAttempts?: number;
+  };
 }
 
 export interface BagsLaunchResult {
@@ -68,6 +74,11 @@ export interface BagsLaunchResult {
   tier?: number;
   /** RATI needed to burn to unlock token launch */
   burnNeeded?: number;
+  vanityPattern?: string;
+  vanityMode?: 'best_effort' | 'strict';
+  vanityMatched?: boolean;
+  vanityPosition?: 'prefix' | 'suffix' | 'contains' | 'none';
+  vanityNote?: string;
 }
 
 export interface BagsServices {
@@ -205,6 +216,32 @@ export const createBagsTools = (services: BagsServices) => [
         .url()
         .optional()
         .describe('Telegram URL for token page'),
+      mintVanity: z
+        .object({
+          pattern: z
+            .string()
+            .min(1)
+            .optional()
+            .describe('Base58 vanity pattern, e.g. "RATi"'),
+          mode: z
+            .enum(['best_effort', 'strict'])
+            .default('best_effort')
+            .describe('best_effort=allow any contains match; strict=prefix/suffix only'),
+          maxSearchMs: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe('Native engine search budget in milliseconds'),
+          maxAttempts: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe('Native engine search budget in attempts'),
+        })
+        .optional()
+        .describe('Optional vanity mint policy'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
       // Run preflight check first
@@ -240,6 +277,7 @@ export const createBagsTools = (services: BagsServices) => [
         twitterUrl: input.twitterUrl,
         websiteUrl: input.websiteUrl,
         telegramUrl: input.telegramUrl,
+        mintVanity: input.mintVanity,
       });
 
       if (!result.success) {
@@ -248,6 +286,11 @@ export const createBagsTools = (services: BagsServices) => [
           error: result.error,
           data: {
             errorCode: result.errorCode,
+            vanityPattern: result.vanityPattern,
+            vanityMode: result.vanityMode,
+            vanityMatched: result.vanityMatched,
+            vanityPosition: result.vanityPosition,
+            vanityNote: result.vanityNote,
           },
         };
       }
@@ -262,6 +305,15 @@ export const createBagsTools = (services: BagsServices) => [
             bagsUrl: result.bagsUrl,
             signature: result.signature,
           },
+          vanity: result.vanityPattern
+            ? {
+                pattern: result.vanityPattern,
+                mode: result.vanityMode,
+                matched: result.vanityMatched,
+                position: result.vanityPosition,
+                note: result.vanityNote,
+              }
+            : undefined,
           message: `🚀 Token $${result.symbol} launched successfully! View at ${result.bagsUrl}`,
         },
       };

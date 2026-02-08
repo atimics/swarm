@@ -10,6 +10,35 @@
 // Bags Token Launch Types
 // =============================================================================
 
+export type VanityMintMode = 'best_effort' | 'strict';
+export type VanityMatchPosition = 'prefix' | 'suffix' | 'contains' | 'none';
+
+export interface VanityMintConfig {
+  /**
+   * Base58 pattern to target in the resulting mint.
+   * Example: "RATi"
+   */
+  pattern?: string;
+  /**
+   * strict:
+   * - mint must start or end with pattern
+   *
+   * best_effort:
+   * - mint can contain pattern anywhere
+   */
+  mode?: VanityMintMode;
+  /**
+   * Native engine budget (milliseconds) for searching vanity mints.
+   * Ignored by external launch providers.
+   */
+  maxSearchMs?: number;
+  /**
+   * Native engine budget (attempt count) for searching vanity mints.
+   * Ignored by external launch providers.
+   */
+  maxAttempts?: number;
+}
+
 export interface BagsLaunchConfig {
   /** Token name (max 32 chars) */
   name: string;
@@ -27,6 +56,8 @@ export interface BagsLaunchConfig {
   websiteUrl?: string;
   /** Telegram URL for token page */
   telegramUrl?: string;
+  /** Optional vanity mint policy */
+  mintVanity?: VanityMintConfig;
 }
 
 export interface BagsLaunchResult {
@@ -44,6 +75,16 @@ export interface BagsLaunchResult {
   tier?: number;
   /** RATI needed to burn to unlock token launch */
   burnNeeded?: number;
+  /** Vanity pattern evaluated against resulting mint (if requested) */
+  vanityPattern?: string;
+  /** Vanity mode used (if requested) */
+  vanityMode?: VanityMintMode;
+  /** Whether resulting mint satisfied vanity policy */
+  vanityMatched?: boolean;
+  /** Where the pattern matched in resulting mint */
+  vanityPosition?: VanityMatchPosition;
+  /** Additional note about vanity handling */
+  vanityNote?: string;
 }
 
 export interface BagsTokenInfo {
