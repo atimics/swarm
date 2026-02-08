@@ -1,5 +1,8 @@
 name: Deploy
 
+run-name: >-
+  Deploy ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (startsWith(github.ref, 'refs/tags/') && 'Production' || 'Staging') }}
+
 on:
   push:
     branches: [main]
@@ -182,7 +185,7 @@ jobs:
           echo "🚀 Deploying to **$ENV**" >> "$GITHUB_STEP_SUMMARY"
 
   cdk-deploy:
-    name: CDK Deploy
+    name: CDK Deploy (${{ needs.setup.outputs.environment }})
     needs: setup
     uses: ./.github/workflows/deploy-cdk-reusable.yml
     with:
@@ -199,7 +202,7 @@ jobs:
     secrets: inherit
 
   admin-ui-deploy:
-    name: Deploy Admin UI
+    name: Deploy Admin UI (${{ needs.setup.outputs.environment }})
     needs: [setup, cdk-deploy]
     if: >-
       always() &&
