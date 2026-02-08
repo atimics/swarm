@@ -383,12 +383,12 @@ export function WalletLogin({ className = '' }: WalletLoginProps) {
     clearWalletUiError();
 
     // Logout should log out of everything: backend session, Privy, and wallet connection.
+    // Clear both auth stores (walletLogout hits /auth/logout + clears walletAuth,
+    // privyAuth.logout hits /auth/logout + clears privyAuth store).
     await Promise.allSettled([
       walletLogout(),
-      (async () => {
-        privyAuth.resetLocal();
-        await privyLogout();
-      })(),
+      privyAuth.logout(),
+      privyLogout(),
       disconnect(),
     ]);
   }, [privyAuth, privyLogout, walletLogout, disconnect, clearWalletUiError]);

@@ -48,6 +48,15 @@ export function useAuth(): UnifiedAuthState {
   const walletActive = walletAuth.isAuthenticated && walletAuth.user;
   const privyActive = privyAuth.isAuthenticated && privyAuth.user;
 
+  // Logout should always clear both stores to prevent stale persisted state
+  // from keeping the user "logged in" after only one store is cleared.
+  const logoutAll = async () => {
+    await Promise.allSettled([
+      walletAuth.logout(),
+      privyAuth.logout(),
+    ]);
+  };
+
   // If Privy is authenticated, use Privy auth
   if (privyActive) {
     const account = privyAuth.account || walletAuth.account || null;
@@ -69,7 +78,7 @@ export function useAuth(): UnifiedAuthState {
       account,
       linkedWallets,
       error: privyAuth.error,
-      logout: privyAuth.logout,
+      logout: logoutAll,
       clearError: privyAuth.clearError,
     };
   }
@@ -95,7 +104,7 @@ export function useAuth(): UnifiedAuthState {
       account,
       linkedWallets,
       error: walletAuth.error,
-      logout: walletAuth.logout,
+      logout: logoutAll,
       clearError: walletAuth.clearError,
     };
   }
@@ -112,10 +121,7 @@ export function useAuth(): UnifiedAuthState {
     account: null,
     linkedWallets: [],
     error: walletAuth.error || privyAuth.error,
-    logout: async () => {
-      await walletAuth.logout();
-      await privyAuth.logout();
-    },
+    logout: logoutAll,
     clearError: () => {
       walletAuth.clearError();
       privyAuth.clearError();
