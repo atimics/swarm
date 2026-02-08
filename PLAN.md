@@ -48,12 +48,12 @@ Reference spec: `docs/AUTHENTICATION-IMPROVEMENTS.md`
 ### Observability and reliability
 - [x] Add shared logger helper with correlation IDs. `core/src/utils/correlation.ts` with `generateCorrelationId()` and `extractCorrelationId()`.
 - [x] Propagate requestId and avatarId across webhook, SQS, and handlers. Webhook → SQS message attribute → message-processor → response-sender.
-- [ ] Add basic CloudWatch dashboard and DLQ alarms.
+- [x] Add basic CloudWatch dashboard and DLQ alarms. `ops-dashboard.ts` construct + alarms in `shared-handlers.ts` and `admin-api.ts` + `alarmNotificationEmail` wired through CDK context.
 
 ### End-to-end validation
-- [ ] Add a staging Telegram canary avatar and test script.
-- [ ] Write a smoke test for message processor and response sender using mocks.
-- [ ] Document runbook for Telegram webhook failures and DLQ recovery.
+- [x] Add a staging Telegram canary avatar and test script. `scripts/telegram-canary.ts` with synthetic webhook + optional live round-trip.
+- [x] Write a smoke test for message processor and response sender using mocks. 20 tests in `__tests__/message-processor.smoke.test.ts` and `response-sender.smoke.test.ts`.
+- [x] Document runbook for Telegram webhook failures and DLQ recovery. `docs/RUNBOOK.md` — incident response, DLQ redrive, CLI reference.
 
 ## Out of scope for M1
 - Discord gateway and full multi-platform parity.
