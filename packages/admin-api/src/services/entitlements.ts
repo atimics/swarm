@@ -13,6 +13,7 @@ import {
   PutCommand,
   UpdateCommand,
   QueryCommand,
+  ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import {
   type PlanType,
@@ -136,6 +137,8 @@ export async function setEntitlement(params: {
   const now = Date.now();
   const limits = computeEffectiveLimits(plan, overrides);
 
+  const existing = await getEntitlementByAccount(accountId, avatarId);
+
   const entitlement: EntitlementRecord = {
     pk: `ENTITLEMENT#${accountId}`,
     sk: `AVATAR#${avatarId}`,
@@ -149,8 +152,8 @@ export async function setEntitlement(params: {
     status,
     trialEndsAt,
     entitlementSource,
-    createdAt: now,
-    createdBy: actorId,
+    createdAt: existing?.createdAt || now,
+    createdBy: existing?.createdBy || actorId,
     updatedAt: now,
     updatedBy: actorId,
     // GSI for looking up by avatar
@@ -164,6 +167,97 @@ export async function setEntitlement(params: {
   }));
 
   return entitlement;
+}
+
+/**
+ * Find entitlement by Stripe subscription ID.
+ * Uses a table scan fallback since Stripe lookups are low-volume webhook events.
+ */
+export async function findEntitlementByStripeSubscriptionId(
+  stripeSubscriptionId: string
+): Promise<EntitlementRecord | null> {
+  let lastEvaluatedKey: Record<string, unknown> | undefined;
+
+  do {
+    const result = await dynamoClient.send(new ScanCommand({
+      TableName: ADMIN_TABLE,
+      FilterExpression: 'stripeSubscriptionId = :subscriptionId',
+      ExpressionAttributeValues: {
+        ':subscriptionId': stripeSubscriptionId,
+      },
+      Limit: 100,
+      ExclusiveStartKey: lastEvaluatedKey,
+    }));
+
+    if (result.Items && result.Items.length > 0) {
+      return result.Items[0] as EntitlementRecord;
+    }
+
+    lastEvaluatedKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (lastEvaluatedKey);
+
+  return null;
+}
+
+/**
+ * Update entitlement status without changing plan/limits.
+ */
+export async function setEntitlementStatus(
+  accountId: string,
+  avatarId: string,
+  status: EntitlementRecord['status'],
+  actorId: string,
+  suspendedReason?: string
+): Promise<void> {
+  const now = Date.now();
+  if (status === 'suspended') {
+    await dynamoClient.send(new UpdateCommand({
+      TableName: ADMIN_TABLE,
+      Key: {
+        pk: `ENTITLEMENT#${accountId}`,
+        sk: `AVATAR#${avatarId}`,
+      },
+      UpdateExpression: `
+        SET #status = :status,
+            suspendedAt = :now,
+            suspendedReason = :reason,
+            updatedAt = :now,
+            updatedBy = :actor
+      `,
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
+      ExpressionAttributeValues: {
+        ':status': status,
+        ':now': now,
+        ':reason': suspendedReason || 'Suspended',
+        ':actor': actorId,
+      },
+    }));
+    return;
+  }
+
+  await dynamoClient.send(new UpdateCommand({
+    TableName: ADMIN_TABLE,
+    Key: {
+      pk: `ENTITLEMENT#${accountId}`,
+      sk: `AVATAR#${avatarId}`,
+    },
+    UpdateExpression: `
+      SET #status = :status,
+          updatedAt = :now,
+          updatedBy = :actor
+      REMOVE suspendedAt, suspendedReason
+    `,
+    ExpressionAttributeNames: {
+      '#status': 'status',
+    },
+    ExpressionAttributeValues: {
+      ':status': status,
+      ':now': now,
+      ':actor': actorId,
+    },
+  }));
 }
 
 /**

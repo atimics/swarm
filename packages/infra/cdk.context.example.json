@@ -16,7 +16,12 @@
 
       "privyAppId": "cmk...",
       "privyAppSecretArn": "arn:aws:secretsmanager:...",
-      "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:..."
+      "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:...",
+
+      "stripeSecretKeyArn": "arn:aws:secretsmanager:...",
+      "stripeWebhookSecretArn": "arn:aws:secretsmanager:...",
+      "stripePriceIdPro": "price_...",
+      "stripePriceIdEnterprise": "price_..."
     },
     "prod": {
       "adminDomain": "admin.example.com",
@@ -34,7 +39,12 @@
 
       "privyAppId": "cmk...",
       "privyAppSecretArn": "arn:aws:secretsmanager:...",
-      "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:..."
+      "privyJwtVerificationKeyArn": "arn:aws:secretsmanager:...",
+
+      "stripeSecretKeyArn": "arn:aws:secretsmanager:...",
+      "stripeWebhookSecretArn": "arn:aws:secretsmanager:...",
+      "stripePriceIdPro": "price_...",
+      "stripePriceIdEnterprise": "price_..."
     }
   }
 }

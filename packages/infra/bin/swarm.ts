@@ -102,6 +102,10 @@ const webSearchProvider = getContextValue<string>('webSearchProvider', envConfig
 const privyAppId = getContextValue<string>('privyAppId', envConfig);
 const privyAppSecretArn = getContextValue<string>('privyAppSecretArn', envConfig);
 const privyJwtVerificationKeyArn = getContextValue<string>('privyJwtVerificationKeyArn', envConfig);
+const stripeSecretKeyArn = getContextValue<string>('stripeSecretKeyArn', envConfig);
+const stripeWebhookSecretArn = getContextValue<string>('stripeWebhookSecretArn', envConfig);
+const stripePriceIdPro = getContextValue<string>('stripePriceIdPro', envConfig);
+const stripePriceIdEnterprise = getContextValue<string>('stripePriceIdEnterprise', envConfig);
 const galleryDomain = getContextValue<string>('galleryDomain', envConfig);
 const galleryCertificateArn = getContextValue<string>('galleryCertificateArn', envConfig);
 const profileDomain = getContextValue<string>('profileDomain', envConfig);
@@ -235,6 +239,10 @@ if (useSplitStacks) {
     privyAppId,
     privyAppSecretArn,
     privyJwtVerificationKeyArn,
+    stripeSecretKeyArn,
+    stripeWebhookSecretArn,
+    stripePriceIdPro,
+    stripePriceIdEnterprise,
     anthropicApiKeyArn,
     enableClaudeCode,
     claudeCodeUseOpenRouter,

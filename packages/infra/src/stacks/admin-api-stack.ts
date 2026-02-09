@@ -101,6 +101,26 @@ export interface AdminApiStackProps extends cdk.StackProps {
   privyJwtVerificationKeyArn?: string;
 
   /**
+   * Stripe secret key ARN
+   */
+  stripeSecretKeyArn?: string;
+
+  /**
+   * Stripe webhook secret ARN
+   */
+  stripeWebhookSecretArn?: string;
+
+  /**
+   * Stripe Pro plan price ID
+   */
+  stripePriceIdPro?: string;
+
+  /**
+   * Stripe Enterprise plan price ID
+   */
+  stripePriceIdEnterprise?: string;
+
+  /**
    * Anthropic API key secret ARN
    */
   anthropicApiKeyArn?: string;
@@ -172,6 +192,10 @@ export class AdminApiStack extends cdk.Stack {
       privyAppId,
       privyAppSecretArn,
       privyJwtVerificationKeyArn,
+      stripeSecretKeyArn,
+      stripeWebhookSecretArn,
+      stripePriceIdPro,
+      stripePriceIdEnterprise,
       anthropicApiKeyArn,
       enableClaudeCode = false,
       claudeCodeMinCapacity = 0,
@@ -275,6 +299,10 @@ export class AdminApiStack extends cdk.Stack {
         privyAppId,
         privyAppSecretArn,
         privyJwtVerificationKeyArn,
+        stripeSecretKeyArn,
+        stripeWebhookSecretArn,
+        stripePriceIdPro,
+        stripePriceIdEnterprise,
         environment,
         nameSuffix,
         secretPrefix,

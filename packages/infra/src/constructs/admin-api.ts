@@ -101,6 +101,26 @@ export interface AdminApiConstructProps {
   privyJwtVerificationKeyArn?: string;
 
   /**
+   * Stripe secret key ARN (required for Checkout/Portal API calls)
+   */
+  stripeSecretKeyArn?: string;
+
+  /**
+   * Stripe webhook secret ARN (required to verify Stripe signatures)
+   */
+  stripeWebhookSecretArn?: string;
+
+  /**
+   * Stripe price ID for Pro monthly plan.
+   */
+  stripePriceIdPro?: string;
+
+  /**
+   * Stripe price ID for Enterprise monthly plan.
+   */
+  stripePriceIdEnterprise?: string;
+
+  /**
    * Environment (development/production)
    */
   environment?: string;
@@ -395,6 +415,15 @@ export class AdminApiConstruct extends Construct {
 
     const privyJwtVerificationKey = props.privyJwtVerificationKeyArn
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'PrivyJwtVerificationKey', props.privyJwtVerificationKeyArn)
+      : undefined;
+
+    // Secrets for Stripe billing (optional - required for self-serve subscriptions)
+    const stripeSecretKey = props.stripeSecretKeyArn
+      ? secretsmanager.Secret.fromSecretCompleteArn(this, 'StripeSecretKey', props.stripeSecretKeyArn)
+      : undefined;
+
+    const stripeWebhookSecret = props.stripeWebhookSecretArn
+      ? secretsmanager.Secret.fromSecretCompleteArn(this, 'StripeWebhookSecret', props.stripeWebhookSecretArn)
       : undefined;
 
     // Twitter App credentials for OAuth flow (needed by both Chat and Twitter OAuth handlers)
@@ -1600,6 +1629,64 @@ export class AdminApiConstruct extends Construct {
       path: '/auth/abandon',
       methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
       integration: walletAuthIntegration,
+    });
+
+    // Billing handler - Stripe checkout + customer portal + webhook sync
+    const billingHandler = new nodejs.NodejsFunction(this, 'BillingHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../../../admin-api/src/handlers/billing.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        ADMIN_TABLE: this.table.tableName,
+        NODE_ENV: environment,
+        ALLOWED_ORIGINS: allowedOrigins.join(','),
+        AUTH_DOMAIN: adminDomain || 'admin.rati.chat',
+        ADMIN_WALLETS: props.adminWallets || '',
+        STRIPE_SECRET_KEY_ARN: stripeSecretKey?.secretArn || '',
+        STRIPE_WEBHOOK_SECRET_ARN: stripeWebhookSecret?.secretArn || '',
+        STRIPE_PRICE_ID_PRO: props.stripePriceIdPro || '',
+        STRIPE_PRICE_ID_ENTERPRISE: props.stripePriceIdEnterprise || '',
+        ...activeUserLimitEnvVars,
+      },
+      bundling: {
+        externalModules: ['@aws-sdk/*'],
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    this.table.grantReadWriteData(billingHandler);
+    if (stripeSecretKey) {
+      stripeSecretKey.grantRead(billingHandler);
+    }
+    if (stripeWebhookSecret) {
+      stripeWebhookSecret.grantRead(billingHandler);
+    }
+
+    const billingIntegration = new integrations.HttpLambdaIntegration(
+      'BillingIntegration',
+      billingHandler
+    );
+
+    this.api.addRoutes({
+      path: '/billing/checkout',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: billingIntegration,
+    });
+
+    this.api.addRoutes({
+      path: '/billing/portal',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: billingIntegration,
+    });
+
+    // Public webhook endpoint (signature-verified in handler)
+    this.api.addRoutes({
+      path: '/webhook/stripe',
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
+      integration: billingIntegration,
     });
 
     // Telegram webhook handler - MUST use shared @swarm/handlers multi-tenant webhook.
