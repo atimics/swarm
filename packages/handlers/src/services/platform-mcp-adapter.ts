@@ -21,7 +21,7 @@ import type {
   PostMedia,
 } from '@swarm/core';
 import { TwitterAdapter, DiscordAdapter, createContentStoreService, enqueuePost, isPostQueueConfigured, getPostQueueUrl, enqueueMediaJob, isMediaQueueConfigured, getMediaQueueUrl } from '@swarm/core';
-import { QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
 import {
   checkMediaLimit,
@@ -1333,6 +1333,100 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
       getTokenStatus: async (targetAvatarId: string) => {
         const tokenLaunch = await getTokenLaunch();
         return tokenLaunch.getTokenStatus(targetAvatarId);
+      },
+    },
+
+    // =========================================================================
+    // Billing Services (read-only status + usage from entitlements)
+    // =========================================================================
+    billing: {
+      createCheckoutSession: async (params) => {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore - dynamic import avoids static dependency on admin-api
+        const { createStripeCheckoutSession } = await import('@swarm/admin-api');
+        const session = await createStripeCheckoutSession({
+          accountId: params.accountId,
+          avatarId: params.avatarId,
+          plan: params.plan,
+          successUrl: params.successUrl,
+          cancelUrl: params.cancelUrl,
+          customerId: params.customerId,
+          customerEmail: params.customerEmail,
+        });
+        return { checkoutUrl: session.url || '', sessionId: session.id };
+      },
+      createPortalSession: async (params) => {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore - dynamic import avoids static dependency on admin-api
+        const { createStripeCustomerPortalSession } = await import('@swarm/admin-api');
+        const portal = await createStripeCustomerPortalSession({
+          customerId: params.customerId,
+          returnUrl: params.returnUrl,
+        });
+        return { portalUrl: portal.url || '' };
+      },
+      getBillingStatus: async (targetAvatarId: string) => {
+        // Query ADMIN_TABLE directly to avoid cross-package dependency
+        const result = await dynamoClient.send(new QueryCommand({
+          TableName: ADMIN_TABLE,
+          IndexName: 'gsi1',
+          KeyConditionExpression: 'gsi1pk = :pk AND gsi1sk = :sk',
+          ExpressionAttributeValues: {
+            ':pk': `AVATAR#${targetAvatarId}`,
+            ':sk': 'ENTITLEMENT',
+          },
+          Limit: 1,
+        }));
+        const ent = result.Items?.[0];
+        if (!ent) return null;
+        const limits = ent.limits || {};
+        return {
+          accountId: ent.accountId as string,
+          avatarId: ent.avatarId as string,
+          plan: (ent.plan || 'free') as 'free' | 'pro' | 'enterprise',
+          status: (ent.status || 'active') as 'active' | 'suspended' | 'cancelled' | 'trial',
+          stripeSubscriptionId: ent.stripeSubscriptionId as string | undefined,
+          stripeCustomerId: ent.stripeCustomerId as string | undefined,
+          trialEndsAt: ent.trialEndsAt as number | undefined,
+          suspendedAt: ent.suspendedAt as number | undefined,
+          suspendedReason: ent.suspendedReason as string | undefined,
+          limits: {
+            dailyMessageLimit: (limits.dailyMessageLimit ?? 50) as number,
+            dailyMediaCredits: (limits.dailyMediaCredits ?? 5) as number,
+            dailyVoiceMinutes: (limits.dailyVoiceMinutes ?? 2) as number,
+            maxToolCallsPerMessage: (limits.maxToolCallsPerMessage ?? 3) as number,
+            maxPlatforms: (limits.maxPlatforms ?? 1) as number,
+            maxChannels: (limits.maxChannels ?? 2) as number,
+            memoryEnabled: (limits.memoryEnabled ?? false) as boolean,
+            memoryRetentionDays: (limits.memoryRetentionDays ?? 0) as number,
+            autonomousPostsEnabled: (limits.autonomousPostsEnabled ?? false) as boolean,
+            customModelEnabled: (limits.customModelEnabled ?? false) as boolean,
+            priorityProcessing: (limits.priorityProcessing ?? false) as boolean,
+          },
+        };
+      },
+      getUsage: async (targetAvatarId: string, date?: string) => {
+        const dateStr = date || new Date().toISOString().split('T')[0];
+        const result = await dynamoClient.send(new GetCommand({
+          TableName: ADMIN_TABLE,
+          Key: {
+            pk: `USAGE#${targetAvatarId}`,
+            sk: `DAY#${dateStr}`,
+          },
+        }));
+        const item = result.Item;
+        if (!item) return null;
+        return {
+          avatarId: item.avatarId as string,
+          date: item.date as string,
+          messagesProcessed: (item.messagesProcessed || 0) as number,
+          mediaCreditsUsed: (item.mediaCreditsUsed || 0) as number,
+          voiceMinutesUsed: (item.voiceMinutesUsed || 0) as number,
+          toolCallsMade: (item.toolCallsMade || 0) as number,
+          imageGenerations: (item.imageGenerations || 0) as number,
+          videoGenerations: (item.videoGenerations || 0) as number,
+          stickerGenerations: (item.stickerGenerations || 0) as number,
+        };
       },
     },
   };

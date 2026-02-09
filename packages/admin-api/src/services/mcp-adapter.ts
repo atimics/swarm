@@ -48,6 +48,11 @@ import * as integrations from '../services/integrations.js';
 import type { IntegrationType, AICapability } from '../services/integrations.js';
 import { getModelsForCapability, AVAILABLE_MODELS } from '../services/models-registry.js';
 import * as tokenLaunch from '../services/token-launch.js';
+import * as entitlements from '../services/entitlements.js';
+import {
+  createStripeCheckoutSession,
+  createStripeCustomerPortalSession,
+} from '../services/stripe-billing.js';
 
 // Timeout for external API calls
 const API_TIMEOUT_MS = 10_000;
@@ -2078,6 +2083,77 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
       },
       getTokenStatus: async (avatarId: string) => {
         return tokenLaunch.getTokenStatus(avatarId);
+      },
+    },
+
+    // =========================================================================
+    // Billing Services (Stripe subscriptions & usage)
+    // =========================================================================
+    billing: {
+      createCheckoutSession: async (params) => {
+        const session = await createStripeCheckoutSession({
+          accountId: params.accountId,
+          avatarId: params.avatarId,
+          plan: params.plan,
+          successUrl: params.successUrl,
+          cancelUrl: params.cancelUrl,
+          customerId: params.customerId,
+          customerEmail: params.customerEmail,
+        });
+        return {
+          checkoutUrl: session.url || '',
+          sessionId: session.id,
+        };
+      },
+      createPortalSession: async (params) => {
+        const portal = await createStripeCustomerPortalSession({
+          customerId: params.customerId,
+          returnUrl: params.returnUrl,
+        });
+        return { portalUrl: portal.url || '' };
+      },
+      getBillingStatus: async (avatarId: string) => {
+        const ent = await entitlements.getEntitlement(avatarId);
+        if (!ent) return null;
+        return {
+          accountId: ent.accountId,
+          avatarId: ent.avatarId,
+          plan: ent.plan,
+          status: ent.status,
+          stripeSubscriptionId: ent.stripeSubscriptionId,
+          stripeCustomerId: ent.stripeCustomerId,
+          trialEndsAt: ent.trialEndsAt,
+          suspendedAt: ent.suspendedAt,
+          suspendedReason: ent.suspendedReason,
+          limits: {
+            dailyMessageLimit: ent.limits.dailyMessageLimit,
+            dailyMediaCredits: ent.limits.dailyMediaCredits,
+            dailyVoiceMinutes: ent.limits.dailyVoiceMinutes,
+            maxToolCallsPerMessage: ent.limits.maxToolCallsPerMessage,
+            maxPlatforms: ent.limits.maxPlatforms,
+            maxChannels: ent.limits.maxChannels,
+            memoryEnabled: ent.limits.memoryEnabled,
+            memoryRetentionDays: ent.limits.memoryRetentionDays,
+            autonomousPostsEnabled: ent.limits.autonomousPostsEnabled,
+            customModelEnabled: ent.limits.customModelEnabled,
+            priorityProcessing: ent.limits.priorityProcessing,
+          },
+        };
+      },
+      getUsage: async (avatarId: string, date?: string) => {
+        const usage = await entitlements.getUsage(avatarId, date);
+        if (!usage) return null;
+        return {
+          avatarId: usage.avatarId,
+          date: usage.date,
+          messagesProcessed: usage.messagesProcessed || 0,
+          mediaCreditsUsed: usage.mediaCreditsUsed || 0,
+          voiceMinutesUsed: usage.voiceMinutesUsed || 0,
+          toolCallsMade: usage.toolCallsMade || 0,
+          imageGenerations: usage.imageGenerations || 0,
+          videoGenerations: usage.videoGenerations || 0,
+          stickerGenerations: usage.stickerGenerations || 0,
+        };
       },
     },
   };

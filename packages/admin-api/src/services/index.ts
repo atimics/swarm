@@ -35,6 +35,12 @@ export * as discord from './discord.js';
 export * as propertyResearch from './property-research.js';
 // Token launch service
 export * as tokenLaunch from './token-launch.js';
+// Stripe billing service
+export {
+  createStripeCheckoutSession,
+  createStripeCustomerPortalSession,
+  retrieveStripeSubscription,
+} from './stripe-billing.js';
 
 // RATI burn stats and tier system
 export * as burnStats from './burn-stats.js';
