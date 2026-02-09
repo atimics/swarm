@@ -20,7 +20,7 @@ import type {
   ContentStoreService,
   PostMedia,
 } from '@swarm/core';
-import { TwitterAdapter, createContentStoreService, enqueuePost, isPostQueueConfigured, getPostQueueUrl, enqueueMediaJob, isMediaQueueConfigured, getMediaQueueUrl } from '@swarm/core';
+import { TwitterAdapter, DiscordAdapter, createContentStoreService, enqueuePost, isPostQueueConfigured, getPostQueueUrl, enqueueMediaJob, isMediaQueueConfigured, getMediaQueueUrl } from '@swarm/core';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
 import {
@@ -53,6 +53,27 @@ async function getTokenLaunch() {
 
 const dynamoClient = getDynamoClient();
 const ADMIN_TABLE = process.env.ADMIN_TABLE || 'SwarmAdmin-prod';
+const DISCORD_API_BASE = 'https://discord.com/api/v10';
+
+/**
+ * Map Discord channel type number to human-readable string
+ */
+function mapDiscordChannelType(type: number): 'text' | 'voice' | 'category' | 'announcement' | 'forum' | 'thread' | 'dm' | 'group_dm' {
+  const types: Record<number, 'text' | 'voice' | 'category' | 'announcement' | 'forum' | 'thread' | 'dm' | 'group_dm'> = {
+    0: 'text',
+    2: 'voice',
+    4: 'category',
+    5: 'announcement',
+    10: 'thread',
+    11: 'thread',
+    12: 'thread',
+    13: 'thread',
+    15: 'forum',
+    1: 'dm',
+    3: 'group_dm',
+  };
+  return types[type] || 'text';
+}
 
 export interface PlatformServicesConfig {
   avatarId: string;
@@ -91,6 +112,21 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     })
     : null;
   let cachedTwitterUsername: string | undefined;
+
+  // Discord adapter setup
+  const discordConfig = avatarConfig.platforms?.discord;
+  const discordBotToken = config.secrets.DISCORD_BOT_TOKEN || config.secrets.discord_bot_token;
+  const discordWebhookUrl = discordConfig?.webhookUrl || config.secrets.DISCORD_WEBHOOK_URL || config.secrets.discord_webhook_url;
+  const discordAdapter = discordConfig?.enabled
+    ? new DiscordAdapter(avatarConfig, {
+      botToken: discordBotToken,
+      webhookUrl: discordWebhookUrl,
+      webhookId: discordConfig.webhookId,
+      webhookToken: discordConfig.webhookToken,
+      applicationId: discordConfig.applicationId,
+      publicKey: discordConfig.publicKey,
+    })
+    : null;
 
   // Initialize content store for decoupled Twitter posting
   const stateTable = process.env.STATE_TABLE;
@@ -952,6 +988,332 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
           } catch {
             return null;
           }
+        },
+      },
+    } : {}),
+
+    // =========================================================================
+    // Discord Services (platform runtime)
+    // =========================================================================
+    ...(discordConfig?.enabled && discordAdapter ? {
+      discord: {
+        getConnectionStatus: async () => {
+          const hasBotToken = !!discordBotToken;
+          const hasWebhook = !!discordWebhookUrl;
+
+          if (!hasBotToken && !hasWebhook) {
+            return { connected: false, mode: 'none' as const };
+          }
+
+          let mode: 'webhook' | 'bot' | 'hybrid' | 'none' = 'none';
+          if (hasBotToken && hasWebhook) {
+            mode = 'hybrid';
+          } else if (hasBotToken) {
+            mode = 'bot';
+          } else if (hasWebhook) {
+            mode = 'webhook';
+          }
+
+          const result: {
+            connected: boolean;
+            mode: 'webhook' | 'bot' | 'hybrid' | 'none';
+            botUsername?: string;
+            botId?: string;
+            webhookConfigured?: boolean;
+            guilds?: Array<{ id: string; name: string; memberCount?: number }>;
+          } = {
+            connected: true,
+            mode,
+            webhookConfigured: hasWebhook,
+          };
+
+          if (discordBotToken) {
+            try {
+              const meResponse = await fetch(`${DISCORD_API_BASE}/users/@me`, {
+                headers: { Authorization: `Bot ${discordBotToken}` },
+              });
+              if (meResponse.ok) {
+                const me = (await meResponse.json()) as { id: string; username: string };
+                result.botId = me.id;
+                result.botUsername = me.username;
+              }
+
+              const guildsResponse = await fetch(`${DISCORD_API_BASE}/users/@me/guilds`, {
+                headers: { Authorization: `Bot ${discordBotToken}` },
+              });
+              if (guildsResponse.ok) {
+                const guilds = (await guildsResponse.json()) as Array<{
+                  id: string;
+                  name: string;
+                  approximate_member_count?: number;
+                }>;
+                result.guilds = guilds.map(g => ({
+                  id: g.id,
+                  name: g.name,
+                  memberCount: g.approximate_member_count,
+                }));
+              }
+            } catch (error) {
+              console.error('[Discord] Failed to fetch bot info:', error);
+            }
+          }
+
+          return result;
+        },
+
+        sendMessage: async (
+          channelId: string,
+          content: string,
+          options?: {
+            embeds?: Array<{
+              title?: string;
+              description?: string;
+              color?: number;
+              image?: { url: string };
+              fields?: Array<{ name: string; value: string; inline?: boolean }>;
+            }>;
+            replyTo?: string;
+          }
+        ) => {
+          if (!discordBotToken) return null;
+
+          const payload: Record<string, unknown> = { content };
+          if (options?.replyTo) {
+            payload.message_reference = { message_id: options.replyTo };
+          }
+          if (options?.embeds) {
+            payload.embeds = options.embeds;
+          }
+
+          try {
+            const response = await fetch(`${DISCORD_API_BASE}/channels/${channelId}/messages`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bot ${discordBotToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+              const error = await response.text();
+              console.error('[Discord] Send message failed:', error);
+              return null;
+            }
+
+            const message = (await response.json()) as { id: string };
+            return { messageId: message.id };
+          } catch (error) {
+            console.error('[Discord] Send message error:', error);
+            return null;
+          }
+        },
+
+        sendWebhookMessage: async (
+          content: string,
+          options?: {
+            username?: string;
+            avatarUrl?: string;
+            embeds?: Array<Record<string, unknown>>;
+          }
+        ) => {
+          const webhookUrl = discordWebhookUrl;
+          if (!webhookUrl) return null;
+
+          const payload: Record<string, unknown> = {
+            content,
+            username: options?.username || avatarConfig.name,
+            avatar_url: options?.avatarUrl || avatarConfig.profileImage?.url,
+          };
+          if (options?.embeds) {
+            payload.embeds = options.embeds;
+          }
+
+          try {
+            const url = webhookUrl.includes('?') ? `${webhookUrl}&wait=true` : `${webhookUrl}?wait=true`;
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+              const error = await response.text();
+              console.error('[Discord] Webhook message failed:', error);
+              return null;
+            }
+
+            const message = (await response.json()) as { id?: string };
+            return { messageId: message.id };
+          } catch (error) {
+            console.error('[Discord] Webhook message error:', error);
+            return null;
+          }
+        },
+
+        getChannel: async (channelId: string) => {
+          if (!discordBotToken) return null;
+
+          try {
+            const response = await fetch(`${DISCORD_API_BASE}/channels/${channelId}`, {
+              headers: { Authorization: `Bot ${discordBotToken}` },
+            });
+            if (!response.ok) return null;
+
+            const channel = (await response.json()) as {
+              id: string;
+              name: string;
+              type: number;
+              guild_id?: string;
+              parent_id?: string;
+            };
+            return {
+              id: channel.id,
+              name: channel.name,
+              type: mapDiscordChannelType(channel.type),
+              guildId: channel.guild_id,
+              parentId: channel.parent_id,
+            };
+          } catch (error) {
+            console.error('[Discord] Get channel error:', error);
+            return null;
+          }
+        },
+
+        listChannels: async (guildId: string) => {
+          if (!discordBotToken) return [];
+
+          try {
+            const response = await fetch(`${DISCORD_API_BASE}/guilds/${guildId}/channels`, {
+              headers: { Authorization: `Bot ${discordBotToken}` },
+            });
+            if (!response.ok) return [];
+
+            const channels = (await response.json()) as Array<{
+              id: string;
+              name: string;
+              type: number;
+              parent_id?: string;
+            }>;
+            return channels.map(c => ({
+              id: c.id,
+              name: c.name,
+              type: mapDiscordChannelType(c.type),
+              guildId,
+              parentId: c.parent_id,
+            }));
+          } catch (error) {
+            console.error('[Discord] List channels error:', error);
+            return [];
+          }
+        },
+
+        listGuilds: async () => {
+          if (!discordBotToken) return [];
+
+          try {
+            const response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds`, {
+              headers: { Authorization: `Bot ${discordBotToken}` },
+            });
+            if (!response.ok) return [];
+
+            const guilds = (await response.json()) as Array<{
+              id: string;
+              name: string;
+              icon?: string;
+              approximate_member_count?: number;
+            }>;
+            return guilds.map(g => ({
+              id: g.id,
+              name: g.name,
+              icon: g.icon,
+              memberCount: g.approximate_member_count,
+            }));
+          } catch (error) {
+            console.error('[Discord] List guilds error:', error);
+            return [];
+          }
+        },
+
+        getMessages: async (channelId: string, limit = 20) => {
+          if (!discordBotToken) return [];
+
+          try {
+            const response = await fetch(
+              `${DISCORD_API_BASE}/channels/${channelId}/messages?limit=${limit}`,
+              { headers: { Authorization: `Bot ${discordBotToken}` } }
+            );
+            if (!response.ok) return [];
+
+            const messages = (await response.json()) as Array<{
+              id: string;
+              channel_id: string;
+              content: string;
+              author: { id: string; username: string };
+              timestamp: string;
+              attachments?: Array<{ url: string; content_type?: string }>;
+            }>;
+            return messages.map(m => ({
+              id: m.id,
+              channelId: m.channel_id,
+              content: m.content,
+              authorId: m.author.id,
+              authorUsername: m.author.username,
+              createdAt: m.timestamp,
+              attachments: m.attachments?.map(a => ({
+                url: a.url,
+                type: a.content_type || 'unknown',
+              })),
+            }));
+          } catch (error) {
+            console.error('[Discord] Get messages error:', error);
+            return [];
+          }
+        },
+
+        addReaction: async (channelId: string, messageId: string, emoji: string) => {
+          if (!discordBotToken) return false;
+
+          try {
+            const encodedEmoji = encodeURIComponent(emoji);
+            const response = await fetch(
+              `${DISCORD_API_BASE}/channels/${channelId}/messages/${messageId}/reactions/${encodedEmoji}/@me`,
+              {
+                method: 'PUT',
+                headers: { Authorization: `Bot ${discordBotToken}` },
+              }
+            );
+            return response.ok;
+          } catch (error) {
+            console.error('[Discord] Add reaction error:', error);
+            return false;
+          }
+        },
+
+        removeReaction: async (channelId: string, messageId: string, emoji: string) => {
+          if (!discordBotToken) return false;
+
+          try {
+            const encodedEmoji = encodeURIComponent(emoji);
+            const response = await fetch(
+              `${DISCORD_API_BASE}/channels/${channelId}/messages/${messageId}/reactions/${encodedEmoji}/@me`,
+              {
+                method: 'DELETE',
+                headers: { Authorization: `Bot ${discordBotToken}` },
+              }
+            );
+            return response.ok;
+          } catch (error) {
+            console.error('[Discord] Remove reaction error:', error);
+            return false;
+          }
+        },
+
+        setPresence: async (_status: 'online' | 'idle' | 'dnd' | 'invisible', _activity?: string) => {
+          // Presence can only be set via the Gateway WebSocket (discord-gateway.ts),
+          // not via REST API. Return false from platform handler context.
+          console.warn('[Discord] setPresence is only available via the Gateway WebSocket connection');
+          return false;
         },
       },
     } : {}),
