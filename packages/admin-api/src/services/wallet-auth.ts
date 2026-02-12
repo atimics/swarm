@@ -71,6 +71,7 @@ export interface ChallengeRecord {
   pk: string; // CHALLENGE#<nonce>
   sk: 'DATA';
   nonce: string;
+  walletAddress: string;
   message: string;
   createdAt: number;
   expiresAt: number;
@@ -221,6 +222,7 @@ export async function createChallenge(
     pk: `CHALLENGE#${nonce}`,
     sk: 'DATA',
     nonce,
+    walletAddress,
     message,
     createdAt: now,
     expiresAt,
@@ -240,33 +242,37 @@ export async function createChallenge(
 /**
  * Get and validate a challenge (one-time use)
  */
-async function consumeChallenge(nonce: string): Promise<ChallengeRecord | null> {
-  // Get the challenge
-  const result = await dynamoClient.send(new GetCommand({
-    TableName: ADMIN_TABLE,
-    Key: { pk: `CHALLENGE#${nonce}`, sk: 'DATA' },
-  }));
+async function consumeChallenge(nonce: string, walletAddress: string): Promise<ChallengeRecord | null> {
+  const now = Date.now();
+  try {
+    const result = await dynamoClient.send(new DeleteCommand({
+      TableName: ADMIN_TABLE,
+      Key: { pk: `CHALLENGE#${nonce}`, sk: 'DATA' },
+      ConditionExpression: '#expiresAt > :now AND (#walletAddress = :walletAddress OR attribute_not_exists(#walletAddress))',
+      ExpressionAttributeNames: {
+        '#expiresAt': 'expiresAt',
+        '#walletAddress': 'walletAddress',
+      },
+      ExpressionAttributeValues: {
+        ':now': now,
+        ':walletAddress': walletAddress,
+      },
+      ReturnValues: 'ALL_OLD',
+    }));
 
-  if (!result.Item) {
-    console.log(`[WalletAuth] Challenge not found: ${nonce.slice(0, 16)}...`);
-    return null;
+    const challenge = result.Attributes as ChallengeRecord | undefined;
+    if (!challenge) {
+      console.log(`[WalletAuth] Challenge not found: ${nonce.slice(0, 16)}...`);
+      return null;
+    }
+    return challenge;
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'ConditionalCheckFailedException') {
+      console.log(`[WalletAuth] Challenge invalid/expired/mismatched wallet: ${nonce.slice(0, 16)}...`);
+      return null;
+    }
+    throw err;
   }
-
-  const challenge = result.Item as ChallengeRecord;
-
-  // Check expiration
-  if (Date.now() > challenge.expiresAt) {
-    console.log(`[WalletAuth] Challenge expired: ${nonce.slice(0, 16)}...`);
-    return null;
-  }
-
-  // Delete challenge (one-time use)
-  await dynamoClient.send(new DeleteCommand({
-    TableName: ADMIN_TABLE,
-    Key: { pk: `CHALLENGE#${nonce}`, sk: 'DATA' },
-  }));
-
-  return challenge;
 }
 
 // ============================================================================
@@ -540,7 +546,7 @@ export async function verifyAndCreateSession(
   error?: string;
 }> {
   // 1. Get and consume the challenge
-  const challenge = await consumeChallenge(nonce);
+  const challenge = await consumeChallenge(nonce, publicKeyBase58);
   if (!challenge) {
     return { success: false, error: 'Invalid or expired challenge' };
   }

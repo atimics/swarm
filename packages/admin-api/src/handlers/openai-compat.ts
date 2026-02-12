@@ -126,6 +126,15 @@ interface ApiKeyRecord {
   enabled: boolean;
 }
 
+interface ApiKeyValidationResult {
+  valid: boolean;
+  session?: UserSession;
+  avatarId?: string;
+  error?: string;
+  statusCode?: number;
+  retryAfterSeconds?: number;
+}
+
 /**
  * Hash an API key for secure storage/lookup
  */
@@ -153,15 +162,122 @@ function extractApiKey(event: APIGatewayProxyEventV2): string | null {
   return key;
 }
 
+interface ApiKeyRateLimitDeps {
+  docClient: Pick<typeof docClient, 'send'>;
+  tableName: string;
+  now: () => number;
+}
+
+function getApiKeyRateLimitDeps(): ApiKeyRateLimitDeps {
+  return {
+    docClient,
+    tableName: ADMIN_TABLE,
+    now: () => Date.now(),
+  };
+}
+
+function toPositiveInt(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const rounded = Math.trunc(value);
+  return rounded > 0 ? rounded : null;
+}
+
+async function incrementRateBucket(params: {
+  keyHash: string;
+  bucketType: 'MINUTE' | 'DAY';
+  bucketStartMs: number;
+  resetAtMs: number;
+  limit: number;
+  deps: ApiKeyRateLimitDeps;
+}): Promise<{ allowed: boolean; retryAfterSeconds?: number }> {
+  const { keyHash, bucketType, bucketStartMs, resetAtMs, limit, deps } = params;
+  const now = deps.now();
+  const ttl = Math.floor(resetAtMs / 1000) + 86400; // Keep buckets for one extra day.
+
+  try {
+    await deps.docClient.send(new UpdateCommand({
+      TableName: deps.tableName,
+      Key: {
+        pk: `API_KEY_RATE#${keyHash}`,
+        sk: `${bucketType}#${bucketStartMs}`,
+      },
+      UpdateExpression: 'SET #count = if_not_exists(#count, :zero) + :one, resetAt = :resetAt, #ttl = :ttl',
+      ConditionExpression: 'attribute_not_exists(#count) OR #count < :limit',
+      ExpressionAttributeNames: {
+        '#count': 'count',
+        '#ttl': 'ttl',
+      },
+      ExpressionAttributeValues: {
+        ':zero': 0,
+        ':one': 1,
+        ':limit': limit,
+        ':resetAt': resetAtMs,
+        ':ttl': ttl,
+      },
+    }));
+
+    return { allowed: true };
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'ConditionalCheckFailedException') {
+      return {
+        allowed: false,
+        retryAfterSeconds: Math.max(1, Math.ceil((resetAtMs - now) / 1000)),
+      };
+    }
+    throw err;
+  }
+}
+
+export async function checkApiKeyRateLimit(
+  keyHash: string,
+  rateLimit: ApiKeyRecord['rateLimit'] | undefined,
+  deps: ApiKeyRateLimitDeps = getApiKeyRateLimitDeps()
+): Promise<{ allowed: boolean; retryAfterSeconds?: number }> {
+  const perMinute = toPositiveInt(rateLimit?.requestsPerMinute);
+  const perDay = toPositiveInt(rateLimit?.requestsPerDay);
+  if (!perMinute && !perDay) return { allowed: true };
+
+  const now = deps.now();
+
+  if (perMinute) {
+    const minuteStart = Math.floor(now / 60000) * 60000;
+    const minuteResult = await incrementRateBucket({
+      keyHash,
+      bucketType: 'MINUTE',
+      bucketStartMs: minuteStart,
+      resetAtMs: minuteStart + 60000,
+      limit: perMinute,
+      deps,
+    });
+    if (!minuteResult.allowed) {
+      return minuteResult;
+    }
+  }
+
+  if (perDay) {
+    const dayStart = new Date(now);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const dayStartMs = dayStart.getTime();
+    const dayResult = await incrementRateBucket({
+      keyHash,
+      bucketType: 'DAY',
+      bucketStartMs: dayStartMs,
+      resetAtMs: dayStartMs + 86400000,
+      limit: perDay,
+      deps,
+    });
+    if (!dayResult.allowed) {
+      return dayResult;
+    }
+  }
+
+  return { allowed: true };
+}
+
 /**
  * Validate API key and return the associated session
  */
-async function validateApiKey(apiKey: string): Promise<{
-  valid: boolean;
-  session?: UserSession;
-  avatarId?: string;
-  error?: string;
-}> {
+async function validateApiKey(apiKey: string): Promise<ApiKeyValidationResult> {
   const keyHash = hashApiKey(apiKey);
 
   try {
@@ -181,6 +297,16 @@ async function validateApiKey(apiKey: string): Promise<{
 
     if (!keyRecord.enabled) {
       return { valid: false, error: 'API key is disabled' };
+    }
+
+    const rateLimitStatus = await checkApiKeyRateLimit(keyHash, keyRecord.rateLimit);
+    if (!rateLimitStatus.allowed) {
+      return {
+        valid: false,
+        error: 'API key rate limit exceeded',
+        statusCode: 429,
+        retryAfterSeconds: rateLimitStatus.retryAfterSeconds,
+      };
     }
 
     // Update last used timestamp and usage count (fire and forget)
@@ -271,6 +397,33 @@ function errorResponse(
   return jsonResponse(statusCode, error, headers);
 }
 
+function apiKeyValidationErrorResponse(
+  validation: ApiKeyValidationResult,
+  corsHeaders: Record<string, string>
+): APIGatewayProxyResultV2 {
+  const statusCode = validation.statusCode || 401;
+  if (statusCode === 429) {
+    return errorResponse(
+      429,
+      validation.error || 'Rate limit exceeded',
+      'rate_limit_error',
+      'rate_limit_exceeded',
+      {
+        ...corsHeaders,
+        ...(validation.retryAfterSeconds ? { 'Retry-After': String(validation.retryAfterSeconds) } : {}),
+      }
+    );
+  }
+
+  return errorResponse(
+    statusCode,
+    validation.error || 'Invalid API key',
+    'authentication_error',
+    'invalid_api_key',
+    corsHeaders
+  );
+}
+
 // =============================================================================
 // Main Handler
 // =============================================================================
@@ -335,7 +488,7 @@ async function handleListModels(
 
   const validation = await validateApiKey(apiKey);
   if (!validation.valid) {
-    return errorResponse(401, validation.error || 'Invalid API key', 'authentication_error', 'invalid_api_key', corsHeaders);
+    return apiKeyValidationErrorResponse(validation, corsHeaders);
   }
 
   try {
@@ -451,7 +604,7 @@ async function handleGetModel(
 
   const validation = await validateApiKey(apiKey);
   if (!validation.valid) {
-    return errorResponse(401, validation.error || 'Invalid API key', 'authentication_error', 'invalid_api_key', corsHeaders);
+    return apiKeyValidationErrorResponse(validation, corsHeaders);
   }
 
   try {
@@ -552,7 +705,7 @@ async function handleChatCompletions(
 
   const validation = await validateApiKey(apiKey);
   if (!validation.valid || !validation.session) {
-    return errorResponse(401, validation.error || 'Invalid API key', 'authentication_error', 'invalid_api_key', corsHeaders);
+    return apiKeyValidationErrorResponse(validation, corsHeaders);
   }
 
   // Parse request body

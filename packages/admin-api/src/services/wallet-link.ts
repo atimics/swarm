@@ -1,7 +1,6 @@
 import {
   type DynamoDBDocumentClient,
   PutCommand,
-  GetCommand,
   DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { randomBytes } from 'crypto';
@@ -133,29 +132,38 @@ export async function createLinkWalletChallenge(params: {
   return { nonce, message, expiresAt };
 }
 
-async function consumeLinkChallenge(nonce: string, deps: WalletLinkDeps): Promise<LinkChallengeRecord | null> {
-  const result = await deps.dynamoClient.send(
-    new GetCommand({
-      TableName: deps.tableName,
-      Key: { pk: `LINKCHALLENGE#${nonce}`, sk: 'DATA' },
-    })
-  );
+async function consumeLinkChallenge(
+  params: { nonce: string; accountId: string; walletAddress: string },
+  deps: WalletLinkDeps
+): Promise<LinkChallengeRecord | null> {
+  const now = deps.now();
+  try {
+    const result = await deps.dynamoClient.send(
+      new DeleteCommand({
+        TableName: deps.tableName,
+        Key: { pk: `LINKCHALLENGE#${params.nonce}`, sk: 'DATA' },
+        ConditionExpression: '#expiresAt > :now AND #accountId = :accountId AND #walletAddress = :walletAddress',
+        ExpressionAttributeNames: {
+          '#expiresAt': 'expiresAt',
+          '#accountId': 'accountId',
+          '#walletAddress': 'walletAddress',
+        },
+        ExpressionAttributeValues: {
+          ':now': now,
+          ':accountId': params.accountId,
+          ':walletAddress': params.walletAddress,
+        },
+        ReturnValues: 'ALL_OLD',
+      })
+    );
 
-  if (!result.Item) return null;
-
-  const challenge = result.Item as LinkChallengeRecord;
-  if (deps.now() > challenge.expiresAt) {
-    return null;
+    return (result.Attributes as LinkChallengeRecord | undefined) ?? null;
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'ConditionalCheckFailedException') {
+      return null;
+    }
+    throw err;
   }
-
-  await deps.dynamoClient.send(
-    new DeleteCommand({
-      TableName: deps.tableName,
-      Key: { pk: `LINKCHALLENGE#${nonce}`, sk: 'DATA' },
-    })
-  );
-
-  return challenge;
 }
 
 export async function verifyLinkWallet(params: {
@@ -164,13 +172,16 @@ export async function verifyLinkWallet(params: {
   nonce: string;
   signatureBase58: string;
 }, deps: WalletLinkDeps = getDefaultDeps()): Promise<{ success: true } | { success: false; error: string }> {
-  const challenge = await consumeLinkChallenge(params.nonce, deps);
+  const challenge = await consumeLinkChallenge(
+    {
+      nonce: params.nonce,
+      accountId: params.accountId,
+      walletAddress: params.walletAddress,
+    },
+    deps
+  );
   if (!challenge) {
     return { success: false, error: 'Invalid or expired challenge' };
-  }
-
-  if (challenge.accountId !== params.accountId || challenge.walletAddress !== params.walletAddress) {
-    return { success: false, error: 'Challenge does not match request' };
   }
 
   const valid = deps.verifySignature(challenge.message, params.signatureBase58, params.walletAddress);

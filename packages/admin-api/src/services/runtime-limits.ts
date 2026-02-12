@@ -100,7 +100,7 @@ export function getEffectiveLimitsForAvatar(
       plan: 'free',
       limits: PLAN_DEFAULTS.free,
       source: 'default',
-      entitlementStatus: entitlement?.status,
+      entitlementStatus: entitlement ? entitlement.status : undefined,
     };
   }
 

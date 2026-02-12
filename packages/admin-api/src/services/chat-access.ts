@@ -7,11 +7,10 @@ export interface ChatAccessDeps {
   getAvatar: (avatarId: string) => Promise<{ creatorWallet?: string | null; inhabitantWallet?: string | null } | null>;
   corsHeaders: Record<string, string>;
   /**
-   * When true, any authenticated user can access the avatar for chat.
-   * Used for public subdomain access (e.g., agent-name.rati.chat).
-   * User still needs to be authenticated, but doesn't need to own/inhabit the avatar.
+   * Avatar ID resolved from a trusted public subdomain host.
+   * When present, any authenticated user may access that specific avatar.
    */
-  publicAccess?: boolean;
+  publicAvatarId?: string | null;
 }
 
 export type AccessMode = 'admin' | 'owner' | 'public' | 'denied';
@@ -22,7 +21,7 @@ export interface AccessCheckResult {
 }
 
 export function createAvatarAccessChecker(deps: ChatAccessDeps) {
-  const { isAdmin, session, getAvatar, corsHeaders, publicAccess } = deps;
+  const { isAdmin, session, getAvatar, corsHeaders, publicAvatarId } = deps;
 
   return async (avatarId: string | undefined | null): Promise<APIGatewayProxyResultV2 | null> => {
     if (isAdmin) return null;
@@ -52,8 +51,8 @@ export function createAvatarAccessChecker(deps: ChatAccessDeps) {
       return null;
     }
 
-    // Allow public access for any authenticated user when publicAccess is enabled
-    if (publicAccess && walletAddress) {
+    // Allow public access only for the avatar resolved from the trusted host context.
+    if (publicAvatarId && walletAddress && avatarId === publicAvatarId) {
       return null;
     }
 
@@ -70,7 +69,7 @@ export function createAvatarAccessChecker(deps: ChatAccessDeps) {
  * Extended access checker that returns both error and access mode
  */
 export function createAvatarAccessCheckerWithMode(deps: ChatAccessDeps) {
-  const { isAdmin, session, getAvatar, corsHeaders, publicAccess } = deps;
+  const { isAdmin, session, getAvatar, corsHeaders, publicAvatarId } = deps;
 
   return async (avatarId: string | undefined | null): Promise<AccessCheckResult> => {
     if (isAdmin) {
@@ -108,8 +107,8 @@ export function createAvatarAccessCheckerWithMode(deps: ChatAccessDeps) {
       return { error: null, mode: 'owner' };
     }
 
-    // Public access for authenticated users
-    if (publicAccess && walletAddress) {
+    // Public access only for the avatar resolved from the trusted host context.
+    if (publicAvatarId && walletAddress && avatarId === publicAvatarId) {
       return { error: null, mode: 'public' };
     }
 

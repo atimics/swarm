@@ -88,6 +88,7 @@ import {
   PUBLIC_RATE_LIMIT_ORB_HOLDERS,
   type PublicRateLimitResult,
 } from './chat-rate-limiting.js';
+import { resolvePublicAvatarIdFromRequest } from './chat-public-access.js';
 
 const DREAMS_ENABLED = process.env.DREAMS_ENABLED === 'true';
 
@@ -1164,14 +1165,14 @@ export async function handler(
     logger.setContext({ subsystem: 'chat', requestId });
 
     const isAdmin = requireAdmin(session);
-    // Check for public access mode (from subdomain chat)
-    const publicAccess = event.queryStringParameters?.publicAccess === 'true';
+    const publicAvatarId = resolvePublicAvatarIdFromRequest(event);
+    const publicAccess = Boolean(publicAvatarId);
     const ensureAvatarAccess = createAvatarAccessChecker({
       isAdmin,
       session,
       getAvatar: avatars.getAvatar,
       corsHeaders,
-      publicAccess,
+      publicAvatarId,
     });
 
     // GET /chat?avatarId=xxx - Retrieve chat history

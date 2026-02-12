@@ -52,4 +52,20 @@ describe('chat access', () => {
     const result = await ensureAccess('avatar-1');
     expect(result).toBe(null);
   });
+
+  it('allows public access only for the resolved public avatar id', async () => {
+    const ensureAccess = createAvatarAccessChecker({
+      isAdmin: false,
+      session,
+      getAvatar: async () => ({ creatorWallet: 'wallet-2', inhabitantWallet: null }),
+      corsHeaders,
+      publicAvatarId: 'avatar-1',
+    });
+
+    const allowed = await ensureAccess('avatar-1');
+    expect(allowed).toBe(null);
+
+    const denied = await ensureAccess('avatar-2');
+    expect(denied && typeof denied !== 'string' ? denied.statusCode : undefined).toBe(404);
+  });
 });

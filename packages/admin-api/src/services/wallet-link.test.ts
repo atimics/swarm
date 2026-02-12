@@ -26,8 +26,41 @@ function makeInMemoryDynamo() {
 
     if (command?.constructor?.name === 'DeleteCommand' && (input as { Key?: { pk: string; sk: string } }).Key) {
       const { pk, sk } = (input as { Key: { pk: string; sk: string } }).Key;
+      const existing = store.get(keyOf(pk, sk));
+      const condition = (input as { ConditionExpression?: string }).ConditionExpression;
+
+      if (condition) {
+        const names = (input as { ExpressionAttributeNames?: Record<string, string> }).ExpressionAttributeNames || {};
+        const values = (input as { ExpressionAttributeValues?: Record<string, unknown> }).ExpressionAttributeValues || {};
+
+        const expiresAtAttr = names['#expiresAt'] || 'expiresAt';
+        const accountIdAttr = names['#accountId'] || 'accountId';
+        const walletAddressAttr = names['#walletAddress'] || 'walletAddress';
+
+        const expiresAt = typeof existing?.[expiresAtAttr] === 'number' ? Number(existing?.[expiresAtAttr]) : Number.NaN;
+        const accountId = String(existing?.[accountIdAttr] || '');
+        const walletAddress = String(existing?.[walletAddressAttr] || '');
+
+        const now = Number(values[':now']);
+        const expectedAccountId = String(values[':accountId'] || '');
+        const expectedWalletAddress = String(values[':walletAddress'] || '');
+
+        const conditionMet = Boolean(existing)
+          && Number.isFinite(expiresAt)
+          && expiresAt > now
+          && accountId === expectedAccountId
+          && walletAddress === expectedWalletAddress;
+
+        if (!conditionMet) {
+          const err = new Error('Conditional check failed');
+          (err as Error & { name: string }).name = 'ConditionalCheckFailedException';
+          throw err;
+        }
+      }
+
       store.delete(keyOf(pk, sk));
-      return {};
+      const returnValues = (input as { ReturnValues?: string }).ReturnValues;
+      return returnValues === 'ALL_OLD' ? { Attributes: existing } : {};
     }
 
     throw new Error(`Unexpected Dynamo command: ${command?.constructor?.name}`);
@@ -147,5 +180,36 @@ describe('wallet-link service', () => {
     expect(result).toEqual({ success: false, error: 'Invalid signature' });
     expect(verifySignature).toHaveBeenCalledTimes(1);
     expect(db.store.has('LINKCHALLENGE#nonce-1|DATA')).toBe(false);
+  });
+
+  it('verifyLinkWallet rejects mismatched wallet/account atomically and leaves challenge untouched', async () => {
+    const verifySignature = mock(() => true);
+    const { deps, db } = makeDeps({ verifySignature });
+
+    db.store.set('LINKCHALLENGE#nonce-1|DATA', {
+      pk: 'LINKCHALLENGE#nonce-1',
+      sk: 'DATA',
+      nonce: 'nonce-1',
+      accountId: 'acct-1',
+      walletAddress: 'wallet-1',
+      message: 'hello',
+      createdAt: deps.now(),
+      expiresAt: deps.now() + 1000,
+      ttl: Math.floor((deps.now() + 1000) / 1000),
+    });
+
+    const result = await verifyLinkWallet(
+      {
+        accountId: 'acct-2',
+        walletAddress: 'wallet-2',
+        nonce: 'nonce-1',
+        signatureBase58: 'sig',
+      },
+      deps
+    );
+
+    expect(result).toEqual({ success: false, error: 'Invalid or expired challenge' });
+    expect(verifySignature).toHaveBeenCalledTimes(0);
+    expect(db.store.has('LINKCHALLENGE#nonce-1|DATA')).toBe(true);
   });
 });
