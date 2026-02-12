@@ -23,8 +23,6 @@ SECRET_NAMES=(
     "SWARM_CDK_CONTEXT_BUCKET"
     "CLOUDFLARE_API_TOKEN"
     "CLOUDFLARE_ZONE_ID"
-    "CF_ACCESS_CLIENT_ID"
-    "CF_ACCESS_CLIENT_SECRET"
     "VITE_PRIVY_APP_ID"
 )
 
@@ -34,8 +32,6 @@ SECRET_DESCRIPTIONS=(
     "S3 bucket name holding per-env CDK context (swarm/cdk-context/<env>/cdk.context.json)"
     "Cloudflare API token for DNS/CDN management"
     "Cloudflare zone ID for rati.chat domain"
-    "Cloudflare Access service token client ID"
-    "Cloudflare Access service token client secret"
     "Privy App ID (frontend build-time config)"
 )
 
@@ -45,13 +41,11 @@ SECRET_URLS=(
     "https://console.aws.amazon.com/s3/home"
     "https://dash.cloudflare.com/profile/api-tokens"
     "https://dash.cloudflare.com (Overview > Zone ID)"
-    "https://one.dash.cloudflare.com (Access > Service Auth)"
-    "https://one.dash.cloudflare.com (Access > Service Auth)"
     "https://dashboard.privy.io"
 )
 
 # Mark required secrets (0=required, 1=optional)
-SECRET_OPTIONAL=(0 0 0 1 1 1 1 1)
+SECRET_OPTIONAL=(0 0 0 1 1 1)
 
 # Helper to get index of a secret by name
 get_secret_index() {

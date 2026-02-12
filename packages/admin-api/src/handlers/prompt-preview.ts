@@ -10,7 +10,7 @@ import type {
 } from 'aws-lambda';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { authenticateRequest } from '../auth/cloudflare-access.js';
+import { authenticateRequest } from '../auth/request-auth.js';
 import { isAuthError } from '../auth/errors.js';
 import { isRequestValidationError, validateRequestBody } from '../middleware/validate.js';
 import {
@@ -109,7 +109,7 @@ export async function handler(
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, CF-Access-Client-Id, CF-Access-Client-Secret',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-internal-test-key',
         'Access-Control-Allow-Credentials': 'true',
       },
       body: '',

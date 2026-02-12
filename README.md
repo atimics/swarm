@@ -12,7 +12,7 @@ AI avatar stack for Telegram-first social bots, with a chat-based admin UI, Sola
 
 ## Component Map
 - Admin UI: [packages/admin-ui](packages/admin-ui) — React + Zustand app with wallet login, avatar sidebar, chat interface, logs panel, and tool prompts.
-- Admin API: [packages/admin-api](packages/admin-api) — Cloudflare Access–protected API plus avatar-facing Telegram webhook, media/gallery, credits, wallets, voice tools, and config sync.
+- Admin API: [packages/admin-api](packages/admin-api) — first-party session-authenticated API plus avatar-facing Telegram webhook, media/gallery, credits, wallets, voice tools, and config sync.
 - Runtime core: [packages/core](packages/core) — Platform adapters, response generator, state and activity services, and tool registry used by Lambdas.
 - Handlers: [packages/handlers](packages/handlers) — Lambda functions for inbound webhooks, SQS message processing, and outbound response sending.
 - Infra: [packages/infra](packages/infra) — CDK app/constructs for queues, tables, buckets, and stacks.
@@ -32,7 +32,7 @@ AI avatar stack for Telegram-first social bots, with a chat-based admin UI, Sola
 - **Gallery + credits**: Gallery storage in DynamoDB with Twitter/sticker flags; trial credits with daily recharge for image generation ([packages/admin-api/src/services/credits.ts](packages/admin-api/src/services/credits.ts)).
 - **Wallets**: Solana wallet creation, balance checks, and per-avatar wallet lists exposed to the LLM ([packages/admin-api/src/services/wallets.ts](packages/admin-api/src/services/wallets.ts)).
 - **Avatar inhabitation**: NFT-gated system where users can inhabit (claim) avatars, with lineage NFT rewards for abandonment.
-- **Security**: Solana wallet auth, Cloudflare Access on admin API, webhook secret tokens, Telegram IP allowlist, and Secrets Manager for tokens/keys.
+- **Security**: Solana wallet auth, first-party admin API sessions, webhook secret tokens, Telegram IP allowlist, and Secrets Manager for tokens/keys.
 
 ## Quick Start
 ```bash

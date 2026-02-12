@@ -165,7 +165,7 @@ describe('P2: Production auth (no Cloudflare Access)', () => {
   });
 
   test('Remove/disable origin/referer “admin fallback” in production auth implementation (no admin-by-Origin)', () => {
-    // IMPLEMENTED + COVERED: packages/admin-api/src/auth/cloudflare-access.test.ts
+    // IMPLEMENTED + COVERED: packages/admin-api/src/auth/request-auth.test.ts
     // - Rejects requests with only Origin/Referer and no auth token/cookie.
     expect(true).toBe(true);
   });

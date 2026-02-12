@@ -614,10 +614,3 @@ export async function getAvatarTwitterCredentials(avatarId: string, deps: Twitte
     return { configured: false };
   }
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use getAvatarTwitterCredentials instead */
-export const getAgentTwitterCredentials = getAvatarTwitterCredentials;

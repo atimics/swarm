@@ -45,7 +45,6 @@ export function toolResultsToActions(
         break;
       }
 
-      case 'generate_voice_message': // Legacy alias - keep for backwards compatibility
       case 'send_voice_message': {
         const data = result.data as { url?: string } | undefined;
         if (data?.url) {

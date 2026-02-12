@@ -6,7 +6,7 @@
  * 2. DynamoDB (for instant retrieval in the UI)
  * 
  * Usage:
- *   const log = createAgentLogger('avatar-id', 'telegram');
+ *   const log = createAvatarLogger('avatar-id', 'telegram');
  *   log.info('chat', 'message_received', { userId: '123' });
  *   log.error('llm', 'api_error', { error: 'timeout' });
  */
@@ -91,10 +91,3 @@ export function createAvatarLogger(
 export function createSystemLogger(component: string): StructuredLogger {
   return createAvatarLogger('system', component);
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use createAvatarLogger instead */
-export const createAgentLogger = createAvatarLogger;

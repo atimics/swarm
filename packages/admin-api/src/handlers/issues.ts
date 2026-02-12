@@ -20,7 +20,7 @@ import { z } from 'zod';
 import * as autoIssues from '../services/auto-issues.js';
 import { getCorsHeaders } from '../http/cors.js';
 import { isRequestValidationError, validateRequestBody } from '../middleware/validate.js';
-import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
+import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 
 
 

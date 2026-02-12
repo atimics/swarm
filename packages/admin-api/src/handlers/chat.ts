@@ -16,7 +16,7 @@ import {
   type ToolCategory,
   type ProcessorAvatarConfig,
 } from '@swarm/core';
-import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
+import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 import { getCorsHeaders } from '../http/cors.js';
 import * as chatHistory from '../services/chat-history.js';
 import { createChatJob, createJobId } from '../services/chat-jobs.js';

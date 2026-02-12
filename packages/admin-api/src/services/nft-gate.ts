@@ -431,7 +431,7 @@ export async function getGateStatus(walletAddress: string): Promise<GateStatus> 
   const nftsHeld = nftResult.ownedCount;
 
   // Get avatars created by this wallet from DynamoDB
-  const avatarsCreated = await countAgentsCreatedBy(walletAddress);
+  const avatarsCreated = await countAvatarsCreatedBy(walletAddress);
 
   // Every wallet gets 1 free slot + 1 slot per NFT held
   const FREE_SLOTS = 1;
@@ -455,16 +455,6 @@ export async function getGateStatus(walletAddress: string): Promise<GateStatus> 
 export function getGateCollection(): string {
   return GATE_COLLECTION;
 }
-
-/**
- * @deprecated Use getGateCollection instead
- */
-export function getRequiredCollection(): string {
-  return GATE_COLLECTION;
-}
-
-/** @deprecated Use countAvatarsCreatedBy instead */
-export const countAgentsCreatedBy = countAvatarsCreatedBy;
 
 // =============================================================================
 // NFT Collection Avatar Support

@@ -85,10 +85,6 @@ const computedAdminDomain = disableComputedAdminDomain
 
 const adminDomain = getContextValue<string>('adminDomain', envConfig) || computedAdminDomain;
 const adminCertificateArn = getContextValue<string>('adminCertificateArn', envConfig);
-const cloudflareTeamDomain =
-  getContextValue<string>('cloudflareTeamDomain', envConfig) ||
-  // Back-compat for older env config key name
-  (envConfig as Record<string, unknown>).cloudflareTeamDomain as string | undefined;
 const adminEmails = getContextValue<string>('adminEmails', envConfig);
 const adminWallets = getContextValue<string>('adminWallets', envConfig);
 const openRouterApiKeyArn = getContextValue<string>('openRouterApiKeyArn', envConfig);
@@ -164,7 +160,6 @@ const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}${nameSuffi
   sharedInfraStack,
   handlersPath,
   adminDomain,
-  cloudflareTeamDomain,
   adminEmails,
   adminWallets,
   openRouterApiKeyArn,

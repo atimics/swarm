@@ -92,7 +92,7 @@ Handlers log structured JSON for queryability:
 ```
 
 ### Direct API Testing (Internal)
-For testing API endpoints directly (bypassing Cloudflare Access):
+For testing API endpoints directly (bypassing upstream auth layers):
 ```bash
 # Use the test script (requires AWS credentials)
 ./scripts/test-api.sh staging chat '{"message":"hello","history":[]}'
@@ -135,5 +135,5 @@ aws logs filter-log-events \
 
 ### Common Issues
 - **400 on `/chat`**: Check Zod validation - request body must have `message` (string) and `history` (array). If sending `avatar`, it needs at least `id`.
-- **403 Forbidden**: Cloudflare Access JWT missing or invalid; check `CF-Access-JWT-Assertion` header
+- **403 Forbidden**: Missing/expired first-party session cookie, or missing/invalid `x-internal-test-key` for internal test calls
 - **DynamoDB reserved keywords**: Use expression attribute names for reserved words like `ttl` → `#ttl`

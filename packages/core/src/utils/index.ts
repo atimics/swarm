@@ -3,9 +3,9 @@
  */
 export { logger, type LogLevel, type LogContext } from './logger.js';
 export { 
-  loadAgentConfigFromFile, 
-  loadAgentConfigFromEnv,
-  mergeAgentConfigs 
+  loadAvatarConfigFromFile,
+  loadAvatarConfigFromEnv,
+  mergeAvatarConfigs
 } from './config.js';
 export {
   extractThinking,

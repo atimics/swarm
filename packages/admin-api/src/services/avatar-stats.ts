@@ -123,10 +123,3 @@ export function formatStats(stats: AvatarStats): string {
       `${a}: ${stats[a]} (${stats.modifiers[a] >= 0 ? '+' : ''}${stats.modifiers[a]})`
   ).join(', ');
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use generateAvatarStats instead */
-export const generateAgentStats = generateAvatarStats;

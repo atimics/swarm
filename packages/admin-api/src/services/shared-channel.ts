@@ -226,24 +226,3 @@ export function findMentionedAvatar(
 
   return null;
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use registerAvatarInChannel instead */
-export const registerAgentInChannel = registerAvatarInChannel;
-/** @deprecated Use getChannelAvatars instead */
-export const getChannelAgents = getChannelAvatars;
-/** @deprecated Use getAvatarInChannel instead */
-export const getAgentInChannel = getAvatarInChannel;
-/** @deprecated Use updateAvatarPresence instead */
-export const updateAgentPresence = updateAvatarPresence;
-/** @deprecated Use ensureAvatarInChannel instead */
-export const ensureAgentInChannel = ensureAvatarInChannel;
-/** @deprecated Use removeAvatarFromChannel instead */
-export const removeAgentFromChannel = removeAvatarFromChannel;
-/** @deprecated Use isMultiAvatarChannel instead */
-export const isMultiAgentChannel = isMultiAvatarChannel;
-/** @deprecated Use findMentionedAvatar instead */
-export const findMentionedAgent = findMentionedAvatar;

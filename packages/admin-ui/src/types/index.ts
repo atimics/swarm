@@ -1,2 +1,2 @@
-// Export avatar types (with legacy Avatar aliases for backward compatibility)
+// Export avatar types
 export * from './avatar';

@@ -356,10 +356,3 @@ export function isProgressUpdate(msg: ContinuationMessage): boolean {
 
   return progressTypes.includes(msg.type);
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use shouldTriggerAvatarLoop instead */
-export const shouldTriggerAgentLoop = shouldTriggerAvatarLoop;

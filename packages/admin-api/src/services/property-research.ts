@@ -883,10 +883,3 @@ export function generateReport(
 
   return lines.join('\n');
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use getJobsForAvatar instead */
-export const getJobsForAgent = getJobsForAvatar;

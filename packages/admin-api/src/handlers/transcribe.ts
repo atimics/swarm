@@ -7,7 +7,7 @@ import type {
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
+import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 import { logger } from '@swarm/core';
 import { getCorsHeaders } from '../http/cors.js';
 import { isAuthError } from '../auth/errors.js';

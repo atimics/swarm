@@ -339,10 +339,3 @@ export async function estimateBackfillCost(avatarId: string): Promise<{
     estimatedCostUSD: Math.round(estimatedCostUSD * 10000) / 10000, // Round to 4 decimal places
   };
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use backfillAllAvatars instead */
-export const backfillAllAgents = backfillAllAvatars;

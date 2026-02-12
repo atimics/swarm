@@ -47,11 +47,6 @@ export interface AdminApiStackProps extends cdk.StackProps {
   adminDomain?: string;
 
   /**
-   * Cloudflare Access team domain
-   */
-  cloudflareTeamDomain?: string;
-
-  /**
    * Admin emails (comma-separated)
    */
   adminEmails?: string;
@@ -172,7 +167,6 @@ export class AdminApiStack extends cdk.Stack {
       sharedInfraStack,
       handlersPath,
       adminDomain,
-      cloudflareTeamDomain,
       adminEmails,
       adminWallets,
       openRouterApiKeyArn,
@@ -272,9 +266,8 @@ export class AdminApiStack extends cdk.Stack {
     });
 
     // Create Admin API if configured
-    if (cloudflareTeamDomain && adminEmails) {
+    if (adminEmails) {
       this.adminApi = new AdminApiConstruct(this, 'AdminApi', {
-        cloudflareTeamDomain,
         adminEmails,
         adminWallets,
         openRouterApiKeyArn,

@@ -1227,14 +1227,3 @@ export async function handleWalletAuth(
 
   return jsonResponse(404, { error: 'Not found' }, cors);
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use handleUnclaimedAvatars instead */
-export const handleUnclaimedAgents = handleUnclaimedAvatars;
-/** @deprecated Use handleInhabitAvatar instead */
-export const handleInhabitAgent = handleInhabitAvatar;
-/** @deprecated Use handleAbandonAvatar instead */
-export const handleAbandonAgent = handleAbandonAvatar;

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Test API endpoints directly via API Gateway (bypassing Cloudflare)
+# Test API endpoints directly via API Gateway (bypassing upstream auth/CDN layers)
 #
 # Usage:
 #   ./scripts/test-api.sh staging chat '{"message":"hello","history":[]}'
@@ -47,7 +47,7 @@ if [ -n "$SWARM_ADMIN_API_URL" ]; then
 fi
 
 # Get the API URL.
-# Prefer the raw API Gateway endpoint (bypasses custom domains / Cloudflare).
+# Prefer the raw API Gateway endpoint (bypasses custom domains and edge layers).
 if [ -z "$API_URL" ]; then
   if ! _has_aws_creds; then
     _warn "AWS credentials not available; cannot auto-discover API URL."

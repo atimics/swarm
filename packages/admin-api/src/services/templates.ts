@@ -150,12 +150,3 @@ export async function createAvatarFromTemplate(
 
   return mergedAvatar;
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use exportAvatarAsTemplate instead */
-export const exportAgentAsTemplate = exportAvatarAsTemplate;
-/** @deprecated Use createAvatarFromTemplate instead */
-export const createAgentFromTemplate = createAvatarFromTemplate;

@@ -28,7 +28,7 @@ function humanizePrivyLinkError(error: unknown): string {
   // Browser fetch/network/CORS failures often surface as a generic TypeError message.
   if (message === 'Failed to fetch' || /networkerror|load failed/i.test(message)) {
     const apiHint = API_BASE ? ` (${API_BASE})` : '';
-    return `Couldn't reach the API${apiHint}. If you're on staging, you may need Cloudflare Access for the API subdomain — open the API URL in a new tab, then retry.`;
+    return `Couldn't reach the API${apiHint}. If you're on staging, you may need to establish an authenticated session for the API subdomain first — open the API URL in a new tab, then retry.`;
   }
 
   return message || 'Failed to link email/social';

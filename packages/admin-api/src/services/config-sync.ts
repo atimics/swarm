@@ -427,10 +427,3 @@ export async function syncAvatarConfig(record: AvatarRecord): Promise<void> {
 export function isSyncEnabled(): boolean {
   return !!STATE_TABLE;
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use syncAvatarConfig instead */
-export const syncAgentConfig = syncAvatarConfig;

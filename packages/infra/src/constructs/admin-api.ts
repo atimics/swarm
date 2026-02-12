@@ -32,11 +32,6 @@ import { createManagedWebAcl } from '../utils/waf.js';
 
 export interface AdminApiConstructProps {
   /**
-   * Cloudflare Access team domain (e.g., 'yourteam.cloudflareaccess.com')
-   */
-  cloudflareTeamDomain: string;
-
-  /**
    * Comma-separated list of admin emails
    */
   adminEmails: string;
@@ -145,7 +140,7 @@ export interface AdminApiConstructProps {
 
   /**
    * Domain used specifically for Telegram webhooks (host only, no scheme).
-   * Useful when the main apiDomain is protected by Cloudflare Access/WAF rules
+   * Useful when the main apiDomain is protected by upstream auth/WAF rules
    * that Telegram cannot satisfy.
    *
    * Example: "hs38po7mq0.execute-api.us-east-1.amazonaws.com"
@@ -228,7 +223,6 @@ export class AdminApiConstruct extends Construct {
     super(scope, id);
 
     const {
-      cloudflareTeamDomain,
       adminEmails,
       environment = 'development',
       adminDomain,
@@ -418,7 +412,7 @@ export class AdminApiConstruct extends Construct {
 
     // Build webhook URL for Replicate callbacks
     // Note: We'll use the raw API Gateway URL (not custom domain) since Replicate
-    // webhooks need to bypass Cloudflare Access. The actual URL is set after API creation.
+    // webhooks need to bypass upstream auth layers. The actual URL is set after API creation.
     let replicateWebhookUrl = ''; // Will be updated after API is created
     const replicateWebhookSecret =
       props.replicateWebhookSecret
@@ -446,7 +440,6 @@ export class AdminApiConstruct extends Construct {
         DREAM_QUEUE_URL: dreamQueue.queueUrl,
         DREAMS_ENABLED: isProd ? 'false' : 'true',
         SECRET_PREFIX: secretPrefix,
-        CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
         LLM_ENDPOINT: 'https://openrouter.ai/api/v1/chat/completions',
         LLM_MODEL: 'anthropic/claude-haiku-4.5',
@@ -584,7 +577,7 @@ export class AdminApiConstruct extends Construct {
           apigateway.CorsHttpMethod.DELETE,
           apigateway.CorsHttpMethod.OPTIONS,
         ],
-        allowHeaders: ['Content-Type', 'Authorization', 'CF-Access-JWT-Assertion', 'Prefer', 'Idempotency-Key'],
+        allowHeaders: ['Content-Type', 'Authorization', 'Prefer', 'Idempotency-Key'],
         allowCredentials: true,
         maxAge: cdk.Duration.hours(24),
       },
@@ -614,7 +607,7 @@ export class AdminApiConstruct extends Construct {
     }
 
     // Telegram needs a publicly reachable webhook URL. In non-prod environments,
-    // our custom domain is often protected by Cloudflare Access/WAF rules, so
+    // our custom domain is often protected by upstream auth/WAF rules, so
     // default Telegram webhooks to the raw execute-api host (still stable per stack).
     const rawApiHost = cdk.Fn.select(2, cdk.Fn.split('/', this.api.apiEndpoint));
     const telegramWebhookDomain = props.telegramWebhookDomain
@@ -748,7 +741,7 @@ export class AdminApiConstruct extends Construct {
     // Expose the API endpoint for CloudFront to use as origin
     this.apiEndpoint = this.api.apiEndpoint;
 
-    // Update Replicate webhook URL to use raw API Gateway URL (bypasses Cloudflare Access)
+    // Update Replicate webhook URL to use raw API Gateway URL (bypasses upstream auth)
     // Extract hostname from API endpoint (e.g., "https://xxx.execute-api.us-east-1.amazonaws.com")
     replicateWebhookUrl = cdk.Fn.join('', [this.api.apiEndpoint, '/webhook/replicate']);
 
@@ -813,7 +806,6 @@ export class AdminApiConstruct extends Construct {
       memorySize: 256,
       environment: {
         ADMIN_TABLE: this.table.tableName,
-        CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
@@ -894,7 +886,6 @@ export class AdminApiConstruct extends Construct {
       environment: {
         ADMIN_TABLE: this.table.tableName,
         STATE_TABLE: stateTable?.tableName || '',
-        CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
         ADMIN_WALLETS: props.adminWallets || '',
         // Public domain used to compute Telegram webhook URLs (bots should follow CloudFront cutovers).
@@ -1325,7 +1316,7 @@ export class AdminApiConstruct extends Construct {
     // ==========================================================================
     // This provides a /v1/chat/completions endpoint that external applications
     // can use with the familiar OpenAI API format. Authentication is via API key
-    // (Bearer token in Authorization header) rather than Cloudflare Access.
+    // (Bearer token in Authorization header).
     this.openaiCompatHandler = new nodejs.NodejsFunction(this, 'OpenAICompatHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/openai-compat.ts'),
@@ -1401,7 +1392,6 @@ export class AdminApiConstruct extends Construct {
       memorySize: 256,
       environment: {
         ADMIN_TABLE: this.table.tableName,
-        CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
@@ -1443,7 +1433,6 @@ export class AdminApiConstruct extends Construct {
       memorySize: 256,
       environment: {
         ADMIN_TABLE: this.table.tableName,
-        CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
@@ -1522,7 +1511,7 @@ export class AdminApiConstruct extends Construct {
       walletAuthHandler
     );
 
-    // Wallet auth routes - no Cloudflare Access required
+    // Wallet auth routes
     this.api.addRoutes({
       path: '/auth/challenge',
       methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
@@ -1898,7 +1887,6 @@ export class AdminApiConstruct extends Construct {
       memorySize: 256,
       environment: {
         ADMIN_TABLE: this.table.tableName,
-        CF_ACCESS_TEAM_DOMAIN: cloudflareTeamDomain,
         ADMIN_EMAILS: adminEmails,
         NODE_ENV: environment,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
@@ -2009,7 +1997,7 @@ export class AdminApiConstruct extends Construct {
       `/aws/lambda/${stackPrefix}-AdminApi`,  // All admin API handlers (chat, avatars, telegram)
     ].join(','));
 
-    // Custom domain configuration (for Cloudflare Access proxy)
+    // Custom domain configuration
     if (props.apiDomain && props.apiCertificateArn) {
       const certificate = acm.Certificate.fromCertificateArn(
         this, 'ApiCertificate', props.apiCertificateArn

@@ -11,7 +11,7 @@ import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
-import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
+import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 import { logger } from '@swarm/core';
 import { recordError } from '../services/auto-issues.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';

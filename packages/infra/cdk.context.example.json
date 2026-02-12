@@ -3,7 +3,6 @@
     "staging": {
       "adminDomain": "admin-staging.example.com",
       "adminCertificateArn": "arn:aws:acm:...",
-      "cloudflareTeamDomain": "your-cloudflare-team",
       "adminEmails": "you@example.com",
       "adminWallets": "",
       "galleryDomain": "media-staging.example.com",
@@ -26,7 +25,6 @@
     "prod": {
       "adminDomain": "admin.example.com",
       "adminCertificateArn": "arn:aws:acm:...",
-      "cloudflareTeamDomain": "your-cloudflare-team",
       "adminEmails": "you@example.com",
       "adminWallets": "",
       "galleryDomain": "media.example.com",

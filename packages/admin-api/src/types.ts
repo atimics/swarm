@@ -3,21 +3,7 @@
  */
 import { z } from 'zod';
 
-// Cloudflare Access JWT claims
-export interface CloudflareAccessClaims {
-  aud: string[];
-  email: string;
-  exp: number;
-  iat: number;
-  nbf: number;
-  iss: string;
-  type: string;
-  identity_nonce: string;
-  sub: string;
-  country: string;
-}
-
-// User session from Cloudflare Access or cookie auth
+// User session from first-party auth
 export interface UserSession {
   email: string;
   userId: string;

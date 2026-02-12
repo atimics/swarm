@@ -382,14 +382,3 @@ export function mergeAvatarConfigs(...configs: Partial<AvatarConfig>[]): AvatarC
 
 // Export the config file schema for use in other parts of the codebase
 export { AvatarConfigFileSchema };
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use loadAvatarConfigFromFile instead */
-export const loadAgentConfigFromFile = loadAvatarConfigFromFile;
-/** @deprecated Use loadAvatarConfigFromEnv instead */
-export const loadAgentConfigFromEnv = loadAvatarConfigFromEnv;
-/** @deprecated Use mergeAvatarConfigs instead */
-export const mergeAgentConfigs = mergeAvatarConfigs;

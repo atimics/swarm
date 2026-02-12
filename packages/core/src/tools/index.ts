@@ -172,6 +172,3 @@ export const defaultAvatarTools = [
   'remember',
   'recall',
 ];
-
-/** @deprecated Use defaultAvatarTools instead */
-export const defaultAgentTools = defaultAvatarTools;

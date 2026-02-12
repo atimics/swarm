@@ -202,7 +202,7 @@ export class AdminUi extends Construct {
               viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
               allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
               cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
-              // Forward cookies + auth headers (e.g., CF-Access-JWT-Assertion, Authorization)
+              // Forward cookies and auth headers.
               originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
               functionAssociations: [
                 {

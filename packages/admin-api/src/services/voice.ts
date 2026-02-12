@@ -655,7 +655,7 @@ export async function createMyVoice(params: {
   if (existing.hasVoice) {
     return {
       voiceId: existing.voiceId || 'existing',
-      message: 'You already have a voice configured! Use generate_voice_message to speak.',
+      message: 'You already have a voice configured! Use send_voice_message to speak.',
       previewUrl: existing.referenceUrl,
     };
   }

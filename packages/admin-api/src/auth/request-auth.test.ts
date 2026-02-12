@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
-import { authenticateRequest } from './cloudflare-access.js';
+import { authenticateRequest } from './request-auth.js';
 
 function makeEvent(partial: Partial<APIGatewayProxyEventV2>): APIGatewayProxyEventV2 {
   return {
@@ -16,23 +16,16 @@ function makeEvent(partial: Partial<APIGatewayProxyEventV2>): APIGatewayProxyEve
   } as APIGatewayProxyEventV2;
 }
 
-describe('cloudflare-access auth', () => {
+describe('request auth', () => {
   it('does not allow origin/referer fallback when no token is provided', async () => {
-    const prevAllowedOrigins = process.env.ALLOWED_ORIGINS;
-    try {
-      process.env.ALLOWED_ORIGINS = 'https://swarm.rati.chat';
+    const event = makeEvent({
+      headers: {
+        origin: 'https://swarm.rati.chat',
+        referer: 'https://swarm.rati.chat/',
+      },
+    });
 
-      const event = makeEvent({
-        headers: {
-          origin: 'https://swarm.rati.chat',
-          referer: 'https://swarm.rati.chat/',
-        },
-      });
-
-      await expect(authenticateRequest(event)).rejects.toThrow('No authentication token provided');
-    } finally {
-      process.env.ALLOWED_ORIGINS = prevAllowedOrigins;
-    }
+    await expect(authenticateRequest(event)).rejects.toThrow('No authentication token provided');
   });
 
   it('allows INTERNAL_TEST_KEY bypass (for local/internal testing)', async () => {

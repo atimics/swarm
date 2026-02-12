@@ -624,10 +624,3 @@ export async function coordinateInitiative(
     myRoll: rollResult.total,
   };
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use recordAvatarRoll instead */
-export const recordAgentRoll = recordAvatarRoll;

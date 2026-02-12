@@ -110,7 +110,6 @@ export async function sendChatMessage(
       'Content-Type': 'application/json',
       // Ask the API to return immediately with a jobId (avoids Lambda/API Gateway timeouts)
       'Prefer': 'respond-async',
-      // CF Access token is automatically included via cookie/header by Cloudflare
     },
     credentials: 'include',
     body: JSON.stringify({
@@ -482,10 +481,3 @@ export async function transcribeAudio(
 
   return response.json();
 }
-
-// =============================================================================
-// LEGACY API - Deprecated aliases for backwards compatibility
-// =============================================================================
-
-/** @deprecated Use saveAvatarSecret instead */
-export const saveAgentSecret = saveAvatarSecret;

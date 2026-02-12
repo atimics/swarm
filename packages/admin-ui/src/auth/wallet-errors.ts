@@ -18,7 +18,7 @@ export function isNetworkFetchError(error: unknown): boolean {
 export function humanizeApiUnreachable(error: unknown): string | null {
   if (!isNetworkFetchError(error)) return null;
   const apiHint = API_BASE ? ` (${API_BASE})` : '';
-  return `Couldn't reach the API${apiHint}. If you're on staging, you may need Cloudflare Access for the API subdomain — open the API URL in a new tab, then retry.`;
+  return `Couldn't reach the API${apiHint}. If you're on staging, you may need to establish an authenticated session for the API subdomain first — open the API URL in a new tab, then retry.`;
 }
 
 export function isPhantomExtensionContextInvalidatedError(error: unknown): boolean {

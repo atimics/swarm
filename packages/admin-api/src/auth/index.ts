@@ -1,1 +1,1 @@
-export { authenticateRequest, requireAdmin, createDevSession } from './cloudflare-access.js';
+export { authenticateRequest, requireAdmin, createDevSession } from './request-auth.js';

@@ -462,11 +462,3 @@ export async function burnDepositedTokensForEnergy(
 
   return response.json();
 }
-
-// Legacy aliases for backward compatibility (agent → avatar)
-export const createAgent = createAvatar;
-export const listAgents = listAvatars;
-export const getAgent = getAvatar;
-export const updateAgent = updateAvatar;
-export const deleteAgent = deleteAvatar;
-export type AgentResponse = AvatarResponse;

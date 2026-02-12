@@ -13,7 +13,7 @@ import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyStructuredResultV2,
 } from 'aws-lambda';
-import { authenticateRequest, requireAdmin } from '../auth/cloudflare-access.js';
+import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 import { getSessionFromCookie } from '../auth/session-cookie.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import {
@@ -165,7 +165,7 @@ export async function handler(
 
   try {
     // GET /oauth/twitter/callback?oauth_token=xxx&oauth_verifier=xxx - OAuth callback
-    // This must not require Cloudflare Access (Twitter won't provide the header).
+    // This route must remain callable by Twitter without authenticated session headers.
     if (method === 'GET' && path === '/oauth/twitter/callback') {
       const result = await handleCallback(event, resolvedDeps);
       return {
