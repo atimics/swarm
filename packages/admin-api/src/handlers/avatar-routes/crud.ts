@@ -190,7 +190,6 @@ export async function handleCrudRoutes(
 
     const body = JSON.parse(event.body || '{}') as {
       creatorWallet?: string;
-      inhabitantWallet?: string | null;
     };
 
     const existing = await avatarService.getAvatar(avatarId);
@@ -205,7 +204,6 @@ export async function handleCrudRoutes(
         avatarId,
         oldCreator: existing.creatorWallet?.slice(0, 8),
         newCreator: body.creatorWallet?.slice(0, 8),
-        inhabitantCleared: body.inhabitantWallet === null,
       });
       return jsonResponse(corsHeaders, 200, result);
     } catch (err) {
@@ -224,7 +222,7 @@ export async function handleCrudRoutes(
         return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
       }
       const existing = await avatarService.getAvatar(avatarId);
-      if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+      if (!existing || existing.creatorWallet !== walletAddress) {
         return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
       }
     }
@@ -252,7 +250,7 @@ export async function handleCrudRoutes(
       }
 
       if (!effectiveIsAdmin) {
-        if (!walletAddress || (avatar.creatorWallet !== walletAddress && avatar.inhabitantWallet !== walletAddress)) {
+        if (!walletAddress || avatar.creatorWallet !== walletAddress) {
           return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
         }
       }
@@ -273,7 +271,7 @@ export async function handleCrudRoutes(
           return jsonResponse(corsHeaders, 403, { error: 'Authentication required' });
         }
         const existing = await avatarService.getAvatar(avatarId);
-        if (!existing || (existing.creatorWallet !== walletAddress && existing.inhabitantWallet !== walletAddress)) {
+        if (!existing || existing.creatorWallet !== walletAddress) {
           return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
         }
       }

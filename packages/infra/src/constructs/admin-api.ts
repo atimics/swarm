@@ -1562,40 +1562,10 @@ export class AdminApiConstruct extends Construct {
       integration: walletAuthIntegration,
     });
 
-    // Inhabitation routes - for avatar claiming/abandoning
-    this.api.addRoutes({
-      path: '/auth/unclaimed-avatars',
-      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
-      integration: walletAuthIntegration,
-    });
-
+    // Auth utility routes
     this.api.addRoutes({
       path: '/auth/gate-status',
       methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
-      integration: walletAuthIntegration,
-    });
-
-    this.api.addRoutes({
-      path: '/auth/inhabitation',
-      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
-      integration: walletAuthIntegration,
-    });
-
-    this.api.addRoutes({
-      path: '/auth/inhabit',
-      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
-      integration: walletAuthIntegration,
-    });
-
-    this.api.addRoutes({
-      path: '/auth/can-abandon',
-      methods: [apigateway.HttpMethod.GET, apigateway.HttpMethod.OPTIONS],
-      integration: walletAuthIntegration,
-    });
-
-    this.api.addRoutes({
-      path: '/auth/abandon',
-      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.OPTIONS],
       integration: walletAuthIntegration,
     });
 

@@ -53,8 +53,7 @@ export async function handleEnergyRoutes(
       const existing = await avatarService.getAvatar(avatarId);
       if (
         !existing ||
-        (existing.creatorWallet !== walletAddress &&
-          existing.inhabitantWallet !== walletAddress)
+        existing.creatorWallet !== walletAddress
       ) {
         return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
       }

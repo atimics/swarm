@@ -26,15 +26,14 @@ import * as auditLogService from '../../services/audit-log.js';
 import type { ActorType } from '../../services/audit-log.js';
 
 /**
- * Resolve actor type from context: admin, owner, or inhabitant.
+ * Resolve actor type from context: admin or owner.
  */
 function resolveActorType(
   effectiveIsAdmin: boolean,
-  walletAddress: string | null,
-  avatar: { creatorWallet?: string | null; inhabitantWallet?: string | null } | null,
+  _walletAddress: string | null,
+  _avatar: { creatorWallet?: string | null } | null,
 ): ActorType {
   if (effectiveIsAdmin) return 'admin';
-  if (avatar && walletAddress && avatar.inhabitantWallet === walletAddress) return 'inhabitant';
   return 'owner';
 }
 
@@ -59,8 +58,7 @@ export async function handleEntitlementRoutes(
 
     const canManage =
       effectiveIsAdmin ||
-      avatar.creatorWallet === walletAddress ||
-      avatar.inhabitantWallet === walletAddress;
+      avatar.creatorWallet === walletAddress;
 
     if (!canManage) {
       return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
@@ -114,8 +112,7 @@ export async function handleEntitlementRoutes(
     if (!effectiveIsAdmin) {
       if (
         !walletAddress ||
-        (avatar.creatorWallet !== walletAddress &&
-          avatar.inhabitantWallet !== walletAddress)
+        avatar.creatorWallet !== walletAddress
       ) {
         return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
       }
@@ -212,8 +209,7 @@ export async function handleEntitlementRoutes(
     if (!effectiveIsAdmin) {
       if (
         !walletAddress ||
-        (avatar.creatorWallet !== walletAddress &&
-          avatar.inhabitantWallet !== walletAddress)
+        avatar.creatorWallet !== walletAddress
       ) {
         return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
       }
@@ -242,7 +238,7 @@ export async function handleEntitlementRoutes(
     }
 
     if (!effectiveIsAdmin) {
-      if (!walletAddress || (avatar.creatorWallet !== walletAddress && avatar.inhabitantWallet !== walletAddress)) {
+      if (!walletAddress || avatar.creatorWallet !== walletAddress) {
         return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
       }
     }
@@ -268,8 +264,7 @@ export async function handleEntitlementRoutes(
 
     const canActivate =
       effectiveIsAdmin ||
-      avatar.creatorWallet === walletAddress ||
-      avatar.inhabitantWallet === walletAddress;
+      avatar.creatorWallet === walletAddress;
 
     if (!canActivate) {
       return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });
@@ -363,8 +358,7 @@ export async function handleEntitlementRoutes(
 
     const canDeactivate =
       effectiveIsAdmin ||
-      avatar.creatorWallet === walletAddress ||
-      avatar.inhabitantWallet === walletAddress;
+      avatar.creatorWallet === walletAddress;
 
     if (!canDeactivate) {
       return jsonResponse(corsHeaders, 403, { error: 'Forbidden' });

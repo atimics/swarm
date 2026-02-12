@@ -4,7 +4,7 @@ import type { UserSession } from '../types.js';
 export interface ChatAccessDeps {
   isAdmin: boolean;
   session: UserSession;
-  getAvatar: (avatarId: string) => Promise<{ creatorWallet?: string | null; inhabitantWallet?: string | null } | null>;
+  getAvatar: (avatarId: string) => Promise<{ creatorWallet?: string | null } | null>;
   corsHeaders: Record<string, string>;
   /**
    * Avatar ID resolved from a trusted public subdomain host.
@@ -44,9 +44,9 @@ export function createAvatarAccessChecker(deps: ChatAccessDeps) {
     }
 
     const walletAddress = session.userId;
-    const isOwner = walletAddress && (avatar.creatorWallet === walletAddress || avatar.inhabitantWallet === walletAddress);
+    const isOwner = walletAddress && avatar.creatorWallet === walletAddress;
 
-    // Allow access if user owns/inhabits the avatar
+    // Allow access if user owns the avatar
     if (isOwner) {
       return null;
     }
@@ -100,9 +100,9 @@ export function createAvatarAccessCheckerWithMode(deps: ChatAccessDeps) {
     }
 
     const walletAddress = session.userId;
-    const isOwner = walletAddress && (avatar.creatorWallet === walletAddress || avatar.inhabitantWallet === walletAddress);
+    const isOwner = walletAddress && avatar.creatorWallet === walletAddress;
 
-    // Owner/inhabitor gets owner mode
+    // Owner gets owner mode
     if (isOwner) {
       return { error: null, mode: 'owner' };
     }

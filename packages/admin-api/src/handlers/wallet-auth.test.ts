@@ -1,13 +1,12 @@
 /**
  * Wallet Auth Handler Tests
  *
- * Focused unit coverage for /auth/me inhabitation reporting.
+ * Focused unit coverage for /auth/me session reporting.
  */
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
 const mockGetSessionWithUser = mock();
-const mockGetInhabitedAvatar = mock();
 const mockGetGateStatus = mock();
 
 const { handleWalletAuth } = await import('./wallet-auth.js');
@@ -60,11 +59,10 @@ process.on('exit', () => {
 describe('Wallet Auth Handler', () => {
   beforeEach(() => {
     mockGetSessionWithUser.mockReset();
-    mockGetInhabitedAvatar.mockReset();
     mockGetGateStatus.mockReset();
   });
 
-  it('GET /auth/me returns inhabitedAvatarId derived from ownership mapping', async () => {
+  it('GET /auth/me returns authenticated user details', async () => {
     mockGetSessionWithUser.mockImplementation(async () => ({
       walletAddress: 'wallet-1',
       sessionToken: 'test-session-token',
@@ -80,20 +78,6 @@ describe('Wallet Auth Handler', () => {
       },
     }));
 
-    mockGetInhabitedAvatar.mockImplementation(async () =>
-      ({
-        pk: 'AVATAR#test-avatar',
-        sk: 'CONFIG',
-        avatarId: 'test-avatar',
-        name: 'Test Avatar',
-        status: 'active',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        createdBy: 'test@example.com',
-        inhabitantWallet: 'wallet-1',
-      }) as any
-    );
-
     mockGetGateStatus.mockImplementation(async () => ({
       nftsHeld: 0,
       avatarsCreated: 0,
@@ -104,7 +88,6 @@ describe('Wallet Auth Handler', () => {
 
     const res = (await handleWalletAuth(createEvent(), {
       walletAuth: { getSessionWithUser: mockGetSessionWithUser as any },
-      avatarOwnership: { getInhabitedAvatar: mockGetInhabitedAvatar as any },
       nftGate: { getGateStatus: mockGetGateStatus as any },
     })) as any;
 
@@ -113,10 +96,11 @@ describe('Wallet Auth Handler', () => {
 
     expect(body.authenticated).toBe(true);
     expect(body.user.walletAddress).toBe('wallet-1');
-    expect(body.user.inhabitedAvatarId).toBe('test-avatar');
+    expect(body.user.displayName).toBe('Tester');
+    expect(body.user.avatarUrl).toBe('https://example.com/u.png');
   });
 
-  it('GET /auth/me omits inhabitedAvatarId when not inhabiting', async () => {
+  it('GET /auth/me omits optional profile fields when unavailable', async () => {
     mockGetSessionWithUser.mockImplementation(async () => ({
       walletAddress: 'wallet-1',
       sessionToken: 'test-session-token',
@@ -131,8 +115,6 @@ describe('Wallet Auth Handler', () => {
       },
     }));
 
-    mockGetInhabitedAvatar.mockImplementation(async () => null);
-
     mockGetGateStatus.mockImplementation(async () => ({
       nftsHeld: 0,
       avatarsCreated: 0,
@@ -143,7 +125,6 @@ describe('Wallet Auth Handler', () => {
 
     const res = (await handleWalletAuth(createEvent(), {
       walletAuth: { getSessionWithUser: mockGetSessionWithUser as any },
-      avatarOwnership: { getInhabitedAvatar: mockGetInhabitedAvatar as any },
       nftGate: { getGateStatus: mockGetGateStatus as any },
     })) as any;
 
@@ -151,6 +132,7 @@ describe('Wallet Auth Handler', () => {
     const body = JSON.parse(res.body as string);
 
     expect(body.authenticated).toBe(true);
-    expect(body.user.inhabitedAvatarId).toBeUndefined();
+    expect(body.user.displayName).toBe('Tester');
+    expect(body.user.avatarUrl).toBeUndefined();
   });
 });

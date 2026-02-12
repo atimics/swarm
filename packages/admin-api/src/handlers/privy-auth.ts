@@ -5,7 +5,6 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { z } from 'zod';
 
-import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 import { getClearSessionCookies, getSessionFromCookie, getSetSessionCookies } from '../auth/session-cookie.js';
 import { getAccountSummary, linkPrivyIdentityToAccount } from '../services/accounts.js';
 import { getAccountGateStatus } from '../services/account-gate.js';
@@ -82,8 +81,6 @@ export async function handlePrivyVerify(event: APIGatewayProxyEventV2): Promise<
       );
     }
 
-    const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
-
     const accountId = result.session.accountId;
     if (!accountId) {
       return jsonResponse(
@@ -113,7 +110,6 @@ export async function handlePrivyVerify(event: APIGatewayProxyEventV2): Promise<
           displayName: result.user.displayName,
           email: (result.user as unknown as { email?: string })?.email,
           avatarUrl: result.user.avatarUrl,
-          inhabitedAvatarId: inhabitedAvatar?.avatarId,
         },
         nftGate: result.nftGate,
         authResolution: {

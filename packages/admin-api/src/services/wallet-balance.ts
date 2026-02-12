@@ -1,7 +1,7 @@
 /**
  * Wallet Balance Service
  * 
- * Gets token balances for avatar owners (creator or inhabitant wallets)
+ * Gets token balances for avatar creator wallets
  * Used for dynamic energy refill rate calculation
  */
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -40,7 +40,7 @@ async function getDefaultDeps(): Promise<WalletBalanceDeps> {
 
 /**
  * Get the owner wallet for an avatar
- * Priority: inhabitantWallet > creatorWallet
+ * Uses creatorWallet only.
  */
 export async function getOwnerWallet(
   avatarId: string,
@@ -53,8 +53,7 @@ export async function getOwnerWallet(
     return null;
   }
   
-  // Prefer inhabitant wallet, fall back to creator wallet
-  return avatar.inhabitantWallet || avatar.creatorWallet || null;
+  return avatar.creatorWallet || null;
 }
 
 /**

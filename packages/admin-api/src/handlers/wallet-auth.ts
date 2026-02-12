@@ -19,16 +19,7 @@ import {
   getSetSessionCookies,
 } from '../auth/session-cookie.js';
 import { getCorsHeaders } from '../http/cors.js';
-import {
-  inhabitAvatar,
-  abandonAvatar,
-  canAbandon,
-  getInhabitationInfo,
-  getInhabitedAvatar,
-} from '../services/avatar-ownership.js';
 import { getGateStatus } from '../services/nft-gate.js';
-import { listUnclaimedAvatars } from '../services/avatars.js';
-import { prepareLineageMint } from '../services/lineage-nft.js';
 import { recordBurn } from '../services/burn-stats.js';
 import { getBurnStats } from '../services/burn-stats.js';
 import { getEnergyStatus, getEnergyBankBalance } from '../services/energy.js';
@@ -72,9 +63,6 @@ export interface WalletAuthHandlerDeps {
   walletAuth: {
     getSessionWithUser: typeof getSessionWithUser;
   };
-  avatarOwnership: {
-    getInhabitedAvatar: typeof getInhabitedAvatar;
-  };
   nftGate: {
     getGateStatus: typeof getGateStatus;
   };
@@ -91,9 +79,6 @@ function getDefaultDeps(): WalletAuthHandlerDeps {
   return {
     walletAuth: {
       getSessionWithUser,
-    },
-    avatarOwnership: {
-      getInhabitedAvatar,
     },
     nftGate: {
       getGateStatus,
@@ -148,12 +133,12 @@ async function syncRuntimeContractForAvatar(avatarId: string): Promise<void> {
   const entitlement = await getEntitlement(avatarId);
   let effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
 
-  // Orb-holder auto-boost: if on free plan, check if creator/inhabitant
+  // Orb-holder auto-boost: if on free plan, check if creator
   // holds Gate NFTs and apply boosted limits.
   if (effective.plan === 'free') {
     try {
       const avatar = await getAvatar(avatarId);
-      const walletToCheck = avatar?.inhabitantWallet ?? avatar?.creatorWallet;
+      const walletToCheck = avatar?.creatorWallet;
       if (walletToCheck) {
         const nftResult = await checkNFTGate(walletToCheck);
         if (nftResult.ownedCount >= 1) {
@@ -340,9 +325,6 @@ export async function handleVerify(
     // Set session cookies (and clear any stale host-only cookie)
     const cookies = getSetSessionCookies(result.session.sessionToken);
 
-    // Inhabitation is stored in the avatar ownership mapping; don't rely on UserRecord.inhabitedAvatarId.
-    const inhabitedAvatar = await getInhabitedAvatar(result.user.walletAddress);
-
     const accountId = result.session.accountId || (await getOrCreateAccountForWallet(result.user.walletAddress));
     const account = await getAccountSummary(accountId);
 
@@ -356,7 +338,6 @@ export async function handleVerify(
       user: {
         walletAddress: result.user.walletAddress,
         displayName: result.user.displayName,
-        inhabitedAvatarId: inhabitedAvatar?.avatarId,
       },
       // Include NFT info for display
       nftGate: result.nftGate,
@@ -432,11 +413,6 @@ export async function handleMe(
       ? await resolvedDeps.accountGate.getAccountGateStatus(accountId)
       : { gateStatus: null, gateWallet: null, gateStatusByWallet: {} };
 
-    // Inhabitation is stored in the avatar ownership mapping; don't rely on UserRecord.inhabitedAvatarId.
-    const inhabitedAvatar = await resolvedDeps.avatarOwnership.getInhabitedAvatar(
-      session.user.walletAddress
-    );
-
     // Bypass NFT gate for internal test key (E2E testing)
     const isTestBypass = hasInternalTestKey(event);
 
@@ -447,7 +423,6 @@ export async function handleMe(
         walletAddress: session.user.walletAddress,
         displayName: session.user.displayName,
         avatarUrl: session.user.avatarUrl,
-        inhabitedAvatarId: inhabitedAvatar?.avatarId,
         createdAt: session.user.createdAt,
         sessionCount: session.user.sessionCount,
       },
@@ -620,41 +595,6 @@ export async function handleLogout(
   }
 }
 
-// ============================================================================
-// INHABITATION ENDPOINTS
-// ============================================================================
-
-/**
- * GET /auth/unclaimed-avatars
- * List avatars available for inhabitation
- */
-export async function handleUnclaimedAvatars(
-  event: APIGatewayProxyEventV2
-): Promise<APIGatewayProxyResultV2> {
-  const cors = getCorsHeaders(event);
-
-  if (event.requestContext.http.method === 'OPTIONS') {
-    return { statusCode: 204, headers: cors };
-  }
-
-  try {
-    const avatars = await listUnclaimedAvatars();
-
-    return jsonResponse(200, {
-      avatars: avatars.map(a => ({
-        avatarId: a.avatarId,
-        name: a.name,
-        description: a.description,
-        avatarUrl: a.profileImage?.url,
-        currentEra: a.currentEra || 0,
-      })),
-    }, cors);
-  } catch (error) {
-    console.error('[WalletAuth] Unclaimed avatars error:', error);
-    return jsonResponse(500, { error: 'Internal server error' }, cors);
-  }
-}
-
 /**
  * GET /auth/gate-status
  * Get NFT gate status for current user
@@ -687,238 +627,6 @@ export async function handleGateStatus(
     return jsonResponse(200, { gateStatus }, cors);
   } catch (error) {
     console.error('[WalletAuth] Gate status error:', error);
-    return jsonResponse(500, { error: 'Internal server error' }, cors);
-  }
-}
-
-/**
- * GET /auth/inhabitation
- * Get current inhabitation status (including ghost status)
- */
-export async function handleInhabitationStatus(
-  event: APIGatewayProxyEventV2
-): Promise<APIGatewayProxyResultV2> {
-  const cors = getCorsHeaders(event);
-
-  if (event.requestContext.http.method === 'OPTIONS') {
-    return { statusCode: 204, headers: cors };
-  }
-
-  try {
-    // Require authentication
-    const sessionToken = getSessionFromCookie(event);
-    if (!sessionToken) {
-      return jsonResponse(401, { error: 'Authentication required' }, cors);
-    }
-
-    const session = await getSessionWithUser(sessionToken);
-    if (!session) {
-      return jsonResponse(401, { error: 'Session expired' }, {
-        ...cors,
-      }, getClearSessionCookies());
-    }
-
-    const info = await getInhabitationInfo(session.user.walletAddress);
-
-    return jsonResponse(200, info, cors);
-  } catch (error) {
-    console.error('[WalletAuth] Inhabitation status error:', error);
-    return jsonResponse(500, { error: 'Internal server error' }, cors);
-  }
-}
-
-/**
- * POST /auth/inhabit
- * Inhabit an unclaimed avatar (FREE - no NFT required)
- */
-export async function handleInhabitAvatar(
-  event: APIGatewayProxyEventV2
-): Promise<APIGatewayProxyResultV2> {
-  const cors = getCorsHeaders(event);
-
-  if (event.requestContext.http.method === 'OPTIONS') {
-    return { statusCode: 204, headers: cors };
-  }
-
-  try {
-    // Require authentication
-    const sessionToken = getSessionFromCookie(event);
-    if (!sessionToken) {
-      return jsonResponse(401, { error: 'Authentication required' }, cors);
-    }
-
-    const session = await getSessionWithUser(sessionToken);
-    if (!session) {
-      return jsonResponse(401, { error: 'Session expired' }, {
-        ...cors,
-      }, getClearSessionCookies());
-    }
-
-    // Parse request
-    const body = JSON.parse(event.body || '{}');
-    const avatarId = body.avatarId;
-
-    if (!avatarId || typeof avatarId !== 'string') {
-      return jsonResponse(400, { error: 'avatarId is required' }, cors);
-    }
-
-    // Inhabit the avatar
-    const result = await inhabitAvatar(session.user.walletAddress, avatarId);
-
-    if (!result.success) {
-      return jsonResponse(400, { error: result.error }, cors);
-    }
-
-    return jsonResponse(200, {
-      success: true,
-      avatarId: result.avatarId,
-      avatarName: result.avatarName,
-      avatarUrl: result.avatarUrl,
-      era: result.era,
-    }, cors);
-  } catch (error) {
-    console.error('[WalletAuth] Inhabit error:', error);
-    return jsonResponse(500, { error: 'Internal server error' }, cors);
-  }
-}
-
-/**
- * POST /auth/can-abandon
- * Check if user can abandon their current avatar
- */
-export async function handleCanAbandon(
-  event: APIGatewayProxyEventV2
-): Promise<APIGatewayProxyResultV2> {
-  const cors = getCorsHeaders(event);
-
-  if (event.requestContext.http.method === 'OPTIONS') {
-    return { statusCode: 204, headers: cors };
-  }
-
-  try {
-    // Require authentication
-    const sessionToken = getSessionFromCookie(event);
-    if (!sessionToken) {
-      return jsonResponse(401, { error: 'Authentication required' }, cors);
-    }
-
-    const session = await getSessionWithUser(sessionToken);
-    if (!session) {
-      return jsonResponse(401, { error: 'Session expired' }, {
-        ...cors,
-      }, getClearSessionCookies());
-    }
-
-    const result = await canAbandon(session.user.walletAddress);
-
-    return jsonResponse(200, {
-      canAbandon: result.canAbandon,
-      gateStatus: result.gateStatus,
-      inhabitedAvatar: result.inhabitedAvatar ? {
-        avatarId: result.inhabitedAvatar.avatarId,
-        name: result.inhabitedAvatar.name,
-        avatarUrl: result.inhabitedAvatar.profileImage?.url,
-        currentEra: result.inhabitedAvatar.currentEra || 0,
-      } : null,
-    }, cors);
-  } catch (error) {
-    console.error('[WalletAuth] Can abandon error:', error);
-    return jsonResponse(500, { error: 'Internal server error' }, cors);
-  }
-}
-
-/**
- * POST /auth/abandon
- * Abandon the currently inhabited avatar (REQUIRES Gate NFT burn)
- *
- * Request body:
- * - burnTxSignature: REQUIRED - The signature of the Gate NFT burn transaction
- *
- * Flow:
- * 1. Client burns Gate NFT using wallet
- * 2. Client sends burn transaction signature to this endpoint
- * 3. Backend verifies burn on-chain
- * 4. Backend releases the avatar and increments era
- * 5. Client can then mint lineage NFT with returned metadata
- *
- * Returns info needed for lineage NFT minting
- */
-export async function handleAbandonAvatar(
-  event: APIGatewayProxyEventV2
-): Promise<APIGatewayProxyResultV2> {
-  const cors = getCorsHeaders(event);
-
-  if (event.requestContext.http.method === 'OPTIONS') {
-    return { statusCode: 204, headers: cors };
-  }
-
-  try {
-    // Require authentication
-    const sessionToken = getSessionFromCookie(event);
-    if (!sessionToken) {
-      return jsonResponse(401, { error: 'Authentication required' }, cors);
-    }
-
-    const session = await getSessionWithUser(sessionToken);
-    if (!session) {
-      return jsonResponse(401, { error: 'Session expired' }, {
-        ...cors,
-      }, getClearSessionCookies());
-    }
-
-    const body = JSON.parse(event.body || '{}');
-    const burnTxSignature = body.burnTxSignature;
-
-    // Burn signature is REQUIRED
-    if (!burnTxSignature || typeof burnTxSignature !== 'string') {
-      return jsonResponse(400, {
-        error: 'burnTxSignature is required. You must burn a Gate NFT first.',
-      }, cors);
-    }
-
-    const inhabitedAvatar = await getInhabitedAvatar(session.user.walletAddress);
-    if (!inhabitedAvatar) {
-      return jsonResponse(400, {
-        error: 'You do not currently inhabit any avatar',
-      }, cors);
-    }
-
-    const lineageMint = await prepareLineageMint(
-      inhabitedAvatar.avatarId,
-      session.user.walletAddress
-    );
-
-    if (!lineageMint.success) {
-      return jsonResponse(400, {
-        error: lineageMint.error || 'Failed to prepare lineage mint',
-      }, cors);
-    }
-
-    // Abandon the avatar (includes burn verification)
-    const result = await abandonAvatar(
-      session.user.walletAddress,
-      burnTxSignature
-    );
-
-    if (!result.success) {
-      return jsonResponse(400, {
-        error: result.error,
-        gateStatus: result.gateStatus,
-      }, cors);
-    }
-
-    return jsonResponse(200, {
-      success: true,
-      avatarId: result.avatarId,
-      avatarName: result.avatarName,
-      era: result.era,
-      lineageNftMint: result.lineageNftMint,
-      burnedMint: result.burnedMint,
-      lineageMetadata: lineageMint.metadata,
-      gateStatus: result.gateStatus,
-    }, cors);
-  } catch (error) {
-    console.error('[WalletAuth] Abandon error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }
 }
@@ -1187,29 +895,8 @@ export async function handleWalletAuth(
     return handleLogout(event);
   }
 
-  // Inhabitation endpoints
-  if (path === '/auth/unclaimed-avatars' && method === 'GET') {
-    return handleUnclaimedAvatars(event);
-  }
-
   if (path === '/auth/gate-status' && method === 'GET') {
     return handleGateStatus(event);
-  }
-
-  if (path === '/auth/inhabitation' && method === 'GET') {
-    return handleInhabitationStatus(event);
-  }
-
-  if (path === '/auth/inhabit' && method === 'POST') {
-    return handleInhabitAvatar(event);
-  }
-
-  if (path === '/auth/can-abandon' && method === 'GET') {
-    return handleCanAbandon(event);
-  }
-
-  if (path === '/auth/abandon' && method === 'POST') {
-    return handleAbandonAvatar(event);
   }
 
   // Ascension endpoints

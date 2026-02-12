@@ -398,10 +398,7 @@ export async function listAvatars(): Promise<AvatarRecord[]> {
 
 /**
  * List avatars owned by a specific wallet
- * Returns avatars where:
- * - creatorWallet matches (avatars the wallet created)
- * - OR inhabitantWallet matches (avatars the wallet inhabits)
- * This ensures wallet users see all avatars they have access to
+ * Returns avatars where creatorWallet matches.
  */
 export async function listAvatarsByWallet(walletAddress: string): Promise<AvatarRecord[]> {
   // Paginate to handle tables exceeding 1MB scan limit
@@ -411,7 +408,7 @@ export async function listAvatarsByWallet(walletAddress: string): Promise<Avatar
   do {
     const result = await dynamoClient.send(new ScanCommand({
       TableName: ADMIN_TABLE,
-      FilterExpression: 'sk = :sk AND #status <> :deleted AND (creatorWallet = :wallet OR inhabitantWallet = :wallet)',
+      FilterExpression: 'sk = :sk AND #status <> :deleted AND creatorWallet = :wallet',
       ExpressionAttributeNames: {
         '#status': 'status',
       },
@@ -532,7 +529,6 @@ export async function reassignAvatar(
   avatarId: string,
   updates: {
     creatorWallet?: string;
-    inhabitantWallet?: string | null;
   },
   session: UserSession
 ): Promise<AvatarRecord> {
@@ -564,15 +560,6 @@ export async function reassignAvatar(
 
   if (newCreatorWallet !== undefined) {
     updated.creatorWallet = newCreatorWallet;
-  }
-
-  // Handle inhabitantWallet: null means clear, undefined means no change
-  if (updates.inhabitantWallet === null) {
-    updated.inhabitantWallet = undefined;
-    updated.inhabitedAt = undefined;
-  } else if (updates.inhabitantWallet !== undefined) {
-    updated.inhabitantWallet = updates.inhabitantWallet;
-    updated.inhabitedAt = now;
   }
 
   await dynamoClient.send(new PutCommand({

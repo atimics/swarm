@@ -446,7 +446,7 @@ async function ensureAvatarAccess(
       };
     }
 
-    const canManage = avatar.creatorWallet === context.walletAddress || avatar.inhabitantWallet === context.walletAddress;
+    const canManage = avatar.creatorWallet === context.walletAddress;
     if (!canManage) {
       const now = Date.now();
       const state = createInitialOnboardingState(now);

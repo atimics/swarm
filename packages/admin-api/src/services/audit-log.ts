@@ -31,7 +31,7 @@ export type AuditEventType =
   | 'deactivated'
   | 'entitlement_changed';
 
-export type ActorType = 'admin' | 'owner' | 'inhabitant';
+export type ActorType = 'admin' | 'owner';
 
 export interface AuditEvent {
   id: string;

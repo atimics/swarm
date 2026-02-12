@@ -688,9 +688,6 @@ export const MessageSenderSchema = z.object({
   walletAddress: z.string().optional(),
   displayName: z.string().optional(),
   avatarUrl: z.string().optional(),
-  inhabitedAvatarId: z.string().optional(),
-  inhabitedAvatarName: z.string().optional(),
-  isGhost: z.boolean().optional(),  // True if authenticated but no inhabited avatar
 });
 
 export type MessageSender = z.infer<typeof MessageSenderSchema>;

@@ -408,7 +408,7 @@ export async function preflightAscend(
       canAscend: false,
       avatarId,
       avatarName: avatar.name,
-      isInhabitant: avatar.inhabitantWallet === walletAddress,
+      isInhabitant: avatar.creatorWallet === walletAddress,
       isAlreadyAscended: true,
       currentTier: 0,
       currentTierName: '',
@@ -420,8 +420,8 @@ export async function preflightAscend(
     };
   }
 
-  // Check if wallet is the inhabitant
-  const isInhabitant = avatar.inhabitantWallet === walletAddress;
+  // Check if wallet is the creator
+  const isInhabitant = avatar.creatorWallet === walletAddress;
   if (!isInhabitant) {
     return {
       canAscend: false,
@@ -434,7 +434,7 @@ export async function preflightAscend(
       requiredRatiBurn: 0,
       hasOrb: false,
       profileImageUrl: avatar.profileImage?.url,
-      error: 'Only the current inhabitant can ascend this avatar',
+      error: 'Only the avatar creator can ascend this avatar',
       errorCode: 'NOT_INHABITANT',
     };
   }
@@ -881,7 +881,7 @@ export function generateAscensionMetadata(avatar: AvatarRecord): AscensionMetada
     name: `${avatar.name} (Ascended)`,
     symbol: 'ASCEND',
     description: `Ascended Avatar NFT for ${avatar.name}. ` +
-      `This NFT grants ownership of the avatar - the holder can inhabit and control this avatar. ` +
+      `This NFT grants ownership of the avatar - the holder can control this avatar. ` +
       `Persona and profile image are permanently locked.`,
     image: avatar.profileImage?.url || '',
     external_url: `https://rati.chat/avatar/${avatar.avatarId}`,
@@ -939,14 +939,14 @@ export async function getAscendedAvatarByNft(nftMint: string): Promise<AvatarRec
 }
 
 /**
- * Check if a wallet can inhabit an ascended avatar (must hold the NFT)
+ * Check if a wallet can control an ascended avatar (must hold the NFT)
  */
 export async function canInhabitAscendedAvatar(
   avatar: AvatarRecord,
   walletAddress: string
 ): Promise<{ allowed: boolean; error?: string }> {
   if (!avatar.isAscended || !avatar.ascendedNftMint) {
-    // Not ascended, use normal inhabitation rules
+    // Not ascended, use normal ownership rules
     return { allowed: true };
   }
 
@@ -962,7 +962,7 @@ export async function canInhabitAscendedAvatar(
   if (nftOwner !== walletAddress) {
     return {
       allowed: false,
-      error: `Only the Ascension NFT holder can inhabit this avatar. Current holder: ${nftOwner.slice(0, 8)}...`,
+      error: `Only the Ascension NFT holder can control this avatar. Current holder: ${nftOwner.slice(0, 8)}...`,
     };
   }
 

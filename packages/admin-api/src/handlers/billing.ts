@@ -87,9 +87,7 @@ async function assertAvatarAccess(
   if (!avatar) return { ok: false, statusCode: 404, error: 'Avatar not found' };
   if (effectiveIsAdmin) return { ok: true };
 
-  const isOwner =
-    avatar.creatorWallet === walletAddress ||
-    avatar.inhabitantWallet === walletAddress;
+  const isOwner = avatar.creatorWallet === walletAddress;
   if (!isOwner) return { ok: false, statusCode: 403, error: 'Forbidden' };
   return { ok: true };
 }

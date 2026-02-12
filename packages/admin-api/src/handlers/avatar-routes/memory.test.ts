@@ -171,7 +171,7 @@ describe('GET /avatars/{id}/memories/export', () => {
     expect(result!.statusCode).toBe(200);
   });
 
-  it('allows inhabitant to export', async () => {
+  it('denies non-owner access to export', async () => {
     getAvatarResult = { ...MOCK_AVATAR, creatorWallet: 'wallet-owner', inhabitantWallet: 'wallet-inhabitant' };
     getMemoriesResults = { immediate: [], recent: [], core: [] };
 
@@ -182,7 +182,7 @@ describe('GET /avatars/{id}/memories/export', () => {
       effectiveIsAdmin: false,
     });
     const result = await handleMemoryRoutes(ctx);
-    expect(result!.statusCode).toBe(200);
+    expect(result!.statusCode).toBe(404);
   });
 });
 

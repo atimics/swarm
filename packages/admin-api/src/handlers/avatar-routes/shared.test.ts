@@ -96,7 +96,6 @@ describe('requireOwnerOrAdmin', () => {
     const ctx = makeCtx({ effectiveIsAdmin: false, walletAddress: 'wallet-other' });
     const result = await requireOwnerOrAdmin(ctx, 'avatar-1', async () => ({
       creatorWallet: 'wallet-1',
-      inhabitantWallet: null,
     }));
     expect(result).not.toBeNull();
     expect(result!.statusCode).toBe(404);
@@ -106,17 +105,16 @@ describe('requireOwnerOrAdmin', () => {
     const ctx = makeCtx({ effectiveIsAdmin: false, walletAddress: 'wallet-1' });
     const result = await requireOwnerOrAdmin(ctx, 'avatar-1', async () => ({
       creatorWallet: 'wallet-1',
-      inhabitantWallet: null,
     }));
     expect(result).toBeNull();
   });
 
-  it('returns null (allows) for inhabitant wallet', async () => {
+  it('returns 404 when wallet is not creator', async () => {
     const ctx = makeCtx({ effectiveIsAdmin: false, walletAddress: 'wallet-2' });
     const result = await requireOwnerOrAdmin(ctx, 'avatar-1', async () => ({
       creatorWallet: 'wallet-1',
-      inhabitantWallet: 'wallet-2',
     }));
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.statusCode).toBe(404);
   });
 });

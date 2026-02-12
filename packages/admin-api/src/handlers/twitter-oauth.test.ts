@@ -269,7 +269,7 @@ describe('Twitter OAuth Handler', () => {
       expect(result.headers?.Location).toContain('twitter.com');
     });
 
-    it('allows avatar inhabitant (non-admin) to start OAuth', async () => {
+    it('returns 403 for non-creator wallet (non-admin)', async () => {
       const inhabitantWallet = 'inhabitant-wallet-xyz';
       mockAuthenticateRequest.mockImplementation(() => Promise.resolve(createNonAdminSession(inhabitantWallet)));
       mockRequireAdmin.mockImplementation(() => false);
@@ -283,8 +283,7 @@ describe('Twitter OAuth Handler', () => {
 
       const result = await handler(event, mockDeps);
 
-      expect(result.statusCode).toBe(302);
-      expect(result.headers?.Location).toContain('twitter.com');
+      expect(result.statusCode).toBe(403);
     });
 
     it('returns 403 when non-owner tries to start OAuth', async () => {

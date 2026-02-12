@@ -146,7 +146,7 @@ export async function handler(
     if (avatarRecord.platforms?.telegram?.enabled) enabledCategories.push('telegram');
     if (avatarRecord.platforms?.twitter?.enabled) enabledCategories.push('twitter');
     if (avatarRecord.platforms?.discord?.enabled) enabledCategories.push('discord');
-    // NFT always enabled for inhabitation
+    // NFT tools are enabled by default
     enabledCategories.push('nft');
     // Memory and property require explicit opt-in via mcpConfig
     if (enabledToolsets.includes('memory')) enabledCategories.push('memory');

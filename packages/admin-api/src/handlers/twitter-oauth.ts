@@ -67,7 +67,7 @@ export interface TwitterOAuthHandlerDeps {
 }
 
 /**
- * Check if a user can manage an avatar (admin OR creator OR inhabitant)
+ * Check if a user can manage an avatar (admin OR creator)
  */
 function canManageAvatar(
   session: UserSession,
@@ -81,7 +81,7 @@ function canManageAvatar(
   if (!walletAddress) {
     return false;
   }
-  return avatar.creatorWallet === walletAddress || avatar.inhabitantWallet === walletAddress;
+  return avatar.creatorWallet === walletAddress;
 }
 
 /**
@@ -201,7 +201,7 @@ export async function handler(
         };
       }
 
-      // Allow admin OR avatar owner (creator/inhabitant) to connect Twitter
+      // Allow admin OR avatar creator to connect Twitter
       if (!canManageAvatar(session, avatar, walletAddress, auth.requireAdmin)) {
         return {
           statusCode: 403,

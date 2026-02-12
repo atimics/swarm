@@ -99,8 +99,8 @@ export async function syncRuntimeContractForAvatar(
   const entitlement = await entitlementsService.getEntitlement(avatarId);
   let effective = getEffectiveLimitsForAvatar(avatarId, entitlement);
 
-  // If the avatar is on the free plan, check whether the creator or
-  // inhabitant wallet holds at least one Gate NFT (Orb).  If so, apply
+  // If the avatar is on the free plan, check whether the creator wallet
+  // holds at least one Gate NFT (Orb). If so, apply
   // the Orb-holder boost to raise limits above free-tier defaults.
   if (effective.plan === 'free') {
     effective = await maybeApplyOrbBoost(avatarId, effective);
@@ -118,7 +118,7 @@ export async function syncRuntimeContractForAvatar(
 }
 
 /**
- * Check whether the avatar's creator or inhabitant wallet holds 1+ Orbs
+ * Check whether the avatar's creator wallet holds 1+ Orbs
  * and, if so, return boosted limits.  Falls back to the original result
  * on any error so the sync never fails because of NFT checks.
  */
@@ -130,8 +130,7 @@ async function maybeApplyOrbBoost(
     const avatar = await avatarsService.getAvatar(avatarId);
     if (!avatar) return effective;
 
-    // Prefer inhabitant wallet, fall back to creator wallet
-    const walletToCheck = avatar.inhabitantWallet ?? avatar.creatorWallet;
+    const walletToCheck = avatar.creatorWallet;
     if (!walletToCheck) return effective;
 
     const nftResult = await checkNFTGate(walletToCheck);

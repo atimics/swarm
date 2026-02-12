@@ -1,20 +1,16 @@
 /**
  * Shared Chat Handler
  *
- * Multi-user chat where authenticated users appear as their inhabited avatar
- * or as a "ghost" if they haven't inhabited an avatar yet.
+ * Multi-user chat where authenticated users appear as wallet-backed users.
  *
  * Features:
  * - Wallet-based authentication (SIWS)
- * - Ghost display for non-inhabiting users
- * - Avatar display for inhabiting users
  * - Per-channel message history
  */
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { z } from 'zod';
 import { logger } from '@swarm/core';
 import { getSessionWithUser } from '../services/wallet-auth.js';
-import { getInhabitedAvatar } from '../services/avatar-ownership.js';
 import { getClearSessionCookies, getSessionFromCookie } from '../auth/session-cookie.js';
 import { getCorsHeaders } from '../http/cors.js';
 import {
@@ -266,28 +262,11 @@ async function getChannelAvatarInfo(channelId: string): Promise<ChannelAvatarInf
 
 /**
  * Build the sender identity from wallet session
- * Returns ghost if authenticated but not inhabiting, avatar if inhabiting
  */
 async function buildSenderIdentity(walletAddress: string): Promise<MessageSender> {
-  const inhabitedAvatar = await getInhabitedAvatar(walletAddress);
-
-  if (!inhabitedAvatar) {
-    // Ghost user - authenticated but no avatar
-    return {
-      walletAddress,
-      displayName: `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`,
-      isGhost: true,
-    };
-  }
-
-  // Inhabiting user - show as avatar
   return {
     walletAddress,
-    displayName: inhabitedAvatar.name,
-    avatarUrl: inhabitedAvatar.profileImage?.url,
-    inhabitedAvatarId: inhabitedAvatar.avatarId,
-    inhabitedAvatarName: inhabitedAvatar.name,
-    isGhost: false,
+    displayName: `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`,
   };
 }
 
@@ -392,7 +371,7 @@ async function generateAvatarResponse(
     // Format history messages for the processor
     // Messages from the avatar are 'assistant', others are 'user'
     const conversationHistory = historyMessages.map(msg => ({
-      role: (msg.sender.inhabitedAvatarId === channelId ? 'assistant' : 'user') as 'user' | 'assistant',
+      role: (msg.sender.walletAddress === 'avatar' ? 'assistant' : 'user') as 'user' | 'assistant',
       content: `${msg.sender.displayName || msg.sender.walletAddress?.slice(0, 6)}: ${msg.content}`,
     }));
 
@@ -588,8 +567,7 @@ export async function handleSendMessage(
 
     logger.info('Message sent', {
       subsystem: 'shared-chat',
-      isGhost: sender.isGhost,
-      avatarName: sender.inhabitedAvatarName,
+      senderDisplayName: sender.displayName,
       channelId,
     });
 
@@ -616,9 +594,6 @@ export async function handleSendMessage(
           walletAddress: 'avatar',
           displayName: avatar.name,
           avatarUrl: avatar.profileImage?.url,
-          inhabitedAvatarId: avatar.avatarId,
-          inhabitedAvatarName: avatar.name,
-          isGhost: false,
         },
         timestamp: Date.now(),
         replyToId: message.id,
@@ -647,7 +622,7 @@ export async function handleSendMessage(
 
 /**
  * GET /shared-chat/identity
- * Get the current user's sender identity (ghost or avatar)
+ * Get the current user's sender identity
  */
 export async function handleGetIdentity(
   event: APIGatewayProxyEventV2

@@ -18,7 +18,7 @@ import { getCorsHeaders } from '../http/cors.js';
  * Lambda handler for job status API.
  *
  * Admins can poll any job; non-admin wallet users can poll jobs only for
- * avatars they own or inhabit.
+ * avatars they own.
  *
  * - GET /jobs/{jobId} - Get job status
  * - GET /jobs?avatarId=xxx - List pending jobs for an avatar
@@ -60,7 +60,7 @@ export async function handler(
       }
 
       const walletAddress = session.userId;
-      if (!walletAddress || (avatar.creatorWallet !== walletAddress && avatar.inhabitantWallet !== walletAddress)) {
+      if (!walletAddress || avatar.creatorWallet !== walletAddress) {
         // Hide existence when the user doesn't have access.
         return {
           statusCode: 404,

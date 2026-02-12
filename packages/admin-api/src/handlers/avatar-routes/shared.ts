@@ -59,11 +59,10 @@ export function parseSinceQueryParam(value?: string): number | undefined {
 
 type GetAvatarFn = (id: string) => Promise<{
   creatorWallet?: string | null;
-  inhabitantWallet?: string | null;
 } | null>;
 
 /**
- * Return an error response if the caller is neither admin nor owner/inhabitant.
+ * Return an error response if the caller is neither admin nor owner.
  * Returns `null` when access is granted.
  *
  * `getAvatar` is injected by the caller so this module has no service imports.
@@ -80,8 +79,7 @@ export async function requireOwnerOrAdmin(
   const existing = await getAvatar(avatarId);
   if (
     !existing ||
-    (existing.creatorWallet !== ctx.walletAddress &&
-      existing.inhabitantWallet !== ctx.walletAddress)
+    existing.creatorWallet !== ctx.walletAddress
   ) {
     return jsonResponse(ctx.corsHeaders, 404, { error: 'Avatar not found' });
   }

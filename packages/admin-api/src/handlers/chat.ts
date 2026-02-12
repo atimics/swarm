@@ -1121,7 +1121,7 @@ export async function processChat(
  * Lambda handler for chat API.
  *
  * Admins can chat with any avatar; non-admin wallet users can chat only with
- * avatars they own or inhabit.
+ * avatars they own.
  */
 export async function handler(
   event: APIGatewayProxyEventV2
@@ -1368,7 +1368,7 @@ export async function handler(
           telegram: Boolean(avatarRecord.platforms?.telegram?.enabled),
           twitter: Boolean(avatarRecord.platforms?.twitter?.enabled),
           discord: Boolean(avatarRecord.platforms?.discord?.enabled),
-          // NFT enabled by default for inhabitation
+          // NFT tools enabled by default
           nft: true,
           // Property requires explicit opt-in via mcpConfig
           property: enabledToolsets.includes('property'),
