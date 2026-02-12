@@ -14,7 +14,7 @@ import * as avatarService from '../../services/avatars.js';
 import * as secretsService from '../../services/secrets.js';
 import * as telegramService from '../../services/telegram.js';
 import * as discordService from '../../services/discord.js';
-import { setupTelegramIntegration } from '../../services/telegram-setup.js';
+import { setupTelegramIntegration } from '../../services/telegram-admin.js';
 import { validateReplicateApiKey } from '../../services/replicate.js';
 import { SecretType } from '../../types.js';
 

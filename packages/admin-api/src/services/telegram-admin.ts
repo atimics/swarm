@@ -1,4 +1,13 @@
-import type { SecretType } from '../types.js';
+/**
+ * Telegram Admin Utilities
+ *
+ * Combines diagnostics, repair planning, and setup for Telegram integration.
+ * These are admin-facing operations used by the MCP adapter, avatar routes,
+ * and activation-readiness checks.
+ */
+import type { SecretType, UserSession } from '../types.js';
+import type { updateAvatar } from './avatars.js';
+import type { storeSecret } from './secrets.js';
 import {
   getTelegramWebhookInfoDetailed,
   getTelegramWebhookUrlForAvatar,
@@ -6,9 +15,16 @@ import {
   type TelegramWebhookInfoDetailed,
 } from './telegram.js';
 import {
+  computeTelegramOnboardingExecution,
   deriveTelegramOnboardingStepStatus,
+  type TelegramOnboardingExecution,
+  type TelegramOnboardingExecuteAction,
   type TelegramOnboardingStepStatus,
 } from './telegram-onboarding.js';
+
+// =============================================================================
+// Diagnostics
+// =============================================================================
 
 export type TelegramDiagnosticsIssueCode =
   | 'missing_bot_token'
@@ -248,4 +264,175 @@ export async function diagnoseTelegram(
   }
 
   return finalizeDiagnosis(diagnosis);
+}
+
+// =============================================================================
+// Repair Planning
+// =============================================================================
+
+export interface TelegramRepairOptions {
+  force?: boolean;
+  includeDisabled?: boolean;
+  repairOnPendingUpdates?: boolean;
+  repairOnLastError?: boolean;
+}
+
+export type TelegramRepairPlan =
+  | { action: 'skip'; reason: string }
+  | { action: 'repair'; reason: string };
+
+export interface TelegramOnboardingRepairPlan {
+  step: TelegramOnboardingStepStatus;
+  execution: TelegramOnboardingExecution;
+}
+
+export function computeTelegramOnboardingRepairPlan(
+  diagnosis: TelegramDiagnosis,
+  requestedAction: TelegramOnboardingExecuteAction = 'repair'
+): TelegramOnboardingRepairPlan {
+  const step = diagnosis.onboardingStep ?? deriveTelegramOnboardingStepStatus({
+    platformEnabled: diagnosis.platformEnabled,
+    tokenPresent: diagnosis.tokenPresent,
+    webhookSecretPresent: diagnosis.webhookSecretPresent,
+    issues: diagnosis.issues,
+  });
+
+  const execution = computeTelegramOnboardingExecution(step, requestedAction);
+  return { step, execution };
+}
+
+export function computeTelegramRepairPlan(
+  diagnosis: TelegramDiagnosis,
+  options: TelegramRepairOptions = {}
+): TelegramRepairPlan {
+  const includeDisabled = Boolean(options.includeDisabled);
+  const force = Boolean(options.force);
+  const repairOnPendingUpdates = Boolean(options.repairOnPendingUpdates);
+  const repairOnLastError = Boolean(options.repairOnLastError);
+
+  if (!diagnosis.platformEnabled && !includeDisabled) {
+    return { action: 'skip', reason: 'Telegram disabled in avatar config' };
+  }
+
+  if (!diagnosis.tokenPresent) {
+    return { action: 'skip', reason: 'Missing Telegram bot token' };
+  }
+
+  if (force) {
+    return { action: 'repair', reason: 'Forced repair requested' };
+  }
+
+  const issueCodes = new Set(diagnosis.issues.map(i => i.code));
+
+  if (issueCodes.has('missing_webhook_secret')) {
+    return { action: 'repair', reason: 'Telegram webhook secret is missing' };
+  }
+
+  if (issueCodes.has('webhook_url_mismatch')) {
+    return { action: 'repair', reason: 'Telegram webhook URL mismatch' };
+  }
+
+  if (repairOnPendingUpdates && issueCodes.has('webhook_pending_updates')) {
+    return { action: 'repair', reason: 'Telegram webhook has pending updates' };
+  }
+
+  if (repairOnLastError && issueCodes.has('webhook_last_error')) {
+    return { action: 'repair', reason: 'Telegram webhook last error reported' };
+  }
+
+  return { action: 'skip', reason: 'Webhook already matches expected URL' };
+}
+
+// =============================================================================
+// Setup
+// =============================================================================
+
+export interface TelegramSetupResult {
+  success: boolean;
+  error?: string;
+  status?: {
+    webhookUrl?: string;
+    webhookInfo?: { url?: string; pending_update_count?: number };
+    reRegistered?: boolean;
+    botUsername?: string;
+    botId?: number;
+  };
+}
+
+export interface TelegramSetupDeps {
+  validateTelegramToken: (token: string) => Promise<{ valid: boolean; error?: string; botInfo?: { username?: string; id?: number } }>;
+  registerTelegramWebhook: (token: string, avatarId: string, secretToken: string) => Promise<{
+    success: boolean;
+    message: string;
+    webhookUrl?: string;
+    secretToken?: string;
+    webhookInfo?: { url?: string; pending_update_count?: number };
+    reRegistered?: boolean;
+  }>;
+  generateWebhookSecret: () => string;
+  updateAvatar: typeof updateAvatar;
+  storeSecret: typeof storeSecret;
+}
+
+export async function setupTelegramIntegration(params: {
+  avatarId: string;
+  token: string;
+  session: UserSession;
+  deps: TelegramSetupDeps;
+}): Promise<TelegramSetupResult> {
+  const { avatarId, token, session, deps } = params;
+
+  const validation = await deps.validateTelegramToken(token);
+  if (!validation.valid) {
+    return { success: false, error: validation.error || 'Invalid Telegram bot token' };
+  }
+
+  const secretToken = deps.generateWebhookSecret();
+  const webhookResult = await deps.registerTelegramWebhook(token, avatarId, secretToken);
+  if (!webhookResult.success || !webhookResult.secretToken) {
+    return { success: false, error: webhookResult.message || 'Failed to register Telegram webhook' };
+  }
+
+  await Promise.all([
+    deps.updateAvatar(
+      avatarId,
+      {
+        platforms: {
+          telegram: {
+            enabled: true,
+            botUsername: validation.botInfo?.username,
+            botId: validation.botInfo?.id,
+          },
+        },
+      },
+      session
+    ),
+    deps.storeSecret(
+      avatarId,
+      'telegram_bot_token',
+      'default',
+      token,
+      session,
+      `Telegram bot token for ${avatarId}`
+    ),
+    deps.storeSecret(
+      avatarId,
+      'telegram_webhook_secret',
+      'default',
+      webhookResult.secretToken,
+      session,
+      `Telegram webhook secret for ${avatarId}`
+    ),
+  ]);
+
+  return {
+    success: true,
+    status: {
+      webhookUrl: webhookResult.webhookUrl,
+      webhookInfo: webhookResult.webhookInfo,
+      reRegistered: webhookResult.reRegistered,
+      botUsername: validation.botInfo?.username,
+      botId: validation.botInfo?.id,
+    },
+  };
 }

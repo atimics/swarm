@@ -5,7 +5,7 @@ import {
   diagnoseTelegram,
   type TelegramDiagnosis,
   type TelegramDiagnosticsIssueCode,
-} from './telegram-diagnostics.js';
+} from './telegram-admin.js';
 import { getConnectionStatus as getTwitterConnectionStatus } from './twitter-oauth.js';
 import { getConnectionStatus as getDiscordConnectionStatus } from './discord.js';
 

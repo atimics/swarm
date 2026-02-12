@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { TelegramDiagnosis } from './telegram-diagnostics.js';
-import { computeTelegramRepairPlan } from './telegram-repair.js';
+import type { TelegramDiagnosis } from './telegram-admin.js';
+import { computeTelegramRepairPlan } from './telegram-admin.js';
 
 function baseDiagnosis(overrides: Partial<TelegramDiagnosis> = {}): TelegramDiagnosis {
   return {

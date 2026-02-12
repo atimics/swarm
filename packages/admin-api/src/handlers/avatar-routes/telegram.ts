@@ -13,8 +13,7 @@ import { logger } from '@swarm/core';
 import * as avatarService from '../../services/avatars.js';
 import * as telegramService from '../../services/telegram.js';
 import * as secretsService from '../../services/secrets.js';
-import { diagnoseTelegram } from '../../services/telegram-diagnostics.js';
-import { computeTelegramRepairPlan } from '../../services/telegram-repair.js';
+import { diagnoseTelegram, computeTelegramRepairPlan } from '../../services/telegram-admin.js';
 import {
   computeTelegramOnboardingExecution,
   deriveTelegramOnboardingStepStatus,

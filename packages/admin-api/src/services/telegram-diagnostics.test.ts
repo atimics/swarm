@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { diagnoseTelegram } from './telegram-diagnostics.js';
+import { diagnoseTelegram } from './telegram-admin.js';
 
 describe('telegram diagnostics', () => {
   it('reports missing token and returns early', async () => {
