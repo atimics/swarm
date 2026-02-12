@@ -185,6 +185,7 @@ jobs:
           STACK="${{ inputs.stack }}"
           echo "Checking for infrastructure changes..."
           set +e
+          set -o pipefail
           if [ -n "$STACK" ]; then
             DIFF_TARGETS="$STACK"
           else
@@ -193,6 +194,7 @@ jobs:
 
           npx cdk diff --fail $DIFF_TARGETS -c environment=${{ inputs.cdk_env }} -c useExistingBuckets=$USE_EXISTING_BUCKETS -c skipDomainAliases=$SKIP_DOMAIN_ALIASES -c stackHash=$STACK_HASH ${EXTRA_CONTEXT_ARGS} 2>&1 | tee diff-output.txt
           DIFF_EXIT=$?
+          set +o pipefail
           set -e
 
           if [ $DIFF_EXIT -gt 1 ]; then
