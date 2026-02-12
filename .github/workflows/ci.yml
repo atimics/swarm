@@ -98,7 +98,9 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          # Pinned: Bun 1.3.9 has a JIT bug where property access on object
+          # literals intermittently returns undefined (see runtime-limits test)
+          bun-version: "1.3.5"
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4

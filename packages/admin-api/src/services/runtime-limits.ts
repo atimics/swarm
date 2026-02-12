@@ -94,18 +94,13 @@ export function getEffectiveLimitsForAvatar(
   avatarId: string,
   entitlement: EntitlementRecord | null
 ): EffectiveLimitsResult {
-  // Capture status eagerly before branching — Bun 1.3.9 JIT bug causes
-  // property access on `entitlement.status` to return undefined when
-  // accessed inside object literals or after conditional narrowing.
-  const eStatus = entitlement?.status;
-
-  if (!entitlement || (eStatus !== 'active' && eStatus !== 'trial')) {
+  if (!entitlement || (entitlement.status !== 'active' && entitlement.status !== 'trial')) {
     return {
       avatarId,
       plan: 'free',
       limits: PLAN_DEFAULTS.free,
       source: 'default',
-      entitlementStatus: eStatus,
+      entitlementStatus: entitlement?.status,
     };
   }
 
@@ -114,7 +109,7 @@ export function getEffectiveLimitsForAvatar(
     plan: entitlement.plan,
     limits: entitlement.limits ?? PLAN_DEFAULTS[entitlement.plan],
     source: 'entitlement',
-    entitlementStatus: eStatus,
+    entitlementStatus: entitlement.status,
   };
 }
 
