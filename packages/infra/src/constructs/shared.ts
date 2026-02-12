@@ -290,9 +290,7 @@ export class SharedInfrastructure extends Construct {
       });
     }
 
-    new cdk.CfnOutput(this, 'AlarmTopicArn', {
-      value: this.alarmTopic.topicArn,
-      exportName: `swarm-alarm-topic-arn-${environment}${suffix}`,
-    });
+    // Note: AlarmTopicArn export is handled by SharedInfraStack (not here)
+    // to avoid duplicate CloudFormation export names.
   }
 }
