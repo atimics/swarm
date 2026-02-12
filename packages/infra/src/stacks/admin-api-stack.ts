@@ -146,25 +146,9 @@ export interface AdminApiStackProps extends cdk.StackProps {
   claudeCodeUseOpenRouter?: boolean;
 
   /**
-   * Enable shared handlers
-   */
-  enableSharedHandlers?: boolean;
-
-  /**
    * Secrets Manager prefix
    */
   secretPrefix?: string;
-
-  /**
-   * Adopt the existing Admin DynamoDB table instead of creating a new one.
-   * Useful when migrating from the legacy monolithic stack.
-   */
-  useExistingAdminTable?: boolean;
-
-  /**
-   * Optional explicit admin table name to import when useExistingAdminTable is true.
-   */
-  existingAdminTableName?: string;
 }
 
 export class AdminApiStack extends cdk.Stack {
@@ -201,10 +185,7 @@ export class AdminApiStack extends cdk.Stack {
       claudeCodeMinCapacity = 0,
       claudeCodeMaxCapacity = 5,
       claudeCodeUseOpenRouter = false,
-       enableSharedHandlers = this.node.tryGetContext('enableSharedHandlers') ?? false,
       secretPrefix,
-      useExistingAdminTable = false,
-      existingAdminTableName,
       nameSuffix,
     } = props;
 
@@ -267,10 +248,7 @@ export class AdminApiStack extends cdk.Stack {
       ? ''
       : process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`;
 
-    // Always create SharedHandlers here; this stack exists primarily for shared ingress.
-    if (!enableSharedHandlers) {
-      console.warn('AdminApiStack: forcing enableSharedHandlers=true (Telegram ingress requires SharedHandlers).');
-    }
+    // Create SharedHandlers for shared multi-tenant ingress
     this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
       environment,
       nameSuffix,
@@ -306,8 +284,6 @@ export class AdminApiStack extends cdk.Stack {
         environment,
         nameSuffix,
         secretPrefix,
-        useExistingAdminTable,
-        existingAdminTableName,
         adminDomain,
         apiDomain: adminDomain,
         stateTable,

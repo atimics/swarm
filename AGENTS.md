@@ -2,8 +2,7 @@
 
 ## Project Structure & Module Organization
 - `packages/` hosts the main modules: `core` (shared runtime), `handlers` (Lambda entrypoints), `admin-api`, `admin-ui`, and `infra` (CDK).
-- `avatars/` contains per-avatar configs like `avatars/<avatar-id>/config.yaml` and `avatars/<avatar-id>/persona.md`.
-- `scripts/` holds helper scripts (ex: `scripts/test-persona.mjs`).
+- `scripts/` holds helper scripts.
 - Tests live alongside packages as `packages/**/*.test.ts`.
 
 ## Build, Test, and Development Commands

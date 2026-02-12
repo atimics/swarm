@@ -34,8 +34,6 @@ SPLIT_CTX="-c environment=staging -c splitStacks=true -c useExistingSharedResour
 run_logged deploy_split_api "pnpm -C packages/infra cdk deploy SwarmApi-staging $SPLIT_CTX --require-approval never"
 run_logged deploy_split_ui "pnpm -C packages/infra cdk deploy SwarmUi-staging $SPLIT_CTX --require-approval never"
 
-# Optional: avatars stack can be deployed separately if you’re changing avatar configs.
-# run_logged deploy_split_avatars "pnpm -C packages/infra cdk deploy SwarmAvatars-staging $SPLIT_CTX --require-approval never"
 
 log "Next: use the Admin UI to run ‘Repair Telegram webhook’ for affected avatars (or run your existing repair script)."
 

@@ -23,7 +23,7 @@ All CloudWatch alarms route to an SNS topic. Subscriptions are configured in CDK
 - **Email** -- subscribed operators receive alarm state-change notifications.
 - **PagerDuty / Slack** -- add an SNS subscription for your preferred webhook endpoint.
 
-Alarms defined per avatar (in `AvatarConstruct`):
+Alarms defined per avatar (in `SharedHandlers`):
 
 | Alarm | Metric | Threshold |
 |---|---|---|

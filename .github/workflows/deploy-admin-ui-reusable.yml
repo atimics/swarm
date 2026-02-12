@@ -15,12 +15,6 @@ on:
       api_url:
         required: true
         type: string
-      split_stacks:
-        required: true
-        type: boolean
-      use_existing_shared_resources:
-        required: true
-        type: boolean
       stack_hash:
         required: false
         type: string
@@ -120,36 +114,16 @@ jobs:
       - name: Get stack outputs
         id: outputs
         env:
-          SPLIT_STACKS: ${{ inputs.split_stacks && 'true' || 'false' }}
-          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources && 'true' || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash }}
         run: |
-          if [ "$SPLIT_STACKS" = "true" ] && [ "${{ inputs.cdk_env }}" = "staging" ] && [ -z "$STACK_HASH" ]; then
-            USE_EXISTING_SHARED_RESOURCES="true"
-          fi
-
-          STACK_HASH_SUFFIX=""
+          STACK_SUFFIX=""
           if [ -n "$STACK_HASH" ]; then
-            STACK_HASH_SUFFIX="-$STACK_HASH"
+            STACK_SUFFIX="-$STACK_HASH"
           fi
 
-          STACK_ID_SUFFIX=""
-          if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
-            STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
-          fi
+          STACK="SwarmUi-${{ inputs.cdk_env }}${STACK_SUFFIX}"
 
-          EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
-          if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
-            EXPORT_SUFFIX="-split"
-          fi
-
-          if [ "$SPLIT_STACKS" = "true" ]; then
-            STACK="SwarmUi-${{ inputs.cdk_env }}${STACK_ID_SUFFIX}"
-          else
-            STACK="SwarmStack-${{ inputs.cdk_env }}${STACK_ID_SUFFIX}"
-          fi
-
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query \"Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ inputs.cdk_env }}${EXPORT_SUFFIX}'].OutputValue\" --output text)" >> $GITHUB_OUTPUT
+          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query \"Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ inputs.cdk_env }}${STACK_SUFFIX}'].OutputValue\" --output text)" >> $GITHUB_OUTPUT
 
   admin-ui-deploy:
     name: Deploy Admin UI
@@ -192,38 +166,18 @@ jobs:
 
       - name: Deploy to S3
         env:
-          SPLIT_STACKS: ${{ inputs.split_stacks && 'true' || 'false' }}
-          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources && 'true' || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash }}
           CDK_ENV: ${{ inputs.cdk_env }}
         run: |
-          if [ "$SPLIT_STACKS" = "true" ] && [ "$CDK_ENV" = "staging" ] && [ -z "$STACK_HASH" ]; then
-            USE_EXISTING_SHARED_RESOURCES="true"
-          fi
-
-          STACK_HASH_SUFFIX=""
+          STACK_SUFFIX=""
           if [ -n "$STACK_HASH" ]; then
-            STACK_HASH_SUFFIX="-$STACK_HASH"
+            STACK_SUFFIX="-$STACK_HASH"
           fi
 
-          STACK_ID_SUFFIX=""
-          if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
-            STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
-          fi
-
-          EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
-          if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
-            EXPORT_SUFFIX="-split"
-          fi
-
-          if [ "$SPLIT_STACKS" = "true" ]; then
-            STACK="SwarmUi-${CDK_ENV}${STACK_ID_SUFFIX}"
-          else
-            STACK="SwarmStack-${CDK_ENV}${STACK_ID_SUFFIX}"
-          fi
+          STACK="SwarmUi-${CDK_ENV}${STACK_SUFFIX}"
 
           BUCKET=$(aws cloudformation describe-stacks --stack-name "$STACK" \
-            --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${CDK_ENV}${EXPORT_SUFFIX}'].OutputValue" \
+            --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-bucket-${CDK_ENV}${STACK_SUFFIX}'].OutputValue" \
             --output text)
 
           if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ]; then
@@ -237,41 +191,21 @@ jobs:
 
       - name: Invalidate CDN
         env:
-          SPLIT_STACKS: ${{ inputs.split_stacks && 'true' || 'false' }}
-          USE_EXISTING_SHARED_RESOURCES: ${{ inputs.use_existing_shared_resources && 'true' || 'false' }}
           STACK_HASH: ${{ inputs.stack_hash }}
           CDK_ENV: ${{ inputs.cdk_env }}
         run: |
           DIST="${{ inputs.cdk_distribution || needs.stack-outputs.outputs.distribution }}"
 
           if [ -z "$DIST" ] || [ "$DIST" = "None" ]; then
-            if [ "$SPLIT_STACKS" = "true" ] && [ "$CDK_ENV" = "staging" ] && [ -z "$STACK_HASH" ]; then
-              USE_EXISTING_SHARED_RESOURCES="true"
-            fi
-
-            STACK_HASH_SUFFIX=""
+            STACK_SUFFIX=""
             if [ -n "$STACK_HASH" ]; then
-              STACK_HASH_SUFFIX="-$STACK_HASH"
+              STACK_SUFFIX="-$STACK_HASH"
             fi
 
-            STACK_ID_SUFFIX=""
-            if [ "$SPLIT_STACKS" = "true" ] && [ "$USE_EXISTING_SHARED_RESOURCES" != "true" ]; then
-              STACK_ID_SUFFIX="$STACK_HASH_SUFFIX"
-            fi
-
-            EXPORT_SUFFIX="$STACK_HASH_SUFFIX"
-            if [ "$USE_EXISTING_SHARED_RESOURCES" = "true" ] && [ -z "$STACK_HASH" ]; then
-              EXPORT_SUFFIX="-split"
-            fi
-
-            if [ "$SPLIT_STACKS" = "true" ]; then
-              STACK="SwarmUi-${CDK_ENV}${STACK_ID_SUFFIX}"
-            else
-              STACK="SwarmStack-${CDK_ENV}${STACK_ID_SUFFIX}"
-            fi
+            STACK="SwarmUi-${CDK_ENV}${STACK_SUFFIX}"
 
             DIST=$(aws cloudformation describe-stacks --stack-name "$STACK" \
-              --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${CDK_ENV}${EXPORT_SUFFIX}'].OutputValue" \
+              --query "Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${CDK_ENV}${STACK_SUFFIX}'].OutputValue" \
               --output text)
           fi
 

@@ -97,8 +97,6 @@ fi
 # NOTE: Lambda log groups use several naming schemes:
 #   - CDK default:     /aws/lambda/SwarmStack-{env}-...     (AdminApi construct)
 #   - Shared handlers: /aws/lambda/swarm-{env}-...          (SharedHandlers construct)
-#   - Avatar handlers: /aws/lambda/{avatarId}-...            (AvatarConstruct)
-#   - ECS gateways:    /aws/ecs/{avatarId}-discord-gateway   (AvatarConstruct)
 #   - Claude Code:     /ecs/swarm-claude-code-worker-{env}   (ClaudeCodeWorker)
 #                      /aws/lambda/swarm-claude-code-callback-{env}
 #

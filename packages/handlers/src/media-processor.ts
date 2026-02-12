@@ -51,7 +51,6 @@ function getRequiredEnv(name: string): string {
 
 let _responseQueueUrl: string | undefined;
 let _stateTable: string | undefined;
-let _avatarId: string | undefined;
 let _mediaBucket: string | undefined;
 
 function getResponseQueueUrl(): string {
@@ -64,17 +63,12 @@ function getStateTable(): string {
   return _stateTable;
 }
 
-function getAvatarId(): string {
-  if (!_avatarId) _avatarId = getRequiredEnv('AVATAR_ID');
-  return _avatarId;
-}
-
 function getMediaBucket(): string {
   if (!_mediaBucket) _mediaBucket = getRequiredEnv('MEDIA_BUCKET');
   return _mediaBucket;
 }
 
-async function claimJob(jobId: string): Promise<boolean> {
+async function claimJob(avatarId: string, jobId: string): Promise<boolean> {
   const now = Date.now();
   const ttl = Math.floor(now / 1000) + IDEMPOTENCY_TTL_SECONDS;
 
@@ -82,7 +76,7 @@ async function claimJob(jobId: string): Promise<boolean> {
     await dynamo.send(new PutCommand({
       TableName: getStateTable(),
       Item: {
-        pk: `AVATAR#${getAvatarId()}`,
+        pk: `AVATAR#${avatarId}`,
         sk: `MEDIAJOB#${jobId}`,
         createdAt: now,
         ttl,
@@ -98,21 +92,27 @@ async function claimJob(jobId: string): Promise<boolean> {
   }
 }
 
-let stateService: ReturnType<typeof createStateService>;
 let secretsService: ReturnType<typeof createSecretsService>;
-let secrets: Record<string, string>;
-let avatarConfig: AvatarConfig;
-let mediaService: ReturnType<typeof createMediaServiceWithDeps>;
+
+// Per-avatar caches
+const avatarConfigCache = new Map<string, AvatarConfig>();
+const avatarSecretsCache = new Map<string, Record<string, string>>();
+const mediaServiceCache = new Map<string, ReturnType<typeof createMediaServiceWithDeps>>();
 
 async function initialize(): Promise<void> {
-  if (stateService) return;
-
-  stateService = createStateService(getStateTable());
+  if (secretsService) return;
   secretsService = createSecretsService();
+}
 
-  avatarConfig = await stateService.getAvatarConfig(getAvatarId()) || {
-    id: getAvatarId(),
-    name: process.env.AVATAR_NAME || getAvatarId(),
+const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
+
+async function getAvatarRuntime(avatarId: string) {
+  let config = avatarConfigCache.get(avatarId);
+  if (!config) {
+    const stateService = createStateService(getStateTable());
+    config = await stateService.getAvatarConfig(avatarId) || {
+    id: avatarId,
+    name: avatarId,
     version: '1.0.0',
     persona: process.env.AGENT_PERSONA || 'You are a helpful AI assistant.',
     platforms: {},
@@ -139,33 +139,45 @@ async function initialize(): Promise<void> {
     tools: [],
     secrets: ['OPENROUTER_API_KEY', 'REPLICATE_API_KEY'],
   };
-
-  secrets = await secretsService.getSecretJson<Record<string, string>>(
-    process.env.SECRETS_ARN || `swarm/${getAvatarId()}/secrets`
-  );
-
-  // Media jobs may run for avatars without per-avatar Replicate creds; allow fallback to system key.
-  try {
-    const ok = await ensureReplicateKey(secrets, secretsService);
-    if (ok && secrets.REPLICATE_API_KEY) {
-      logger.info('Loaded system Replicate key for media processor', { subsystem: 'media' });
-    } else if (!ok) {
-      logger.warn('System Replicate key not configured for media processor', {
-        subsystem: 'media',
-        hasEnvKey: Boolean(process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY),
-        hasSecretArn: Boolean(process.env.REPLICATE_API_KEY_SECRET_ARN),
-      });
-    }
-  } catch (err) {
-    logger.warn('Failed to load system Replicate key for media processor', {
-      subsystem: 'media',
-      error: err instanceof Error ? err.message : String(err),
-    });
+    avatarConfigCache.set(avatarId, config);
   }
 
-  // Create media service with dependencies for model resolution, gallery, and credits
-  const mediaDeps = createMediaDependencies({ tableName: getStateTable() });
-  mediaService = createMediaServiceWithDeps(secrets, getMediaBucket(), process.env.CDN_URL, mediaDeps);
+  let secrets = avatarSecretsCache.get(avatarId);
+  if (!secrets) {
+    secrets = await secretsService.getSecretJson<Record<string, string>>(
+      `${SECRET_PREFIX}/${avatarId}/secrets`
+    ) || {};
+
+    try {
+      const ok = await ensureReplicateKey(secrets, secretsService);
+      if (ok && secrets.REPLICATE_API_KEY) {
+        logger.info('Loaded system Replicate key for media processor', { subsystem: 'media', avatarId });
+      } else if (!ok) {
+        logger.warn('System Replicate key not configured for media processor', {
+          subsystem: 'media',
+          avatarId,
+          hasEnvKey: Boolean(process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY),
+          hasSecretArn: Boolean(process.env.REPLICATE_API_KEY_SECRET_ARN),
+        });
+      }
+    } catch (err) {
+      logger.warn('Failed to load system Replicate key for media processor', {
+        subsystem: 'media',
+        avatarId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    avatarSecretsCache.set(avatarId, secrets);
+  }
+
+  let service = mediaServiceCache.get(avatarId);
+  if (!service) {
+    const mediaDeps = createMediaDependencies({ tableName: getStateTable() });
+    service = createMediaServiceWithDeps(secrets, getMediaBucket(), process.env.CDN_URL, mediaDeps);
+    mediaServiceCache.set(avatarId, service);
+  }
+
+  return { avatarConfig: config, secrets, mediaService: service };
 }
 
 function buildImagePrompt(action: { prompt: string; style?: string }, avatar: AvatarConfig): string {
@@ -181,7 +193,6 @@ function buildImagePrompt(action: { prompt: string; style?: string }, avatar: Av
 
 export const handler = async (event: SQSEvent, context: Context): Promise<{ batchItemFailures: { itemIdentifier: string }[] } | void> => {
   logger.setContext({
-    avatarId: getAvatarId(),
     requestId: context.awsRequestId,
   });
 
@@ -231,6 +242,19 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
     }
     const item = parseResult.data;
 
+    const avatarId = item.avatarId;
+    if (!avatarId) {
+      logger.error('Missing avatarId in media queue item', {
+        event: 'validation_error',
+        subsystem: 'media',
+        messageId: record.messageId,
+      });
+      batchItemFailures.push({ itemIdentifier: record.messageId });
+      continue;
+    }
+
+    logger.setContext({ avatarId });
+
     if (!record.messageAttributes?.traceId?.stringValue && item.traceId) {
       traceId = item.traceId;
       logger.setContext({ traceId });
@@ -244,17 +268,9 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
 
     try {
 
-      if (item.avatarId && item.avatarId !== getAvatarId()) {
-        logger.warn('Media job avatarId mismatch', {
-          event: 'avatar_mismatch',
-          subsystem: 'media',
-          jobAvatarId: item.avatarId,
-          handlerAvatarId: getAvatarId(),
-        });
-        continue;
-      }
+      const { avatarConfig, mediaService } = await getAvatarRuntime(avatarId);
 
-      const claimed = await claimJob(item.jobId);
+      const claimed = await claimJob(avatarId, item.jobId);
       if (!claimed) {
         logger.info('Media job already claimed', {
           event: 'job_skipped',
@@ -268,12 +284,12 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       let mediaAction: ResponseAction | null = null;
       if (!item.usageAccounted) {
         // Unified burst pool: entitlement-first, energy-fallback
-        const usageCheck = await checkMediaWithEnergyFallback(getAvatarId());
+        const usageCheck = await checkMediaWithEnergyFallback(avatarId);
         if (!usageCheck.allowed) {
           logger.warn('Media generation blocked by entitlement limits', {
             event: 'limit_exceeded',
             subsystem: 'entitlements',
-            avatarId: getAvatarId(),
+            avatarId: avatarId,
             jobId: item.jobId,
             reason: usageCheck.reason,
             limit: usageCheck.limit,
@@ -290,7 +306,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
       if (!mediaAction && item.action.type === 'take_selfie') {
         const prompt = buildImagePrompt(item.action, avatarConfig);
         const media = await mediaService.generateImage(prompt, avatarConfig.media.image, {
-          avatarId: getAvatarId(),
+          avatarId: avatarId,
           platform: item.response.platform,
           saveToGallery: true,
           checkCredits: false,
@@ -315,7 +331,7 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
           aspectRatio,
         };
         const media = await mediaService.generateImage(action.prompt, mediaConfig, {
-          avatarId: getAvatarId(),
+          avatarId: avatarId,
           platform: item.response.platform,
           saveToGallery: true,
           checkCredits: false,

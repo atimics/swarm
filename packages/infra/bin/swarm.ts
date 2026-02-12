@@ -6,7 +6,6 @@
  * 1. SharedInfraStack - DynamoDB, S3, CDN, Lambda layer (rarely changes)
  * 2. AdminApiStack - API Gateway, Lambda handlers (changes with code)
  * 3. AdminUiStack - CloudFront for UI (changes with UI)
- * 4. AvatarsStack - Avatar configs (changes with avatar updates)
  */
 import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
@@ -15,7 +14,6 @@ import { fileURLToPath } from 'url';
 import { SharedInfraStack } from '../src/stacks/shared-infra-stack.js';
 import { AdminApiStack } from '../src/stacks/admin-api-stack.js';
 import { AdminUiStack } from '../src/stacks/admin-ui-stack.js';
-import { AvatarsStack } from '../src/stacks/avatars-stack.js';
 import { ProfilePageStack } from '../src/stacks/profile-page-stack.js';
 
 // ESM equivalent of __dirname
@@ -70,7 +68,6 @@ function getContextValue<T>(key: string, envConfig: EnvConfig): T | undefined {
 // Get environment from context or default
 const rawEnvironment = (app.node.tryGetContext('environment') as string | undefined) || 'dev';
 const environment = normalizeEnvironmentName(rawEnvironment);
-const avatarIds = (app.node.tryGetContext('avatars') as string | undefined)?.split(',');
 
 // Get environment-specific config
 const environments = (app.node.tryGetContext('environments') as Record<string, EnvConfig> | undefined) || {};
@@ -133,67 +130,9 @@ const secretPrefix = (secretPrefixRaw && secretPrefixRaw.trim())
   ? secretPrefixRaw.trim()
   : (nameSuffix ? `swarm${nameSuffix}` : 'swarm');
 
-const splitStacksContext = parseBoolean(app.node.tryGetContext('splitStacks'));
-if (splitStacksContext === false) {
-  throw new Error('splitStacks=false is no longer supported. Legacy monolithic SwarmStack has been removed.');
-}
-const useSplitStacks = true;
-
-// When migrating from the monolithic stack, shared resources may already exist.
-// This flag makes SharedInfraStack adopt/import those shared resources instead of creating them.
-const useExistingSharedResources =
-  parseBoolean(getContextValue<unknown>('useExistingSharedResources', envConfig)) ?? false;
-const existingDependencyLayerArn = getContextValue<string>('existingDependencyLayerArn', envConfig);
-const existingCdnDistributionId = getContextValue<string>('existingCdnDistributionId', envConfig);
-
-// Stack/resource suffix strategy:
-// - Normal mode: stackHash (nameSuffix) applies to stack IDs and resource names.
-// - Migration mode (useExistingSharedResources=true): keep stack IDs stable (no suffix),
-//   adopt existing shared resources (no suffix), and suffix ONLY non-shared resources with
-//   '-split' when no stackHash is provided to avoid collisions with the legacy monolithic stack.
-const stackIdSuffix = (useSplitStacks && !useExistingSharedResources) ? nameSuffix : '';
-const sharedResourceSuffix = useExistingSharedResources ? '' : nameSuffix;
-const nonSharedResourceSuffix = (useExistingSharedResources && !nameSuffix) ? '-split' : nameSuffix;
-
-// If we are creating a parallel set of non-shared resources during migration and the user
-// didn't provide an explicit secretPrefix, avoid collisions by defaulting to a suffixed prefix.
-const secretPrefixForSplitStacks = (useSplitStacks && useExistingSharedResources && !secretPrefixRaw && nonSharedResourceSuffix)
-  ? `swarm${nonSharedResourceSuffix}`
-  : secretPrefix;
-
-// Enable shared handlers (Twitter mention polling, autonomous tweets, shared queues)
-// Default to true. Telegram ingress uses the shared multi-tenant webhook.
-const enableSharedHandlersExplicit = parseBoolean(getContextValue<unknown>('enableSharedHandlers', envConfig));
-const enableSharedHandlers = enableSharedHandlersExplicit ?? true;
-
-// Migration guardrails: when adopting existing shared resources for split stacks without a suffix,
-// many resources already exist from the legacy monolithic stack.
-const isMigrationSplitWithoutSuffix = useSplitStacks && useExistingSharedResources && !nameSuffix;
-
-// In migration mode, default to NOT creating shared handlers to avoid colliding with legacy function names.
-// DEPRECATED: Migration mode without shared handlers uses legacy code that will be removed.
-// Plan to migrate by setting enableSharedHandlers=true explicitly.
-const enableSharedHandlersForDeploy =
-  isMigrationSplitWithoutSuffix && enableSharedHandlersExplicit === undefined
-    ? false
-    : enableSharedHandlers;
-
-if (!enableSharedHandlersForDeploy) {
-  console.warn(
-    '\n⚠️  DEPRECATION WARNING: Deploying without shared handlers.\n' +
-    '   Telegram/Twitter shared ingress features require @swarm/handlers SharedHandlers.\n' +
-    '   Set enableSharedHandlers=true to use the supported webhook/poller runtime.\n'
-  );
-}
-
-// In migration mode, reuse the existing SwarmAdmin table to preserve admin data.
-const useExistingAdminTable = isMigrationSplitWithoutSuffix;
-const existingAdminTableName = getContextValue<string>('existingAdminTableName', envConfig);
-
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
 const monorepoRoot = path.resolve(__dirname, '../../..');
-const avatarsPath = path.join(monorepoRoot, 'avatars');
 const handlersPath = path.join(monorepoRoot, 'packages/handlers/dist');
 
 const stackEnv = {
@@ -201,106 +140,78 @@ const stackEnv = {
   region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
 };
 
-if (useSplitStacks) {
-  // ============================================
-  // NEW: Split Stacks for Parallel Deployment
-  // ============================================
+// ============================================
+// Split Stacks for Parallel Deployment
+// ============================================
 
-  // 1. Shared Infrastructure Stack (deploys first, rarely changes)
-  const sharedInfraStack = new SharedInfraStack(app, `SwarmShared-${environment}${stackIdSuffix}`, {
+// 1. Shared Infrastructure Stack (deploys first, rarely changes)
+const sharedInfraStack = new SharedInfraStack(app, `SwarmShared-${environment}${nameSuffix}`, {
+  environment,
+  nameSuffix,
+  enableCdn: true,
+  galleryDomain,
+  galleryCertificateArn,
+  alarmNotificationEmail,
+  env: stackEnv,
+  description: `Swarm Shared Infrastructure (${environment})`,
+});
+
+// 2. Admin API Stack (depends on shared, changes with code updates)
+const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}${nameSuffix}`, {
+  environment,
+  nameSuffix,
+  sharedInfraStack,
+  handlersPath,
+  adminDomain,
+  cloudflareTeamDomain,
+  adminEmails,
+  adminWallets,
+  openRouterApiKeyArn,
+  replicateApiKeyArn,
+  heliusApiKeyArn,
+  webSearchApiKeyArn,
+  webSearchProvider,
+  privyAppId,
+  privyAppSecretArn,
+  privyJwtVerificationKeyArn,
+  stripeSecretKeyArn,
+  stripeWebhookSecretArn,
+  stripePriceIdPro,
+  stripePriceIdEnterprise,
+  anthropicApiKeyArn,
+  enableClaudeCode,
+  claudeCodeUseOpenRouter,
+  secretPrefix,
+  env: stackEnv,
+  description: `Swarm Admin API (${environment})`,
+});
+adminApiStack.addDependency(sharedInfraStack);
+
+// 3. Admin UI Stack (depends on API for origin, changes with UI updates)
+const adminUiStack = new AdminUiStack(app, `SwarmUi-${environment}${nameSuffix}`, {
+  environment,
+  nameSuffix,
+  adminApiStack,
+  adminDomain,
+  adminCertificateArn,
+  env: stackEnv,
+  description: `Swarm Admin UI (${environment})`,
+});
+adminUiStack.addDependency(adminApiStack);
+
+// 4. Profile Page Stack (independent, changes with profile page updates)
+// Hosts public avatar profile pages at *.rati.chat subdomains
+if (profileDomain || app.node.tryGetContext('deployProfilePage')) {
+  new ProfilePageStack(app, `SwarmProfilePage-${environment}${nameSuffix}`, {
     environment,
-    nameSuffix: sharedResourceSuffix,
-    enableCdn: true,
-    galleryDomain,
-    galleryCertificateArn,
-    useExistingResources: useExistingSharedResources,
-    existingDependencyLayerArn,
-    existingCdnDistributionId,
-    alarmNotificationEmail,
+    nameSuffix,
+    profileDomain,
+    profileCertificateArn,
+    includeWildcardAliases: environment === 'prod',
+    apiUrl: profileApiUrl,
     env: stackEnv,
-    description: `Swarm Shared Infrastructure (${environment})`,
+    description: `Swarm Profile Page (${environment})`,
   });
-
-  // 2. Admin API Stack (depends on shared, changes with code updates)
-  const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}${stackIdSuffix}`, {
-    environment,
-    nameSuffix: nonSharedResourceSuffix,
-    sharedInfraStack,
-    handlersPath,
-    adminDomain,
-    cloudflareTeamDomain,
-    adminEmails,
-    adminWallets,
-    openRouterApiKeyArn,
-    replicateApiKeyArn,
-    heliusApiKeyArn,
-    webSearchApiKeyArn,
-    webSearchProvider,
-    privyAppId,
-    privyAppSecretArn,
-    privyJwtVerificationKeyArn,
-    stripeSecretKeyArn,
-    stripeWebhookSecretArn,
-    stripePriceIdPro,
-    stripePriceIdEnterprise,
-    anthropicApiKeyArn,
-    enableClaudeCode,
-    claudeCodeUseOpenRouter,
-    enableSharedHandlers: enableSharedHandlersForDeploy,
-    useExistingAdminTable,
-    existingAdminTableName,
-    secretPrefix: secretPrefixForSplitStacks,
-    env: stackEnv,
-    description: `Swarm Admin API (${environment})`,
-  });
-  adminApiStack.addDependency(sharedInfraStack);
-
-  // 3. Admin UI Stack (depends on API for origin, changes with UI updates)
-  const adminUiStack = new AdminUiStack(app, `SwarmUi-${environment}${stackIdSuffix}`, {
-    environment,
-    nameSuffix: nonSharedResourceSuffix,
-    adminApiStack,
-    adminDomain,
-    adminCertificateArn,
-    env: stackEnv,
-    description: `Swarm Admin UI (${environment})`,
-  });
-  adminUiStack.addDependency(adminApiStack);
-
-  // 4. Avatars Stack (depends on shared and API, changes with avatar updates)
-  const avatarsStack = new AvatarsStack(app, `SwarmAvatars-${environment}${stackIdSuffix}`, {
-    environment,
-    nameSuffix: nonSharedResourceSuffix,
-    sharedInfraStack,
-    adminApiStack,
-    avatarsPath,
-    handlersPath,
-    avatarIds,
-    replicateApiKeyArn,
-    secretPrefix: secretPrefixForSplitStacks,
-    env: stackEnv,
-    description: `Swarm Avatars (${environment})`,
-  });
-  avatarsStack.addDependency(sharedInfraStack);
-  avatarsStack.addDependency(adminApiStack);
-
-  // 5. Profile Page Stack (independent, changes with profile page updates)
-  // Hosts public avatar profile pages at *.rati.chat subdomains
-  if (profileDomain || app.node.tryGetContext('deployProfilePage')) {
-    new ProfilePageStack(app, `SwarmProfilePage-${environment}${stackIdSuffix}`, {
-      environment,
-      nameSuffix: nonSharedResourceSuffix,
-      profileDomain,
-      profileCertificateArn,
-      includeWildcardAliases: environment === 'prod',
-      apiUrl: profileApiUrl,
-      env: stackEnv,
-      description: `Swarm Profile Page (${environment})`,
-    });
-  }
-
-} else {
-  throw new Error('splitStacks=false is no longer supported. Legacy monolithic SwarmStack has been removed.');
 }
 
 app.synth();
