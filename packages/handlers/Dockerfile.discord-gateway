@@ -1,0 +1,59 @@
+# Discord Gateway Worker
+# Multi-tenant ECS Fargate task that connects to Discord Gateway WebSocket
+# and routes messages into the shared SQS pipeline.
+#
+# Build context should be the repo root so we can access core + handlers.
+# Usage: docker build -f packages/handlers/Dockerfile.discord-gateway .
+
+FROM node:20-slim AS builder
+
+WORKDIR /build
+
+# Copy workspace config
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
+
+# Copy core package
+COPY packages/core/package.json packages/core/tsconfig.json packages/core/
+COPY packages/core/src/ packages/core/src/
+
+# Copy handlers package
+COPY packages/handlers/package.json packages/handlers/tsconfig.json packages/handlers/
+COPY packages/handlers/src/ packages/handlers/src/
+
+# Install pnpm and build
+RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN pnpm install --frozen-lockfile --filter @swarm/core --filter @swarm/handlers
+RUN pnpm --filter @swarm/core build
+RUN pnpm --filter @swarm/handlers build
+
+# ─── Production image ─────────────────────────────────────────────────────────
+
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -s /bin/bash swarm
+
+WORKDIR /home/swarm/app
+
+# Copy built outputs
+COPY --from=builder /build/packages/handlers/dist/ ./dist/
+COPY --from=builder /build/packages/handlers/package.json ./package.json
+COPY --from=builder /build/packages/core/dist/ ./node_modules/@swarm/core/
+COPY --from=builder /build/packages/core/package.json ./node_modules/@swarm/core/package.json
+
+# Install production dependencies only
+RUN npm install --omit=dev
+
+RUN chown -R swarm:swarm /home/swarm
+USER swarm
+
+ENV NODE_ENV=production
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD pgrep -f "node.*discord-gateway" || exit 1
+
+CMD ["node", "dist/discord-gateway-shared.js"]

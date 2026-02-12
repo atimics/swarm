@@ -10,6 +10,9 @@ export { handler as autonomousTweetPoster } from './autonomous-tweet-poster.js';
 export { handler as continuationProcessor } from './continuation-processor.js';
 export { getPendingContinuationContext } from './continuation-processor.js';
 
+// Discord gateway worker (ECS Fargate entry point)
+export { main as discordGatewayMain } from './discord-gateway-shared.js';
+
 // Telegram admin bot exports
 export * from './types/telegram-admin.js';
 export { createTelegramAdminService, type TelegramAdminService } from './services/telegram-admin.js';
