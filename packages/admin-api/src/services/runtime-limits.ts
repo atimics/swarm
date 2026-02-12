@@ -57,8 +57,8 @@ export interface EffectiveLimitsResult {
 }
 
 /**
- * Boosted limits applied to free-tier avatars whose creator or inhabitant
- * holds at least one Gate NFT (Orb).  The boost augments the free-tier
+ * Boosted limits applied to free-tier avatars whose creator
+ * holds at least one Gate NFT (Orb). The boost augments the free-tier
  * defaults without changing the plan itself, so billing stays on 'free'.
  */
 export const ORB_HOLDER_BOOST: Partial<PlanLimits> = {
@@ -95,7 +95,7 @@ export function getEffectiveLimitsForAvatar(
   entitlement: EntitlementRecord | null
 ): EffectiveLimitsResult {
   // Extract status eagerly — workaround for Bun 1.3.9 flaky property access in object literals
-  const entitlementStatus: string | undefined = entitlement != null ? String(entitlement.status) : undefined;
+  const entitlementStatus = (entitlement != null ? String(entitlement.status) : undefined) as EntitlementRecord['status'] | undefined;
 
   if (!entitlement || (entitlement.status !== 'active' && entitlement.status !== 'trial')) {
     return {
