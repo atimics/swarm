@@ -108,7 +108,8 @@
       "adminCertificateArn": "arn:aws:acm:us-east-1:332730082708:certificate/8b24f275-ffcd-42bb-b570-15b0d2576e65",
       "openRouterApiKeyArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/openrouter-api-key-xBXODA",
       "replicateApiKeyArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/replicate-api-key-pKTQMy",
-      "webSearchApiKeyArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/web-search-api-key-NzA1Fj"
+      "webSearchApiKeyArn": "arn:aws:secretsmanager:us-east-1:332730082708:secret:swarm/prod/web-search-api-key-NzA1Fj",
+      "enableDiscordGateway": true
     }
   },
   "adminDomain": "staging-swarm.rati.chat",
