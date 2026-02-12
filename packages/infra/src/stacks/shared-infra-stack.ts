@@ -38,6 +38,13 @@ export interface SharedInfraStackProps extends cdk.StackProps {
    * When provided, an email subscription is added to the alarm SNS topic.
    */
   alarmNotificationEmail?: string;
+
+  /**
+   * When true, import shared resources (tables, buckets, cluster) by name
+   * instead of creating new ones. Use when resources are still owned by
+   * the legacy monolith stack (SwarmStack-{env}).
+   */
+  useExistingResources?: boolean;
 }
 
 export class SharedInfraStack extends cdk.Stack {
@@ -72,6 +79,7 @@ export class SharedInfraStack extends cdk.Stack {
       galleryCertificateArn,
       nameSuffix,
       alarmNotificationEmail,
+      useExistingResources,
     } = props;
     const suffix = nameSuffix ?? '';
 
@@ -86,6 +94,7 @@ export class SharedInfraStack extends cdk.Stack {
       cdnDomain: galleryDomain,
       cdnCertificateArn: galleryCertificateArn,
       alarmNotificationEmail,
+      useExistingResources,
     });
 
     // Store references for cross-stack access

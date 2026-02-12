@@ -108,6 +108,7 @@ const alarmNotificationEmail = getContextValue<string>('alarmNotificationEmail',
 const enableClaudeCode = parseBoolean(getContextValue<unknown>('enableClaudeCode', envConfig)) ?? false;
 const claudeCodeUseOpenRouter = parseBoolean(getContextValue<unknown>('claudeCodeUseOpenRouter', envConfig)) ?? false;
 const enableDiscordGateway = parseBoolean(getContextValue<unknown>('enableDiscordGateway', envConfig)) ?? false;
+const useExistingResources = parseBoolean(getContextValue<unknown>('useExistingResources', envConfig)) ?? false;
 const anthropicApiKeyArn = getContextValue<string>('anthropicApiKeyArn', envConfig);
 const secretPrefixRaw = getContextValue<string>('secretPrefix', envConfig);
 const stackHashRaw = getContextValue<string>('stackHash', envConfig);
@@ -149,6 +150,7 @@ const sharedInfraStack = new SharedInfraStack(app, `SwarmShared-${environment}${
   galleryDomain,
   galleryCertificateArn,
   alarmNotificationEmail,
+  useExistingResources,
   env: stackEnv,
   description: `Swarm Shared Infrastructure (${environment})`,
 });

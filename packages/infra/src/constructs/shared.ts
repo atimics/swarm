@@ -66,27 +66,92 @@ export interface SharedInfrastructureProps {
    * When provided, an email subscription is added to the alarm SNS topic.
    */
   alarmNotificationEmail?: string;
+
+  /**
+   * When true, import shared resources (tables, buckets, cluster) by name
+   * instead of creating new ones. Use when resources are still owned by
+   * the legacy monolith stack (SwarmStack-{env}).
+   */
+  useExistingResources?: boolean;
 }
 
 export class SharedInfrastructure extends Construct {
-  public readonly stateTable: dynamodb.Table;
-  public readonly activityTable: dynamodb.Table;
+  public readonly stateTable: dynamodb.ITable;
+  public readonly activityTable: dynamodb.ITable;
   public readonly mediaBucket: s3.IBucket;
-  public readonly distribution?: cloudfront.Distribution;
+  public readonly distribution?: cloudfront.IDistribution;
   public readonly dependencyLayer: lambda.LayerVersion;
   public readonly cdnUrl?: string;
-  public readonly alarmTopic: sns.Topic;
-  public readonly discordCluster: ecs.Cluster;
+  public readonly alarmTopic: sns.ITopic;
+  public readonly discordCluster: ecs.ICluster;
 
   constructor(scope: Construct, id: string, props: SharedInfrastructureProps) {
     super(scope, id);
 
-    const { environment, enableCdn = true, layerCodePath, cdnDomain, cdnCertificateArn, nameSuffix, useExistingMediaBucket, alarmNotificationEmail } = props;
+    const {
+      environment, enableCdn = true, layerCodePath, cdnDomain, cdnCertificateArn,
+      nameSuffix, useExistingMediaBucket, alarmNotificationEmail, useExistingResources,
+    } = props;
     const suffix = nameSuffix ?? '';
     const isPersistentEnv = environment === 'prod' || environment === 'production' || environment === 'staging';
 
+    // ───── Lambda layer (always created, owned by this stack) ─────
+    const layerPath = path.resolve(__dirname, '../../../layer');
+    this.dependencyLayer = new lambda.LayerVersion(this, 'DependencyLayer', {
+      layerVersionName: `swarm-deps-${environment}${suffix}`,
+      description: 'Shared dependencies for swarm handlers',
+      compatibleRuntimes: [lambda.Runtime.NODEJS_20_X],
+      code: layerCodePath
+        ? lambda.Code.fromAsset(layerCodePath)
+        : lambda.Code.fromAsset(layerPath, {
+            assetHash: computeDependencyLayerAssetHash(layerPath),
+          }),
+    });
+
+    if (useExistingResources) {
+      // ───── Import existing resources owned by legacy monolith stack ─────
+      this.stateTable = dynamodb.Table.fromTableName(
+        this, 'StateTable', `swarm-state-${environment}${suffix}`,
+      );
+      this.activityTable = dynamodb.Table.fromTableName(
+        this, 'ActivityTable', `swarm-activity-${environment}${suffix}`,
+      );
+
+      const mediaBucketName = `swarm-media-${environment}${suffix}-${cdk.Aws.ACCOUNT_ID}`;
+      this.mediaBucket = s3.Bucket.fromBucketName(this, 'MediaBucket', mediaBucketName);
+
+      // Alarm topic – create fresh (not in legacy monolith)
+      this.alarmTopic = new sns.Topic(this, 'AlarmTopic', {
+        topicName: `swarm-alarms-${environment}${suffix}`,
+        displayName: `Swarm Alarms (${environment})`,
+      });
+      if (alarmNotificationEmail) {
+        this.alarmTopic.addSubscription(
+          new snsSubscriptions.EmailSubscription(alarmNotificationEmail),
+        );
+      }
+
+      // Discord cluster – import by name
+      const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
+      this.discordCluster = ecs.Cluster.fromClusterAttributes(this, 'DiscordCluster', {
+        clusterName: `swarm-discord-${environment}${suffix}`,
+        vpc,
+        securityGroups: [],
+      });
+
+      // CDN – reference the existing distribution managed by legacy stack
+      // cdnUrl is set from known pattern; distribution object is unavailable for invalidation
+      if (enableCdn && cdnDomain) {
+        this.cdnUrl = `https://${cdnDomain}`;
+      }
+      // No CfnOutputs – exports from legacy stack still active
+      return;
+    }
+
+    // ═════ Create resources from scratch ═════
+
     // State table (multi-tenant)
-    this.stateTable = new dynamodb.Table(this, 'StateTable', {
+    const stateTable = new dynamodb.Table(this, 'StateTable', {
       tableName: `swarm-state-${environment}${suffix}`,
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
@@ -100,12 +165,13 @@ export class SharedInfrastructure extends Construct {
     });
 
     // GSI for listing by type
-    this.stateTable.addGlobalSecondaryIndex({
+    stateTable.addGlobalSecondaryIndex({
       indexName: 'gsi1',
       partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
+    this.stateTable = stateTable;
 
     // Activity table
     this.activityTable = new dynamodb.Table(this, 'ActivityTable', {
@@ -234,20 +300,6 @@ export class SharedInfrastructure extends Construct {
     } else {
       console.warn('WARNING: enableCdn is false! Media files will NOT be accessible.');
     }
-
-    // Lambda layer with shared dependencies
-    // The layer is pre-built in CI workflow before CDK deploy
-    const layerPath = path.resolve(__dirname, '../../../layer');
-    this.dependencyLayer = new lambda.LayerVersion(this, 'DependencyLayer', {
-      layerVersionName: `swarm-deps-${environment}${suffix}`,
-      description: 'Shared dependencies for swarm handlers',
-      compatibleRuntimes: [lambda.Runtime.NODEJS_20_X],
-      code: layerCodePath 
-        ? lambda.Code.fromAsset(layerCodePath)
-        : lambda.Code.fromAsset(layerPath, {
-            assetHash: computeDependencyLayerAssetHash(layerPath),
-          }),
-    });
 
     // SNS topic for CloudWatch alarm notifications
     this.alarmTopic = new sns.Topic(this, 'AlarmTopic', {
