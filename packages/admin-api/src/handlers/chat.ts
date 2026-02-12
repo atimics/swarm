@@ -30,7 +30,9 @@ import {
 import { recordError } from '../services/auto-issues.js';
 import { createAvatarAccessChecker } from '../services/chat-access.js';
 import { chatIdempotencyStore } from '../services/idempotency.js';
-import { llmCircuitBreaker } from '../services/circuit-breaker.js';
+import { createCircuitBreaker } from '@swarm/core';
+
+const llmCircuitBreaker = createCircuitBreaker();
 import {
   ToolRegistry,
   registerAllTools,
@@ -44,7 +46,7 @@ import * as memory from '../services/memory.js';
 import { formatDreamForPrompt, getDreamForResponse } from '../services/dreams.js';
 import { configureIntegration } from '../services/integrations.js';
 import { syncAvatarConfig } from '../services/config-sync.js';
-import { resolveChatModel } from '../services/llm-model-resolution.js';
+import { resolveChatModel } from '../services/models-registry.js';
 import { mapAdminChatHandlerError } from './chat-error-mapping.js';
 import { redactMediaUrlsFromText } from '../utils/redact-media-urls.js';
 import { getGateStatus } from '../services/nft-gate.js';

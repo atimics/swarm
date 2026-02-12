@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { resolveChatModel } from './llm-model-resolution.js';
+import { resolveChatModel } from './models-registry.js';
 
 describe('resolveChatModel', () => {
   it('prefers request model over avatar model', () => {

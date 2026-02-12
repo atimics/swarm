@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { createCircuitBreaker } from './circuit-breaker.js';
+import { createCircuitBreaker } from '@swarm/core';
 
 describe('circuit breaker', () => {
   it('opens after failure threshold and recovers after cooldown', () => {
