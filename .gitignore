@@ -20,8 +20,7 @@ dist/
 cdk.out/
 .cdk.staging/
 
-# CDK context/private config (keep local or sync via S3)
-packages/infra/cdk.context.json
+# CDK context (local overrides only)
 packages/infra/cdk.context.local.json
 
 

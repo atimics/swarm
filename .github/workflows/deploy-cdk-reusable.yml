@@ -37,7 +37,7 @@ on:
       ADMIN_CERTIFICATE_ARN:
         required: false
       SWARM_CDK_CONTEXT_BUCKET:
-        required: true
+        required: false
     outputs:
       distribution:
         value: ${{ jobs.cdk-deploy.outputs.distribution }}
@@ -147,22 +147,6 @@ jobs:
             echo "::error::Wrong AWS account for ${{ inputs.environment }} (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
             exit 1
           fi
-
-      - name: Download CDK context from S3
-        working-directory: packages/infra
-        env:
-          CDK_CONTEXT_BUCKET: ${{ secrets.SWARM_CDK_CONTEXT_BUCKET }}
-        run: |
-          if [ -z "$CDK_CONTEXT_BUCKET" ]; then
-            echo "Missing SWARM_CDK_CONTEXT_BUCKET GitHub secret (required for CDK deploy)." >&2
-            exit 1
-          fi
-
-          ENV="${{ inputs.cdk_env }}"
-          KEY="swarm/cdk-context/${ENV}/cdk.context.json"
-
-          echo "Downloading s3://${CDK_CONTEXT_BUCKET}/${KEY} -> cdk.context.json"
-          aws s3 cp "s3://${CDK_CONTEXT_BUCKET}/${KEY}" "cdk.context.json" --only-show-errors
 
       - name: Ensure CDK bootstrap
         working-directory: packages/infra
