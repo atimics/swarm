@@ -10,7 +10,7 @@
  *   log.info('chat', 'message_received', { userId: '123' });
  *   log.error('llm', 'api_error', { error: 'timeout' });
  */
-import { recordLog, type LogLevel } from './avatar-logs.js';
+import { recordLog, type LogLevel } from './avatar-observability.js';
 
 export interface StructuredLogger {
   debug(subsystem: string, event: string, data?: Record<string, unknown>): void;

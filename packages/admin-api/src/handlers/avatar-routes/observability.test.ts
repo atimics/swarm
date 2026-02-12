@@ -29,8 +29,11 @@ mock.module('../../services/logs.js', () => ({
   queryAvatarLogs: async () => queryLogsResult,
 }));
 
-mock.module('../../services/avatar-logs.js', () => ({
+mock.module('../../services/avatar-observability.js', () => ({
   listAvatarLogs: async () => listAvatarLogsResult,
+  listAvatarEvents: async () => eventsResult,
+  getAvatarEventCounts: async () => eventCountsResult,
+  updateIssueStatus: async (...args: unknown[]) => { updateIssueCalls.push(args); },
 }));
 
 mock.module('../../services/observability.js', () => ({
@@ -39,12 +42,6 @@ mock.module('../../services/observability.js', () => ({
 
 mock.module('../../services/auto-issues.js', () => ({
   listAvatarIssues: async () => issuesResult,
-}));
-
-mock.module('../../services/avatar-events.js', () => ({
-  listAvatarEvents: async () => eventsResult,
-  getAvatarEventCounts: async () => eventCountsResult,
-  updateIssueStatus: async (...args: unknown[]) => { updateIssueCalls.push(args); },
 }));
 
 mock.module('@swarm/core', () => ({

@@ -4,9 +4,9 @@
  * Aggregates system status and per-avatar activity for admin tools and APIs.
  */
 import { GetQueueAttributesCommand, SQSClient } from '@aws-sdk/client-sqs';
-import * as avatarLogs from './avatar-logs.js';
+import * as avatarLogs from './avatar-observability.js';
 import * as autoIssues from './auto-issues.js';
-import * as avatarEvents from './avatar-events.js';
+import * as avatarEvents from './avatar-observability.js';
 import * as mediaJobs from './media-jobs.js';
 import * as credits from './credits.js';
 

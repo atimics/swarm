@@ -13,8 +13,8 @@ import type { RouteContext } from './types.js';
 import { jsonResponse, parseSinceParam, parseSinceQueryParam, requireOwnerOrAdmin } from './shared.js';
 import * as avatarService from '../../services/avatars.js';
 import * as logsService from '../../services/logs.js';
-import * as avatarLogsService from '../../services/avatar-logs.js';
-import * as avatarEventsService from '../../services/avatar-events.js';
+import * as avatarLogsService from '../../services/avatar-observability.js';
+import * as avatarEventsService from '../../services/avatar-observability.js';
 import * as observabilityService from '../../services/observability.js';
 import { listAvatarIssues } from '../../services/auto-issues.js';
 
