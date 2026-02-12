@@ -7,13 +7,11 @@ import {
 import {
   OnboardingResumeTokenError,
   type OnboardingResumeTokenErrorCode,
+  type OnboardingContractVersion,
 } from './errors.js';
 import {
   ONBOARDING_CONTRACT_VERSION,
 } from './types.js';
-import {
-  type OnboardingContractVersion,
-} from './error-types.js';
 
 const RESUME_TOKEN_ALGORITHM = 'HS256';
 const DEFAULT_RESUME_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;

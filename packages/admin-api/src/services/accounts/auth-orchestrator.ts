@@ -28,10 +28,8 @@ import { checkNFTGate, type NFTGateResult } from '../nft-gate.js';
 import {
   buildOnboardingErrorEnvelope,
   type OnboardingErrorEnvelope,
+  type OnboardingErrorCode,
 } from '../onboarding/errors.js';
-import type {
-  OnboardingErrorCode,
-} from '../onboarding/error-types.js';
 
 // ============================================================================
 // Types

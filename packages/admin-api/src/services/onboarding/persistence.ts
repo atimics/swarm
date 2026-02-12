@@ -1,14 +1,15 @@
 import { randomUUID } from 'crypto';
-import type { OnboardingErrorEnvelope, OnboardingErrorDetails } from './errors.js';
+import type {
+  OnboardingErrorEnvelope,
+  OnboardingErrorDetails,
+  OnboardingErrorCode,
+  OnboardingErrorType,
+  OnboardingRetryStrategy,
+} from './errors.js';
 import {
   hashOnboardingResumeToken,
   type OnboardingResumeTokenClaims,
 } from './resume-token.js';
-import type {
-  OnboardingErrorCode,
-  OnboardingErrorType,
-  OnboardingRetryStrategy,
-} from './error-types.js';
 
 export const DEFAULT_ONBOARDING_FAILURE_HISTORY_LIMIT = 100;
 

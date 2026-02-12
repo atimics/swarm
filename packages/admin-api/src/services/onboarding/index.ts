@@ -31,9 +31,6 @@ export {
   type OnboardingRetryStrategy,
   type OnboardingErrorCode as OnboardingTypedErrorCode,
   type OnboardingErrorPolicy,
-} from './error-types.js';
-
-export {
   OnboardingError as OnboardingTypedError,
   OnboardingValidationError,
   OnboardingDependencyError,
