@@ -8,9 +8,6 @@ export interface SharedChatMessage {
     walletAddress: string;
     displayName?: string;
     avatarUrl?: string;
-    inhabitedAvatarId?: string;
-    inhabitedAvatarName?: string;
-    isGhost?: boolean;
   };
   timestamp: number;
   replyToId?: string;

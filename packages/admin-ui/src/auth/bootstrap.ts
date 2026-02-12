@@ -1,21 +1,46 @@
-import { useWalletAuth } from '../store/walletAuth';
 import { usePrivyAuth } from '../store/privyAuth';
+import { API_BASE } from '../api/apiBase';
 
 /**
  * Bootstraps auth from the backend session.
  *
- * Source of truth: `/auth/me` (walletAuth.checkAuth).
- * If the backend session is not authenticated (or the call fails), clear any
- * persisted email-provider local state so it cannot "resurrect" the UI.
+ * Source of truth: `/auth/me`.
+ * If there is no authenticated backend session (or the call fails), clear any
+ * persisted local auth state so it cannot "resurrect" the UI.
  */
 export async function bootstrapAuthFromBackendSession(): Promise<void> {
   try {
-    await useWalletAuth.getState().checkAuth();
+    const response = await fetch(`${API_BASE}/auth/me`, {
+      credentials: 'include',
+    });
 
-    const walletState = useWalletAuth.getState();
-    if (!walletState.isAuthenticated) {
+    if (!response.ok) {
       usePrivyAuth.getState().resetLocal();
+      return;
     }
+
+    const data = await response.json();
+    if (!data?.authenticated || !data?.user?.walletAddress) {
+      usePrivyAuth.getState().resetLocal();
+      return;
+    }
+
+    usePrivyAuth.setState({
+      isAuthenticated: true,
+      isLoading: false,
+      error: null,
+      user: {
+        id: data.account?.accountId || data.user.walletAddress,
+        email: data.user.email,
+        walletAddress: data.user.walletAddress,
+        displayName: data.user.displayName || data.user.email,
+        avatarUrl: data.user.avatarUrl,
+      },
+      account: data.account || null,
+      gateStatus: data.gateStatus || null,
+      gateWallet: data.gateWallet || null,
+      gateStatusByWallet: data.gateStatusByWallet || null,
+    });
   } catch (err) {
     console.error('[bootstrapAuth] Auth bootstrap failed:', err);
     usePrivyAuth.getState().resetLocal();

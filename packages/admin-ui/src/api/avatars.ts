@@ -41,10 +41,8 @@ export interface AvatarResponse {
   createdAt: number;
   updatedAt: number;
   createdBy: string;
-  // Wallet ownership (present for wallet-created / inhabited avatars)
+  // Wallet ownership (present for wallet-created avatars)
   creatorWallet?: string;
-  inhabitantWallet?: string;
-  inhabitedAt?: number;
   slotType?: 'free' | 'orb';
   orbMint?: string;
   orbWallet?: string;
@@ -244,7 +242,6 @@ export async function reassignAvatar(
   avatarId: string,
   updates: {
     creatorWallet?: string;
-    inhabitantWallet?: string | null;
   }
 ): Promise<AvatarResponse> {
   const response = await fetch(`${API_BASE}/avatars/${avatarId}/reassign`, {

@@ -92,7 +92,6 @@ interface SenderContext {
   walletAddress?: string;
   displayName?: string;
   avatarUrl?: string;
-  inhabitedAvatarId?: string;
 }
 
 /**
@@ -130,7 +129,6 @@ export async function sendChatMessage(
         walletAddress: sender.walletAddress,
         displayName: sender.displayName,
         avatarUrl: sender.avatarUrl,
-        inhabitedAvatarId: sender.inhabitedAvatarId,
       } : undefined,
     }),
   });

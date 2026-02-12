@@ -6,7 +6,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 import { API_BASE } from '../api/apiBase';
-import type { GateStatus } from './walletAuth';
+import type { GateStatus } from './gateStatus';
 
 async function readErrorMessage(response: Response): Promise<string> {
   try {
@@ -28,7 +28,6 @@ export interface PrivyUser {
   walletAddress: string;
   displayName?: string;
   avatarUrl?: string;
-  inhabitedAvatarId?: string;
 }
 
 export interface AccountSummary {
@@ -112,7 +111,6 @@ export const usePrivyAuth = create<PrivyAuthState>()(
                 walletAddress: data.user.walletAddress,
                 displayName: data.user.displayName || privyUser.email,
                 avatarUrl: data.user.avatarUrl,
-                inhabitedAvatarId: data.user.inhabitedAvatarId,
               },
               account: data.account || null,
               gateWallet: data.gateWallet || null,

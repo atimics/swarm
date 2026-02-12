@@ -9,7 +9,7 @@ export { ToolPrompt, SecretPrompt, ConfirmPrompt } from './ToolPrompts';
 export { IssueCard, IssueNavigation } from './IssueCard';
 export { ThemeToggle } from './ThemeToggle';
 export { WalletProvider } from './WalletProvider';
-export { WalletLogin, GhostAvatar, UserAvatar } from './WalletLogin';
+export { PrivyLoginButton } from './PrivyLoginButton';
 export { ImageModal, useImageModal } from './ImageModal';
 export { PromptPreviewPanel } from './PromptPreviewPanel';
 export { LandingPage } from './LandingPage';

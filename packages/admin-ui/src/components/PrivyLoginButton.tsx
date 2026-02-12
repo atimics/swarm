@@ -258,11 +258,6 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
           <span className="text-sm font-medium text-[var(--color-text)] truncate">
             {displayName}
           </span>
-          {user.inhabitedAvatarId && (
-            <span className="text-xs text-[var(--color-text-muted)] truncate">
-              Inhabiting avatar
-            </span>
-          )}
         </div>
 
         {/* Logout button */}

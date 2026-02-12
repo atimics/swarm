@@ -14,7 +14,6 @@ function formatTimestamp(timestamp: number): string {
 }
 
 function displayNameForSender(sender: SharedChatMessage['sender']): string {
-  if (sender.inhabitedAvatarName) return sender.inhabitedAvatarName;
   if (sender.displayName) return sender.displayName;
   return sender.walletAddress ? `${sender.walletAddress.slice(0, 6)}…${sender.walletAddress.slice(-4)}` : 'Unknown';
 }
@@ -103,7 +102,6 @@ export function SharedChatPanel({ channelId, disabled }: SharedChatPanelProps) {
         walletAddress: currentWalletAddress || 'unknown',
         displayName: user?.displayName,
         avatarUrl: user?.avatarUrl,
-        inhabitedAvatarId: user?.inhabitedAvatarId,
       },
       timestamp: Date.now(),
     };
@@ -126,7 +124,7 @@ export function SharedChatPanel({ channelId, disabled }: SharedChatPanelProps) {
     } finally {
       setIsSending(false);
     }
-  }, [canSend, channelId, currentWalletAddress, user?.avatarUrl, user?.displayName, user?.inhabitedAvatarId]);
+  }, [canSend, channelId, currentWalletAddress, user?.avatarUrl, user?.displayName]);
 
   return (
     <div className="flex-1 flex flex-col h-full min-h-0 bg-[var(--color-bg)]">

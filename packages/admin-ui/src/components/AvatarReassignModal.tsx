@@ -13,8 +13,6 @@ interface AvatarReassignModalProps {
 
 export function AvatarReassignModal({ avatar, onClose, onSuccess }: AvatarReassignModalProps) {
   const [creatorWallet, setCreatorWallet] = useState(avatar.creatorWallet || '');
-  const [inhabitantWallet, setInhabitantWallet] = useState(avatar.inhabitantWallet || '');
-  const [clearInhabitant, setClearInhabitant] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,18 +22,11 @@ export function AvatarReassignModal({ avatar, onClose, onSuccess }: AvatarReassi
     setError(null);
 
     try {
-      const updates: { creatorWallet?: string; inhabitantWallet?: string | null } = {};
+      const updates: { creatorWallet?: string } = {};
 
       // Only include creatorWallet if it changed
       if (creatorWallet !== avatar.creatorWallet) {
         updates.creatorWallet = creatorWallet;
-      }
-
-      // Handle inhabitant: null means clear, string means set
-      if (clearInhabitant) {
-        updates.inhabitantWallet = null;
-      } else if (inhabitantWallet !== avatar.inhabitantWallet) {
-        updates.inhabitantWallet = inhabitantWallet;
       }
 
       // Only call API if there are actual changes
@@ -99,36 +90,6 @@ export function AvatarReassignModal({ avatar, onClose, onSuccess }: AvatarReassi
             <p className="text-xs text-[var(--color-text-muted)] mt-1">
               The wallet that created this avatar. Changing this affects slot counting.
             </p>
-          </div>
-
-          {/* Inhabitant Wallet */}
-          <div>
-            <label className="block text-sm font-medium text-[var(--color-text)] mb-1">
-              Inhabitant Wallet
-            </label>
-            <input
-              type="text"
-              value={inhabitantWallet}
-              onChange={(e) => {
-                setInhabitantWallet(e.target.value);
-                setClearInhabitant(false);
-              }}
-              placeholder="Enter Solana wallet address"
-              disabled={clearInhabitant}
-              className={`w-full px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500 ${clearInhabitant ? 'opacity-50' : ''}`}
-            />
-            <div className="flex items-center gap-2 mt-2">
-              <input
-                type="checkbox"
-                id="clearInhabitant"
-                checked={clearInhabitant}
-                onChange={(e) => setClearInhabitant(e.target.checked)}
-                className="rounded border-[var(--color-border)]"
-              />
-              <label htmlFor="clearInhabitant" className="text-sm text-[var(--color-text-muted)]">
-                Clear inhabitant (make avatar unclaimed)
-              </label>
-            </div>
           </div>
 
           {/* Error message */}

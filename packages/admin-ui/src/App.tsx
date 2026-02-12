@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useAvatarStore } from './store';
-import { useWalletAuth } from './store/walletAuth';
 import { useAuth } from './store/auth';
 import { useConsentStore, CURRENT_POLICY_VERSION } from './store/consent';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
@@ -27,11 +26,6 @@ const TWITTER_OAUTH_STORAGE_KEY = 'swarm:oauth:twitter:lastResult';
 type TwitterOAuthResult =
   | { status: 'connected'; avatarId?: string; username: string; ts: number }
   | { status: 'error'; avatarId?: string; error: string; ts: number };
-
-function getInhabitAvatarId(pathname: string): string | null {
-  const match = pathname.match(/^\/inhabit\/([^/]+)\/?$/);
-  return match?.[1] || null;
-}
 
 function getChatAvatarId(pathname: string): string | null {
   // Chat deep link: /avatars/:id
@@ -90,23 +84,18 @@ function parseTwitterOAuthResultFromLocation(location: Location): TwitterOAuthRe
 
 function App() {
   const { avatars, fetchAvatars, activeAvatarId, syncChatHistory, setActiveAvatar, addMessage, updateMessage } = useAvatarStore();
-  const { checkAuth } = useWalletAuth();
-  // Use unified auth to check wallet and Privy authentication
+  // Use unified auth state for backend session + Privy login.
   const { isAuthenticated } = useAuth();
   const consent = useConsentStore((s) => s.consent);
   const [initialized, setInitialized] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [inhabitAvatarId, setInhabitAvatarId] = useState<string | null>(
-    () => getInhabitAvatarId(window.location.pathname)
-  );
   const [chatAvatarId, setChatAvatarId] = useState<string | null>(
     () => getChatAvatarId(window.location.pathname)
   );
   const [onboardingAvatarId, setOnboardingAvatarId] = useState<string | null>(
     () => getOnboardingAvatarId(window.location.pathname)
   );
-  const [pendingInhabitPrompt, setPendingInhabitPrompt] = useState(Boolean(inhabitAvatarId));
   const [pendingOAuthResult, setPendingOAuthResult] = useState<TwitterOAuthResult | null>(
     () => parseTwitterOAuthResultFromLocation(window.location)
   );
@@ -157,7 +146,7 @@ function App() {
       mounted = false;
       clearTimeout(timeoutId);
     };
-  }, [checkAuth, authChecked]);
+  }, [authChecked]);
 
   // Fetch avatars from backend once authenticated (run once when conditions are met)
   useEffect(() => {
@@ -184,20 +173,6 @@ function App() {
 
         // Mark chat as synced so OAuth result can be processed
         setChatSynced(true);
-
-        if (pendingInhabitPrompt && inhabitAvatarId === activeAvatarId) {
-          addMessage(activeAvatarId, {
-            role: 'assistant',
-            content: JSON.stringify({
-              action: 'inhabit_avatar',
-              avatarId: activeAvatarId,
-              label: 'Inhabit this avatar',
-              message: 'Tap to inhabit this avatar with your wallet.',
-            }),
-          });
-          setPendingInhabitPrompt(false);
-          setInhabitAvatarId(null);
-        }
       };
 
       sync();
@@ -206,9 +181,6 @@ function App() {
     activeAvatarId,
     initialized,
     syncChatHistory,
-    pendingInhabitPrompt,
-    inhabitAvatarId,
-    addMessage,
   ]);
 
   // Close sidebar when avatar is selected on mobile
@@ -220,9 +192,6 @@ function App() {
 
   useEffect(() => {
     const handlePopState = () => {
-      const nextInhabitAvatarId = getInhabitAvatarId(window.location.pathname);
-      setInhabitAvatarId(nextInhabitAvatarId);
-      setPendingInhabitPrompt(Boolean(nextInhabitAvatarId));
       setChatAvatarId(getChatAvatarId(window.location.pathname));
       setOnboardingAvatarId(getOnboardingAvatarId(window.location.pathname));
     };
@@ -232,16 +201,16 @@ function App() {
   }, []);
 
   // Support deep-linking: select the target avatar once avatars are loaded.
-  // Handles /avatars/:id, /avatars/:id/onboarding, and /inhabit/:id.
+  // Handles /avatars/:id and /avatars/:id/onboarding.
   useEffect(() => {
     if (!initialized) return;
-    const targetId = chatAvatarId || onboardingAvatarId || inhabitAvatarId;
+    const targetId = chatAvatarId || onboardingAvatarId;
     if (!targetId) return;
     const hasAvatar = avatars.some((avatar) => avatar.id === targetId);
     if (hasAvatar && activeAvatarId !== targetId) {
       setActiveAvatar(targetId);
     }
-  }, [avatars, activeAvatarId, chatAvatarId, onboardingAvatarId, inhabitAvatarId, initialized, setActiveAvatar]);
+  }, [avatars, activeAvatarId, chatAvatarId, onboardingAvatarId, initialized, setActiveAvatar]);
 
   const handleTwitterOAuthResult = useCallback(async (result: TwitterOAuthResult) => {
     if (result.avatarId) {

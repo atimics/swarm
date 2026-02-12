@@ -1,4 +1,4 @@
 export * from './avatars';
 export * from './theme';
-export * from './walletAuth';
+export * from './gateStatus';
 export * from './consent';

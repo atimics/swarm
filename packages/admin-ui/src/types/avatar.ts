@@ -36,9 +36,6 @@ export interface AvatarConfig {
   updatedAt: number;
   // Creator tracking (permanent - who created this avatar)
   creatorWallet?: string;
-  // Inhabitant tracking (current inhabitant)
-  inhabitantWallet?: string;
-  inhabitedAt?: number;
   // Slot type - how this avatar was created
   slotType?: 'free' | 'orb';
   // Orb slotting - optional explicit Orb NFT backing
@@ -95,7 +92,6 @@ export interface MessageSender {
   walletAddress?: string;
   displayName?: string;
   avatarUrl?: string;
-  inhabitedAvatarId?: string;
 }
 
 export interface ChatMessage {

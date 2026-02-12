@@ -2,17 +2,15 @@
  * Avatar Sidebar - Discord-like avatar list with tiered access
  *
  * Access Tiers:
- * - No wallet: Browse profiles only (read-only)
- * - Authenticated, no Orb: Browse, chat as ghost, no inhabit/create
- * - Authenticated + Orb, not inhabiting: Can browse, chat, inhabit unclaimed
- * - Inhabiting, has Orbs: Full admin on inhabited, chat on others, can create
- * - Inhabiting, no Orbs: Full admin on inhabited only, chat on others, no create
+ * - Not signed in: Browse profiles only (read-only)
+ * - Authenticated, no Orb: Browse + limited chat/create
+ * - Authenticated + Orb: Full create access based on slots
  */
 import React from 'react';
 import { useAvatarStore } from '../store/avatars';
 import { useAuth } from '../store/auth';
 import { ThemeToggle } from './ThemeToggle';
-import { WalletLogin } from './WalletLogin';
+import { PrivyLoginButton } from './PrivyLoginButton';
 import { AvatarReassignModal } from './AvatarReassignModal';
 import * as avatarApi from '../api/avatars';
 import type { Avatar } from '../types';
@@ -272,7 +270,6 @@ function AvatarListItem({ avatar, isActive, onClick, isAdmin, onReassign }: Avat
           <div className="border-t border-[var(--color-border)] my-1" />
           <div className="px-3 py-1 text-xs text-[var(--color-text-muted)]">
             <div>Creator: {truncateWallet(avatar.creatorWallet) || 'None'}</div>
-            <div>Inhabitant: {truncateWallet(avatar.inhabitantWallet) || 'None'}</div>
           </div>
         </div>
       )}
@@ -310,25 +307,14 @@ export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSide
 
   // Determine access level
   const walletAddress = user?.walletAddress;
-  const inhabitedAvatarId = user?.inhabitedAvatarId; // Still uses avatarId from backend
-  const hasOrbs = (gateStatus?.nftsHeld || 0) > 0;
   const canCreate = gateStatus?.canCreate || false;
 
   const bypassRestrictions = isAdmin;
 
-  // Filter avatars based on access level:
-  // - If inhabiting with no orbs: only show inhabited avatar
-  // - Otherwise: show all avatars
-  const filteredAvatars = !bypassRestrictions && inhabitedAvatarId && !hasOrbs
-    ? avatars.filter(a => a.id === inhabitedAvatarId)
-    : avatars;
+  const filteredAvatars = avatars;
 
-  // Sort avatars: inhabited first, then created by user, then others
+  // Sort avatars: created by user first, then by name.
   const sortedAvatars = [...filteredAvatars].sort((a, b) => {
-    // Inhabited avatar always first
-    if (a.id === inhabitedAvatarId) return -1;
-    if (b.id === inhabitedAvatarId) return 1;
-    // Created by user second
     const aCreatedByMe = a.creatorWallet === walletAddress;
     const bCreatedByMe = b.creatorWallet === walletAddress;
     if (aCreatedByMe && !bCreatedByMe) return -1;
@@ -580,60 +566,25 @@ export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSide
           </div>
         ) : sortedAvatars.length === 0 ? (
           <div className="text-center py-8 text-[var(--color-text-muted)]">
-            <p className="text-sm">
-              {inhabitedAvatarId && !hasOrbs
-                ? 'You need an Orb to view other avatars'
-                : 'No avatars yet'}
-            </p>
+            <p className="text-sm">No avatars yet</p>
           </div>
         ) : (
-          <>
-            {/* Section: Your Avatar (if inhabiting) */}
-            {inhabitedAvatarId && sortedAvatars.some(a => a.id === inhabitedAvatarId) && (
-              <div className="mb-2">
-                <div className="px-2 py-1 text-xs font-medium text-brand-400 uppercase tracking-wider">
-                  Your Avatar
-                </div>
-                {sortedAvatars.filter(a => a.id === inhabitedAvatarId).map((avatar) => (
-                  <AvatarListItem
-                    key={avatar.id}
-                    avatar={avatar}
-                    isActive={avatar.id === activeAvatarId}
-                    onClick={() => handleSelectAvatar(avatar.id)}
-                    isAdmin={isAdmin}
-                    onReassign={isAdmin ? handleReassign : undefined}
-                  />
-                ))}
-              </div>
-            )}
-
-            {/* Section: Other Avatars (if has orbs or not inhabiting yet) */}
-            {(hasOrbs || !inhabitedAvatarId) && sortedAvatars.filter(a => a.id !== inhabitedAvatarId).length > 0 && (
-              <div>
-                {inhabitedAvatarId && (
-                  <div className="px-2 py-1 text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wider">
-                    Other Avatars
-                  </div>
-                )}
-                {sortedAvatars.filter(a => a.id !== inhabitedAvatarId).map((avatar) => (
-                  <AvatarListItem
-                    key={avatar.id}
-                    avatar={avatar}
-                    isActive={avatar.id === activeAvatarId}
-                    onClick={() => handleSelectAvatar(avatar.id)}
-                    isAdmin={isAdmin}
-                    onReassign={isAdmin ? handleReassign : undefined}
-                  />
-                ))}
-              </div>
-            )}
-          </>
+          sortedAvatars.map((avatar) => (
+            <AvatarListItem
+              key={avatar.id}
+              avatar={avatar}
+              isActive={avatar.id === activeAvatarId}
+              onClick={() => handleSelectAvatar(avatar.id)}
+              isAdmin={isAdmin}
+              onReassign={isAdmin ? handleReassign : undefined}
+            />
+          ))
         )}
       </div>
 
-      {/* Wallet Login Footer */}
+      {/* Login Footer */}
       <div className="p-3 border-t border-[var(--color-border)]">
-        <WalletLogin />
+        <PrivyLoginButton />
       </div>
 
       {/* Admin: Reassign Modal */}
@@ -649,4 +600,3 @@ export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSide
 }
 
 export { AvatarDisplay };
-

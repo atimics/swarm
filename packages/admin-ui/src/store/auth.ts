@@ -1,8 +1,8 @@
 /**
  * Unified Authentication Store
- * Provides a single interface for Wallet + Privy.
+ * Privy-backed auth state exposed as a stable app-level interface.
  */
-import { useWalletAuth, type WalletUser, type GateStatus } from './walletAuth';
+import type { GateStatus } from './gateStatus';
 import { usePrivyAuth, type PrivyUser } from './privyAuth';
 
 export type AuthProvider = 'wallet' | 'privy' | null;
@@ -11,8 +11,7 @@ export interface UnifiedUser {
   walletAddress: string;
   displayName?: string;
   avatarUrl?: string;
-  inhabitedAvatarId?: string;
-  email?: string; // For email-based providers (Privy)
+  email?: string;
 }
 
 export interface UnifiedAuthState {
@@ -35,84 +34,37 @@ export interface UnifiedAuthState {
 }
 
 /**
- * Unified auth hook that combines wallet and Privy authentication.
- * Returns whichever auth method is currently active
+ * Unified auth hook.
+ * Wallet-based sign-in has been deprecated; this hook now exposes Privy-backed auth.
  */
 export function useAuth(): UnifiedAuthState {
-  const walletAuth = useWalletAuth();
   const privyAuth = usePrivyAuth();
 
-  // Determine which auth is active.
-  // Prefer email-based providers if both are authenticated, since walletAuth may reflect
-  // the backend session even when the user signed in via Privy.
-  const walletActive = walletAuth.isAuthenticated && walletAuth.user;
-  const privyActive = privyAuth.isAuthenticated && privyAuth.user;
+  const linkedWallets =
+    privyAuth.account?.identities
+      ?.filter((identity) => identity.type === 'wallet')
+      .map((identity) => identity.providerId) ?? [];
 
-  // Logout should always clear both stores to prevent stale persisted state
-  // from keeping the user "logged in" after only one store is cleared.
-  const logoutAll = async () => {
-    await Promise.allSettled([
-      walletAuth.logout(),
-      privyAuth.logout(),
-    ]);
-  };
-
-  // If Privy is authenticated, use Privy auth
-  if (privyActive) {
-    const account = privyAuth.account || walletAuth.account || null;
-    const gateWallet = privyAuth.gateWallet || walletAuth.gateWallet || null;
-    const gateStatusByWallet = privyAuth.gateStatusByWallet || walletAuth.gateStatusByWallet || null;
-    const linkedWallets =
-      account?.identities
-        ?.filter(i => i.type === 'wallet')
-        .map(i => i.providerId) ??
-      [];
+  if (privyAuth.isAuthenticated && privyAuth.user) {
     return {
       isAuthenticated: true,
       isLoading: privyAuth.isLoading,
-      user: normalizePrivyUser(privyAuth.user!),
+      user: normalizePrivyUser(privyAuth.user),
       authProvider: 'privy',
       gateStatus: privyAuth.gateStatus,
-      gateWallet,
-      gateStatusByWallet,
-      account,
+      gateWallet: privyAuth.gateWallet,
+      gateStatusByWallet: privyAuth.gateStatusByWallet,
+      account: privyAuth.account,
       linkedWallets,
       error: privyAuth.error,
-      logout: logoutAll,
+      logout: privyAuth.logout,
       clearError: privyAuth.clearError,
     };
   }
 
-  // If wallet is authenticated, use wallet auth
-  if (walletActive) {
-    const account = walletAuth.account || null;
-    const gateWallet = walletAuth.gateWallet || null;
-    const gateStatusByWallet = walletAuth.gateStatusByWallet || null;
-    const linkedWallets =
-      account?.identities
-        ?.filter(i => i.type === 'wallet')
-        .map(i => i.providerId) ??
-      [];
-    return {
-      isAuthenticated: true,
-      isLoading: walletAuth.isLoading,
-      user: normalizeWalletUser(walletAuth.user!),
-      authProvider: 'wallet',
-      gateStatus: walletAuth.gateStatus,
-      gateWallet,
-      gateStatusByWallet,
-      account,
-      linkedWallets,
-      error: walletAuth.error,
-      logout: logoutAll,
-      clearError: walletAuth.clearError,
-    };
-  }
-
-  // Not authenticated
   return {
     isAuthenticated: false,
-    isLoading: walletAuth.isLoading || privyAuth.isLoading,
+    isLoading: privyAuth.isLoading,
     user: null,
     authProvider: null,
     gateStatus: null,
@@ -120,21 +72,9 @@ export function useAuth(): UnifiedAuthState {
     gateStatusByWallet: null,
     account: null,
     linkedWallets: [],
-    error: walletAuth.error || privyAuth.error,
-    logout: logoutAll,
-    clearError: () => {
-      walletAuth.clearError();
-      privyAuth.clearError();
-    },
-  };
-}
-
-function normalizeWalletUser(user: WalletUser): UnifiedUser {
-  return {
-    walletAddress: user.walletAddress,
-    displayName: user.displayName,
-    avatarUrl: user.avatarUrl,
-    inhabitedAvatarId: user.inhabitedAvatarId,
+    error: privyAuth.error,
+    logout: privyAuth.logout,
+    clearError: privyAuth.clearError,
   };
 }
 
@@ -143,7 +83,6 @@ function normalizePrivyUser(user: PrivyUser): UnifiedUser {
     walletAddress: user.walletAddress,
     displayName: user.displayName || user.email,
     avatarUrl: user.avatarUrl,
-    inhabitedAvatarId: user.inhabitedAvatarId,
     email: user.email,
   };
 }

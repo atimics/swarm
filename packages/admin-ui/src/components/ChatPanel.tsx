@@ -2,7 +2,7 @@
  * Chat Panel - Main chat area for active avatar
  * 
  * Access modes:
- * - Admin mode: Full access to chat with tools (inhabited avatar or created by user)
+ * - Admin mode: Full access to chat with tools (created avatar or admin user)
  * - Chat mode: Simple chat without admin tools (other avatars)
  * - Browse mode: Read-only profile view (no wallet connected)
  */
@@ -147,16 +147,16 @@ export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
   // - 'browse': Not authenticated - read-only
   // - 'limited': Authenticated but no Orb - can chat with limits
   // - 'chat': Has Orb but not admin - full chat access
-  // - 'admin': Inhabiting or created - full admin access
+  // - 'admin': Created avatar or admin user - full admin access
   const accessMode = useMemo(() => {
     if (!isAuthenticated || !user) {
       return 'browse'; // Not authenticated - read-only
     }
     
-    const isInhabited = user.inhabitedAvatarId === activeAvatar?.id;
+    const isAdminUser = account?.role === 'admin';
     const isCreator = activeAvatar?.creatorWallet === user.walletAddress;
     
-    if (isInhabited || isCreator) {
+    if (isAdminUser || isCreator) {
       return 'admin'; // Full admin access
     }
     
@@ -165,7 +165,7 @@ export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
     }
     
     return 'chat'; // Can chat but no admin tools
-  }, [isAuthenticated, user, activeAvatar, hasOrb]);
+  }, [isAuthenticated, user, activeAvatar, hasOrb, account?.role]);
 
   // Auto-scroll to bottom — depend on length, not reference, to avoid
   // scroll-jacking when polling updates mutate the messages array.
@@ -217,7 +217,6 @@ export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
         walletAddress: user.walletAddress,
         displayName: user.displayName,
         avatarUrl: user.avatarUrl,
-        inhabitedAvatarId: user.inhabitedAvatarId,
       } : undefined;
 
       // Add user message with sender info
@@ -996,7 +995,7 @@ export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
         <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm px-3 lg:px-6 py-4">
           <div className="max-w-3xl mx-auto text-center">
             <p className="text-sm text-[var(--color-text-muted)]">
-              Connect your wallet to chat with this avatar
+              Sign in to chat with this avatar
             </p>
           </div>
         </div>
@@ -1008,7 +1007,7 @@ export function ChatPanel({ onMenuClick, onOpenOnboarding }: ChatPanelProps) {
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              <span>Limited mode • Get an Orb to unlock full access &amp; inhabit avatars</span>
+              <span>Limited mode • Get an Orb to unlock full access and more slots</span>
             </div>
           </div>
         </div>

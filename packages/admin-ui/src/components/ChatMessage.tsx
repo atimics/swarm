@@ -2,7 +2,6 @@ import ReactMarkdown from 'react-markdown';
 import { memo, useMemo, useState, type ReactNode } from 'react';
 import { extractThinkingTags } from '../utils/thinkingTags';
 import type { ChatMessage as ChatMessageType, MessageSender } from '../types';
-import { useWalletAuth } from '../store';
 import { ToolPrompt } from './ToolPrompts';
 import { ImageModal } from './ImageModal';
 
@@ -45,7 +44,6 @@ interface ChatMessageProps {
 /**
  * Render avatar for message sender
  * - No sender or no wallet = ghost icon
- * - Has inhabitedAvatarId = avatar avatar
  * - Has walletAddress = wallet-based display
  */
 const SenderAvatar = memo(function SenderAvatar({ sender }: { sender?: MessageSender }) {
@@ -60,7 +58,7 @@ const SenderAvatar = memo(function SenderAvatar({ sender }: { sender?: MessageSe
     );
   }
   
-  // Avatar avatar if user inhabits an avatar
+  // Avatar image if sender has one
   if (sender.avatarUrl) {
     return (
       <img 
@@ -84,15 +82,11 @@ const SenderAvatar = memo(function SenderAvatar({ sender }: { sender?: MessageSe
  * Parsed tool result from message content
  */
 interface ParsedToolResult {
-  type: 'image' | 'gallery' | 'audio' | 'success' | 'error' | 'info' | 'inhabit' | 'wallet' | 'tweet' | 'twitter_status' | 'model_list' | 'unknown';
+  type: 'image' | 'gallery' | 'audio' | 'success' | 'error' | 'info' | 'wallet' | 'tweet' | 'twitter_status' | 'model_list' | 'unknown';
   data: unknown;
   imageUrl?: string;
   audioUrl?: string;
   message?: string;
-  action?: string;
-  avatarId?: string;
-  label?: string;
-  isInhabited?: boolean;
   // Wallet-specific fields
   publicKey?: string;
   walletName?: string;
@@ -147,18 +141,6 @@ function processMessageContent(
       'items' in parsed ||
       'action' in parsed
     );
-
-    if (parsed.action === 'inhabit_avatar' && typeof parsed.avatarId === 'string') {
-      return {
-        type: 'inhabit',
-        data: parsed,
-        action: 'inhabit_avatar',
-        avatarId: parsed.avatarId,
-        label: typeof parsed.label === 'string' ? parsed.label : 'Inhabit this avatar',
-        message: typeof parsed.message === 'string' ? parsed.message : undefined,
-        isInhabited: typeof parsed.isInhabited === 'boolean' ? parsed.isInhabited : undefined,
-      };
-    }
 
     // Check for Twitter tweet result (has tweetId and url like twitter.com or x.com)
     if (parsed.tweetId && typeof parsed.tweetId === 'string') {
@@ -564,12 +546,7 @@ function getFailedJobs(pendingJobs?: ChatMessageType['pendingJobs']) {
 function ChatMessageInner({ message, onToolSubmit }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const hasPendingTools = message.toolCalls?.some(tc => tc.status === 'pending');
-  const { isAuthenticated, inhabitAvatar } = useWalletAuth();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [inhabitStates, setInhabitStates] = useState<Record<string, {
-    status: 'idle' | 'loading' | 'success' | 'error';
-    error?: string;
-  }>>({});
 
   const { contentForDisplay, thoughts } = useMemo(() => {
     const raw = message.content || '';
@@ -623,7 +600,6 @@ function ChatMessageInner({ message, onToolSubmit }: ChatMessageProps) {
   const activeJobs = getActiveJobs(message.pendingJobs);
   const failedJobs = getFailedJobs(message.pendingJobs);
   
-  const actionResults = toolResults.filter(r => r.type === 'inhabit');
   const walletResults = toolResults.filter(r => r.type === 'wallet');
   const tweetResults = toolResults.filter(r => r.type === 'tweet');
   const twitterStatusResults = toolResults.filter(r => r.type === 'twitter_status');
@@ -632,7 +608,7 @@ function ChatMessageInner({ message, onToolSubmit }: ChatMessageProps) {
   // Filter tool results that should be shown (not images/audio/wallet/twitter/models - those are rendered separately)
   const visibleToolResults = toolResults.filter(
     r => r.type !== 'image' && r.type !== 'gallery' && r.type !== 'audio' && 
-         r.type !== 'inhabit' && r.type !== 'wallet' && r.type !== 'tweet' && 
+         r.type !== 'wallet' && r.type !== 'tweet' && 
       r.type !== 'twitter_status' && r.type !== 'model_list' && r.type !== 'unknown'
   );
   
@@ -645,7 +621,6 @@ function ChatMessageInner({ message, onToolSubmit }: ChatMessageProps) {
     message.isLoading ||
     cleanedContent ||
     (!isUser && thoughts.length > 0) ||
-    actionResults.length > 0 ||
     walletResults.length > 0 ||
     tweetResults.length > 0 ||
     twitterStatusResults.length > 0 ||
@@ -661,32 +636,6 @@ function ChatMessageInner({ message, onToolSubmit }: ChatMessageProps) {
   if (!hasVisibleContent) {
     return null;
   }
-
-  const handleInhabit = async (avatarId: string) => {
-    if (!isAuthenticated) {
-      setInhabitStates((prev) => ({
-        ...prev,
-        [avatarId]: {
-          status: 'error',
-          error: 'Connect your wallet to inhabit this avatar.',
-        },
-      }));
-      return;
-    }
-
-    setInhabitStates((prev) => ({
-      ...prev,
-      [avatarId]: { status: 'loading' },
-    }));
-
-    const result = await inhabitAvatar(avatarId);
-    setInhabitStates((prev) => ({
-      ...prev,
-      [avatarId]: result.success
-        ? { status: 'success' }
-        : { status: 'error', error: result.error || 'Failed to inhabit avatar' },
-    }));
-  };
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3 lg:mb-4`}>
@@ -818,61 +767,9 @@ function ChatMessageInner({ message, onToolSubmit }: ChatMessageProps) {
               </div>
             )}
 
-            {actionResults.length > 0 && (
-              <div className={`space-y-2 ${cleanedContent ? 'mt-3' : ''}`}>
-                {actionResults.map((result, idx) => {
-                  if (!result.avatarId) return null;
-                  const state = inhabitStates[result.avatarId]?.status || 'idle';
-                  const isBusy = state === 'loading';
-                  const isComplete = state === 'success';
-                  const isBlocked = result.isInhabited === true;
-                  const buttonLabel = !isAuthenticated
-                    ? 'Connect wallet to inhabit'
-                    : isBlocked
-                      ? 'Already inhabited'
-                      : result.label || 'Inhabit this avatar';
-
-                  return (
-                    <div
-                      key={`${result.avatarId}-${idx}`}
-                      className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-3 py-2"
-                    >
-                      {result.message && (
-                        <div className="text-sm text-[var(--color-text-secondary)] mb-2">
-                          {result.message}
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleInhabit(result.avatarId!)}
-                        disabled={!isAuthenticated || isBusy || isComplete || isBlocked}
-                        className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${
-                          !isAuthenticated || isBlocked
-                            ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] cursor-not-allowed'
-                            : isComplete
-                              ? 'bg-green-600 text-white'
-                              : 'bg-brand-600 text-white hover:bg-brand-500'
-                        }`}
-                      >
-                        {isBusy && (
-                          <span className="w-3 h-3 border-2 border-white/70 border-t-transparent rounded-full animate-spin" />
-                        )}
-                        {isComplete ? 'Inhabited' : isBusy ? 'Inhabiting...' : buttonLabel}
-                      </button>
-                      {state === 'error' && inhabitStates[result.avatarId]?.error && (
-                        <div className="mt-1 text-xs text-red-400">
-                          {inhabitStates[result.avatarId]?.error}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            
             {/* Render wallet creation results with nice UI */}
             {walletResults.length > 0 && (
-              <div className={`space-y-2 ${cleanedContent || actionResults.length > 0 ? 'mt-3' : ''}`}>
+              <div className={`space-y-2 ${cleanedContent ? 'mt-3' : ''}`}>
                 {walletResults.map((result, idx) => {
                   const copyToClipboard = () => {
                     if (result.publicKey) {
