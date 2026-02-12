@@ -118,6 +118,8 @@
       "twitterAppCredentialsArn": "arn:aws:secretsmanager:us-east-1:022118847419:secret:swarm/global/twitter-app-credentials-TAbnpU"
     },
     "prod": {
+      "useExistingResources": true,
+      "secretPrefix": "swarm",
       "enableSharedHandlers": true,
       "enableDiscordGateway": true,
       "adminDomain": "swarm.rati.chat",
