@@ -17,6 +17,7 @@ import { Construct } from 'constructs';
 import { AdminApiConstruct } from '../constructs/admin-api.js';
 import { SharedHandlers } from '../constructs/shared-handlers.js';
 import { ClaudeCodeWorker } from '../constructs/claude-code-worker.js';
+import { DiscordGatewayWorker } from '../constructs/discord-gateway-worker.js';
 import { OpsDashboard } from '../constructs/ops-dashboard.js';
 import type { SharedInfraStack } from './shared-infra-stack.js';
 
@@ -149,12 +150,18 @@ export interface AdminApiStackProps extends cdk.StackProps {
    * Secrets Manager prefix
    */
   secretPrefix?: string;
+
+  /**
+   * Enable Discord gateway worker (always-on ECS Fargate task)
+   */
+  enableDiscordGateway?: boolean;
 }
 
 export class AdminApiStack extends cdk.Stack {
   public readonly adminApi?: AdminApiConstruct;
   public readonly sharedHandlers?: SharedHandlers;
   public readonly claudeCodeWorker?: ClaudeCodeWorker;
+  public readonly discordGatewayWorker?: DiscordGatewayWorker;
   public readonly apiEndpoint?: string;
 
   constructor(scope: Construct, id: string, props: AdminApiStackProps) {
@@ -187,6 +194,7 @@ export class AdminApiStack extends cdk.Stack {
       claudeCodeUseOpenRouter = false,
       secretPrefix,
       nameSuffix,
+      enableDiscordGateway = false,
     } = props;
 
     // Import shared resources from the shared infrastructure stack
@@ -317,6 +325,19 @@ export class AdminApiStack extends cdk.Stack {
         'Environment.Variables.ADMIN_TABLE',
         this.adminApi.table.tableName
       );
+    }
+
+    // Create Discord gateway worker if enabled
+    if (enableDiscordGateway) {
+      this.discordGatewayWorker = new DiscordGatewayWorker(this, 'DiscordGatewayWorker', {
+        environment,
+        nameSuffix,
+        cluster: discordCluster,
+        stateTable,
+        activityTable,
+        messageQueue: this.sharedHandlers.messageQueue,
+        secretPrefix,
+      });
     }
 
     // Create Claude Code worker if enabled
