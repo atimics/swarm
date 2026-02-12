@@ -124,9 +124,18 @@ function normalizeStackHash(value?: string): string | undefined {
 
 const stackHash = normalizeStackHash(stackHashRaw);
 const nameSuffix = stackHash ? `-${stackHash}` : '';
+
+// Suffix strategy for migration mode (useExistingResources=true):
+// - SharedInfra: no suffix — imports existing resources from legacy monolith
+// - AdminApi/AdminUi: '-split' suffix — avoids collisions with legacy monolith's non-shared resources
+// When no migration (useExistingResources=false or stackHash provided): all use nameSuffix.
+const nonSharedResourceSuffix = (useExistingResources && !nameSuffix) ? '-split' : nameSuffix;
+
 const secretPrefix = (secretPrefixRaw && secretPrefixRaw.trim())
   ? secretPrefixRaw.trim()
-  : (nameSuffix ? `swarm${nameSuffix}` : 'swarm');
+  : (useExistingResources && nonSharedResourceSuffix)
+    ? `swarm${nonSharedResourceSuffix}`
+    : (nameSuffix ? `swarm${nameSuffix}` : 'swarm');
 
 // Resolve paths relative to monorepo root
 // From packages/infra/bin/ -> go up 3 levels to reach monorepo root
@@ -158,7 +167,7 @@ const sharedInfraStack = new SharedInfraStack(app, `SwarmShared-${environment}${
 // 2. Admin API Stack (depends on shared, changes with code updates)
 const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}${nameSuffix}`, {
   environment,
-  nameSuffix,
+  nameSuffix: nonSharedResourceSuffix,
   sharedInfraStack,
   handlersPath,
   adminDomain,
@@ -181,6 +190,7 @@ const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}${nameSuffi
   enableDiscordGateway,
   claudeCodeUseOpenRouter,
   secretPrefix,
+  useExistingResources,
   env: stackEnv,
   description: `Swarm Admin API (${environment})`,
 });
@@ -189,7 +199,7 @@ adminApiStack.addDependency(sharedInfraStack);
 // 3. Admin UI Stack (depends on API for origin, changes with UI updates)
 const adminUiStack = new AdminUiStack(app, `SwarmUi-${environment}${nameSuffix}`, {
   environment,
-  nameSuffix,
+  nameSuffix: nonSharedResourceSuffix,
   adminApiStack,
   adminDomain,
   adminCertificateArn,
@@ -203,7 +213,7 @@ adminUiStack.addDependency(adminApiStack);
 if (profileDomain || app.node.tryGetContext('deployProfilePage')) {
   new ProfilePageStack(app, `SwarmProfilePage-${environment}${nameSuffix}`, {
     environment,
-    nameSuffix,
+    nameSuffix: nonSharedResourceSuffix,
     profileDomain,
     profileCertificateArn,
     includeWildcardAliases: environment === 'prod',

@@ -200,13 +200,19 @@ export interface AdminApiConstructProps {
    * When provided, all alarms in this construct will send notifications to this topic.
    */
   alarmTopic?: sns.ITopic;
+
+  /**
+   * When true, import the AdminTable by name instead of creating it.
+   * Use when the table is still owned by the legacy monolith stack.
+   */
+  useExistingResources?: boolean;
 }
 
 export class AdminApiConstruct extends Construct {
   public readonly api: apigateway.HttpApi;
   public readonly apiEndpoint: string;
   public readonly customDomain?: apigateway.DomainName;
-  public readonly table: dynamodb.Table;
+  public readonly table: dynamodb.ITable;
   public readonly chatHandler: lambda.Function;
   public readonly mediaConvertHandler?: lambda.Function;
   // Exposed for the ops dashboard
@@ -265,7 +271,14 @@ export class AdminApiConstruct extends Construct {
     // We intentionally do not provision a customer-managed key to avoid the monthly CMK charge.
 
     // DynamoDB table for admin data
-    this.table = new dynamodb.Table(this, 'AdminTable', {
+    if (props.useExistingResources) {
+      // Import from legacy monolith — the AdminTable has no resource suffix
+      // because it is a shared resource owned by the old SwarmStack.
+      this.table = dynamodb.Table.fromTableName(
+        this, 'AdminTable', `SwarmAdmin-${environment}`,
+      );
+    } else {
+      const adminTable = new dynamodb.Table(this, 'AdminTable', {
         tableName: `SwarmAdmin-${environment}${suffix}`,
         partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
         sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
@@ -287,11 +300,13 @@ export class AdminApiConstruct extends Construct {
       // Used for:
       // - Finding avatar by inhabitant: sk=INHABITANT#<wallet> returns pk=AVATAR#<avatarId>
       // - Listing items by type: sk=CONFIG returns all avatars
-      this.table.addGlobalSecondaryIndex({
+      adminTable.addGlobalSecondaryIndex({
         indexName: 'GSI1',
         partitionKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
         sortKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       });
+      this.table = adminTable;
+    }
 
 
       // Note: Media jobs are queried using Scan with filter (no GSI needed)

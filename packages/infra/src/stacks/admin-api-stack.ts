@@ -150,6 +150,11 @@ export interface AdminApiStackProps extends cdk.StackProps {
    * Enable Discord gateway worker (always-on ECS Fargate task)
    */
   enableDiscordGateway?: boolean;
+
+  /**
+   * When true, import existing resources (AdminTable) instead of creating them.
+   */
+  useExistingResources?: boolean;
 }
 
 export class AdminApiStack extends cdk.Stack {
@@ -296,6 +301,7 @@ export class AdminApiStack extends cdk.Stack {
         postQueue: this.sharedHandlers?.postQueue,
         internalTestKey,
         alarmTopic,
+        useExistingResources: props.useExistingResources,
       });
 
       this.apiEndpoint = this.adminApi.apiEndpoint;
