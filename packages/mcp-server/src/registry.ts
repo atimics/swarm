@@ -43,7 +43,6 @@ export interface ToolContext {
     walletAddress?: string;
     displayName?: string;
     avatarUrl?: string;
-    inhabitedAvatarId?: string;
   };
 }
 

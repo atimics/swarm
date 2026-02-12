@@ -197,7 +197,7 @@ You can remember and recall information:
   nft: `## NFT & Ownership
 
 You have NFT-related capabilities:
-- Manage avatar inhabitation (wallet ownership)
+- Inspect avatar ownership state
 - Track lineage and ownership history
 - Handle Gate NFT mechanics`,
 
@@ -384,7 +384,7 @@ You are in a multi-user web group chat. This is similar to a Telegram channel.
 **Message Format:**
 Each message shows "Username: message content" where Username is:
 - A wallet address like "4aFQ...dqJ8" for anonymous users
-- An avatar name for users who have "inhabited" an avatar
+- An avatar name for system avatar responses
 
 **Response Guidelines:**
 You do NOT need to respond to every message. As a group chat participant:

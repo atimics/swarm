@@ -28,7 +28,7 @@ const TOOLSET_INFO: Record<ToolsetId, { name: string; description: string }> = {
   discord: { name: 'Discord', description: 'Discord bot integration' },
   property: { name: 'Property', description: 'Real estate property research' },
   memory: { name: 'Memory', description: 'Long-term memory and recall' },
-  nft: { name: 'NFT', description: 'NFT ownership and inhabitation' },
+  nft: { name: 'NFT', description: 'NFT ownership and lineage' },
   'claude-code': { name: 'Claude Code', description: 'Claude Code avatar for coding tasks' },
   moltbook: { name: 'Moltbook', description: 'Moltbook social network for AI agents' },
 };

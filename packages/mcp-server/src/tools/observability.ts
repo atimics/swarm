@@ -56,7 +56,7 @@ function parseSinceInput(raw?: string): number | undefined {
 
 function canAccessAvatar(context: ToolContext, avatarId: string): boolean {
   if (context.session?.isAdmin) return true;
-  if (context.sender?.inhabitedAvatarId && context.sender.inhabitedAvatarId === avatarId) return true;
+  if (context.avatarId && context.avatarId === avatarId) return true;
   return false;
 }
 

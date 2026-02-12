@@ -64,7 +64,6 @@ export const TOOL_TAGS = [
   'remember',
   'nft',
   'ownership',
-  'inhabitation',
   'claude-code',
   'coding',
   'avatar',
@@ -108,7 +107,7 @@ export const TOOLSET_DEFAULT_TAGS: Record<ToolsetId, ToolTag[]> = {
   discord: ['discord'],
   property: ['property', 'listings', 'assessor', 'schools'],
   memory: ['memory', 'recall', 'remember'],
-  nft: ['nft', 'ownership', 'inhabitation'],
+  nft: ['nft', 'ownership'],
   'claude-code': ['claude-code', 'coding', 'avatar'],
   moltbook: [],
 };

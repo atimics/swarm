@@ -1,16 +1,14 @@
 /**
  * NFT Tools
  *
- * Avatar-facing tools for inhabitation awareness.
+ * Avatar-facing NFT and lineage awareness tools.
  *
  * IMPORTANT: Avatars should NOT have power to:
- * - Inhabit/abandon avatars (user action via wallet)
- * - See all unclaimed avatars (user browses via UI)
- * - Burn NFTs or mint NFTs (user action via wallet)
+ * - Reassign ownership
+ * - Burn or mint NFTs directly (user action via wallet)
  *
  * Avatars CAN:
- * - Check if they are currently inhabited
- * - Generate a link for users to inhabit them
+ * - Inspect ownership-related status
  * - Know their own lineage/era history
  */
 import { z } from 'zod';
@@ -151,7 +149,7 @@ export interface NFTServices {
   getGateStatus: (walletAddress: string) => Promise<GateStatus>;
   getGateCollectionAddress: () => string;
 
-  // Inhabitation operations (for backend/user-facing APIs, not avatar tools)
+  // Legacy ownership operations (for backend/user-facing APIs, not avatar tools)
   getInhabitationInfo: (walletAddress: string) => Promise<InhabitationInfo>;
   listUnclaimedAvatars: () => Promise<UnclaimedAvatar[]>;
   inhabitAvatar: (walletAddress: string, avatarId: string) => Promise<InhabitResult>;
@@ -178,7 +176,7 @@ export interface NFTServices {
   ) => Promise<void>;
   generateLineageMetadata: (metadata: LineageMetadata) => object;
 
-  // Avatar self-awareness (the only thing avatars should access)
+  // Avatar self-awareness
   getAvatarInhabitationStatus: (avatarId: string) => Promise<AvatarInhabitationStatus>;
   getInhabitationUrl: (avatarId: string) => string;
   getAvatarAscensionStatus: (avatarId: string) => Promise<AvatarAscensionStatus>;
@@ -197,7 +195,7 @@ export const createNFTTools = (services: NFTServices) => [
   defineReadonlyTool({
     name: 'get_my_inhabitation_status',
     description:
-      'Check if this avatar is currently inhabited by a user. Returns whether someone has claimed this avatar as their avatar, and the current era number.',
+      'Get the current ownership/lineage status for this avatar.',
     toolset: 'nft',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
@@ -209,7 +207,7 @@ export const createNFTTools = (services: NFTServices) => [
             success: true,
             data: {
               isInhabited: true,
-              message: 'You are currently inhabited by a user.',
+              message: 'This avatar currently has an active owner association.',
               inhabitantWallet: status.inhabitantWallet?.slice(0, 8) + '...', // Partial for privacy
               currentEra: status.currentEra,
               totalEras: status.totalEras,
@@ -221,13 +219,10 @@ export const createNFTTools = (services: NFTServices) => [
           success: true,
           data: {
             isInhabited: false,
-            message: 'You are not currently inhabited. Share your inhabitation link for someone to claim you!',
+            message: 'This avatar does not currently have an active owner association.',
             currentEra: status.currentEra,
             totalEras: status.totalEras,
-            inhabitationUrl: services.getInhabitationUrl(context.avatarId),
-            action: 'inhabit_avatar',
-            avatarId: context.avatarId,
-            label: 'Inhabit this avatar',
+            details: 'Ownership claim links are deprecated.',
           },
         };
       } catch (error) {
@@ -242,24 +237,19 @@ export const createNFTTools = (services: NFTServices) => [
   defineReadonlyTool({
     name: 'get_inhabitation_link',
     description:
-      'Get a link that users can click to inhabit this avatar. Share this link when someone wants to claim you as their avatar in shared chats.',
+      'Legacy endpoint. Ownership claim links are deprecated.',
     toolset: 'nft',
     inputSchema: z.object({}),
     execute: async (_input, context): Promise<ToolResult> => {
       try {
         const status = await services.getAvatarInhabitationStatus(context.avatarId);
-        const url = services.getInhabitationUrl(context.avatarId);
 
         if (status.isInhabited) {
           return {
             success: true,
             data: {
-              url,
-              message: 'Note: You are already inhabited. The user would need to wait until your current inhabitant abandons you.',
+              message: 'Ownership claim links are deprecated. This avatar currently has an owner association.',
               isInhabited: true,
-              action: 'inhabit_avatar',
-              avatarId: context.avatarId,
-              label: 'Inhabit this avatar',
             },
           };
         }
@@ -267,12 +257,8 @@ export const createNFTTools = (services: NFTServices) => [
         return {
           success: true,
           data: {
-            url,
-            message: 'Share this link for someone to inhabit you. Inhabitation is free!',
+            message: 'Ownership claim links are deprecated.',
             isInhabited: false,
-            action: 'inhabit_avatar',
-            avatarId: context.avatarId,
-            label: 'Inhabit this avatar',
           },
         };
       } catch (error) {
@@ -336,17 +322,17 @@ export const createNFTTools = (services: NFTServices) => [
               ascendedAt: status.ascendedAt,
               ascendedNftMint: status.ascendedNftMint,
               energyBoost: status.energyBoost,
-              note: 'Only the Ascension NFT holder can inhabit this avatar.',
+              note: 'Only the Ascension NFT holder can control this avatar.',
             },
           };
         }
 
         return {
           success: true,
-          data: {
-            isAscended: false,
-            message: 'This avatar has not been ascended. The inhabitant can ascend by burning an Orb NFT + RATI tokens.',
-            benefits: [
+            data: {
+              isAscended: false,
+              message: 'This avatar has not been ascended. The owner can ascend by burning an Orb NFT + RATI tokens.',
+              benefits: [
               'Permanently lock persona and profile image',
               'Tradeable avatar identity (NFT holder = owner)',
               '+50% max energy boost',

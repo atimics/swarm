@@ -1148,7 +1148,7 @@ export function createMCPServices(_avatarId: string, session: UserSession): AllS
 }
 
 /**
- * Create NFT services for avatar inhabitation and lineage
+ * Create NFT services for ownership and lineage
  */
 function createNFTServices(): NFTServices {
   return {
@@ -1161,13 +1161,13 @@ function createNFTServices(): NFTServices {
       return nftGate.getGateCollection();
     },
 
-    // Inhabitation operations
+    // Legacy ownership operations
     getInhabitationInfo: async (walletAddress: string) => {
       return avatarwnership.getInhabitationInfo(walletAddress);
     },
 
     listUnclaimedAvatars: async () => {
-      // Get all avatars without an inhabitant
+      // Get all avatars without an active inhabitant association
       const allAgents = await avatars.listAvatars();
       return allAgents
         .filter((avatar) => !avatar.inhabitantWallet)
@@ -1247,9 +1247,9 @@ function createNFTServices(): NFTServices {
     },
 
     getInhabitationUrl: (avatarId: string) => {
-      // URL to the inhabitation page for this avatar
+      // Legacy claim URL (claim flow is deprecated)
       const baseUrl = process.env.ADMIN_UI_URL || 'https://swarm.rati.chat';
-      return `${baseUrl}/inhabit/${avatarId}`;
+      return `${baseUrl}/avatars/${avatarId}`;
     },
 
     getAvatarAscensionStatus: async (avatarId: string) => {

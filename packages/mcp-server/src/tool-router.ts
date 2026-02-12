@@ -36,7 +36,7 @@ const TOOLSET_KEYWORDS: Record<ToolsetId, string[]> = {
   discord: ['discord', 'guild', 'server', 'channel', 'role'],
   property: ['property', 'real estate', 'listing', 'comps', 'assessor', 'schools', 'address'],
   memory: ['memory', 'remember', 'recall', 'note'],
-  nft: ['nft', 'ownership', 'inhabit', 'claim'],
+  nft: ['nft', 'ownership', 'claim', 'lineage'],
   'claude-code': ['code', 'coding', 'implement', 'refactor', 'debug', 'fix bug', 'write code', 'programming'],
   moltbook: ['moltbook', 'molty', 'submolt', 'karma', 'social', 'post', 'comment', 'vote'],
 };

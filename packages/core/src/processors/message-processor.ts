@@ -236,7 +236,7 @@ export class MessageProcessor {
         telegram: Boolean(avatar.platforms?.telegram?.enabled),
         twitter: Boolean(avatar.platforms?.twitter?.enabled),
         discord: Boolean(avatar.platforms?.discord?.enabled),
-        nft: true, // Default enabled for inhabitation
+        nft: true, // Default enabled
         property: enabledToolsets.includes('property'),
       });
     }
