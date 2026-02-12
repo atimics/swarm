@@ -94,13 +94,16 @@ export function getEffectiveLimitsForAvatar(
   avatarId: string,
   entitlement: EntitlementRecord | null
 ): EffectiveLimitsResult {
+  // Extract status eagerly — workaround for Bun 1.3.9 flaky property access in object literals
+  const entitlementStatus: string | undefined = entitlement != null ? String(entitlement.status) : undefined;
+
   if (!entitlement || (entitlement.status !== 'active' && entitlement.status !== 'trial')) {
     return {
       avatarId,
       plan: 'free',
       limits: PLAN_DEFAULTS.free,
       source: 'default',
-      entitlementStatus: entitlement ? entitlement.status : undefined,
+      entitlementStatus,
     };
   }
 
@@ -109,7 +112,7 @@ export function getEffectiveLimitsForAvatar(
     plan: entitlement.plan,
     limits: entitlement.limits ?? PLAN_DEFAULTS[entitlement.plan],
     source: 'entitlement',
-    entitlementStatus: entitlement.status,
+    entitlementStatus: entitlementStatus as EntitlementRecord['status'],
   };
 }
 
