@@ -95,8 +95,8 @@ export function getEffectiveLimitsForAvatar(
   entitlement: EntitlementRecord | null
 ): EffectiveLimitsResult {
   // Extract status eagerly before branching to work around Bun JIT bug
-  // where optional chaining in object literals intermittently returns undefined
-  const status = entitlement?.status;
+  // where optional chaining in object literals intermittently returns undefined.
+  const status = entitlement ? entitlement.status : undefined;
 
   if (!entitlement || (status !== 'active' && status !== 'trial')) {
     const result: EffectiveLimitsResult = {
