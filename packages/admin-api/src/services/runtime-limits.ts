@@ -94,6 +94,11 @@ export function getEffectiveLimitsForAvatar(
   avatarId: string,
   entitlement: EntitlementRecord | null
 ): EffectiveLimitsResult {
+  const rawEntitlement = entitlement as Record<string, unknown> | null;
+  const entitlementStatus = rawEntitlement && typeof rawEntitlement.status === 'string'
+    ? (rawEntitlement.status as EntitlementRecord['status'])
+    : undefined;
+
   if (!entitlement) {
     return {
       avatarId,
@@ -103,13 +108,13 @@ export function getEffectiveLimitsForAvatar(
     };
   }
 
-  if (entitlement.status !== 'active' && entitlement.status !== 'trial') {
+  if (entitlementStatus !== 'active' && entitlementStatus !== 'trial') {
     return {
       avatarId,
       plan: 'free',
       limits: PLAN_DEFAULTS.free,
       source: 'default',
-      entitlementStatus: entitlement.status,
+      entitlementStatus,
     };
   }
 
@@ -118,7 +123,7 @@ export function getEffectiveLimitsForAvatar(
     plan: entitlement.plan,
     limits: entitlement.limits ?? PLAN_DEFAULTS[entitlement.plan],
     source: 'entitlement',
-    entitlementStatus: entitlement.status,
+    entitlementStatus,
   };
 }
 
