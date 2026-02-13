@@ -98,6 +98,12 @@ function getSecretPrefix(): string {
   return _secretPrefix;
 }
 
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 // Services (lazy initialized)
 let stateService: ReturnType<typeof createStateService>;
 let secretsService: ReturnType<typeof createSecretsService>;
@@ -108,8 +114,45 @@ type AvatarRuntime = {
   secrets: Record<string, string>;
   registry: ToolRegistry;
 };
+type AvatarRuntimeCacheEntry = {
+  value: AvatarRuntime;
+  expiresAt: number;
+};
 
-const avatarRuntimeCache = new Map<string, AvatarRuntime>();
+const AVATAR_RUNTIME_CACHE_TTL_MS = parsePositiveInt(process.env.AVATAR_RUNTIME_CACHE_TTL_MS, 5 * 60 * 1000);
+const AVATAR_RUNTIME_CACHE_MAX_SIZE = parsePositiveInt(process.env.AVATAR_RUNTIME_CACHE_MAX_SIZE, 200);
+const avatarRuntimeCache = new Map<string, AvatarRuntimeCacheEntry>();
+
+function getCachedAvatarRuntime(avatarId: string): AvatarRuntime | null {
+  const now = Date.now();
+  const cached = avatarRuntimeCache.get(avatarId);
+  if (!cached) return null;
+  if (cached.expiresAt <= now) {
+    avatarRuntimeCache.delete(avatarId);
+    return null;
+  }
+
+  // Touch for LRU behavior.
+  avatarRuntimeCache.delete(avatarId);
+  avatarRuntimeCache.set(avatarId, cached);
+  return cached.value;
+}
+
+function setCachedAvatarRuntime(avatarId: string, runtime: AvatarRuntime): void {
+  const entry: AvatarRuntimeCacheEntry = {
+    value: runtime,
+    expiresAt: Date.now() + AVATAR_RUNTIME_CACHE_TTL_MS,
+  };
+
+  avatarRuntimeCache.delete(avatarId);
+  avatarRuntimeCache.set(avatarId, entry);
+
+  while (avatarRuntimeCache.size > AVATAR_RUNTIME_CACHE_MAX_SIZE) {
+    const oldestKey = avatarRuntimeCache.keys().next().value;
+    if (!oldestKey) break;
+    avatarRuntimeCache.delete(oldestKey);
+  }
+}
 
 /**
  * Fetch individual secrets from Secrets Manager using direct paths.
@@ -141,7 +184,7 @@ async function initialize(): Promise<void> {
 }
 
 async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
-  const cached = avatarRuntimeCache.get(avatarId);
+  const cached = getCachedAvatarRuntime(avatarId);
   if (cached) return cached;
 
   const avatarConfig = await stateService.getAvatarConfig(avatarId) || {
@@ -241,7 +284,7 @@ async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
     registry,
   };
 
-  avatarRuntimeCache.set(avatarId, runtime);
+  setCachedAvatarRuntime(avatarId, runtime);
   return runtime;
 }
 

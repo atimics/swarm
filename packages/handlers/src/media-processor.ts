@@ -68,6 +68,12 @@ function getMediaBucket(): string {
   return _mediaBucket;
 }
 
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 async function claimJob(avatarId: string, jobId: string): Promise<boolean> {
   const now = Date.now();
   const ttl = Math.floor(now / 1000) + IDEMPOTENCY_TTL_SECONDS;
@@ -94,10 +100,20 @@ async function claimJob(avatarId: string, jobId: string): Promise<boolean> {
 
 let secretsService: ReturnType<typeof createSecretsService>;
 
-// Per-avatar caches
-const avatarConfigCache = new Map<string, AvatarConfig>();
-const avatarSecretsCache = new Map<string, Record<string, string>>();
-const mediaServiceCache = new Map<string, ReturnType<typeof createMediaServiceWithDeps>>();
+type AvatarMediaRuntime = {
+  avatarConfig: AvatarConfig;
+  secrets: Record<string, string>;
+  mediaService: ReturnType<typeof createMediaServiceWithDeps>;
+};
+
+type AvatarMediaRuntimeCacheEntry = {
+  value: AvatarMediaRuntime;
+  expiresAt: number;
+};
+
+const MEDIA_RUNTIME_CACHE_TTL_MS = parsePositiveInt(process.env.MEDIA_RUNTIME_CACHE_TTL_MS, 5 * 60 * 1000);
+const MEDIA_RUNTIME_CACHE_MAX_SIZE = parsePositiveInt(process.env.MEDIA_RUNTIME_CACHE_MAX_SIZE, 200);
+const avatarRuntimeCache = new Map<string, AvatarMediaRuntimeCacheEntry>();
 
 async function initialize(): Promise<void> {
   if (secretsService) return;
@@ -106,11 +122,43 @@ async function initialize(): Promise<void> {
 
 const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
 
-async function getAvatarRuntime(avatarId: string) {
-  let config = avatarConfigCache.get(avatarId);
-  if (!config) {
-    const stateService = createStateService(getStateTable());
-    config = await stateService.getAvatarConfig(avatarId) || {
+function getCachedAvatarRuntime(avatarId: string): AvatarMediaRuntime | null {
+  const now = Date.now();
+  const cached = avatarRuntimeCache.get(avatarId);
+  if (!cached) return null;
+  if (cached.expiresAt <= now) {
+    avatarRuntimeCache.delete(avatarId);
+    return null;
+  }
+
+  // Touch for LRU behavior.
+  avatarRuntimeCache.delete(avatarId);
+  avatarRuntimeCache.set(avatarId, cached);
+  return cached.value;
+}
+
+function setCachedAvatarRuntime(avatarId: string, runtime: AvatarMediaRuntime): void {
+  const entry: AvatarMediaRuntimeCacheEntry = {
+    value: runtime,
+    expiresAt: Date.now() + MEDIA_RUNTIME_CACHE_TTL_MS,
+  };
+
+  avatarRuntimeCache.delete(avatarId);
+  avatarRuntimeCache.set(avatarId, entry);
+
+  while (avatarRuntimeCache.size > MEDIA_RUNTIME_CACHE_MAX_SIZE) {
+    const oldestKey = avatarRuntimeCache.keys().next().value;
+    if (!oldestKey) break;
+    avatarRuntimeCache.delete(oldestKey);
+  }
+}
+
+async function getAvatarRuntime(avatarId: string): Promise<AvatarMediaRuntime> {
+  const cached = getCachedAvatarRuntime(avatarId);
+  if (cached) return cached;
+
+  const stateService = createStateService(getStateTable());
+  const avatarConfig = await stateService.getAvatarConfig(avatarId) || {
     id: avatarId,
     name: avatarId,
     version: '1.0.0',
@@ -139,45 +187,37 @@ async function getAvatarRuntime(avatarId: string) {
     tools: [],
     secrets: ['OPENROUTER_API_KEY', 'REPLICATE_API_KEY'],
   };
-    avatarConfigCache.set(avatarId, config);
-  }
 
-  let secrets = avatarSecretsCache.get(avatarId);
-  if (!secrets) {
-    secrets = await secretsService.getSecretJson<Record<string, string>>(
-      `${SECRET_PREFIX}/${avatarId}/secrets`
-    ) || {};
+  const secrets = await secretsService.getSecretJson<Record<string, string>>(
+    `${SECRET_PREFIX}/${avatarId}/secrets`
+  ) || {};
 
-    try {
-      const ok = await ensureReplicateKey(secrets, secretsService);
-      if (ok && secrets.REPLICATE_API_KEY) {
-        logger.info('Loaded system Replicate key for media processor', { subsystem: 'media', avatarId });
-      } else if (!ok) {
-        logger.warn('System Replicate key not configured for media processor', {
-          subsystem: 'media',
-          avatarId,
-          hasEnvKey: Boolean(process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY),
-          hasSecretArn: Boolean(process.env.REPLICATE_API_KEY_SECRET_ARN),
-        });
-      }
-    } catch (err) {
-      logger.warn('Failed to load system Replicate key for media processor', {
+  try {
+    const ok = await ensureReplicateKey(secrets, secretsService);
+    if (ok && secrets.REPLICATE_API_KEY) {
+      logger.info('Loaded system Replicate key for media processor', { subsystem: 'media', avatarId });
+    } else if (!ok) {
+      logger.warn('System Replicate key not configured for media processor', {
         subsystem: 'media',
         avatarId,
-        error: err instanceof Error ? err.message : String(err),
+        hasEnvKey: Boolean(process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY),
+        hasSecretArn: Boolean(process.env.REPLICATE_API_KEY_SECRET_ARN),
       });
     }
-    avatarSecretsCache.set(avatarId, secrets);
+  } catch (err) {
+    logger.warn('Failed to load system Replicate key for media processor', {
+      subsystem: 'media',
+      avatarId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
-  let service = mediaServiceCache.get(avatarId);
-  if (!service) {
-    const mediaDeps = createMediaDependencies({ tableName: getStateTable() });
-    service = createMediaServiceWithDeps(secrets, getMediaBucket(), process.env.CDN_URL, mediaDeps);
-    mediaServiceCache.set(avatarId, service);
-  }
+  const mediaDeps = createMediaDependencies({ tableName: getStateTable() });
+  const mediaService = createMediaServiceWithDeps(secrets, getMediaBucket(), process.env.CDN_URL, mediaDeps);
 
-  return { avatarConfig: config, secrets, mediaService: service };
+  const runtime: AvatarMediaRuntime = { avatarConfig, secrets, mediaService };
+  setCachedAvatarRuntime(avatarId, runtime);
+  return runtime;
 }
 
 function buildImagePrompt(action: { prompt: string; style?: string }, avatar: AvatarConfig): string {

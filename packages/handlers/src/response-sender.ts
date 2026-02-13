@@ -78,7 +78,51 @@ type AvatarOutboundRuntime = {
   outboundSender: ReturnType<typeof createOutboundSender>;
 };
 
-const outboundCache = new Map<string, AvatarOutboundRuntime>();
+type AvatarOutboundRuntimeCacheEntry = {
+  value: AvatarOutboundRuntime;
+  expiresAt: number;
+};
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const OUTBOUND_CACHE_TTL_MS = parsePositiveInt(process.env.OUTBOUND_CACHE_TTL_MS, 5 * 60 * 1000);
+const OUTBOUND_CACHE_MAX_SIZE = parsePositiveInt(process.env.OUTBOUND_CACHE_MAX_SIZE, 200);
+const outboundCache = new Map<string, AvatarOutboundRuntimeCacheEntry>();
+
+function getCachedOutboundRuntime(avatarId: string): AvatarOutboundRuntime | null {
+  const now = Date.now();
+  const cached = outboundCache.get(avatarId);
+  if (!cached) return null;
+  if (cached.expiresAt <= now) {
+    outboundCache.delete(avatarId);
+    return null;
+  }
+
+  // Touch for LRU behavior.
+  outboundCache.delete(avatarId);
+  outboundCache.set(avatarId, cached);
+  return cached.value;
+}
+
+function setCachedOutboundRuntime(avatarId: string, runtime: AvatarOutboundRuntime): void {
+  const entry: AvatarOutboundRuntimeCacheEntry = {
+    value: runtime,
+    expiresAt: Date.now() + OUTBOUND_CACHE_TTL_MS,
+  };
+
+  outboundCache.delete(avatarId);
+  outboundCache.set(avatarId, entry);
+
+  while (outboundCache.size > OUTBOUND_CACHE_MAX_SIZE) {
+    const oldestKey = outboundCache.keys().next().value;
+    if (!oldestKey) break;
+    outboundCache.delete(oldestKey);
+  }
+}
 
 function getResponseKey(response: SwarmResponse, recordMessageId: string): string {
   const anchor = response.replyToMessageId ?? response.generatedAt ?? recordMessageId;
@@ -140,7 +184,7 @@ async function fetchAvatarSecrets(avatarId: string): Promise<Record<string, stri
 }
 
 async function getOutboundRuntime(avatarId: string): Promise<AvatarOutboundRuntime> {
-  const cached = outboundCache.get(avatarId);
+  const cached = getCachedOutboundRuntime(avatarId);
   if (cached) return cached;
 
   const avatarConfig = await stateService.getAvatarConfig(avatarId) || {
@@ -195,7 +239,7 @@ async function getOutboundRuntime(avatarId: string): Promise<AvatarOutboundRunti
     outboundSender,
   };
 
-  outboundCache.set(avatarId, runtime);
+  setCachedOutboundRuntime(avatarId, runtime);
   return runtime;
 }
 
