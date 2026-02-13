@@ -16,6 +16,7 @@ import {
   logger,
   CORRELATION_ID_ATTR,
   extractCorrelationIdFromApiEvent,
+  hasValidInternalTestKey,
 } from '@swarm/core';
 
 // --- Extracted modules ---
@@ -72,7 +73,6 @@ const MESSAGE_QUEUE_URL = process.env.MESSAGE_QUEUE_URL!;
 const ADMIN_TABLE = process.env.ADMIN_TABLE;
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
 const RUNTIME_ENV = (process.env.ENVIRONMENT || process.env.NODE_ENV || '').trim().toLowerCase();
-const IS_PROD = RUNTIME_ENV === 'prod' || RUNTIME_ENV === 'production';
 
 function ok(): APIGatewayProxyResultV2 {
   return { statusCode: 200, body: 'OK' };
@@ -133,8 +133,12 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
     // Verify webhook secret token.
     // Allow bypass with internal test key for E2E testing
-    const internalTestKey = headers['x-internal-test-key'];
-    const bypassAuth = !IS_PROD && INTERNAL_TEST_KEY && internalTestKey === INTERNAL_TEST_KEY;
+    const bypassAuth = hasValidInternalTestKey({
+      headers,
+      internalTestKey: INTERNAL_TEST_KEY,
+      environment: RUNTIME_ENV,
+      nodeEnv: process.env.NODE_ENV,
+    });
 
     if (!bypassAuth) {
       const webhookSecret = await getWebhookSecret(avatarId);

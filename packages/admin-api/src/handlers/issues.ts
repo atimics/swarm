@@ -15,34 +15,17 @@ import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
-import { logger } from '@swarm/core';
+import { hasValidInternalTestKey, logger } from '@swarm/core';
 import { z } from 'zod';
 import * as autoIssues from '../services/auto-issues.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { parseJsonBody } from '../http/request-body.js';
 import { isRequestValidationError, validateRequestBody } from '../middleware/validate.js';
 import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 
 // Internal test key for CI/CD access (set in Lambda env)
 function getInternalTestKey(): string | undefined {
   return process.env.INTERNAL_TEST_KEY;
-}
-
-function isProductionEnvironment(): boolean {
-  const environment = (process.env.ENVIRONMENT || process.env.NODE_ENV || '').trim().toLowerCase();
-  return environment === 'prod' || environment === 'production';
-}
-
-function getHeaderValue(event: APIGatewayProxyEventV2, name: string): string | undefined {
-  const exact = event.headers?.[name];
-  if (exact) return exact;
-
-  const target = name.toLowerCase();
-  for (const [headerName, headerValue] of Object.entries(event.headers || {})) {
-    if (headerName.toLowerCase() === target && headerValue) {
-      return headerValue;
-    }
-  }
-  return undefined;
 }
 
 const IssueCreateSchema = z.object({
@@ -61,10 +44,12 @@ const ISSUE_STATUSES = ['open', 'acknowledged', 'investigating', 'resolved', 'wo
  * Validate internal test key for CI/CD requests
  */
 function validateTestKey(event: APIGatewayProxyEventV2): boolean {
-  const internalTestKey = getInternalTestKey();
-  if (isProductionEnvironment() || !internalTestKey) return false;
-  const providedKey = getHeaderValue(event, 'x-internal-test-key');
-  return providedKey === internalTestKey;
+  return hasValidInternalTestKey({
+    headers: event.headers,
+    internalTestKey: getInternalTestKey(),
+    environment: process.env.ENVIRONMENT,
+    nodeEnv: process.env.NODE_ENV,
+  });
 }
 
 async function isAuthorized(event: APIGatewayProxyEventV2): Promise<boolean> {
@@ -188,16 +173,7 @@ export async function handler(
     // PATCH /issues/{id} - Update issue status
     if (method === 'PATCH' && issueMatch) {
       const issueId = issueMatch[1];
-      let body: Record<string, unknown>;
-      try {
-        body = JSON.parse(event.body || '{}') as Record<string, unknown>;
-      } catch {
-        return {
-          statusCode: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Invalid JSON body' }),
-        };
-      }
+      const body = parseJsonBody<Record<string, unknown>>(event);
       const { status } = body;
 
       if (typeof status !== 'string' || !ISSUE_STATUSES.includes(status as (typeof ISSUE_STATUSES)[number])) {

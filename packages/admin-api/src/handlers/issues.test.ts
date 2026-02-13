@@ -23,6 +23,23 @@ mock.module('../auth/request-auth.js', () => ({
 }));
 
 mock.module('@swarm/core', () => ({
+  hasValidInternalTestKey: ({
+    headers,
+    internalTestKey,
+    environment,
+  }: {
+    headers?: Record<string, string | undefined>;
+    internalTestKey?: string;
+    environment?: string;
+  }) => {
+    if (!internalTestKey || environment === 'production') {
+      return false;
+    }
+    const value = Object.entries(headers || {}).find(
+      ([name]) => name.toLowerCase() === 'x-internal-test-key'
+    )?.[1];
+    return value === internalTestKey;
+  },
   logger: {
     setContext: mock(() => {}),
     info: mock(() => {}),
