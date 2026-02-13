@@ -10,6 +10,7 @@ import { logger } from '@swarm/core';
 import * as avatarService from '../../services/avatars.js';
 import * as galleryService from '../../services/gallery.js';
 import * as integrationsService from '../../services/integrations.js';
+import { parseJsonBody } from '../../http/request-body.js';
 import {
   resolveOnboardingRoutingDecision,
   type OnboardingRoutingDecision,
@@ -66,8 +67,12 @@ export async function handleCrudRoutes(
 
   // ── POST /avatars — Create a new avatar ──────────────────────────────────
   if (method === 'POST' && path === '/avatars') {
-    const body = JSON.parse(event.body || '{}');
-    const { name, description } = body;
+    const body = parseJsonBody<Record<string, unknown>>(event);
+    const name = body.name;
+    const description =
+      typeof body.description === 'string'
+        ? body.description
+        : undefined;
     const onboardingAttemptKey =
       typeof body?.onboardingAttemptKey === 'string'
         ? body.onboardingAttemptKey
@@ -188,9 +193,7 @@ export async function handleCrudRoutes(
       return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
     }
 
-    const body = JSON.parse(event.body || '{}') as {
-      creatorWallet?: string;
-    };
+    const body = parseJsonBody<{ creatorWallet?: string }>(event);
 
     const existing = await avatarService.getAvatar(avatarId);
     if (!existing) {
@@ -264,7 +267,7 @@ export async function handleCrudRoutes(
 
     // PUT /avatars/{id} - Update avatar
     if (method === 'PUT') {
-      const body = JSON.parse(event.body || '{}');
+      const body = parseJsonBody<Record<string, unknown>>(event);
 
       if (!effectiveIsAdmin) {
         if (!walletAddress) {

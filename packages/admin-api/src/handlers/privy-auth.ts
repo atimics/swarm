@@ -10,6 +10,8 @@ import { getAccountSummary, linkPrivyIdentityToAccount } from '../services/accou
 import { getAccountGateStatus } from '../services/account-gate.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { parseJsonBody } from '../http/request-body.js';
+import { isRequestValidationError } from '../middleware/validate.js';
 import { verifyPrivyAccessTokenForLink, verifyPrivyAuth } from '../services/privy-auth.js';
 import { onboardingAuthErrorStatusCode, resolveOnboardingAuthAccount } from '../services/accounts/onboarding-auth-resolver.js';
 
@@ -53,7 +55,7 @@ export async function handlePrivyVerify(event: APIGatewayProxyEventV2): Promise<
   }
 
   try {
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody(event);
     const parsed = PrivyVerifySchema.safeParse(body);
 
     if (!parsed.success) {
@@ -123,6 +125,12 @@ export async function handlePrivyVerify(event: APIGatewayProxyEventV2): Promise<
       cookies
     );
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return jsonResponse(error.statusCode, {
+        error: error.message,
+        details: error.details,
+      }, cors);
+    }
     console.error('[PrivyAuth] Verify error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }
@@ -161,7 +169,7 @@ export async function handleLinkPrivyVerify(event: APIGatewayProxyEventV2): Prom
       );
     }
 
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody(event);
     const parsed = PrivyLinkVerifySchema.safeParse(body);
     if (!parsed.success) {
       return jsonResponse(400, { error: 'Invalid request', details: parsed.error.issues }, cors);
@@ -252,6 +260,12 @@ export async function handleLinkPrivyVerify(event: APIGatewayProxyEventV2): Prom
       cors
     );
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return jsonResponse(error.statusCode, {
+        error: error.message,
+        details: error.details,
+      }, cors);
+    }
     console.error('[PrivyAuth] Link verify error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }

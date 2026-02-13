@@ -15,17 +15,18 @@ import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
-import { logger } from '@swarm/core';
+import { hasValidInternalTestKey, logger } from '@swarm/core';
 import { z } from 'zod';
 import * as autoIssues from '../services/auto-issues.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { parseJsonBody } from '../http/request-body.js';
 import { isRequestValidationError, validateRequestBody } from '../middleware/validate.js';
 import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 
-
-
 // Internal test key for CI/CD access (set in Lambda env)
-const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
+function getInternalTestKey(): string | undefined {
+  return process.env.INTERNAL_TEST_KEY;
+}
 
 const IssueCreateSchema = z.object({
   error: z.string().min(1),
@@ -37,13 +38,18 @@ const IssueCreateSchema = z.object({
   context: z.record(z.unknown()).optional(),
 });
 
+const ISSUE_STATUSES = ['open', 'acknowledged', 'investigating', 'resolved', 'wontfix'] as const;
+
 /**
  * Validate internal test key for CI/CD requests
  */
 function validateTestKey(event: APIGatewayProxyEventV2): boolean {
-  if (!INTERNAL_TEST_KEY) return false;
-  const providedKey = event.headers['x-internal-test-key'];
-  return providedKey === INTERNAL_TEST_KEY;
+  return hasValidInternalTestKey({
+    headers: event.headers,
+    internalTestKey: getInternalTestKey(),
+    environment: process.env.ENVIRONMENT,
+    nodeEnv: process.env.NODE_ENV,
+  });
 }
 
 async function isAuthorized(event: APIGatewayProxyEventV2): Promise<boolean> {
@@ -167,10 +173,10 @@ export async function handler(
     // PATCH /issues/{id} - Update issue status
     if (method === 'PATCH' && issueMatch) {
       const issueId = issueMatch[1];
-      const body = JSON.parse(event.body || '{}');
+      const body = parseJsonBody<Record<string, unknown>>(event);
       const { status } = body;
 
-      if (!status || !['open', 'acknowledged', 'investigating', 'resolved', 'wontfix'].includes(status)) {
+      if (typeof status !== 'string' || !ISSUE_STATUSES.includes(status as (typeof ISSUE_STATUSES)[number])) {
         return {
           statusCode: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -178,7 +184,7 @@ export async function handler(
         };
       }
 
-      await autoIssues.updateIssueStatus(issueId, status);
+      await autoIssues.updateIssueStatus(issueId, status as autoIssues.IssueStatus);
 
       return {
         statusCode: 200,

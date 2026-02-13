@@ -12,6 +12,7 @@ import type { APIGatewayProxyResultV2 } from 'aws-lambda';
 import type { RouteContext } from './types.js';
 import { jsonResponse } from './shared.js';
 import { syncRuntimeContractForAvatar } from './runtime-sync.js';
+import { parseJsonBody } from '../../http/request-body.js';
 import { logger } from '@swarm/core';
 import * as avatarService from '../../services/avatars.js';
 import * as orbSlotsService from '../../services/orb-slots.js';
@@ -24,6 +25,7 @@ import {
 } from '../../services/activation-readiness.js';
 import * as auditLogService from '../../services/audit-log.js';
 import type { ActorType } from '../../services/audit-log.js';
+import type { EntitlementRecord, PlanLimits } from '../../types.js';
 
 /**
  * Resolve actor type from context: admin or owner.
@@ -65,7 +67,7 @@ export async function handleEntitlementRoutes(
     }
 
     if (method === 'PUT') {
-      const body = JSON.parse(event.body || '{}');
+      const body = parseJsonBody<{ mintAddress?: unknown }>(event);
       const mintAddress = body?.mintAddress;
       if (!mintAddress || typeof mintAddress !== 'string') {
         return jsonResponse(corsHeaders, 400, { error: 'mintAddress is required' });
@@ -134,8 +136,32 @@ export async function handleEntitlementRoutes(
       return jsonResponse(corsHeaders, 404, { error: 'Avatar not found' });
     }
 
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody<{
+      plan?: unknown;
+      accountId?: unknown;
+      overrides?: unknown;
+      status?: unknown;
+      trialEndsAt?: unknown;
+      stripeCustomerId?: unknown;
+      stripeSubscriptionId?: unknown;
+    }>(event);
     const plan = body?.plan;
+    const overrides =
+      body?.overrides && typeof body.overrides === 'object' && !Array.isArray(body.overrides)
+        ? (body.overrides as Partial<PlanLimits>)
+        : undefined;
+    const status =
+      body?.status === 'active' ||
+      body?.status === 'suspended' ||
+      body?.status === 'cancelled' ||
+      body?.status === 'trial'
+        ? (body.status as EntitlementRecord['status'])
+        : undefined;
+    const trialEndsAt = typeof body?.trialEndsAt === 'number' ? body.trialEndsAt : undefined;
+    const stripeCustomerId =
+      typeof body?.stripeCustomerId === 'string' ? body.stripeCustomerId : undefined;
+    const stripeSubscriptionId =
+      typeof body?.stripeSubscriptionId === 'string' ? body.stripeSubscriptionId : undefined;
 
     if (plan !== 'free' && plan !== 'pro' && plan !== 'enterprise') {
       return jsonResponse(corsHeaders, 400, { error: 'Invalid plan' });
@@ -158,11 +184,11 @@ export async function handleEntitlementRoutes(
       accountId,
       avatarId,
       plan,
-      overrides: body?.overrides,
-      status: body?.status,
-      trialEndsAt: body?.trialEndsAt,
-      stripeCustomerId: body?.stripeCustomerId,
-      stripeSubscriptionId: body?.stripeSubscriptionId,
+      overrides,
+      status,
+      trialEndsAt,
+      stripeCustomerId,
+      stripeSubscriptionId,
       actorId,
     });
 
@@ -177,8 +203,8 @@ export async function handleEntitlementRoutes(
         actorType: resolveActorType(effectiveIsAdmin, walletAddress, avatar),
         details: {
           plan,
-          overrides: body?.overrides ?? null,
-          status: body?.status ?? null,
+          overrides: overrides ?? null,
+          status: status ?? null,
           accountId,
         },
       });
@@ -380,7 +406,7 @@ export async function handleEntitlementRoutes(
     });
 
     // Audit: record deactivation
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody<{ reason?: unknown }>(event);
     try {
       await auditLogService.recordAuditEvent({
         avatarId,

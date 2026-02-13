@@ -10,6 +10,7 @@
 import type { APIGatewayProxyResultV2 } from 'aws-lambda';
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
+import { parseJsonBody } from '../../http/request-body.js';
 import { logger } from '@swarm/core';
 import * as avatarService from '../../services/avatars.js';
 import * as twitterFeedService from '../../services/twitter-feed.js';
@@ -77,7 +78,7 @@ export async function handleTwitterRoutes(
   if (method === 'POST' && twitterRejectMatch) {
     const avatarId = twitterRejectMatch[1];
     const postId = twitterRejectMatch[2];
-    const body = JSON.parse(event.body || '{}') as { reason?: string };
+    const body = parseJsonBody<{ reason?: string }>(event);
 
     const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
     if (denied) return denied;
@@ -143,9 +144,9 @@ export async function handleTwitterRoutes(
   );
   if (method === 'PUT' && twitterModerationMatch) {
     const avatarId = twitterModerationMatch[1];
-    const body = JSON.parse(event.body || '{}') as {
+    const body = parseJsonBody<{
       mode?: 'pre' | 'post' | 'none';
-    };
+    }>(event);
 
     const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
     if (denied) return denied;

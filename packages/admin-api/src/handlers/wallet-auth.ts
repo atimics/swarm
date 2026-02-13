@@ -3,6 +3,7 @@
  * Endpoints for Solana wallet sign-in (SIWS)
  */
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import { hasValidInternalTestKey } from '@swarm/core';
 import { z } from 'zod';
 import {
   createChallenge,
@@ -19,6 +20,8 @@ import {
   getSetSessionCookies,
 } from '../auth/session-cookie.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { parseJsonBody } from '../http/request-body.js';
+import { isRequestValidationError } from '../middleware/validate.js';
 import { getGateStatus } from '../services/nft-gate.js';
 import { recordBurn } from '../services/burn-stats.js';
 import { getBurnStats } from '../services/burn-stats.js';
@@ -44,19 +47,18 @@ import {
 // Internal test key for E2E tests - bypasses NFT gate requirements
 // NEVER active in production
 const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
-const IS_PROD = (() => {
-  const env = (process.env.ENVIRONMENT || process.env.NODE_ENV || '').trim().toLowerCase();
-  return env === 'prod' || env === 'production';
-})();
 
 /**
  * Check if request has valid internal test key.
  * Always returns false in production.
  */
 function hasInternalTestKey(event: APIGatewayProxyEventV2): boolean {
-  if (IS_PROD || !INTERNAL_TEST_KEY) return false;
-  const providedKey = event.headers['x-internal-test-key'];
-  return providedKey === INTERNAL_TEST_KEY;
+  return hasValidInternalTestKey({
+    headers: event.headers,
+    internalTestKey: INTERNAL_TEST_KEY,
+    environment: process.env.ENVIRONMENT,
+    nodeEnv: process.env.NODE_ENV,
+  });
 }
 
 export interface WalletAuthHandlerDeps {
@@ -228,7 +230,7 @@ export async function handleChallenge(
 
   try {
     // Parse request
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody(event);
     const parsed = ChallengeRequestSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -257,6 +259,12 @@ export async function handleChallenge(
 
     return jsonResponse(200, result, cors);
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return jsonResponse(error.statusCode, {
+        error: error.message,
+        details: error.details,
+      }, cors);
+    }
     console.error('[WalletAuth] Challenge error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }
@@ -278,7 +286,7 @@ export async function handleVerify(
 
   try {
     // Parse request
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody(event);
     const parsed = VerifyRequestSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -364,6 +372,12 @@ export async function handleVerify(
       gateStatusByWallet: gate.gateStatusByWallet,
     }, cors, cookies);
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return jsonResponse(error.statusCode, {
+        error: error.message,
+        details: error.details,
+      }, cors);
+    }
     console.error('[WalletAuth] Verify error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }
@@ -479,7 +493,7 @@ export async function handleLinkWalletChallenge(
       return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
     }
 
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody(event);
     const parsed = LinkWalletChallengeSchema.safeParse(body);
     if (!parsed.success) {
       return jsonResponse(400, { error: 'Invalid request', details: parsed.error.issues }, cors);
@@ -503,6 +517,12 @@ export async function handleLinkWalletChallenge(
 
     return jsonResponse(200, result, cors);
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return jsonResponse(error.statusCode, {
+        error: error.message,
+        details: error.details,
+      }, cors);
+    }
     console.error('[WalletAuth] Link wallet challenge error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }
@@ -534,7 +554,7 @@ export async function handleLinkWalletVerify(
       return jsonResponse(401, { error: 'Session expired' }, cors, getClearSessionCookies());
     }
 
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody(event);
     const parsed = LinkWalletVerifySchema.safeParse(body);
     if (!parsed.success) {
       return jsonResponse(400, { error: 'Invalid request', details: parsed.error.issues }, cors);
@@ -562,6 +582,12 @@ export async function handleLinkWalletVerify(
     const account = resolvedDeps.accounts ? await resolvedDeps.accounts.getAccountSummary(accountId) : null;
     return jsonResponse(200, { success: true, account }, cors);
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return jsonResponse(error.statusCode, {
+        error: error.message,
+        details: error.details,
+      }, cors);
+    }
     console.error('[WalletAuth] Link wallet verify error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }
@@ -747,7 +773,11 @@ export async function handleExecuteAscension(
     }
 
     // Parse request body
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody<{
+      orbBurnSignature?: unknown;
+      ratiBurnSignature?: unknown;
+      nftMint?: unknown;
+    }>(event);
     const { orbBurnSignature, ratiBurnSignature, nftMint } = body;
 
     if (!orbBurnSignature || typeof orbBurnSignature !== 'string') {
@@ -834,6 +864,12 @@ export async function handleExecuteAscension(
       message: `Avatar has been ascended! Persona and profile image are now permanently locked.`,
     }, cors);
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return jsonResponse(error.statusCode, {
+        error: error.message,
+        details: error.details,
+      }, cors);
+    }
     console.error('[WalletAuth] Execute ascension error:', error);
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }

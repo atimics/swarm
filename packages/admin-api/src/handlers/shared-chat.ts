@@ -13,6 +13,8 @@ import { logger } from '@swarm/core';
 import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getClearSessionCookies, getSessionFromCookie } from '../auth/session-cookie.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { parseJsonBody } from '../http/request-body.js';
+import { isRequestValidationError } from '../middleware/validate.js';
 import {
   GetCommand,
   UpdateCommand,
@@ -512,7 +514,7 @@ export async function handleSendMessage(
     }
 
     // Parse request
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody(event);
     const parsed = SendMessageSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -615,6 +617,12 @@ export async function handleSendMessage(
       avatarResponse: avatarMessage,
     }, cors);
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return jsonResponse(error.statusCode, {
+        error: error.message,
+        details: error.details,
+      }, cors);
+    }
     logger.error('Send message error', error, { subsystem: 'shared-chat' });
     return jsonResponse(500, { error: 'Internal server error' }, cors);
   }

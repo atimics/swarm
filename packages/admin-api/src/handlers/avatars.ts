@@ -18,6 +18,7 @@ import { getSessionWithUser } from '../services/wallet-auth.js';
 import { getSessionFromCookie } from '../auth/session-cookie.js';
 import { getCorsHeaders } from '../http/cors.js';
 import { isAuthError } from '../auth/errors.js';
+import { isRequestValidationError } from '../middleware/validate.js';
 import { isAdminWallet, jsonResponse } from './avatar-routes/shared.js';
 import type { RouteContext, RouteHandler } from './avatar-routes/types.js';
 
@@ -115,6 +116,14 @@ export async function handler(
       body: JSON.stringify({ error: 'Not found' }),
     };
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return {
+        statusCode: error.statusCode,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: error.message, details: error.details }),
+      };
+    }
+
     if (isAuthError(error)) {
       return {
         statusCode: error.statusCode,

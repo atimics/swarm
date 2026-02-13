@@ -12,6 +12,7 @@ import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
 import { logger } from '@swarm/core';
 import * as avatarService from '../../services/avatars.js';
 import * as secretsService from '../../services/secrets.js';
+import { parseJsonBody } from '../../http/request-body.js';
 import * as telegramService from '../../services/telegram.js';
 import * as discordService from '../../services/discord.js';
 import { setupTelegramIntegration } from '../../services/telegram-admin.js';
@@ -28,7 +29,7 @@ export async function handleSecretsRoutes(
   // ── POST /avatars/{id}/secrets — Save a secret for an avatar ─────────────
   if (method === 'POST' && secretsMatch) {
     const avatarId = secretsMatch[1];
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody<Record<string, unknown>>(event);
     const { key, type, value } = body as { key?: string; type?: string; value?: string };
     const rawKey = key || type;
     let telegramStatus: {
@@ -154,7 +155,7 @@ export async function handleSecretsRoutes(
   const validateTokenMatch = path.match(/^\/avatars\/([^/]+)\/validate-token$/);
   if (method === 'POST' && validateTokenMatch) {
     const avatarId = validateTokenMatch[1];
-    const body = JSON.parse(event.body || '{}') as { type?: string; value?: string };
+    const body = parseJsonBody<{ type?: string; value?: string }>(event);
 
     const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
     if (denied) return denied;
@@ -197,10 +198,10 @@ export async function handleSecretsRoutes(
   const validateAiKeyMatch = path.match(/^\/avatars\/([^/]+)\/validate-ai-key$/);
   if (method === 'POST' && validateAiKeyMatch) {
     const avatarId = validateAiKeyMatch[1];
-    const body = JSON.parse(event.body || '{}') as {
+    const body = parseJsonBody<{
       integration?: string;
       value?: string;
-    };
+    }>(event);
 
     const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
     if (denied) return denied;

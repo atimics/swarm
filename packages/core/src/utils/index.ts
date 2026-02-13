@@ -30,3 +30,10 @@ export {
   extractCorrelationIdFromApiEvent,
   extractCorrelationIdFromSqsRecord,
 } from './correlation.js';
+
+export {
+  isProductionEnvironment,
+  getHeaderValue,
+  hasValidInternalTestKey,
+  type InternalTestKeyOptions,
+} from './internal-test-key.js';
