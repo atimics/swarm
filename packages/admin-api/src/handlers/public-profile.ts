@@ -146,6 +146,9 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     if (!avatar) {
       return notFound(`Avatar not found: ${avatarId}`);
     }
+    if (avatar.status !== 'active') {
+      return notFound('Avatar not found');
+    }
 
     // Fetch burn stats, energy, and history in parallel
     const [burnStats, energyStatus, burnHistory, rankInfo] = await Promise.all([
@@ -162,7 +165,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       profileImage: typeof avatar.profileImage === 'string'
         ? avatar.profileImage
         : avatar.profileImage?.url,
-      description: avatar.description || avatar.persona?.substring(0, 500),
+      description: avatar.description || undefined,
 
       burnStats: {
         totalBurned: burnStats.totalBurned,

@@ -22,10 +22,28 @@ import { getCorsHeaders } from '../http/cors.js';
 import { isRequestValidationError, validateRequestBody } from '../middleware/validate.js';
 import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 
-
-
 // Internal test key for CI/CD access (set in Lambda env)
-const INTERNAL_TEST_KEY = process.env.INTERNAL_TEST_KEY;
+function getInternalTestKey(): string | undefined {
+  return process.env.INTERNAL_TEST_KEY;
+}
+
+function isProductionEnvironment(): boolean {
+  const environment = (process.env.ENVIRONMENT || process.env.NODE_ENV || '').trim().toLowerCase();
+  return environment === 'prod' || environment === 'production';
+}
+
+function getHeaderValue(event: APIGatewayProxyEventV2, name: string): string | undefined {
+  const exact = event.headers?.[name];
+  if (exact) return exact;
+
+  const target = name.toLowerCase();
+  for (const [headerName, headerValue] of Object.entries(event.headers || {})) {
+    if (headerName.toLowerCase() === target && headerValue) {
+      return headerValue;
+    }
+  }
+  return undefined;
+}
 
 const IssueCreateSchema = z.object({
   error: z.string().min(1),
@@ -37,13 +55,16 @@ const IssueCreateSchema = z.object({
   context: z.record(z.unknown()).optional(),
 });
 
+const ISSUE_STATUSES = ['open', 'acknowledged', 'investigating', 'resolved', 'wontfix'] as const;
+
 /**
  * Validate internal test key for CI/CD requests
  */
 function validateTestKey(event: APIGatewayProxyEventV2): boolean {
-  if (!INTERNAL_TEST_KEY) return false;
-  const providedKey = event.headers['x-internal-test-key'];
-  return providedKey === INTERNAL_TEST_KEY;
+  const internalTestKey = getInternalTestKey();
+  if (isProductionEnvironment() || !internalTestKey) return false;
+  const providedKey = getHeaderValue(event, 'x-internal-test-key');
+  return providedKey === internalTestKey;
 }
 
 async function isAuthorized(event: APIGatewayProxyEventV2): Promise<boolean> {
@@ -167,10 +188,19 @@ export async function handler(
     // PATCH /issues/{id} - Update issue status
     if (method === 'PATCH' && issueMatch) {
       const issueId = issueMatch[1];
-      const body = JSON.parse(event.body || '{}');
+      let body: Record<string, unknown>;
+      try {
+        body = JSON.parse(event.body || '{}') as Record<string, unknown>;
+      } catch {
+        return {
+          statusCode: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Invalid JSON body' }),
+        };
+      }
       const { status } = body;
 
-      if (!status || !['open', 'acknowledged', 'investigating', 'resolved', 'wontfix'].includes(status)) {
+      if (typeof status !== 'string' || !ISSUE_STATUSES.includes(status as (typeof ISSUE_STATUSES)[number])) {
         return {
           statusCode: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -178,7 +208,7 @@ export async function handler(
         };
       }
 
-      await autoIssues.updateIssueStatus(issueId, status);
+      await autoIssues.updateIssueStatus(issueId, status as autoIssues.IssueStatus);
 
       return {
         statusCode: 200,
