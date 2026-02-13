@@ -11,6 +11,7 @@ import type { APIGatewayProxyResultV2 } from 'aws-lambda';
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
 import { syncRuntimeContractForAvatar } from './runtime-sync.js';
+import { parseJsonBody } from '../../http/request-body.js';
 import { logger } from '@swarm/core';
 import * as avatarService from '../../services/avatars.js';
 import * as energyService from '../../services/energy.js';
@@ -59,7 +60,7 @@ export async function handleEnergyRoutes(
       }
     }
 
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody<{ mint?: unknown }>(event);
     const mint = typeof body?.mint === 'string' ? body.mint : undefined;
     const actorId = walletAddress || session.email || 'unknown';
 
@@ -106,7 +107,7 @@ export async function handleEnergyRoutes(
       return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
     }
     const avatarId = energySetMatch[1];
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody<{ value?: unknown }>(event);
     const { value } = body;
 
     if (typeof value !== 'number' || value < 0) {
@@ -139,7 +140,7 @@ export async function handleEnergyRoutes(
       return jsonResponse(corsHeaders, 403, { error: 'Admin access required' });
     }
     const avatarId = energyAddMatch[1];
-    const body = JSON.parse(event.body || '{}');
+    const body = parseJsonBody<{ amount?: unknown }>(event);
     const { amount } = body;
 
     if (typeof amount !== 'number') {

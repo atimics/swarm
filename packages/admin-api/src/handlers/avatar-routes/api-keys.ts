@@ -10,6 +10,7 @@ import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
 import { logger } from '@swarm/core';
 import * as avatarService from '../../services/avatars.js';
+import { parseJsonBody } from '../../http/request-body.js';
 import { resumeChatAfterToolResult } from '../chat.js';
 
 export async function handleApiKeyRoutes(
@@ -26,7 +27,7 @@ export async function handleApiKeyRoutes(
     const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
     if (denied) return denied;
 
-    const body = JSON.parse(event.body || '{}') as { result?: unknown };
+    const body = parseJsonBody<{ result?: unknown }>(event);
     if (!('result' in body)) {
       return jsonResponse(corsHeaders, 400, { error: 'result is required' });
     }
@@ -57,7 +58,7 @@ export async function handleApiKeyRoutes(
   const apiKeysMatch = path.match(/^\/avatars\/([^/]+)\/api-keys$/);
   if (method === 'POST' && apiKeysMatch) {
     const avatarId = apiKeysMatch[1];
-    const body = JSON.parse(event.body || '{}') as { name?: string };
+    const body = parseJsonBody<{ name?: string }>(event);
 
     const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
     if (denied) return denied;
@@ -100,7 +101,7 @@ export async function handleApiKeyRoutes(
       });
     }
 
-    const body = JSON.parse(event.body || '{}') as { name?: string };
+    const body = parseJsonBody<{ name?: string }>(event);
 
     try {
       const { createApiKey } = await import('../openai-compat.js');

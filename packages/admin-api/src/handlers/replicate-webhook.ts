@@ -14,6 +14,8 @@ import * as mediaJobs from '../services/media-jobs.js';
 import * as gallery from '../services/gallery.js';
 import { recordError } from '../services/auto-issues.js';
 import { logger } from '@swarm/core';
+import { parseJsonBody } from '../http/request-body.js';
+import { isRequestValidationError } from '../middleware/validate.js';
 import type { MediaJob } from '../types.js';
 
 const s3Client = new S3Client({});
@@ -100,7 +102,7 @@ export async function handler(
     }
 
     // Parse webhook payload
-    const prediction: ReplicatePrediction = JSON.parse(event.body || '{}');
+    const prediction = parseJsonBody<ReplicatePrediction>(event);
     logger.info('Processing webhook', { jobId, predictionId: prediction.id, status: prediction.status });
 
     // Get the job record
@@ -242,6 +244,16 @@ export async function handler(
 
     return { statusCode: 200, body: 'Acknowledged' };
   } catch (error) {
+    if (isRequestValidationError(error)) {
+      return {
+        statusCode: error.statusCode,
+        body: JSON.stringify({
+          error: error.message,
+          details: error.details,
+        }),
+      };
+    }
+
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
 

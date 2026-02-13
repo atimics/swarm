@@ -1,4 +1,5 @@
 import { isAuthError } from '../auth/errors.js';
+import { isRequestValidationError } from '../middleware/validate.js';
 
 export function parseOpenRouterStatusFromError(message: string): number | null {
 
@@ -29,6 +30,14 @@ export function mapAdminChatHandlerError(error: unknown): {
   publicError: string;
   errorMessage: string;
 } {
+  if (isRequestValidationError(error)) {
+    return {
+      statusCode: error.statusCode,
+      publicError: error.message,
+      errorMessage: error.message,
+    };
+  }
+
   if (isAuthError(error)) {
     return {
       statusCode: error.statusCode,

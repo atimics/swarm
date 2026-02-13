@@ -18,6 +18,7 @@ import {
 } from '@swarm/core';
 import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 import { getCorsHeaders } from '../http/cors.js';
+import { parseJsonBody } from '../http/request-body.js';
 import * as chatHistory from '../services/chat-history.js';
 import { createChatJob, createJobId } from '../services/chat-jobs.js';
 import { fromChatMessages, hasExecuteFunction, toChatMessage, stepCountIs } from '@openrouter/sdk';
@@ -1225,7 +1226,13 @@ export async function handler(
     // POST /chat/message - Append a system message to chat history
     // Used for status updates (OAuth success, errors, etc.) that both AI and users should see
     if (method === 'POST' && path === '/chat/message') {
-      const body = JSON.parse(event.body || '{}');
+      const body = parseJsonBody<{
+        avatarId?: unknown;
+        message?: {
+          role?: unknown;
+          content?: unknown;
+        };
+      }>(event);
       const { avatarId, message } = body;
 
       if (!avatarId || typeof avatarId !== 'string') {
@@ -1236,7 +1243,13 @@ export async function handler(
         };
       }
 
-      if (!message || typeof message.content !== 'string' || !['assistant', 'user'].includes(message.role)) {
+      const role: 'assistant' | 'user' | null =
+        message?.role === 'assistant' || message?.role === 'user'
+          ? message.role
+          : null;
+      const content = typeof message?.content === 'string' ? message.content : null;
+
+      if (!role || !content) {
         return {
           statusCode: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -1248,15 +1261,15 @@ export async function handler(
       if (accessError) return accessError;
 
       const history = await chatHistory.appendSystemMessage(session, avatarId, {
-        role: message.role,
-        content: message.content,
+        role,
+        content,
       });
 
       logger.info('System message appended', {
         event: 'system_message_appended',
         avatarId,
-        role: message.role,
-        contentLength: message.content.length,
+        role,
+        contentLength: content.length,
       });
 
       return {
@@ -1268,11 +1281,12 @@ export async function handler(
 
     // POST /chat - Send a message
     // Parse and validate request body
-    const parseResult = ChatRequestSchema.safeParse(JSON.parse(event.body || '{}'));
+    const requestBody = parseJsonBody<Record<string, unknown>>(event);
+    const parseResult = ChatRequestSchema.safeParse(requestBody);
     if (!parseResult.success) {
       logger.error('Validation error', undefined, {
         event: 'validation_error',
-        avatarId: JSON.parse(event.body || '{}').avatar?.id,
+        avatarId: (requestBody.avatar as { id?: string } | undefined)?.id,
         requestId,
         errors: parseResult.error.errors,
         bodyPreview: event.body?.substring(0, 500),

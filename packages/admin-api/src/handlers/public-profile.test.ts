@@ -88,6 +88,21 @@ describe('public profile visibility hardening', () => {
     expect(getBurnStatsWithProgressMock).not.toHaveBeenCalled();
   });
 
+  it('returns 404 for deleted avatars', async () => {
+    getAvatarMock.mockResolvedValue({
+      avatarId: 'test-avatar',
+      name: 'Test',
+      status: 'deleted',
+    });
+
+    const result = await handler(createEvent(), {} as never, () => {});
+    const body = JSON.parse(result.body);
+
+    expect(result.statusCode).toBe(404);
+    expect(body.error).toBe('Avatar not found');
+    expect(getBurnStatsWithProgressMock).not.toHaveBeenCalled();
+  });
+
   it('does not leak persona text via description fallback', async () => {
     getAvatarMock.mockResolvedValue({
       avatarId: 'test-avatar',

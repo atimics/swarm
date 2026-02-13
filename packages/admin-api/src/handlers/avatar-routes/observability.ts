@@ -11,12 +11,15 @@
 import type { APIGatewayProxyResultV2 } from 'aws-lambda';
 import type { RouteContext } from './types.js';
 import { jsonResponse, parseSinceParam, parseSinceQueryParam, requireOwnerOrAdmin } from './shared.js';
+import { parseJsonBody } from '../../http/request-body.js';
 import * as avatarService from '../../services/avatars.js';
 import * as logsService from '../../services/logs.js';
 import * as avatarLogsService from '../../services/avatar-observability.js';
 import * as avatarEventsService from '../../services/avatar-observability.js';
 import * as observabilityService from '../../services/observability.js';
 import { listAvatarIssues } from '../../services/auto-issues.js';
+
+const EVENT_STATUSES = ['open', 'acknowledged', 'resolved', 'wont_fix'] as const;
 
 export async function handleObservabilityRoutes(
   ctx: RouteContext,
@@ -150,10 +153,14 @@ export async function handleObservabilityRoutes(
     }
     const avatarId = eventUpdateMatch[1];
     const eventId = eventUpdateMatch[2];
-    const body = JSON.parse(event.body || '{}');
-    const { status } = body;
+    const body = parseJsonBody<{ status?: unknown }>(event);
+    const status =
+      typeof body.status === 'string' &&
+      EVENT_STATUSES.includes(body.status as (typeof EVENT_STATUSES)[number])
+        ? (body.status as (typeof EVENT_STATUSES)[number])
+        : null;
 
-    if (!status || !['open', 'acknowledged', 'resolved', 'wont_fix'].includes(status)) {
+    if (!status) {
       return {
         statusCode: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -9,6 +9,7 @@
 import type { APIGatewayProxyResultV2 } from 'aws-lambda';
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
+import { parseJsonBody } from '../../http/request-body.js';
 import { logger } from '@swarm/core';
 import * as avatarService from '../../services/avatars.js';
 import * as telegramService from '../../services/telegram.js';
@@ -64,14 +65,14 @@ export async function handleTelegramRoutes(
   const repairMatch = path.match(/^\/avatars\/([^/]+)\/telegram\/repair$/);
   if (method === 'POST' && repairMatch) {
     const avatarId = repairMatch[1];
-    const body = JSON.parse(event.body || '{}') as {
+    const body = parseJsonBody<{
       dryRun?: boolean;
       force?: boolean;
       includeDisabled?: boolean;
       rotateSecret?: boolean;
       repairOnPendingUpdates?: boolean;
       repairOnLastError?: boolean;
-    };
+    }>(event);
     const rotateSecret = Boolean(body.rotateSecret);
 
     const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
@@ -258,7 +259,7 @@ export async function handleTelegramRoutes(
   );
   if (method === 'POST' && resolveGroupMatch) {
     const avatarId = resolveGroupMatch[1];
-    const body = JSON.parse(event.body || '{}') as { username?: string };
+    const body = parseJsonBody<{ username?: string }>(event);
 
     const denied = await requireOwnerOrAdmin(ctx, avatarId, avatarService.getAvatar);
     if (denied) return denied;
