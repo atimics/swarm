@@ -4,6 +4,7 @@
 import {
   PutCommand,
   GetCommand,
+  QueryCommand,
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
@@ -371,25 +372,27 @@ export async function updateAvatar(
  * List all avatars
  */
 export async function listAvatars(): Promise<AvatarRecord[]> {
-  // Use a scan with filter for CONFIG records
-  // Paginate to handle tables exceeding 1MB scan limit
+  // Query GSI1 (sk -> pk) for CONFIG records and AVATAR# keys.
   const items: AvatarRecord[] = [];
   let lastKey: Record<string, unknown> | undefined;
 
   do {
-    const result = await dynamoClient.send(new ScanCommand({
+    const result = await dynamoClient.send(new QueryCommand({
       TableName: ADMIN_TABLE,
-      FilterExpression: 'sk = :sk AND #status <> :deleted',
+      IndexName: 'GSI1',
+      KeyConditionExpression: 'sk = :sk AND begins_with(pk, :avatarPrefix)',
+      FilterExpression: '#status <> :deleted',
       ExpressionAttributeNames: {
         '#status': 'status',
       },
       ExpressionAttributeValues: {
         ':sk': 'CONFIG',
+        ':avatarPrefix': 'AVATAR#',
         ':deleted': 'deleted',
       },
       ExclusiveStartKey: lastKey,
     }));
-    items.push(...(result.Items as AvatarRecord[]) || []);
+    items.push(...((result.Items as AvatarRecord[]) || []));
     lastKey = result.LastEvaluatedKey;
   } while (lastKey);
 
@@ -401,25 +404,28 @@ export async function listAvatars(): Promise<AvatarRecord[]> {
  * Returns avatars where creatorWallet matches.
  */
 export async function listAvatarsByWallet(walletAddress: string): Promise<AvatarRecord[]> {
-  // Paginate to handle tables exceeding 1MB scan limit
+  // Query GSI1 for avatar configs, then filter by creator wallet.
   const items: AvatarRecord[] = [];
   let lastKey: Record<string, unknown> | undefined;
 
   do {
-    const result = await dynamoClient.send(new ScanCommand({
+    const result = await dynamoClient.send(new QueryCommand({
       TableName: ADMIN_TABLE,
-      FilterExpression: 'sk = :sk AND #status <> :deleted AND creatorWallet = :wallet',
+      IndexName: 'GSI1',
+      KeyConditionExpression: 'sk = :sk AND begins_with(pk, :avatarPrefix)',
+      FilterExpression: '#status <> :deleted AND creatorWallet = :wallet',
       ExpressionAttributeNames: {
         '#status': 'status',
       },
       ExpressionAttributeValues: {
         ':sk': 'CONFIG',
+        ':avatarPrefix': 'AVATAR#',
         ':deleted': 'deleted',
         ':wallet': walletAddress,
       },
       ExclusiveStartKey: lastKey,
     }));
-    items.push(...(result.Items as AvatarRecord[]) || []);
+    items.push(...((result.Items as AvatarRecord[]) || []));
     lastKey = result.LastEvaluatedKey;
   } while (lastKey);
 
