@@ -94,14 +94,21 @@ export function getEffectiveLimitsForAvatar(
   avatarId: string,
   entitlement: EntitlementRecord | null
 ): EffectiveLimitsResult {
-  if (!entitlement || (entitlement.status !== 'active' && entitlement.status !== 'trial')) {
-    return {
+  // Extract status eagerly before branching to work around Bun JIT bug
+  // where optional chaining in object literals intermittently returns undefined
+  const status = entitlement?.status;
+
+  if (!entitlement || (status !== 'active' && status !== 'trial')) {
+    const result: EffectiveLimitsResult = {
       avatarId,
       plan: 'free',
       limits: PLAN_DEFAULTS.free,
       source: 'default',
-      entitlementStatus: entitlement?.status,
     };
+    if (status) {
+      result.entitlementStatus = status;
+    }
+    return result;
   }
 
   return {
@@ -109,7 +116,7 @@ export function getEffectiveLimitsForAvatar(
     plan: entitlement.plan,
     limits: entitlement.limits ?? PLAN_DEFAULTS[entitlement.plan],
     source: 'entitlement',
-    entitlementStatus: entitlement.status,
+    entitlementStatus: status,
   };
 }
 
