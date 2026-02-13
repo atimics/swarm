@@ -238,6 +238,16 @@ export class SharedHandlers extends Construct {
       CDN_URL: cdnUrl || '',
       ENVIRONMENT: environment,
       SECRET_PREFIX: secretPrefix,
+      // Runtime cache defaults (explicitly set in infra for predictable behavior).
+      AVATAR_RUNTIME_CACHE_TTL_MS: '300000',
+      AVATAR_RUNTIME_CACHE_MAX_SIZE: '200',
+      AVATAR_RUNTIME_CACHE_LOG_INTERVAL_MS: '60000',
+      OUTBOUND_CACHE_TTL_MS: '300000',
+      OUTBOUND_CACHE_MAX_SIZE: '200',
+      OUTBOUND_CACHE_LOG_INTERVAL_MS: '60000',
+      MEDIA_RUNTIME_CACHE_TTL_MS: '300000',
+      MEDIA_RUNTIME_CACHE_MAX_SIZE: '200',
+      MEDIA_RUNTIME_CACHE_LOG_INTERVAL_MS: '60000',
       // Admin table for DM bot creation flow (Telegram admin service)
       ...(adminTable ? { ADMIN_TABLE: adminTable.tableName } : {}),
       // Twitter API budget configuration

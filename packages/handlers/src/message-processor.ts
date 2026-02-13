@@ -121,20 +121,63 @@ type AvatarRuntimeCacheEntry = {
 
 const AVATAR_RUNTIME_CACHE_TTL_MS = parsePositiveInt(process.env.AVATAR_RUNTIME_CACHE_TTL_MS, 5 * 60 * 1000);
 const AVATAR_RUNTIME_CACHE_MAX_SIZE = parsePositiveInt(process.env.AVATAR_RUNTIME_CACHE_MAX_SIZE, 200);
+const AVATAR_RUNTIME_CACHE_LOG_INTERVAL_MS = parsePositiveInt(
+  process.env.AVATAR_RUNTIME_CACHE_LOG_INTERVAL_MS,
+  60 * 1000
+);
 const avatarRuntimeCache = new Map<string, AvatarRuntimeCacheEntry>();
+const avatarRuntimeCacheMetrics = {
+  hits: 0,
+  misses: 0,
+  expirations: 0,
+  writes: 0,
+  evictions: 0,
+  lastLoggedAt: 0,
+};
+
+function maybeLogAvatarRuntimeCacheMetrics(): void {
+  const now = Date.now();
+  if (now - avatarRuntimeCacheMetrics.lastLoggedAt < AVATAR_RUNTIME_CACHE_LOG_INTERVAL_MS) {
+    return;
+  }
+  avatarRuntimeCacheMetrics.lastLoggedAt = now;
+
+  logger.info('Avatar runtime cache metrics', {
+    event: 'avatar_runtime_cache_metrics',
+    subsystem: 'cache',
+    cache: 'avatar_runtime',
+    size: avatarRuntimeCache.size,
+    ttlMs: AVATAR_RUNTIME_CACHE_TTL_MS,
+    maxSize: AVATAR_RUNTIME_CACHE_MAX_SIZE,
+    hits: avatarRuntimeCacheMetrics.hits,
+    misses: avatarRuntimeCacheMetrics.misses,
+    expirations: avatarRuntimeCacheMetrics.expirations,
+    writes: avatarRuntimeCacheMetrics.writes,
+    evictions: avatarRuntimeCacheMetrics.evictions,
+  });
+}
 
 function getCachedAvatarRuntime(avatarId: string): AvatarRuntime | null {
   const now = Date.now();
   const cached = avatarRuntimeCache.get(avatarId);
-  if (!cached) return null;
+  if (!cached) {
+    avatarRuntimeCacheMetrics.misses++;
+    maybeLogAvatarRuntimeCacheMetrics();
+    return null;
+  }
   if (cached.expiresAt <= now) {
     avatarRuntimeCache.delete(avatarId);
+    avatarRuntimeCacheMetrics.expirations++;
+    avatarRuntimeCacheMetrics.misses++;
+    maybeLogAvatarRuntimeCacheMetrics();
     return null;
   }
 
   // Touch for LRU behavior.
   avatarRuntimeCache.delete(avatarId);
   avatarRuntimeCache.set(avatarId, cached);
+  avatarRuntimeCacheMetrics.hits++;
+  maybeLogAvatarRuntimeCacheMetrics();
   return cached.value;
 }
 
@@ -146,12 +189,15 @@ function setCachedAvatarRuntime(avatarId: string, runtime: AvatarRuntime): void 
 
   avatarRuntimeCache.delete(avatarId);
   avatarRuntimeCache.set(avatarId, entry);
+  avatarRuntimeCacheMetrics.writes++;
 
   while (avatarRuntimeCache.size > AVATAR_RUNTIME_CACHE_MAX_SIZE) {
     const oldestKey = avatarRuntimeCache.keys().next().value;
     if (!oldestKey) break;
     avatarRuntimeCache.delete(oldestKey);
+    avatarRuntimeCacheMetrics.evictions++;
   }
+  maybeLogAvatarRuntimeCacheMetrics();
 }
 
 /**

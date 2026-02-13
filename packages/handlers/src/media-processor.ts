@@ -113,7 +113,41 @@ type AvatarMediaRuntimeCacheEntry = {
 
 const MEDIA_RUNTIME_CACHE_TTL_MS = parsePositiveInt(process.env.MEDIA_RUNTIME_CACHE_TTL_MS, 5 * 60 * 1000);
 const MEDIA_RUNTIME_CACHE_MAX_SIZE = parsePositiveInt(process.env.MEDIA_RUNTIME_CACHE_MAX_SIZE, 200);
+const MEDIA_RUNTIME_CACHE_LOG_INTERVAL_MS = parsePositiveInt(
+  process.env.MEDIA_RUNTIME_CACHE_LOG_INTERVAL_MS,
+  60 * 1000
+);
 const avatarRuntimeCache = new Map<string, AvatarMediaRuntimeCacheEntry>();
+const mediaRuntimeCacheMetrics = {
+  hits: 0,
+  misses: 0,
+  expirations: 0,
+  writes: 0,
+  evictions: 0,
+  lastLoggedAt: 0,
+};
+
+function maybeLogMediaRuntimeCacheMetrics(): void {
+  const now = Date.now();
+  if (now - mediaRuntimeCacheMetrics.lastLoggedAt < MEDIA_RUNTIME_CACHE_LOG_INTERVAL_MS) {
+    return;
+  }
+  mediaRuntimeCacheMetrics.lastLoggedAt = now;
+
+  logger.info('Media runtime cache metrics', {
+    event: 'media_runtime_cache_metrics',
+    subsystem: 'cache',
+    cache: 'media_runtime',
+    size: avatarRuntimeCache.size,
+    ttlMs: MEDIA_RUNTIME_CACHE_TTL_MS,
+    maxSize: MEDIA_RUNTIME_CACHE_MAX_SIZE,
+    hits: mediaRuntimeCacheMetrics.hits,
+    misses: mediaRuntimeCacheMetrics.misses,
+    expirations: mediaRuntimeCacheMetrics.expirations,
+    writes: mediaRuntimeCacheMetrics.writes,
+    evictions: mediaRuntimeCacheMetrics.evictions,
+  });
+}
 
 async function initialize(): Promise<void> {
   if (secretsService) return;
@@ -125,15 +159,24 @@ const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';
 function getCachedAvatarRuntime(avatarId: string): AvatarMediaRuntime | null {
   const now = Date.now();
   const cached = avatarRuntimeCache.get(avatarId);
-  if (!cached) return null;
+  if (!cached) {
+    mediaRuntimeCacheMetrics.misses++;
+    maybeLogMediaRuntimeCacheMetrics();
+    return null;
+  }
   if (cached.expiresAt <= now) {
     avatarRuntimeCache.delete(avatarId);
+    mediaRuntimeCacheMetrics.expirations++;
+    mediaRuntimeCacheMetrics.misses++;
+    maybeLogMediaRuntimeCacheMetrics();
     return null;
   }
 
   // Touch for LRU behavior.
   avatarRuntimeCache.delete(avatarId);
   avatarRuntimeCache.set(avatarId, cached);
+  mediaRuntimeCacheMetrics.hits++;
+  maybeLogMediaRuntimeCacheMetrics();
   return cached.value;
 }
 
@@ -145,12 +188,15 @@ function setCachedAvatarRuntime(avatarId: string, runtime: AvatarMediaRuntime): 
 
   avatarRuntimeCache.delete(avatarId);
   avatarRuntimeCache.set(avatarId, entry);
+  mediaRuntimeCacheMetrics.writes++;
 
   while (avatarRuntimeCache.size > MEDIA_RUNTIME_CACHE_MAX_SIZE) {
     const oldestKey = avatarRuntimeCache.keys().next().value;
     if (!oldestKey) break;
     avatarRuntimeCache.delete(oldestKey);
+    mediaRuntimeCacheMetrics.evictions++;
   }
+  maybeLogMediaRuntimeCacheMetrics();
 }
 
 async function getAvatarRuntime(avatarId: string): Promise<AvatarMediaRuntime> {
