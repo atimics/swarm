@@ -39,6 +39,19 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 // Cache for bot tokens
 const botTokenCache = new Map<string, { token: string; expiresAt: number }>();
 
+type TelegramAdminAvatar = {
+  avatarId: string;
+  name: string;
+  description?: string;
+  persona?: string;
+  platforms?: {
+    telegram?: { enabled: boolean; botUsername?: string };
+    twitter?: { enabled: boolean; username?: string };
+    discord?: { enabled: boolean };
+  };
+  profileImage?: { url: string };
+};
+
 /**
  * Get bot token from Secrets Manager
  */
@@ -90,7 +103,7 @@ async function getAdminService(avatarId: string, _avatarConfig: AvatarConfig): P
     },
     getAvatar: async (id: string) => {
       const ops = await getAdminOps();
-      const avatar = await ops.getAvatar(id) as Record<string, any> | null;
+      const avatar = await ops.getAvatar(id) as TelegramAdminAvatar | null;
       if (!avatar) return null;
       return {
         avatarId: avatar.avatarId,

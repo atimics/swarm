@@ -8,7 +8,6 @@ import { logger, type SwarmEnvelope } from '@swarm/core';
 import type { InlineKeyboardMarkup } from 'grammy/types';
 import type {
   TelegramAdminSession,
-  AdminSessionState,
   OnboardingStateData,
   AdminCommand,
 } from '../types/telegram-admin.js';

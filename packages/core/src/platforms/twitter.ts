@@ -16,11 +16,23 @@ import type {
   TwitterConfig,
 } from '../types/index.js';
 import { fetchWithRetry } from '../utils/fetch-retry.js';
+import { logger } from '../utils/logger.js';
 
 type TweetWithOptionalAuthor = TweetV2 & {
   author?: UserV2;
   author_id?: string;
   referenced_tweets?: Array<{ type: string; id: string }>;
+};
+
+type TwitterV2SingleTweetClient = {
+  singleTweet: (
+    tweetId: string,
+    params: {
+      expansions: string[];
+      'tweet.fields': string[];
+      'user.fields': string[];
+    }
+  ) => Promise<{ data?: TweetWithOptionalAuthor | null; includes?: { users?: UserV2[] } }>;
 };
 
 export interface TwitterCredentials {
@@ -145,12 +157,17 @@ export class TwitterAdapter extends PlatformAdapter {
           break;
 
         default:
-          console.warn(`Unknown action type: ${(action as ResponseAction).type}`);
+          logger.warn('Twitter action ignored due to unknown type', {
+            actionType: (action as ResponseAction).type,
+          });
       }
       
       return true;
     } catch (error) {
-      console.error('Failed to execute Twitter action:', error);
+      logger.warn('Twitter action execution failed', {
+        actionType: action.type,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       return false;
     }
   }
@@ -173,14 +190,17 @@ export class TwitterAdapter extends PlatformAdapter {
 
     for (const item of media.slice(0, 4)) { // Twitter allows max 4 media items
       try {
-        console.log('[TwitterAdapter.uploadMedia] Processing media:', { url: item.url, type: item.type });
+        logger.debug('Twitter media upload: processing item', {
+          url: item.url,
+          type: item.type,
+        });
 
         // Download the media (prefer S3 if URL points to our bucket) and upload to Twitter.
         const { buffer, contentType, source } = await downloadMedia(item.url);
-        console.log('[TwitterAdapter.uploadMedia] Downloaded:', {
+        logger.debug('Twitter media upload: source download complete', {
           source,
           bufferSize: buffer.length,
-          contentType
+          contentType,
         });
 
         // Detect MIME type from Content-Type header or URL.
@@ -204,31 +224,33 @@ export class TwitterAdapter extends PlatformAdapter {
           const resized = await ensureTwitterImageWithinLimit(uploadBuffer, mimeType);
           uploadBuffer = resized.buffer;
           mimeType = resized.mimeType;
-          console.log('[TwitterAdapter.uploadMedia] Downsized image for Twitter upload', {
+          logger.debug('Twitter media upload: image downsized', {
             originalBytes: buffer.length,
             uploadBytes: uploadBuffer.length,
             mimeType,
           });
         }
 
-        console.log('[TwitterAdapter.uploadMedia] Uploading to Twitter with mimeType:', mimeType);
+        logger.debug('Twitter media upload: sending to Twitter API', { mimeType });
         const mediaId = await this.client.v1.uploadMedia(uploadBuffer, {
           mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'video/mp4',
         });
 
-        console.log('[TwitterAdapter.uploadMedia] Success, mediaId:', mediaId);
+        logger.debug('Twitter media upload: success', { mediaId });
         mediaIds.push(mediaId);
       } catch (error) {
-        console.error('[TwitterAdapter.uploadMedia] Failed:', {
+        logger.warn('Twitter media upload failed for item', {
           url: item.url,
-          error: error instanceof Error ? error.message : error,
-          stack: error instanceof Error ? error.stack : undefined
+          errorMessage: error instanceof Error ? error.message : String(error),
         });
       }
     }
 
     if (mediaIds.length < media.length) {
-      console.warn(`[TwitterAdapter.uploadMedia] Only ${mediaIds.length}/${media.length} media items uploaded successfully`);
+      logger.warn('Twitter media upload partially succeeded', {
+        uploadedCount: mediaIds.length,
+        requestedCount: media.length,
+      });
     }
 
     return mediaIds;
@@ -324,7 +346,7 @@ export class TwitterAdapter extends PlatformAdapter {
     // 1. Use search API with community filter (if available)
     // 2. Use community-specific endpoints (Enterprise tier)
     // 3. Scrape community page (not recommended for production)
-    console.warn('getCommunityTimeline is not yet implemented - requires elevated API access');
+    logger.info('Twitter community timeline is not implemented yet');
     return [];
   }
 
@@ -434,8 +456,8 @@ export class TwitterAdapter extends PlatformAdapter {
     }
 
     try {
-      // twitter-api-v2: v2.singleTweet(id, params)
-      const result = await (this.client.v2 as any).singleTweet(tweetId, {
+      const twitterV2Client = this.client.v2 as unknown as TwitterV2SingleTweetClient;
+      const result = await twitterV2Client.singleTweet(tweetId, {
         expansions: ['author_id', 'referenced_tweets.id'],
         'tweet.fields': ['created_at', 'conversation_id', 'in_reply_to_user_id', 'referenced_tweets'],
         'user.fields': ['username', 'name'],
@@ -566,16 +588,16 @@ async function downloadMedia(url: string): Promise<{ buffer: Buffer; contentType
   const cdnUrlEnv = process.env.CDN_URL;
   const mediaBucketEnv = process.env.MEDIA_BUCKET;
 
-  console.log('[TwitterAdapter.downloadMedia] Starting download:', {
+  logger.debug('Twitter media download: start', {
     url,
     CDN_URL: cdnUrlEnv || '(not set)',
-    MEDIA_BUCKET: mediaBucketEnv || '(not set)'
+    MEDIA_BUCKET: mediaBucketEnv || '(not set)',
   });
 
   const s3Location = resolveS3Location(url);
 
   if (s3Location) {
-    console.log('[TwitterAdapter.downloadMedia] Resolved S3 location:', s3Location);
+    logger.debug('Twitter media download: resolved S3 location', s3Location);
     try {
       const response = await s3Client.send(new GetObjectCommand({
         Bucket: s3Location.bucket,
@@ -587,25 +609,25 @@ async function downloadMedia(url: string): Promise<{ buffer: Buffer; contentType
       }
 
       const buffer = await streamToBuffer(response.Body as Readable);
-      console.log('[TwitterAdapter.downloadMedia] S3 fetch successful:', {
+      logger.debug('Twitter media download: S3 fetch successful', {
         bucket: s3Location.bucket,
         key: s3Location.key,
         size: buffer.length,
-        contentType: response.ContentType
+        contentType: response.ContentType,
       });
       return { buffer, contentType: response.ContentType, source: 's3' };
     } catch (error) {
-      console.error('[TwitterAdapter.downloadMedia] S3 fetch failed, falling back to HTTP:', {
+      logger.warn('Twitter media download: S3 fetch failed, falling back to HTTP', {
         bucket: s3Location.bucket,
         key: s3Location.key,
-        error: error instanceof Error ? error.message : error
+        errorMessage: error instanceof Error ? error.message : String(error),
       });
     }
   } else {
-    console.log('[TwitterAdapter.downloadMedia] Could not resolve S3 location, using HTTP fetch');
+    logger.debug('Twitter media download: no S3 location, using HTTP');
   }
 
-  console.log('[TwitterAdapter.downloadMedia] Fetching via HTTP:', url);
+  logger.debug('Twitter media download: fetching via HTTP', { url });
   const response = await fetchWithRetry(url, undefined, { maxRetries: 2, timeoutMs: 20_000 });
   if (!response.ok) {
     throw new Error(`HTTP fetch failed: ${response.status} ${response.statusText}`);
@@ -614,9 +636,9 @@ async function downloadMedia(url: string): Promise<{ buffer: Buffer; contentType
   const buffer = Buffer.from(await response.arrayBuffer());
   const contentType = response.headers?.get?.('content-type') ?? undefined;
 
-  console.log('[TwitterAdapter.downloadMedia] HTTP fetch successful:', {
+  logger.debug('Twitter media download: HTTP fetch successful', {
     size: buffer.length,
-    contentType
+    contentType,
   });
 
   return { buffer, contentType, source: 'http' };

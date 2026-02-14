@@ -213,7 +213,7 @@ async function handleDiscordMessage(
   const evaluator = createMessageEvaluator(config, stateService, {
     botUsernames: [],
     botUserIds: binding.botUserId ? [binding.botUserId] : [],
-  } as any);
+  } as Parameters<typeof createMessageEvaluator>[2]);
 
   const evaluation = await evaluator.evaluate(envelope);
   if (!evaluation.shouldRespond) {

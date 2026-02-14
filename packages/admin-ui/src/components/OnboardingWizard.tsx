@@ -115,7 +115,7 @@ export function OnboardingWizard({ avatarId, onMenuClick, onBackToChat }: Onboar
   const hasCompletedEventRef = useRef(false);
   const warnedUnknownActionsRef = useRef<Set<string>>(new Set());
 
-  const steps = status?.steps || [];
+  const steps = useMemo(() => status?.steps ?? [], [status?.steps]);
 
   const activeStep = useMemo(() => {
     if (!status || steps.length === 0) return null;

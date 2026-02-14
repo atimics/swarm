@@ -488,8 +488,6 @@ export function createVoiceServices(config: {
       // Generate the voice message first
       const referenceUrl = config.voiceConfig?.referenceUrl;
       const voiceId = params.voiceId;
-      let assetId: string;
-      let url: string;
 
       if (!replicateKey) {
         throw new Error('Replicate API key not configured');
@@ -534,8 +532,8 @@ export function createVoiceServices(config: {
         cdnUrl: config.cdnUrl,
       });
 
-      assetId = asset.assetId;
-      url = asset.url;
+      const assetId = asset.assetId;
+      const url = asset.url;
 
       const accessibleUrl = await makeUrlAccessible(url, config.cdnUrl);
 
