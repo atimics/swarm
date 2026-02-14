@@ -43,18 +43,44 @@ async function runSmoke() {
     const page = await browser.newPage();
     const errors = [];
 
-    const allowedErrorPatterns = [
-      /\[WalletAuth\] Check auth error: SyntaxError: Unexpected token '<'/i,
-      /\[bootstrapAuth\] Auth bootstrap failed: SyntaxError: Unexpected token '<'/i,
-      /Failed to fetch/i,
-    ];
+    const isAllowedError = (entry) => {
+      const message = entry.message || '';
+      const locationUrl = entry.locationUrl || '';
+
+      if (/\[WalletAuth\] Check auth error: SyntaxError: Unexpected token '<'/i.test(message)) return true;
+      if (/\[bootstrapAuth\] Auth bootstrap failed: SyntaxError: Unexpected token '<'/i.test(message)) return true;
+      if (/Failed to fetch/i.test(message)) return true;
+
+      // Browser may request favicon.ico in preview; missing icon is non-fatal for smoke.
+      if (
+        /Failed to load resource: the server responded with a status of 404/i.test(message) &&
+        /\/favicon\.ico($|\?)/i.test(locationUrl)
+      ) {
+        return true;
+      }
+
+      // Privy telemetry and iframe restrictions are expected in local preview.
+      if (
+        /Failed to load resource: the server responded with a status of 403/i.test(message) &&
+        /auth\.privy\.io\/api\/v1\/analytics_events/i.test(locationUrl)
+      ) {
+        return true;
+      }
+      if (/Framing 'https:\/\/auth\.privy\.io\/' violates/i.test(message)) return true;
+
+      return false;
+    };
 
     page.on('pageerror', (err) => {
-      errors.push(err?.message || String(err));
+      errors.push({ message: err?.message || String(err), locationUrl: '' });
     });
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
-        errors.push(msg.text());
+        const loc = msg.location();
+        errors.push({
+          message: msg.text(),
+          locationUrl: loc.url || '',
+        });
       }
     });
 
@@ -65,11 +91,13 @@ async function runSmoke() {
       throw new Error('Privy is not configured. Set VITE_PRIVY_APP_ID in packages/admin-ui/.env.');
     }
 
-    const filtered = errors.filter(
-      (message) => !allowedErrorPatterns.some((pattern) => pattern.test(message))
-    );
+    const filtered = errors.filter((entry) => !isAllowedError(entry));
     if (filtered.length > 0) {
-      throw new Error(`Admin UI console errors:\n- ${filtered.join('\n- ')}`);
+      throw new Error(
+        `Admin UI console errors:\n- ${filtered
+          .map((entry) => `${entry.message}${entry.locationUrl ? ` [${entry.locationUrl}]` : ''}`)
+          .join('\n- ')}`
+      );
     }
 
     await browser.close();
