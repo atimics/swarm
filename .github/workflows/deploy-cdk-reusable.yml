@@ -75,13 +75,6 @@ jobs:
           path: packages/layer/nodejs
           key: layer-${{ hashFiles('packages/layer/package.json', 'packages/layer/node-fetch-shim/**', 'packages/layer/abort-controller-shim/**') }}
 
-      - name: Cache CDK output
-        uses: actions/cache@v4
-        with:
-          path: packages/infra/cdk.out
-          key: cdk-${{ inputs.cdk_env }}-${{ hashFiles('pnpm-lock.yaml', 'packages/infra/package.json', 'packages/infra/**/*.ts', 'packages/*/src/**/*.ts') }}
-          restore-keys: cdk-${{ inputs.cdk_env }}-
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
