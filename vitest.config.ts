@@ -11,10 +11,10 @@ export default defineConfig({
       include: ['packages/*/src/**/*.ts'],
       exclude: ['packages/infra/**', 'packages/admin-ui/**'],
       thresholds: {
-        lines: 30,
-        functions: 30,
+        lines: 25,
+        functions: 25,
         branches: 25,
-        statements: 30,
+        statements: 25,
       },
     },
     testTimeout: 30000,

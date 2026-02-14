@@ -8,7 +8,8 @@
     "build": "tsc && cp package.json dist/",
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
-    "test": "bun test"
+    "test": "bun test",
+    "lint": "eslint src/"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

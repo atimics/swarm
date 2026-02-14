@@ -8,6 +8,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
+    "lint": "eslint src/",
     "cdk": "cdk",
     "synth": "cdk synth",
     "deploy": "cdk deploy",

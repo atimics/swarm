@@ -144,7 +144,7 @@ Use this section as the default workflow for AI coding/debug agents.
 
 ### 1) Fast Triage Checklist (first 5-10 minutes)
 1. Confirm package and runtime assumptions:
-  - `node -v` (Node 22+ recommended)
+  - `node -v` (Node 20.x recommended; matches CI and Lambda runtime)
   - `pnpm -v`
   - `bun -v`
 2. Install and build:

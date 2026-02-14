@@ -1,22 +1,26 @@
 import { describe, test, expect } from 'bun:test';
 
+const RUN_PLAN_TESTS = process.env.RUN_PLAN_TESTS === '1';
+const describePlan = RUN_PLAN_TESTS ? describe : describe.skip;
+const testPlan = RUN_PLAN_TESTS ? test : test.skip;
+
 /**
  * Priority TODO tests derived from PLAN.md partial items.
- * These tests verify key functionality across the platform.
+ * These tests run only when RUN_PLAN_TESTS=1 so they do not inflate default CI metrics.
  */
 
 // ============================================================================
 // Test Coverage: Admin Chat
 // ============================================================================
 
-test('Test coverage: admin chat tool-call flow produces pendingToolCall + history', () => {
+testPlan('Test coverage: admin chat tool-call flow produces pendingToolCall + history', () => {
   // IMPLEMENTED: See packages/admin-api/src/handlers/chat.test.ts
   // - 'Admin Chat - Tool-Call Flow Integration' test suite
   // - Tests verify pendingToolCall detection, history updates, and all pause tool types
   expect(true).toBe(true);
 });
 
-describe('Test coverage: message-processor executes tool calls end-to-end', () => {
+describePlan('Test coverage: message-processor executes tool calls end-to-end', () => {
   // Simulated message processor tool execution flow
   const TOOL_REGISTRY = {
     send_message: async (params: { chatId: string; text: string }) => ({
@@ -31,7 +35,7 @@ describe('Test coverage: message-processor executes tool calls end-to-end', () =
     }),
   };
 
-  test('executes registered tool and returns result', async () => {
+  testPlan('executes registered tool and returns result', async () => {
     const toolName = 'send_message';
     const params = { chatId: 'chat-123', text: 'Hello world' };
 
@@ -43,7 +47,7 @@ describe('Test coverage: message-processor executes tool calls end-to-end', () =
     expect(result.messageId).toBeDefined();
   });
 
-  test('tool results include execution metadata', async () => {
+  testPlan('tool results include execution metadata', async () => {
     const result = await TOOL_REGISTRY.generate_image({ prompt: 'A sunset' });
 
     expect(result.success).toBe(true);
@@ -51,7 +55,7 @@ describe('Test coverage: message-processor executes tool calls end-to-end', () =
     expect(result.prompt).toBe('A sunset');
   });
 
-  test('handles unknown tools gracefully', () => {
+  testPlan('handles unknown tools gracefully', () => {
     const toolName = 'unknown_tool';
     const tool = TOOL_REGISTRY[toolName as keyof typeof TOOL_REGISTRY];
 
@@ -59,7 +63,7 @@ describe('Test coverage: message-processor executes tool calls end-to-end', () =
   });
 });
 
-describe('Test coverage: response-sender handles media + pending jobs', () => {
+describePlan('Test coverage: response-sender handles media + pending jobs', () => {
   interface PendingJob {
     id: string;
     type: 'image' | 'video';
@@ -87,7 +91,7 @@ describe('Test coverage: response-sender handles media + pending jobs', () => {
     return true;
   }
 
-  test('creates pending job for async media generation', () => {
+  testPlan('creates pending job for async media generation', () => {
     const job = createJob('video');
 
     expect(job.id).toBeDefined();
@@ -96,7 +100,7 @@ describe('Test coverage: response-sender handles media + pending jobs', () => {
     expect(pendingJobs.has(job.id)).toBe(true);
   });
 
-  test('completes job with result URL', () => {
+  testPlan('completes job with result URL', () => {
     const job = createJob('image');
     const url = 'https://media.example.com/result.png';
 
@@ -107,7 +111,7 @@ describe('Test coverage: response-sender handles media + pending jobs', () => {
     expect(job.result?.url).toBe(url);
   });
 
-  test('handles non-existent job gracefully', () => {
+  testPlan('handles non-existent job gracefully', () => {
     const completed = completeJob('non-existent-job', 'https://example.com');
     expect(completed).toBe(false);
   });
@@ -117,7 +121,7 @@ describe('Test coverage: response-sender handles media + pending jobs', () => {
 // Usage Metering
 // ============================================================================
 
-describe('Usage metering', () => {
+describePlan('Usage metering', () => {
   // Simulated credit bucket for testing
   interface CreditBucket {
     avatarId: string;
@@ -178,7 +182,7 @@ describe('Usage metering', () => {
     bucket.credits = bucket.maxCredits;
   }
 
-  test('canUseTool denies when credits exhausted', () => {
+  testPlan('canUseTool denies when credits exhausted', () => {
     const bucket = createBucket('avatar-1', 'generate_image');
     bucket.credits = 0;
 
@@ -188,7 +192,7 @@ describe('Usage metering', () => {
     expect(result.reason).toBe('No credits available');
   });
 
-  test('canUseTool denies when daily limit reached', () => {
+  testPlan('canUseTool denies when daily limit reached', () => {
     const bucket = createBucket('avatar-1', 'generate_video');
     bucket.dailyUsed = 10; // At limit
 
@@ -198,7 +202,7 @@ describe('Usage metering', () => {
     expect(result.reason).toContain('Daily limit');
   });
 
-  test('consumeCredit decrements and enforces limits', () => {
+  testPlan('consumeCredit decrements and enforces limits', () => {
     const bucket = createBucket('avatar-1', 'post_tweet');
     const initialCredits = bucket.credits;
 
@@ -209,7 +213,7 @@ describe('Usage metering', () => {
     expect(bucket.dailyUsed).toBe(1);
   });
 
-  test('consumeCredit returns false when no credits', () => {
+  testPlan('consumeCredit returns false when no credits', () => {
     const bucket = createBucket('avatar-1', 'generate_image');
     bucket.credits = 0;
 
@@ -219,7 +223,7 @@ describe('Usage metering', () => {
     expect(bucket.credits).toBe(0);
   });
 
-  test('daily recharge restores tool credits', () => {
+  testPlan('daily recharge restores tool credits', () => {
     const bucket = createBucket('avatar-1', 'generate_image');
     bucket.credits = 0;
     bucket.dailyUsed = 30;
@@ -230,7 +234,7 @@ describe('Usage metering', () => {
     expect(bucket.dailyUsed).toBe(0);
   });
 
-  test('hourly refill adds credits up to max', () => {
+  testPlan('hourly refill adds credits up to max', () => {
     const bucket = createBucket('avatar-1', 'generate_image');
     bucket.credits = 1;
 
@@ -245,7 +249,7 @@ describe('Usage metering', () => {
 // Logs API
 // ============================================================================
 
-describe('Logs API', () => {
+describePlan('Logs API', () => {
   const DEFAULT_LIMIT = 200;
   const MAX_LIMIT = 500;
 
@@ -312,7 +316,7 @@ describe('Logs API', () => {
     return filters.join(' AND ');
   }
 
-  test('/avatars/{id}/logs supports level/subsystem filters', () => {
+  testPlan('/avatars/{id}/logs supports level/subsystem filters', () => {
     const filter = buildFilterExpression({
       avatarId: 'avatar-123',
       level: 'error',
@@ -324,7 +328,7 @@ describe('Logs API', () => {
     expect(filter).toContain('subsystem = "telegram"');
   });
 
-  test('limit is enforced and capped at 500', () => {
+  testPlan('limit is enforced and capped at 500', () => {
     expect(clampLimit(100)).toBe(100);
     expect(clampLimit(1000)).toBe(500); // Capped
     expect(clampLimit(0)).toBe(DEFAULT_LIMIT);
@@ -333,14 +337,14 @@ describe('Logs API', () => {
     expect(clampLimit(-10)).toBe(1); // Minimum
   });
 
-  test('time-range filters return bounded results', () => {
+  testPlan('time-range filters return bounded results', () => {
     expect(parseSince('30m')).toBe(30 * 60 * 1000);
     expect(parseSince('2h')).toBe(2 * 60 * 60 * 1000);
     expect(parseSince('1d')).toBe(24 * 60 * 60 * 1000);
     expect(parseSince('7d')).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
-  test('rejects invalid query parameters', () => {
+  testPlan('rejects invalid query parameters', () => {
     const result1 = validateQueryParams({ level: 'INVALID' });
     expect(result1.valid).toBe(false);
     expect(result1.errors).toContain('Invalid level: INVALID');
@@ -363,7 +367,7 @@ describe('Logs API', () => {
 // Voice Features
 // ============================================================================
 
-describe('Voice features', () => {
+describePlan('Voice features', () => {
   interface VoiceProfile {
     id: string;
     name: string;
@@ -418,14 +422,14 @@ describe('Voice features', () => {
     return { sent: true, platform };
   }
 
-  test('transcribeAudio uses platform file lookup when URL is missing', async () => {
+  testPlan('transcribeAudio uses platform file lookup when URL is missing', async () => {
     const result = await transcribeAudio(undefined, 'telegram');
 
     expect(result).toContain('telegram');
     expect(result).toContain('file storage');
   });
 
-  test('generateVoiceMessage returns asset metadata for playback', () => {
+  testPlan('generateVoiceMessage returns asset metadata for playback', () => {
     const profile = voiceProfiles.get('default')!;
     const message = generateVoiceMessage('Hello, this is a test message', profile);
 
@@ -435,7 +439,7 @@ describe('Voice features', () => {
     expect(message.voiceProfile).toBe('default');
   });
 
-  test('sendVoiceMessage dispatches via platform adapter', () => {
+  testPlan('sendVoiceMessage dispatches via platform adapter', () => {
     const profile = voiceProfiles.get('default')!;
     const message = generateVoiceMessage('Test', profile);
 
@@ -445,7 +449,7 @@ describe('Voice features', () => {
     expect(result.platform).toBe('telegram');
   });
 
-  test('setActiveVoiceProfile updates avatar configuration', () => {
+  testPlan('setActiveVoiceProfile updates avatar configuration', () => {
     const updated = setActiveVoiceProfile('avatar-1', 'custom-1');
     expect(updated).toBe(true);
 
@@ -458,7 +462,7 @@ describe('Voice features', () => {
 // Property Research
 // ============================================================================
 
-describe('Property research', () => {
+describePlan('Property research', () => {
   interface ResearchAuthorization {
     walletAddress: string;
     avatarId: string;
@@ -545,7 +549,7 @@ describe('Property research', () => {
     }));
   }
 
-  test('authorization required before research tools run', () => {
+  testPlan('authorization required before research tools run', () => {
     const wallet = 'wallet-123';
     const avatar = 'avatar-1';
 
@@ -555,7 +559,7 @@ describe('Property research', () => {
     expect(isAuthorized(wallet, avatar)).toBe(true);
   });
 
-  test('research_property returns a report with sections', () => {
+  testPlan('research_property returns a report with sections', () => {
     const report = researchProperty('123 Main St, City, ST 12345', 'user-1');
 
     expect(report.propertyAddress).toBe('123 Main St, City, ST 12345');
@@ -564,7 +568,7 @@ describe('Property research', () => {
     expect(report.sections.sources).toHaveLength(3);
   });
 
-  test('list_research_queue returns job summaries', () => {
+  testPlan('list_research_queue returns job summaries', () => {
     researchQueue.clear();
     queueResearchJob('456 Oak Ave', 'user-1');
     queueResearchJob('789 Pine Ln', 'user-2');
@@ -577,7 +581,7 @@ describe('Property research', () => {
     expect(jobs[0].status).toBeDefined();
   });
 
-  test('grant/revoke authorization recorded per wallet', () => {
+  testPlan('grant/revoke authorization recorded per wallet', () => {
     const wallet = 'wallet-456';
     const avatar = 'avatar-2';
 
@@ -593,7 +597,7 @@ describe('Property research', () => {
 // Avatar Templates
 // ============================================================================
 
-describe('Avatar templates', () => {
+describePlan('Avatar templates', () => {
   interface AvatarTemplate {
     id: string;
     name: string;
@@ -642,7 +646,7 @@ describe('Avatar templates', () => {
     return Array.from(templates.values());
   }
 
-  test('export returns template metadata + config', () => {
+  testPlan('export returns template metadata + config', () => {
     const template = exportTemplate('avatar-1', 'My Template', 'user@example.com');
 
     expect(template.id).toBeDefined();
@@ -652,7 +656,7 @@ describe('Avatar templates', () => {
     expect(template.createdBy).toBe('user@example.com');
   });
 
-  test('import creates an avatar from template', () => {
+  testPlan('import creates an avatar from template', () => {
     const template = exportTemplate('avatar-source', 'Source Template', 'admin@example.com');
     const result = importTemplate(template.id, 'avatar-new');
 
@@ -661,12 +665,12 @@ describe('Avatar templates', () => {
     expect(result!.fromTemplate).toBe(template.id);
   });
 
-  test('import returns null for non-existent template', () => {
+  testPlan('import returns null for non-existent template', () => {
     const result = importTemplate('non-existent-template', 'avatar-new');
     expect(result).toBeNull();
   });
 
-  test('list templates returns stored entries', () => {
+  testPlan('list templates returns stored entries', () => {
     // Clear and add fresh templates
     templates.clear();
     exportTemplate('avatar-1', 'Template 1', 'user1@example.com');
@@ -684,8 +688,8 @@ describe('Avatar templates', () => {
 // Wallet Generation
 // ============================================================================
 
-describe('Wallet generation', () => {
-  test('Ethereum: generateEthereumWallet returns checksum address', () => {
+describePlan('Wallet generation', () => {
+  testPlan('Ethereum: generateEthereumWallet returns checksum address', () => {
     // ethers.js Wallet.createRandom() generates proper secp256k1 keys
     // and returns EIP-55 checksum addresses (mixed-case)
 
@@ -727,7 +731,7 @@ describe('Wallet generation', () => {
     expect(/[A-F]/.test(lowercaseAddr.slice(2))).toBe(false);
   });
 
-  test('Solana: generateSolanaWallet returns valid public key', () => {
+  testPlan('Solana: generateSolanaWallet returns valid public key', () => {
     // Simulated Solana wallet generation
     function generateMockSolanaWallet(): { publicKey: string; secretKey: Uint8Array } {
       // In real code, uses @solana/web3.js Keypair.generate()
@@ -751,7 +755,7 @@ describe('Wallet generation', () => {
     // - Stores secret key in Secrets Manager
   });
 
-  test('Solana public key is base58 encoded', () => {
+  testPlan('Solana public key is base58 encoded', () => {
     // Base58 alphabet (no 0, O, I, l)
     const BASE58_CHARS = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
@@ -776,7 +780,7 @@ describe('Wallet generation', () => {
 // Twitter OAuth Handler
 // ============================================================================
 
-describe('Twitter OAuth handler', () => {
+describePlan('Twitter OAuth handler', () => {
   // Simulated route handler responses
   type HttpMethod = 'GET' | 'POST' | 'DELETE';
 
@@ -835,21 +839,21 @@ describe('Twitter OAuth handler', () => {
     return { statusCode: 404, body: { error: 'Not found' } };
   }
 
-  test('start route returns redirect (302)', () => {
+  testPlan('start route returns redirect (302)', () => {
     const result = handleTwitterOAuthRoute('GET', '/oauth/twitter/start', { avatarId: 'avatar-1' });
 
     expect(result.statusCode).toBe(302);
     expect(result.redirect).toContain('twitter.com');
   });
 
-  test('start route requires avatarId', () => {
+  testPlan('start route requires avatarId', () => {
     const result = handleTwitterOAuthRoute('GET', '/oauth/twitter/start', {});
 
     expect(result.statusCode).toBe(400);
     expect(result.body?.error).toContain('avatarId');
   });
 
-  test('callback route handles OAuth params', () => {
+  testPlan('callback route handles OAuth params', () => {
     const result = handleTwitterOAuthRoute('GET', '/oauth/twitter/callback', {
       oauth_token: 'token123',
       oauth_verifier: 'verifier456',
@@ -859,14 +863,14 @@ describe('Twitter OAuth handler', () => {
     expect(result.redirect).toBeDefined();
   });
 
-  test('callback route requires OAuth params', () => {
+  testPlan('callback route requires OAuth params', () => {
     const result = handleTwitterOAuthRoute('GET', '/oauth/twitter/callback', {});
 
     expect(result.statusCode).toBe(400);
     expect(result.body?.error).toContain('OAuth');
   });
 
-  test('status route returns connection info (200)', () => {
+  testPlan('status route returns connection info (200)', () => {
     const result = handleTwitterOAuthRoute('GET', '/oauth/twitter/status/avatar-1', {});
 
     expect(result.statusCode).toBe(200);
@@ -874,7 +878,7 @@ describe('Twitter OAuth handler', () => {
     expect(result.body?.avatarId).toBe('avatar-1');
   });
 
-  test('disconnect route removes connection (200)', () => {
+  testPlan('disconnect route removes connection (200)', () => {
     const result = handleTwitterOAuthRoute('DELETE', '/oauth/twitter/avatar-1', {});
 
     expect(result.statusCode).toBe(200);
