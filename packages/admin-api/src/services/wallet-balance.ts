@@ -18,6 +18,8 @@ const balanceCache = new Map<string, { balance: number; timestamp: number }>();
 export interface WalletBalanceDeps {
   getAvatar: (avatarId: string) => Promise<AvatarRecord | null>;
   getSolanaRpcUrl: () => string;
+  getAccountIdForIdentity?: (identity: { type: 'wallet' | 'privy'; providerId: string }) => Promise<string | null>;
+  getAccountIdentities?: (accountId: string) => Promise<Array<{ type: 'wallet' | 'privy'; providerId: string }>>;
 }
 
 let defaultDeps: WalletBalanceDeps | null = null;
@@ -25,10 +27,13 @@ let defaultDeps: WalletBalanceDeps | null = null;
 async function getDefaultDeps(): Promise<WalletBalanceDeps> {
   if (!defaultDeps) {
     const { getAvatar } = await import('./avatars.js');
+    const { getAccountIdForIdentity, getAccountIdentities } = await import('./accounts/index.js');
     
     defaultDeps = {
       getAvatar,
       getSolanaRpcUrl: () => process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+      getAccountIdForIdentity,
+      getAccountIdentities,
     };
   }
   return defaultDeps;
@@ -58,15 +63,42 @@ export async function getOwnerWallet(
 
 /**
  * Get all linked wallets for an avatar's owner account
- * For now, just returns the primary owner wallet
- * TODO: Expand to include all linked wallets from the account
  */
 export async function getOwnerWallets(
   avatarId: string,
   deps?: WalletBalanceDeps
 ): Promise<string[]> {
-  const ownerWallet = await getOwnerWallet(avatarId, deps);
-  return ownerWallet ? [ownerWallet] : [];
+  const d = deps ?? await getDefaultDeps();
+  const ownerWallet = await getOwnerWallet(avatarId, d);
+  if (!ownerWallet) return [];
+
+  const wallets = new Set<string>([ownerWallet]);
+
+  if (!d.getAccountIdForIdentity || !d.getAccountIdentities) {
+    return Array.from(wallets);
+  }
+
+  try {
+    const accountId = await d.getAccountIdForIdentity({
+      type: 'wallet',
+      providerId: ownerWallet,
+    });
+
+    if (!accountId) {
+      return Array.from(wallets);
+    }
+
+    const identities = await d.getAccountIdentities(accountId);
+    for (const identity of identities) {
+      if (identity.type === 'wallet' && identity.providerId) {
+        wallets.add(identity.providerId);
+      }
+    }
+  } catch {
+    // Fallback to the owner wallet when account identity lookups fail.
+  }
+
+  return Array.from(wallets);
 }
 
 /**

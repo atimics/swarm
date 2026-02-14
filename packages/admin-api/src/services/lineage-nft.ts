@@ -13,7 +13,7 @@
  * 6. Backend updates avatar state
  */
 import { Connection, type VersionedTransactionResponse } from '@solana/web3.js';
-import { UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { UpdateCommand, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import type { AvatarRecord } from '../types.js';
 import { getDynamoClient } from './dynamo-client.js';
 
@@ -517,15 +517,28 @@ export async function recordLineageMint(
 /**
  * Get lineage history for an avatar
  */
-export async function getLineageHistory(_avatarId: string): Promise<Array<{
+export async function getLineageHistory(avatarId: string): Promise<Array<{
   era: number;
   walletAddress: string;
   nftMint: string;
   mintedAt: number;
 }>> {
-  // TODO: Implement proper query when needed
-  // Would query all LINEAGE#{avatarId} ERA#{n} records
-  return [];
+  const result = await dynamoClient.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :eraPrefix)',
+    ExpressionAttributeValues: {
+      ':pk': `LINEAGE#${avatarId}`,
+      ':eraPrefix': 'ERA#',
+    },
+    ScanIndexForward: false, // newest era first
+  }));
+
+  return (result.Items ?? []).map((item) => ({
+    era: Number(item.era ?? String(item.sk).replace('ERA#', '')),
+    walletAddress: String(item.walletAddress ?? ''),
+    nftMint: String(item.nftMint ?? ''),
+    mintedAt: Number(item.mintedAt ?? 0),
+  })).filter((item) => Boolean(item.walletAddress && item.nftMint));
 }
 
 /**
