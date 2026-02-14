@@ -106,9 +106,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-output
-          # The artifact stores paths relative to the `packages/` folder (e.g. `core/dist`).
-          # Downloading into `packages/` restores them to `packages/<pkg>/dist`.
-          path: packages
+          # The artifact preserves the full path (e.g. `packages/core/dist`).
+          # Download to repo root to restore to `packages/<pkg>/dist`.
+          path: .
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
