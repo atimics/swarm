@@ -28,25 +28,12 @@ This checklist is intentionally conservative for the first production deploy.
    - `adminCertificateArn`
    - (optional) `galleryCertificateArn` if you use a custom CDN domain
 
-## 2) CDK Context (S3-backed)
-The deploy workflow downloads `packages/infra/cdk.context.json` from S3:
-- `s3://$SWARM_CDK_CONTEXT_BUCKET/swarm/cdk-context/staging/cdk.context.json`
-- `s3://$SWARM_CDK_CONTEXT_BUCKET/swarm/cdk-context/prod/cdk.context.json`
-
-Update those files to reflect the new domains.
-
-Minimum keys:
-- `adminDomain`: set to `staging-swarm.rati.chat` for staging, `swarm.rati.chat` for prod
-- `adminCertificateArn`: ACM cert ARN in us-east-1
-- `cloudflareTeamDomain`, `adminEmails` (for Cloudflare Access)
-
-Optional (recommended) keys for future multi-stack domains:
-- `domainBase`: `rati.chat`
-- `stackSubdomain`: `swarm`
-
-These allow CDK to compute the admin domain as:
-- staging: `staging-<stackSubdomain>.<domainBase>`
-- prod: `<stackSubdomain>.<domainBase>`
+## 2) CDK Context
+CDK context values are passed via `-c` flags in the deploy workflow (see `deploy-cdk-reusable.yml`).
+Key context values derived from workflow inputs/secrets:
+- `adminDomain`: derived from `admin_url` input
+- `adminCertificateArn`: from `ADMIN_CERTIFICATE_ARN` environment secret
+- `environment`, `useExistingBuckets`, `skipDomainAliases`, `stackHash`: from workflow inputs
 
 ## 3) DNS / Cloudflare
 1. Create DNS records:

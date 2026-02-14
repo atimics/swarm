@@ -36,8 +36,6 @@ on:
         required: false
       ADMIN_CERTIFICATE_ARN:
         required: false
-      SWARM_CDK_CONTEXT_BUCKET:
-        required: false
     outputs:
       distribution:
         value: ${{ jobs.cdk-deploy.outputs.distribution }}
