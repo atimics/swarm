@@ -43,6 +43,11 @@ pnpm build
 pnpm test   # optional: runs package tests
 ```
 
+## AI Agent Onboarding
+- Start with [AGENTS.md](AGENTS.md) for triage flow, where-to-look debugging map, targeted tests, and high-leverage scripts.
+- If using VS Code Copilot/agent workflows, also read [.github/copilot-instructions.md](.github/copilot-instructions.md) for repo-specific constraints and execution discipline.
+- Respect the chat-first product constraint in [docs/design-philosophy.md](docs/design-philosophy.md): no settings pages or detached config workflows.
+
 Roadmaps and planning:
 - Milestone summary: [ROADMAP.md](ROADMAP.md)
 - M1 execution plan: [docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md](docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md)

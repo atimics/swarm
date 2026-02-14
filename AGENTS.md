@@ -137,3 +137,108 @@ aws logs filter-log-events \
 - **400 on `/chat`**: Check Zod validation - request body must have `message` (string) and `history` (array). If sending `avatar`, it needs at least `id`.
 - **403 Forbidden**: Missing/expired first-party session cookie, or missing/invalid `x-internal-test-key` for internal test calls
 - **DynamoDB reserved keywords**: Use expression attribute names for reserved words like `ttl` → `#ttl`
+
+## AI Agent Quickstart (Improve + Debug)
+
+Use this section as the default workflow for AI coding/debug agents.
+
+### 1) Fast Triage Checklist (first 5-10 minutes)
+1. Confirm package and runtime assumptions:
+  - `node -v` (Node 22+ recommended)
+  - `pnpm -v`
+  - `bun -v`
+2. Install and build:
+  - `pnpm install`
+  - `pnpm build`
+3. Run fast validation before broad testing:
+  - `pnpm lint`
+  - `pnpm typecheck`
+4. Reproduce in the smallest scope possible:
+  - package-specific tests first (see “Targeted Test Commands”)
+5. If issue is integration/runtime (not unit-level), gather logs and API evidence:
+  - `./scripts/agent-logs.sh staging <avatarId> --since 2h --level ERROR`
+  - `./scripts/test-api.sh staging chat '{"message":"debug","history":[]}'`
+
+### 2) Where to Look First (by symptom)
+
+**Telegram webhook not responding / rejected requests**
+- `packages/handlers/src/telegram-webhook-shared.ts`
+- `packages/handlers/src/webhook-security.ts`
+- `packages/handlers/src/webhook-home-channel.ts`
+- `packages/admin-api/src/services/telegram.ts`
+- `docs/RUNBOOK.md` (incident + recovery playbook)
+
+**LLM/tool call errors in admin chat**
+- `packages/admin-api/src/handlers/chat.ts`
+- `packages/admin-api/src/handlers/chat-llm.ts`
+- `packages/admin-api/src/handlers/chat-tool-helpers.ts`
+- `packages/admin-api/src/services/mcp-adapter.ts`
+- `packages/mcp-server/src/` (tool definitions/registry)
+
+**Message pipeline stalls (ingest/process/respond)**
+- `packages/handlers/src/message-processor.ts`
+- `packages/handlers/src/response-sender.ts`
+- `packages/handlers/src/media-processor.ts`
+- `packages/handlers/src/continuation-processor.ts`
+- `packages/core/src/` (shared runtime/services)
+
+**Avatar config, secrets, or sync drift**
+- `packages/admin-api/src/services/avatars.ts`
+- `packages/admin-api/src/services/config-sync.ts`
+- `packages/admin-api/src/services/secrets.ts`
+- `scripts/repair-telegram-webhooks.mjs`
+- `scripts/reset-telegram-webhook-secret.mjs`
+
+**Auth/session issues (403/401 in admin)**
+- `packages/admin-api/src/auth/`
+- `packages/admin-api/src/handlers/wallet-auth.ts`
+- `packages/admin-api/src/handlers/privy-auth.ts`
+- `docs/AUTHENTICATION-IMPROVEMENTS.md`
+
+### 3) Targeted Test Commands (prefer smallest scope first)
+
+Root:
+- `bun test` (workspace tests)
+- `./scripts/test.sh` (workspace package test scripts via pnpm)
+
+Per package (examples):
+- `pnpm --filter @swarm/core test`
+- `pnpm --filter @swarm/handlers test`
+- `pnpm --filter @swarm/admin-api test`
+- `pnpm --filter @swarm/admin-ui test`
+
+Single file patterns:
+- `bun test packages/handlers/src/telegram-webhook-shared.test.ts`
+- `bun test packages/admin-api/src/handlers/chat.test.ts`
+
+### 4) Debug Script Index (high leverage)
+- `scripts/test-api.sh` — direct API testing with `x-internal-test-key`
+- `scripts/agent-logs.sh` — consolidated avatar logs (`fast` DynamoDB or CloudWatch mode)
+- `scripts/agent-inspect.sh` — snapshot avatar state + integrations + events + logs
+- `scripts/telegram-monitor.mjs` — Telegram monitoring helpers
+- `scripts/repair-telegram-webhooks.mjs` — repair webhook registrations
+- `scripts/report-telegram-webhook-mismatches.mjs` — detect webhook/secret mismatches
+- `scripts/reset-telegram-webhook-secret.mjs` — rotate webhook secret
+- `scripts/smoke-admin-ui.mjs` — UI smoke checks
+
+### 5) Code Navigation Map
+- Runtime handler exports: `packages/handlers/src/index.ts`
+- Admin handler exports: `packages/admin-api/src/handlers/index.ts`
+- Core shared types/services: `packages/core/src/`
+- Infra stacks/constructs: `packages/infra/src/`
+- MCP tool layer: `packages/mcp-server/src/`
+
+### 6) Working Rules for AI Agents in this Repo
+- Keep changes minimal and package-scoped; avoid broad refactors while debugging.
+- Verify with targeted tests first, then broader checks.
+- Prefer existing scripts in `scripts/` over ad-hoc shell pipelines.
+- Do not deploy from local unless explicitly asked; default is GitHub Actions-based deployment.
+- Never log or commit secrets; use Secrets Manager paths and write-only flows.
+- Preserve chat-first UX: new user workflows must stay inside conversational/inline prompt patterns.
+
+### 7) Evidence to Capture in Fix PRs
+When finishing a bugfix, include:
+- Repro steps (command + input)
+- Root cause file(s)/function(s)
+- Validation commands and result summary
+- Any runbook/doc updates done
