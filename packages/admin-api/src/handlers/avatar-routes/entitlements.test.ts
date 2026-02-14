@@ -17,7 +17,6 @@ let slotOrbResult: unknown = { success: true };
 let unslotOrbResult: unknown = { success: true };
 let getEntitlementResult: unknown = null;
 let setEntitlementResult: unknown = {};
-let effectiveLimitsResult: unknown = { plan: 'free', limits: {}, source: 'default', entitlementStatus: 'active' };
 let activateResult: unknown = { success: true };
 let deactivateResult: unknown = { success: true };
 let recordAuditEventCalls: unknown[] = [];
@@ -53,11 +52,9 @@ mock.module('../../services/entitlements.js', () => ({
   setEntitlement: async () => setEntitlementResult,
 }));
 
-mock.module('../../services/runtime-limits.js', () => ({
-  getEffectiveLimitsForAvatar: () => effectiveLimitsResult,
-  toRuntimeLimits: () => ({}),
-  syncRuntimeLimitsToState: async () => {},
-}));
+// NOTE: We do NOT mock runtime-limits.js here to avoid interfering with
+// runtime-limits.test.ts when tests run in parallel. The real implementation
+// works fine for these tests.
 
 mock.module('../../services/activation-readiness.js', () => ({
   ACTIVATION_READINESS_VERSION: 'activation_readiness_v1',
@@ -95,7 +92,6 @@ beforeEach(() => {
   unslotOrbResult = { success: true };
   getEntitlementResult = null;
   setEntitlementResult = { plan: 'pro' };
-  effectiveLimitsResult = { plan: 'free', limits: {}, source: 'default', entitlementStatus: 'active' };
   activateResult = { success: true };
   deactivateResult = { success: true };
   recordAuditEventCalls = [];

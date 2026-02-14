@@ -94,10 +94,7 @@ export function getEffectiveLimitsForAvatar(
   avatarId: string,
   entitlement: EntitlementRecord | null
 ): EffectiveLimitsResult {
-  const rawEntitlement = entitlement as Record<string, unknown> | null;
-  const entitlementStatus = rawEntitlement && typeof rawEntitlement.status === 'string'
-    ? (rawEntitlement.status as EntitlementRecord['status'])
-    : undefined;
+  const entitlementStatus = entitlement?.status;
 
   if (!entitlement) {
     return {
