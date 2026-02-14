@@ -24,11 +24,9 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
-import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
-import { createManagedWebAcl } from '../utils/waf.js';
 
 export interface AdminApiConstructProps {
   /**
@@ -607,19 +605,9 @@ export class AdminApiConstruct extends Construct {
       });
     }
 
-    const adminApiWebAcl = createManagedWebAcl(this, 'AdminApiWebAcl', {
-      scope: 'REGIONAL',
-      name: `swarm-admin-api-${environment}${suffix}-webacl`,
-      metricPrefix: `swarm-admin-api-${environment}${suffix}`,
-    });
-
-    const adminApiWebAclAssociation = new wafv2.CfnWebACLAssociation(this, 'AdminApiWebAclAssociation', {
-      webAclArn: adminApiWebAcl.attrArn,
-      resourceArn: `arn:${cdk.Aws.PARTITION}:apigateway:${cdk.Aws.REGION}::/apis/${this.api.apiId}/stages/$default`,
-    });
-    if (defaultStage) {
-      adminApiWebAclAssociation.node.addDependency(defaultStage);
-    }
+    // NOTE: WAFv2 WebACL association is not supported for API Gateway HTTP APIs (v2).
+    // The Admin API uses an HTTP API, so WAF protection must be applied at a
+    // different layer (e.g., CloudFront or an ALB in front of the API).
 
     // Telegram needs a publicly reachable webhook URL. In non-prod environments,
     // our custom domain is often protected by upstream auth/WAF rules, so
