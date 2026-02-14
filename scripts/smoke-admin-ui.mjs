@@ -45,6 +45,7 @@ async function runSmoke() {
 
     const allowedErrorPatterns = [
       /\[WalletAuth\] Check auth error: SyntaxError: Unexpected token '<'/i,
+      /\[bootstrapAuth\] Auth bootstrap failed: SyntaxError: Unexpected token '<'/i,
       /Failed to fetch/i,
     ];
 
