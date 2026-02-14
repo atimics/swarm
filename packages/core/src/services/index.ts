@@ -72,3 +72,10 @@ export {
   type CircuitBreaker,
   type CircuitState,
 } from './circuit-breaker.js';
+export {
+  createLegacyBrainService,
+  type BrainService,
+  type BrainMemoryFact,
+  type BrainRememberResult,
+  type BrainRecallResult,
+} from './brain.js';

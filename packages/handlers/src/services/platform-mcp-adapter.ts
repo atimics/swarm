@@ -23,6 +23,7 @@ import type {
 import { TwitterAdapter, DiscordAdapter, createContentStoreService, enqueuePost, isPostQueueConfigured, getPostQueueUrl, enqueueMediaJob, isMediaQueueConfigured, getMediaQueueUrl } from '@swarm/core';
 import { GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
+import { createRuntimeBrainService } from './brain.js';
 import {
   checkMediaLimit,
   checkMediaWithEnergyFallback,
@@ -95,6 +96,7 @@ export interface PlatformServicesConfig {
  */
 export function createPlatformMCPServices(config: PlatformServicesConfig): AllServices {
   const { avatarId, avatarConfig, stateService, mediaService, wallets } = config;
+  const brainService = createRuntimeBrainService(stateService);
   const rawVoiceServices = createVoiceServices({
     avatarId,
     secrets: config.secrets,
@@ -633,22 +635,25 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     },
 
     // =========================================================================
-    // Memory Services (wired to state service!)
+    // Memory Services (wired to unified brain adapter)
     // =========================================================================
     memory: {
       remember: async (fact: string, about?: string, userId?: string) => {
-        await stateService.saveFact(avatarId, {
-          fact,
-          about,
-          userId,
-          timestamp: Date.now(),
-        });
-        return { saved: true };
+        const result = await brainService.remember(avatarId, fact, about, userId);
+        return { saved: result.saved };
       },
 
       recall: async (query: string, userId?: string) => {
-        const facts = await stateService.getFacts(avatarId, query, userId);
-        return { facts };
+        const result = await brainService.recall(avatarId, query, userId);
+        return {
+          facts: result.facts.map((item) => ({
+            fact: item.fact,
+            about: item.about,
+            userId: item.userId,
+            timestamp: item.timestamp,
+            strength: item.strength,
+          })),
+        };
       },
     },
 
