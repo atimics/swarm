@@ -39,12 +39,14 @@ mock.module('./entitlements.js', () => ({
 
 mock.module('./runtime-limits.js', () => ({
   getEffectiveLimitsForAvatar: (_avatarId: string, entitlement: EntitlementRecord | null) => {
-    if (!entitlement || (entitlement.status !== 'active' && entitlement.status !== 'trial')) {
+    const entitlementStatus = entitlement?.status;
+    if (!entitlement || (entitlementStatus !== 'active' && entitlementStatus !== 'trial')) {
       return {
         avatarId: _avatarId,
         plan: 'free',
         limits: PLAN_DEFAULTS.free,
         source: 'default',
+        entitlementStatus,
       };
     }
     return {
@@ -52,7 +54,7 @@ mock.module('./runtime-limits.js', () => ({
       plan: entitlement.plan,
       limits: entitlement.limits ?? PLAN_DEFAULTS[entitlement.plan],
       source: 'entitlement',
-      entitlementStatus: entitlement.status,
+      entitlementStatus,
     };
   },
   toRuntimeLimits: (limits: PlanLimits) => ({
