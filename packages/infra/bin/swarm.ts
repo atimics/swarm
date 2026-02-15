@@ -109,6 +109,8 @@ const enableClaudeCode = parseBoolean(getContextValue<unknown>('enableClaudeCode
 const claudeCodeUseOpenRouter = parseBoolean(getContextValue<unknown>('claudeCodeUseOpenRouter', envConfig)) ?? false;
 const enableDiscordGateway = parseBoolean(getContextValue<unknown>('enableDiscordGateway', envConfig)) ?? false;
 const useExistingResources = parseBoolean(getContextValue<unknown>('useExistingResources', envConfig)) ?? false;
+const useExistingBuckets = parseBoolean(app.node.tryGetContext('useExistingBuckets')) ?? false;
+const skipDomainAliases = parseBoolean(app.node.tryGetContext('skipDomainAliases')) ?? false;
 const anthropicApiKeyArn = getContextValue<string>('anthropicApiKeyArn', envConfig);
 const secretPrefixRaw = getContextValue<string>('secretPrefix', envConfig);
 const stackHashRaw = getContextValue<string>('stackHash', envConfig);
@@ -203,6 +205,8 @@ const adminUiStack = new AdminUiStack(app, `SwarmUi-${environment}${nameSuffix}`
   adminApiStack,
   adminDomain,
   adminCertificateArn,
+  useExistingBuckets,
+  skipDomainAliases,
   env: stackEnv,
   description: `Swarm Admin UI (${environment})`,
 });

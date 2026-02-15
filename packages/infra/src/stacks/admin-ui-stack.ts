@@ -32,6 +32,16 @@ export interface AdminUiStackProps extends cdk.StackProps {
    * ACM certificate ARN for Admin UI custom domain (must be in us-east-1)
    */
   adminCertificateArn?: string;
+
+  /**
+   * Whether to import an existing S3 bucket instead of creating a new one
+   */
+  useExistingBuckets?: boolean;
+
+  /**
+   * Whether to skip adding domain aliases to the CloudFront distribution
+   */
+  skipDomainAliases?: boolean;
 }
 
 export class AdminUiStack extends cdk.Stack {
@@ -40,7 +50,7 @@ export class AdminUiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: AdminUiStackProps) {
     super(scope, id, props);
 
-    const { environment, adminApiStack, adminDomain, adminCertificateArn, nameSuffix } = props;
+    const { environment, adminApiStack, adminDomain, adminCertificateArn, nameSuffix, useExistingBuckets, skipDomainAliases } = props;
 
     // Get API Gateway hostname from the Admin API stack
     let apiGatewayHost: string | undefined;
@@ -57,6 +67,8 @@ export class AdminUiStack extends cdk.Stack {
       certificateArn: adminCertificateArn,
       apiDomain: apiGatewayHost,
       nameSuffix,
+      useExistingBucket: useExistingBuckets,
+      skipDomainAliases,
     });
 
     // Outputs
