@@ -156,7 +156,7 @@ jobs:
         working-directory: packages/infra
         run: rm -rf cdk.out
 
-      - name: Delete ROLLBACK_COMPLETE stacks
+      - name: Delete broken stacks
         env:
           STACK_HASH: ${{ inputs.stack_hash }}
         run: |
@@ -165,16 +165,17 @@ jobs:
             STACK_SUFFIX="-$STACK_HASH"
           fi
 
-          DELETED_STACKS=""
           for STACK_NAME in "SwarmShared-${{ inputs.cdk_env }}${STACK_SUFFIX}" "SwarmApi-${{ inputs.cdk_env }}${STACK_SUFFIX}" "SwarmUi-${{ inputs.cdk_env }}${STACK_SUFFIX}"; do
             STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
-            if [ "$STATUS" = "ROLLBACK_COMPLETE" ]; then
-              echo "⚠️ Stack '$STACK_NAME' is in ROLLBACK_COMPLETE state — deleting before redeploy"
-              aws cloudformation delete-stack --stack-name "$STACK_NAME"
-              aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
-              echo "✅ Deleted '$STACK_NAME'"
-              DELETED_STACKS="$DELETED_STACKS $STACK_NAME"
-            fi
+            # Delete stacks stuck in unrecoverable states (failed create, failed changeset, etc.)
+            case "$STATUS" in
+              ROLLBACK_COMPLETE|REVIEW_IN_PROGRESS|CREATE_FAILED|DELETE_FAILED)
+                echo "⚠️ Stack '$STACK_NAME' is in $STATUS state — deleting before redeploy"
+                aws cloudformation delete-stack --stack-name "$STACK_NAME"
+                aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
+                echo "✅ Deleted '$STACK_NAME'"
+                ;;
+            esac
           done
 
       - name: Clean orphaned log groups
@@ -186,16 +187,20 @@ jobs:
             STACK_SUFFIX="-$STACK_HASH"
           fi
 
-          # Delete ECS log groups whose parent stack doesn't exist (orphaned by RETAIN policy)
+          # Delete ECS log groups whose parent stack is missing or broken
           for LG in $(aws logs describe-log-groups --log-group-name-prefix "/ecs/swarm-" --query 'logGroups[].logGroupName' --output text 2>/dev/null); do
             if [[ "$LG" == *"-${{ inputs.cdk_env }}${STACK_SUFFIX}"* ]]; then
-              # Check if the parent stack exists
               PARENT_STACK="SwarmApi-${{ inputs.cdk_env }}${STACK_SUFFIX}"
               STATUS=$(aws cloudformation describe-stacks --stack-name "$PARENT_STACK" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
-              if [ "$STATUS" = "DOES_NOT_EXIST" ] || [ "$STATUS" = "ROLLBACK_COMPLETE" ]; then
-                echo "Deleting orphaned log group: $LG (parent stack $PARENT_STACK is $STATUS)"
-                aws logs delete-log-group --log-group-name "$LG" || true
-              fi
+              case "$STATUS" in
+                CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE|IMPORT_COMPLETE)
+                  echo "Keeping log group $LG (parent stack $PARENT_STACK is $STATUS)"
+                  ;;
+                *)
+                  echo "Deleting orphaned log group: $LG (parent stack $PARENT_STACK is $STATUS)"
+                  aws logs delete-log-group --log-group-name "$LG" || true
+                  ;;
+              esac
             fi
           done
 
