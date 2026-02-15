@@ -2,12 +2,12 @@
  * Logs Service Tests
  * Tests CloudWatch Logs query with dependency injection
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { queryAvatarLogs, type LogsServiceDeps } from './logs.js';
 
 // Helper to create mock deps
-function createMockDeps(): LogsServiceDeps & { mockSend: ReturnType<typeof mock> } {
-  const mockSend = mock(() => Promise.resolve({}));
+function createMockDeps(): LogsServiceDeps & { mockSend: ReturnType<typeof vi.fn> } {
+  const mockSend = vi.fn(() => Promise.resolve({}));
 
   return {
     logsClient: {
@@ -21,7 +21,7 @@ function createMockDeps(): LogsServiceDeps & { mockSend: ReturnType<typeof mock>
 }
 
 describe('logsService', () => {
-  let mockDeps: LogsServiceDeps & { mockSend: ReturnType<typeof mock> };
+  let mockDeps: LogsServiceDeps & { mockSend: ReturnType<typeof vi.fn> };
   const avatarId = 'test-avatar';
 
   beforeEach(() => {

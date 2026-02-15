@@ -6,7 +6,7 @@
  *   DELETE /avatars/{id}/memories/{memId}  - Delete a specific memory
  *   GET    /avatars/{id}/memories/export   - Export all memories as JSON
  */
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock state ─────────────────────────────────────────────────────────────
 let getAvatarResult: unknown = null;

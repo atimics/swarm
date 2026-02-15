@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MessageProcessor, createMessageProcessor, type MessageProcessorDependencies, type LLMResponse, type ToolExecutionResult } from './message-processor.js';
 import type { ProcessorConfig, ProcessorAvatarConfig, ProcessorMessage } from './types.js';
 
@@ -25,27 +25,27 @@ describe('MessageProcessor', () => {
 
     mockDeps = {
       avatarService: {
-        getAvatar: mock(() => Promise.resolve(mockAvatar)),
+        getAvatar: vi.fn(() => Promise.resolve(mockAvatar)),
       },
       memoryService: {
-        getMemoryContext: mock(() => Promise.resolve(null)),
-        remember: mock(() => Promise.resolve()),
-        recall: mock(() => Promise.resolve([])),
+        getMemoryContext: vi.fn(() => Promise.resolve(null)),
+        remember: vi.fn(() => Promise.resolve()),
+        recall: vi.fn(() => Promise.resolve([])),
       },
       dreamsService: {
-        getDreamForResponse: mock(() => Promise.resolve({ dream: null, isGenerating: false })),
-        formatDreamForPrompt: mock(() => null),
+        getDreamForResponse: vi.fn(() => Promise.resolve({ dream: null, isGenerating: false })),
+        formatDreamForPrompt: vi.fn(() => null),
       },
       voiceService: {
-        transcribeAudio: mock(() => Promise.resolve({ text: 'Transcribed text' })),
+        transcribeAudio: vi.fn(() => Promise.resolve({ text: 'Transcribed text' })),
       },
-      getRegisteredTools: mock(() => Promise.resolve([])),
-      toLLMFormat: mock(() => Promise.resolve([])),
-      callLLM: mock(() => Promise.resolve({
+      getRegisteredTools: vi.fn(() => Promise.resolve([])),
+      toLLMFormat: vi.fn(() => Promise.resolve([])),
+      callLLM: vi.fn(() => Promise.resolve({
         content: 'Hello from the LLM!',
         finishReason: 'stop',
       } as LLMResponse)),
-      executeTool: mock(() => Promise.resolve({
+      executeTool: vi.fn(() => Promise.resolve({
         success: true,
         data: { message: 'Tool executed' },
       } as ToolExecutionResult)),
@@ -82,7 +82,7 @@ describe('MessageProcessor', () => {
 
         await processor.process('Hello!', [], config);
 
-        const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+        const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
         expect(callArgs.messages[0].role).toBe('system');
         expect(callArgs.messages[0].content).toContain('## Platform News');
         expect(callArgs.messages[0].content).toContain('Added X');
@@ -97,7 +97,7 @@ describe('MessageProcessor', () => {
     });
 
     it('should return error when avatar not found', async () => {
-      (mockDeps.avatarService.getAvatar as ReturnType<typeof mock>).mockImplementation(() => Promise.resolve(null));
+      (mockDeps.avatarService.getAvatar as ReturnType<typeof vi.fn>).mockImplementation(() => Promise.resolve(null));
 
       const config: ProcessorConfig = {
         avatarId: 'nonexistent-avatar',
@@ -124,7 +124,7 @@ describe('MessageProcessor', () => {
 
       await processor.process('What was my first message?', history, config);
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(callArgs.messages.length).toBeGreaterThan(2); // system + history + new message
     });
 
@@ -139,7 +139,7 @@ describe('MessageProcessor', () => {
         customSystemPrompt: 'You are a custom assistant.',
       });
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(callArgs.messages[0].content).toBe('You are a custom assistant.');
     });
   });
@@ -148,7 +148,7 @@ describe('MessageProcessor', () => {
     it('should execute tool calls from LLM response', async () => {
       // First call returns tool call, second call returns final response
       let callCount = 0;
-      (mockDeps.callLLM as ReturnType<typeof mock>).mockImplementation(() => {
+      (mockDeps.callLLM as ReturnType<typeof vi.fn>).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({
@@ -188,7 +188,7 @@ describe('MessageProcessor', () => {
 
     it('should handle invalid tool arguments gracefully', async () => {
       let callCount = 0;
-      (mockDeps.callLLM as ReturnType<typeof mock>).mockImplementation(() => {
+      (mockDeps.callLLM as ReturnType<typeof vi.fn>).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({
@@ -224,7 +224,7 @@ describe('MessageProcessor', () => {
 
     it('should collect media from tool results', async () => {
       let callCount = 0;
-      (mockDeps.callLLM as ReturnType<typeof mock>).mockImplementation(() => {
+      (mockDeps.callLLM as ReturnType<typeof vi.fn>).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({
@@ -246,7 +246,7 @@ describe('MessageProcessor', () => {
         } as LLMResponse);
       });
 
-      (mockDeps.executeTool as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.executeTool as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve({
           success: true,
           media: { type: 'image', url: 'https://example.com/cat.png' },
@@ -269,7 +269,7 @@ describe('MessageProcessor', () => {
 
     it('should collect pending jobs from tool results', async () => {
       let callCount = 0;
-      (mockDeps.callLLM as ReturnType<typeof mock>).mockImplementation(() => {
+      (mockDeps.callLLM as ReturnType<typeof vi.fn>).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({
@@ -291,7 +291,7 @@ describe('MessageProcessor', () => {
         } as LLMResponse);
       });
 
-      (mockDeps.executeTool as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.executeTool as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve({
           success: true,
           pendingJob: {
@@ -318,7 +318,7 @@ describe('MessageProcessor', () => {
 
     it('should stop after max iterations', async () => {
       // Always return tool calls to trigger max iterations
-      (mockDeps.callLLM as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.callLLM as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve({
           content: '',
           toolCalls: [{
@@ -348,7 +348,7 @@ describe('MessageProcessor', () => {
   describe('context injection', () => {
     it('should inject memory context when memory category is enabled', async () => {
       mockAvatar.enabledCategories = ['memory', 'profile'];
-      (mockDeps.memoryService!.getMemoryContext as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.memoryService!.getMemoryContext as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve('## Memory Context\nUser likes cats.')
       );
 
@@ -360,13 +360,13 @@ describe('MessageProcessor', () => {
 
       await processor.process('Hello!', [], config);
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(callArgs.messages[0].content).toContain('Memory Context');
     });
 
     it('should inject memory context even when customSystemPrompt is provided', async () => {
       mockAvatar.enabledCategories = ['memory'];
-      (mockDeps.memoryService!.getMemoryContext as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.memoryService!.getMemoryContext as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve('## Memory Context\nUser likes cats.')
       );
 
@@ -380,7 +380,7 @@ describe('MessageProcessor', () => {
         customSystemPrompt: '## Custom Prompt\nBe extremely concise.',
       });
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(callArgs.messages[0].content).toContain('Custom Prompt');
       expect(callArgs.messages[0].content).toContain('Memory Context');
     });
@@ -389,10 +389,10 @@ describe('MessageProcessor', () => {
       mockAvatar.enabledCategories = ['memory'];
 
       // Provide both methods; processor should use getMemoryContextForQuery.
-      (mockDeps.memoryService as any).getMemoryContextForQuery = mock(() =>
+      (mockDeps.memoryService as any).getMemoryContextForQuery = vi.fn(() =>
         Promise.resolve('## Relevant Memories\n- Query-specific memory.')
       );
-      (mockDeps.memoryService!.getMemoryContext as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.memoryService!.getMemoryContext as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve('## Memory Context\n- Generic memory.')
       );
 
@@ -404,16 +404,16 @@ describe('MessageProcessor', () => {
 
       await processor.process('Tell me about cats', [], config);
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(callArgs.messages[0].content).toContain('Query-specific memory');
       expect((mockDeps.memoryService as any).getMemoryContextForQuery).toHaveBeenCalledWith('test-avatar', 'Tell me about cats');
     });
 
     it('should inject dreams context when enabled', async () => {
-      (mockDeps.dreamsService!.getDreamForResponse as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.dreamsService!.getDreamForResponse as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve({ dream: { content: 'A dream about cats' }, isGenerating: false })
       );
-      (mockDeps.dreamsService!.formatDreamForPrompt as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.dreamsService!.formatDreamForPrompt as ReturnType<typeof vi.fn>).mockImplementation(() =>
         '## Recent Dream\nI dreamed about cats.'
       );
 
@@ -425,7 +425,7 @@ describe('MessageProcessor', () => {
 
       await processor.process('Hello!', [], config, { dreamsEnabled: true });
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(callArgs.messages[0].content).toContain('Recent Dream');
     });
   });
@@ -447,14 +447,14 @@ describe('MessageProcessor', () => {
         url: 'https://example.com/audio.ogg',
       });
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       const userMessage = callArgs.messages.find((m: ProcessorMessage) => m.role === 'user');
       expect(userMessage?.content).toContain('[Voice message transcription]');
       expect(userMessage?.content).toContain('Transcribed text');
     });
 
     it('should handle audio transcription failure gracefully', async () => {
-      (mockDeps.voiceService!.transcribeAudio as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.voiceService!.transcribeAudio as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.reject(new Error('Transcription failed'))
       );
 
@@ -468,7 +468,7 @@ describe('MessageProcessor', () => {
         attachments: [{ type: 'audio', data: 'https://example.com/audio.ogg' }],
       });
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       const userMessage = callArgs.messages.find((m: ProcessorMessage) => m.role === 'user');
       expect(userMessage?.content).toContain('transcription failed');
     });
@@ -484,7 +484,7 @@ describe('MessageProcessor', () => {
         attachments: [{ type: 'image', data: 'https://example.com/image.png' }],
       });
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       const userMessage = callArgs.messages.find((m: ProcessorMessage) => m.role === 'user');
       expect(Array.isArray(userMessage?.content)).toBe(true);
       const content = userMessage?.content as Array<{ type: string; image_url?: { url: string } }>;
@@ -502,7 +502,7 @@ describe('MessageProcessor', () => {
 
       await processor.process('Hello!', [], config);
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       // Admin-UI gets full dynamic prompt with capabilities
       expect(callArgs.messages[0].content).toContain('Identity');
     });
@@ -516,7 +516,7 @@ describe('MessageProcessor', () => {
 
       await processor.process('Hello!', [], config);
 
-      const callArgs = (mockDeps.callLLM as ReturnType<typeof mock>).mock.calls[0][0];
+      const callArgs = (mockDeps.callLLM as ReturnType<typeof vi.fn>).mock.calls[0][0];
       // Telegram gets shorter chat prompt
       expect(callArgs.messages[0].content).toBeDefined();
     });
@@ -525,7 +525,7 @@ describe('MessageProcessor', () => {
   describe('avatar updates tracking', () => {
     it('should track profile image updates', async () => {
       let callCount = 0;
-      (mockDeps.callLLM as ReturnType<typeof mock>).mockImplementation(() => {
+      (mockDeps.callLLM as ReturnType<typeof vi.fn>).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({
@@ -547,7 +547,7 @@ describe('MessageProcessor', () => {
         } as LLMResponse);
       });
 
-      (mockDeps.executeTool as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.executeTool as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve({
           success: true,
           data: { url: 'https://example.com/new-avatar.png' },
@@ -571,11 +571,11 @@ describe('MessageProcessor', () => {
 describe('createMessageProcessor', () => {
   it('should create a MessageProcessor instance', () => {
     const mockDeps: MessageProcessorDependencies = {
-      avatarService: { getAvatar: mock(() => Promise.resolve(null)) },
-      getRegisteredTools: mock(() => Promise.resolve([])),
-      toLLMFormat: mock(() => Promise.resolve([])),
-      callLLM: mock(() => Promise.resolve({ content: '', finishReason: 'stop' })),
-      executeTool: mock(() => Promise.resolve({ success: true })),
+      avatarService: { getAvatar: vi.fn(() => Promise.resolve(null)) },
+      getRegisteredTools: vi.fn(() => Promise.resolve([])),
+      toLLMFormat: vi.fn(() => Promise.resolve([])),
+      callLLM: vi.fn(() => Promise.resolve({ content: '', finishReason: 'stop' })),
+      executeTool: vi.fn(() => Promise.resolve({ success: true })),
     };
 
     const processor = createMessageProcessor(mockDeps);

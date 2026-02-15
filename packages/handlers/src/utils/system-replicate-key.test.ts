@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import type { SecretsService } from '@swarm/core';
 import { ensureReplicateKey, getSystemReplicateKey } from './system-replicate-key.js';
 

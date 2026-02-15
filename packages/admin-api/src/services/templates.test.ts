@@ -2,7 +2,7 @@
  * Template Service Tests
  * Tests template import/export with dependency injection
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   exportAvatarAsTemplate,
   listTemplates,
@@ -13,8 +13,8 @@ import type { AvatarRecord, UserSession } from '../types.js';
 
 // Helper to create mock deps
 function createMockDeps(): TemplateServiceDeps {
-  const mockSend = mock(() => Promise.resolve({}));
-  const mockCreateAvatar = mock((name: string, _session: UserSession, desc?: string) =>
+  const mockSend = vi.fn(() => Promise.resolve({}));
+  const mockCreateAvatar = vi.fn((name: string, _session: UserSession, desc?: string) =>
     Promise.resolve({
       pk: 'AVATAR#new-avatar',
       sk: 'CONFIG',
@@ -97,7 +97,7 @@ describe('TemplateService', () => {
       };
 
       let capturedCommand: unknown;
-      (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation((cmd) => {
+      (mockDeps.dynamoClient.send as ReturnType<typeof vi.fn>).mockImplementation((cmd) => {
         capturedCommand = cmd;
         return Promise.resolve({});
       });
@@ -114,7 +114,7 @@ describe('TemplateService', () => {
 
   describe('listTemplates', () => {
     it('returns stored templates', async () => {
-      (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.dynamoClient.send as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve({
           Items: [
             { templateId: 't1', name: 'T1', config: {}, description: 'Desc 1', createdAt: 1000 },
@@ -131,7 +131,7 @@ describe('TemplateService', () => {
     });
 
     it('returns empty array when no templates', async () => {
-      (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.dynamoClient.send as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve({ Items: [] })
       );
 
@@ -143,7 +143,7 @@ describe('TemplateService', () => {
   describe('createAvatarFromTemplate', () => {
     it('creates an avatar from template', async () => {
       let callCount = 0;
-      (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() => {
+      (mockDeps.dynamoClient.send as ReturnType<typeof vi.fn>).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           // GetCommand for template
@@ -171,7 +171,7 @@ describe('TemplateService', () => {
 
     it('uses template name when avatarName not provided', async () => {
       let callCount = 0;
-      (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() => {
+      (mockDeps.dynamoClient.send as ReturnType<typeof vi.fn>).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({
@@ -193,7 +193,7 @@ describe('TemplateService', () => {
     });
 
     it('throws error when template not found', async () => {
-      (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.dynamoClient.send as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve({ Item: undefined })
       );
 

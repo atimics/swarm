@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { loadTwitterSecretsFallback, shouldProcessMention } from './twitter-mention-poller-logic.js';
 
 describe('twitter-mention-poller shared logic', () => {

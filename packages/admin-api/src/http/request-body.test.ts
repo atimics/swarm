@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import { parseJsonBody } from './request-body.js';
 import { isRequestValidationError } from '../middleware/validate.js';
 

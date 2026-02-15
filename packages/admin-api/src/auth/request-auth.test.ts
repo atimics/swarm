@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
 import { authenticateRequest } from './request-auth.js';

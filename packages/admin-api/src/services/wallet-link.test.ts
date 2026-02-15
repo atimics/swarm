@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, vi } from 'vitest';
 import { createLinkWalletChallenge, verifyLinkWallet, type WalletLinkDeps } from './wallet-link.js';
 
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
@@ -116,8 +116,8 @@ describe('wallet-link service', () => {
   });
 
   it('verifyLinkWallet consumes challenge, validates signature, and links identity', async () => {
-    const verifySignature = mock(() => true);
-    const ensureIdentityLinkedToAccount = mock(async () => ({ linked: true, conflict: false }));
+    const verifySignature = vi.fn(() => true);
+    const ensureIdentityLinkedToAccount = vi.fn(async () => ({ linked: true, conflict: false }));
     const { deps, db } = makeDeps({ verifySignature, ensureIdentityLinkedToAccount });
 
     // Seed challenge record
@@ -152,7 +152,7 @@ describe('wallet-link service', () => {
   });
 
   it('verifyLinkWallet does not loop on invalid signature (consumes the challenge once)', async () => {
-    const verifySignature = mock(() => false);
+    const verifySignature = vi.fn(() => false);
     const { deps, db } = makeDeps({ verifySignature });
 
     db.store.set('LINKCHALLENGE#nonce-1|DATA', {
@@ -183,7 +183,7 @@ describe('wallet-link service', () => {
   });
 
   it('verifyLinkWallet rejects mismatched wallet/account atomically and leaves challenge untouched', async () => {
-    const verifySignature = mock(() => true);
+    const verifySignature = vi.fn(() => true);
     const { deps, db } = makeDeps({ verifySignature });
 
     db.store.set('LINKCHALLENGE#nonce-1|DATA', {

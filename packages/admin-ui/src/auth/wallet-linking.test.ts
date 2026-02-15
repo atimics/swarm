@@ -1,11 +1,11 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, vi } from 'vitest';
 import { signMessageWithFallback, signWalletLinkMessage } from './wallet-linking.js';
 
 const encoder = new TextEncoder();
 
 describe('wallet linking message signing', () => {
   it('signMessageWithFallback uses privy signMessage when available', async () => {
-    const privySignMessage = mock(async () => Uint8Array.from([1, 2, 3]));
+    const privySignMessage = vi.fn(async () => Uint8Array.from([1, 2, 3]));
 
     const result = await signMessageWithFallback({
       message: encoder.encode('hello'),
@@ -18,13 +18,13 @@ describe('wallet linking message signing', () => {
   });
 
   it('signMessageWithFallback falls back to Phantom when privy signMessage fails', async () => {
-    const privySignMessage = mock(async () => {
+    const privySignMessage = vi.fn(async () => {
       throw new Error('privy failed');
     });
 
     const phantomProvider = {
       isConnected: true,
-      signMessage: mock(async () => ({ signature: Uint8Array.from([9, 9, 9]) })),
+      signMessage: vi.fn(async () => ({ signature: Uint8Array.from([9, 9, 9]) })),
     };
 
     const result = await signMessageWithFallback({
@@ -38,7 +38,7 @@ describe('wallet linking message signing', () => {
   });
 
   it('uses privy signMessage when available', async () => {
-    const privySignMessage = mock(async () => Uint8Array.from([1, 2, 3]));
+    const privySignMessage = vi.fn(async () => Uint8Array.from([1, 2, 3]));
 
     const result = await signWalletLinkMessage({
       message: encoder.encode('hello'),
@@ -51,13 +51,13 @@ describe('wallet linking message signing', () => {
   });
 
   it('falls back to Phantom when privy signMessage fails', async () => {
-    const privySignMessage = mock(async () => {
+    const privySignMessage = vi.fn(async () => {
       throw new Error('privy failed');
     });
 
     const phantomProvider = {
       isConnected: true,
-      signMessage: mock(async () => ({ signature: Uint8Array.from([9, 9, 9]) })),
+      signMessage: vi.fn(async () => ({ signature: Uint8Array.from([9, 9, 9]) })),
     };
 
     const result = await signWalletLinkMessage({

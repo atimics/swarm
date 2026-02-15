@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { getAccountGateStatus } from './account-gate.js';
 
 function gateStatus(availableSlots: number, nftsHeld: number) {

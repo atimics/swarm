@@ -4,7 +4,7 @@
  * Tests for the OAuth 1.0a 3-legged flow for connecting X/Twitter accounts.
  * Uses dependency injection for testing instead of module mocking.
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   isConfigured,
   startOAuthFlow,
@@ -20,25 +20,25 @@ import type { UserSession } from '../types.js';
 // Mock TwitterApi class
 class MockTwitterApi {
   config: { appKey: string; appSecret: string; accessToken?: string; accessSecret?: string };
-  mockGenerateAuthLink: ReturnType<typeof mock>;
-  mockLogin: ReturnType<typeof mock>;
-  mockMe: ReturnType<typeof mock>;
+  mockGenerateAuthLink: ReturnType<typeof vi.fn>;
+  mockLogin: ReturnType<typeof vi.fn>;
+  mockMe: ReturnType<typeof vi.fn>;
 
   constructor(config: { appKey: string; appSecret: string; accessToken?: string; accessSecret?: string }) {
     this.config = config;
-    this.mockGenerateAuthLink = mock(() => Promise.resolve({
+    this.mockGenerateAuthLink = vi.fn(() => Promise.resolve({
       url: 'https://twitter.com/oauth/authorize?oauth_token=test-token',
       oauth_token: 'test-oauth-token',
       oauth_token_secret: 'test-oauth-secret',
     }));
-    this.mockLogin = mock(() => Promise.resolve({
+    this.mockLogin = vi.fn(() => Promise.resolve({
       client: { v2: { me: this.mockMe } },
       accessToken: 'new-access-token',
       accessSecret: 'new-access-secret',
       screenName: 'testuser',
       userId: '12345',
     }));
-    this.mockMe = mock(() => Promise.resolve({
+    this.mockMe = vi.fn(() => Promise.resolve({
       data: { username: 'testuser', id: '12345' },
     }));
   }
@@ -58,23 +58,23 @@ class MockTwitterApi {
 
 // Helper to create mock deps
 function createMockDeps(): TwitterOAuthServiceDeps & {
-  mockDynamoSend: ReturnType<typeof mock>;
-  mockSecretsSend: ReturnType<typeof mock>;
-  mockStoreSecret: ReturnType<typeof mock>;
-  mockDeleteSecret: ReturnType<typeof mock>;
-  mockGetSecretValue: ReturnType<typeof mock>;
+  mockDynamoSend: ReturnType<typeof vi.fn>;
+  mockSecretsSend: ReturnType<typeof vi.fn>;
+  mockStoreSecret: ReturnType<typeof vi.fn>;
+  mockDeleteSecret: ReturnType<typeof vi.fn>;
+  mockGetSecretValue: ReturnType<typeof vi.fn>;
   lastTwitterApiInstance: MockTwitterApi | null;
 } {
-  const mockDynamoSend = mock(() => Promise.resolve({}));
-  const mockSecretsSend = mock(() => Promise.resolve({
+  const mockDynamoSend = vi.fn(() => Promise.resolve({}));
+  const mockSecretsSend = vi.fn(() => Promise.resolve({
     SecretString: JSON.stringify({
       TWITTER_APP_KEY: 'test-app-key',
       TWITTER_APP_SECRET: 'test-app-secret',
     }),
   }));
-  const mockStoreSecret = mock(() => Promise.resolve());
-  const mockDeleteSecret = mock(() => Promise.resolve());
-  const mockGetSecretValue = mock(() => Promise.resolve('secret-value'));
+  const mockStoreSecret = vi.fn(() => Promise.resolve());
+  const mockDeleteSecret = vi.fn(() => Promise.resolve());
+  const mockGetSecretValue = vi.fn(() => Promise.resolve('secret-value'));
 
   let lastTwitterApiInstance: MockTwitterApi | null = null;
 

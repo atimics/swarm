@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { formatBrainMemoryContext, truncateForPrompt, formatRelativeTime } from './context-builder.js';
 import type { BrainMemoryFact } from '@swarm/core';
 

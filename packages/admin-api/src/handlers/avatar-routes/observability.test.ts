@@ -9,7 +9,7 @@
  *   GET   /avatars/{id}/events/counts
  *   PATCH /avatars/{id}/events/{eventId}
  */
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock state ─────────────────────────────────────────────────────────────
 let getAvatarResult: unknown = null;

@@ -11,7 +11,7 @@
  * 7. Error handling throughout
  */
 
-import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { describe, it, expect, vi, beforeEach, afterEach, spyOn } from 'vitest';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { AvatarMemory, MemoryTier } from '../types.js';
 import * as memory from './memory.js';
@@ -19,7 +19,7 @@ import * as embedding from './embedding.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 
 // Mock DynamoDB document client
-const mockSend = mock(() => Promise.resolve({}));
+const mockSend = vi.fn(() => Promise.resolve({}));
 const mockClient = {
   send: mockSend,
 } as unknown as DynamoDBDocumentClient;

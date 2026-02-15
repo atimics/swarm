@@ -9,7 +9,7 @@
  *   POST         /avatars/{id}/deactivate
  *   GET          /avatars/{id}/audit-log
  */
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock state ─────────────────────────────────────────────────────────────
 let getAvatarResult: unknown = null;

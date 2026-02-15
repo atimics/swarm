@@ -5,7 +5,7 @@
  *
  * @see packages/admin-api/src/services/models-registry.ts
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import {
   AVAILABLE_MODELS,
   REPLICATE_MODEL_VERSIONS,

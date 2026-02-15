@@ -5,7 +5,7 @@
  *   GET /system/status
  *   GET /integrations/models
  */
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock tracking ──────────────────────────────────────────────────────────
 let mockSystemStatus: unknown = { healthy: true };

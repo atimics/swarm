@@ -10,7 +10,7 @@
  *   PUT    /avatars/{id}/reassign
  *   GET    /avatars/{id}/integrations
  */
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock state ─────────────────────────────────────────────────────────────
 let getAvatarResult: unknown = null;

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import { getOwnerWallets, type WalletBalanceDeps } from './wallet-balance.js';
 import type { AvatarRecord } from '../types.js';
 

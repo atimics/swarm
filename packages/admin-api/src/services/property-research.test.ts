@@ -2,7 +2,7 @@
  * Property Research Service Tests
  * Tests property research with dependency injection
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   checkAuth,
   grantAuth,
@@ -13,8 +13,8 @@ import {
 } from './property-research.js';
 
 // Helper to create mock deps
-function createMockDeps(): PropertyResearchDeps & { mockSend: ReturnType<typeof mock> } {
-  const mockSend = mock(() => Promise.resolve({}));
+function createMockDeps(): PropertyResearchDeps & { mockSend: ReturnType<typeof vi.fn> } {
+  const mockSend = vi.fn(() => Promise.resolve({}));
 
   return {
     dynamoClient: {
@@ -27,7 +27,7 @@ function createMockDeps(): PropertyResearchDeps & { mockSend: ReturnType<typeof 
 }
 
 describe('PropertyResearchService', () => {
-  let mockDeps: PropertyResearchDeps & { mockSend: ReturnType<typeof mock> };
+  let mockDeps: PropertyResearchDeps & { mockSend: ReturnType<typeof vi.fn> };
   const avatarId = 'test-avatar';
   const walletAddress = '0x123';
 

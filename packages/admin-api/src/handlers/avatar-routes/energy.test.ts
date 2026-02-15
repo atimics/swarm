@@ -8,7 +8,7 @@
  *   POST /avatars/{id}/energy/add
  *   GET  /avatars/{id}/energy/history
  */
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock state ─────────────────────────────────────────────────────────────
 let getAvatarResult: unknown = null;

@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DynamoDBStateService } from './state.js';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
 describe('DynamoDBStateService Integration', () => {
   let service: DynamoDBStateService;
-  let mockSend: ReturnType<typeof mock>;
+  let mockSend: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    mockSend = mock((command: any) => {
+    mockSend = vi.fn((command: any) => {
       // Handle UpdateCommand
       if (command.input?.UpdateExpression) {
         return Promise.resolve({

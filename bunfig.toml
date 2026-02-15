@@ -1,3 +1,0 @@
-# Bun configuration
-# Note: Use "pnpm test" or "bunx vitest" to run tests with Vitest
-# "bun test" uses Bun's native runner which has limited Vitest compatibility

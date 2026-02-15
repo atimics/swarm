@@ -1,25 +1,25 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
 process.env.INTERNAL_TEST_KEY = 'test-key';
 process.env.ENVIRONMENT = 'staging';
 
-const listIssuesMock = mock(() => Promise.resolve([]));
-const updateIssueStatusMock = mock(() => Promise.resolve());
-const authenticateRequestMock = mock(() => {
+const listIssuesMock = vi.fn(() => Promise.resolve([]));
+const updateIssueStatusMock = vi.fn(() => Promise.resolve());
+const authenticateRequestMock = vi.fn(() => {
   throw new Error('No authentication token provided');
 });
 
 mock.module('../services/auto-issues.js', () => ({
   listIssues: listIssuesMock,
   updateIssueStatus: updateIssueStatusMock,
-  recordError: mock(() => Promise.resolve({ issueId: 'issue-1', isNew: true, occurrenceCount: 1 })),
-  getIssue: mock(() => Promise.resolve({ issue: null })),
+  recordError: vi.fn(() => Promise.resolve({ issueId: 'issue-1', isNew: true, occurrenceCount: 1 })),
+  getIssue: vi.fn(() => Promise.resolve({ issue: null })),
 }));
 
 mock.module('../auth/request-auth.js', () => ({
   authenticateRequest: authenticateRequestMock,
-  requireAdmin: mock(() => true),
+  requireAdmin: vi.fn(() => true),
 }));
 
 mock.module('@swarm/core', () => ({
@@ -41,10 +41,10 @@ mock.module('@swarm/core', () => ({
     return value === internalTestKey;
   },
   logger: {
-    setContext: mock(() => {}),
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
+    setContext: vi.fn(() => {}),
+    info: vi.fn(() => {}),
+    warn: vi.fn(() => {}),
+    error: vi.fn(() => {}),
   },
 }));
 

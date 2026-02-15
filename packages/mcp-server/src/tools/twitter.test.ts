@@ -3,7 +3,7 @@
  *
  * Tests for the MCP tools that enable avatars to interact with Twitter/X.
  */
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, vi } from 'vitest';
 import { createTwitterTools } from './twitter.js';
 
 const baseContext = { avatarId: 'avatar-1', platform: 'admin-ui' as const };
@@ -25,8 +25,8 @@ describe('Twitter Tools - twitter_status', () => {
 
   it('returns connected status with username when connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'swarm' })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true, username: 'swarm' })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_status', services);
     const result = await (tool.execute as any)({}, baseContext);
@@ -37,8 +37,8 @@ describe('Twitter Tools - twitter_status', () => {
 
   it('returns not connected message when disconnected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_status', services);
     const result = await (tool.execute as any)({}, baseContext);
@@ -50,8 +50,8 @@ describe('Twitter Tools - twitter_status', () => {
 
   it('calls getConnectionStatus service', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_status', services);
     await (tool.execute as any)({}, baseContext);
@@ -71,8 +71,8 @@ describe('Twitter Tools - twitter_request_integration', () => {
 
   it('returns already connected when Twitter is connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'swarm' })),
-      startOAuthFlow: mock(() => Promise.resolve({ authorizationUrl: 'https://x.com/auth' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true, username: 'swarm' })),
+      startOAuthFlow: vi.fn(() => Promise.resolve({ authorizationUrl: 'https://x.com/auth' })),
     };
     const tool = getTool('twitter_request_integration', services);
     const result = await (tool.execute as any)({}, baseContext);
@@ -84,8 +84,8 @@ describe('Twitter Tools - twitter_request_integration', () => {
 
   it('starts OAuth flow when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve({ authorizationUrl: 'https://x.com/auth' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve({ authorizationUrl: 'https://x.com/auth' })),
     };
     const tool = getTool('twitter_request_integration', services);
     const result = await (tool.execute as any)({}, baseContext);
@@ -97,8 +97,8 @@ describe('Twitter Tools - twitter_request_integration', () => {
 
   it('returns authorization URL for admin', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve({ authorizationUrl: 'https://x.com/auth' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve({ authorizationUrl: 'https://x.com/auth' })),
     };
     const tool = getTool('twitter_request_integration', services);
     const result = await (tool.execute as any)({}, baseContext);
@@ -109,8 +109,8 @@ describe('Twitter Tools - twitter_request_integration', () => {
 
   it('includes reason in response when provided', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve({ authorizationUrl: 'https://x.com/auth' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve({ authorizationUrl: 'https://x.com/auth' })),
     };
     const tool = getTool('twitter_request_integration', services);
     const result = await (tool.execute as any)({ reason: 'Need to post' }, baseContext);
@@ -121,8 +121,8 @@ describe('Twitter Tools - twitter_request_integration', () => {
 
   it('returns error when OAuth not configured', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_request_integration', services);
     const result = await (tool.execute as any)({}, baseContext);
@@ -140,8 +140,8 @@ describe('Twitter Tools - twitter_post', () => {
 
   it('returns error when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_post', services);
     const result = await (tool.execute as any)({ text: 'Hello' }, baseContext);
@@ -152,8 +152,8 @@ describe('Twitter Tools - twitter_post', () => {
 
   it('returns error when postTweet service unavailable', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_post', services);
     const result = await (tool.execute as any)({ text: 'Hello' }, baseContext);
@@ -164,9 +164,9 @@ describe('Twitter Tools - twitter_post', () => {
 
   it('posts tweet with text only', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      postTweet: mock(() => Promise.resolve({ tweetId: '1', url: 'https://x.com/1' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      postTweet: vi.fn(() => Promise.resolve({ tweetId: '1', url: 'https://x.com/1' })),
     };
     const tool = getTool('twitter_post', services);
     const result = await (tool.execute as any)({ text: 'Hello' }, baseContext);
@@ -177,9 +177,9 @@ describe('Twitter Tools - twitter_post', () => {
 
   it('posts tweet with media URLs', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      postTweet: mock(() => Promise.resolve({ tweetId: '1', url: 'https://x.com/1' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      postTweet: vi.fn(() => Promise.resolve({ tweetId: '1', url: 'https://x.com/1' })),
     };
     const tool = getTool('twitter_post', services);
     const result = await (tool.execute as any)({ text: 'Hello', mediaUrls: ['https://img'] }, baseContext);
@@ -190,9 +190,9 @@ describe('Twitter Tools - twitter_post', () => {
 
   it('posts tweet with gallery mediaIds (preferred)', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      postTweet: mock(() => Promise.resolve({ tweetId: '1', url: 'https://x.com/1' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      postTweet: vi.fn(() => Promise.resolve({ tweetId: '1', url: 'https://x.com/1' })),
     };
     const tool = getTool('twitter_post', services);
     const result = await (tool.execute as any)({ text: 'Hello', mediaIds: ['img_abc123'] }, baseContext);
@@ -203,9 +203,9 @@ describe('Twitter Tools - twitter_post', () => {
 
   it('returns tweet ID and URL on success', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      postTweet: mock(() => Promise.resolve({ tweetId: '1', url: 'https://x.com/1' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      postTweet: vi.fn(() => Promise.resolve({ tweetId: '1', url: 'https://x.com/1' })),
     };
     const tool = getTool('twitter_post', services);
     const result = await (tool.execute as any)({ text: 'Hello' }, baseContext);
@@ -216,9 +216,9 @@ describe('Twitter Tools - twitter_post', () => {
 
   it('returns error on post failure (null)', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      postTweet: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      postTweet: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_post', services);
     const result = await (tool.execute as any)({ text: 'Hello' }, baseContext);
@@ -229,9 +229,9 @@ describe('Twitter Tools - twitter_post', () => {
 
   it('returns error with details when service returns error object', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      postTweet: mock(() => Promise.resolve({ error: 'Rate limit exceeded. Please try again in 15 minutes.' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      postTweet: vi.fn(() => Promise.resolve({ error: 'Rate limit exceeded. Please try again in 15 minutes.' })),
     };
     const tool = getTool('twitter_post', services);
     const result = await (tool.execute as any)({ text: 'Hello' }, baseContext);
@@ -254,8 +254,8 @@ describe('Twitter Tools - twitter_get_timeline', () => {
 
   it('returns error when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_get_timeline', services);
     const result = await (tool.execute as any)({}, baseContext);
@@ -266,8 +266,8 @@ describe('Twitter Tools - twitter_get_timeline', () => {
 
   it('returns error when service unavailable', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_get_timeline', services);
     const result = await (tool.execute as any)({}, baseContext);
@@ -278,9 +278,9 @@ describe('Twitter Tools - twitter_get_timeline', () => {
 
   it('fetches timeline with default count', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      getTimeline: mock(() => Promise.resolve([])),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      getTimeline: vi.fn(() => Promise.resolve([])),
     };
     const tool = getTool('twitter_get_timeline', services);
     const parsed = tool.inputSchema.parse({});
@@ -292,9 +292,9 @@ describe('Twitter Tools - twitter_get_timeline', () => {
 
   it('fetches timeline with custom count', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      getTimeline: mock(() => Promise.resolve([])),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      getTimeline: vi.fn(() => Promise.resolve([])),
     };
     const tool = getTool('twitter_get_timeline', services);
     const result = await (tool.execute as any)({ count: 5 }, baseContext);
@@ -305,9 +305,9 @@ describe('Twitter Tools - twitter_get_timeline', () => {
 
   it('formats tweet data in response', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      getTimeline: mock(() => Promise.resolve([{
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      getTimeline: vi.fn(() => Promise.resolve([{
         id: 't1',
         text: 'hello',
         authorId: 'u1',
@@ -336,8 +336,8 @@ describe('Twitter Tools - twitter_get_timeline', () => {
 describe('Twitter Tools - twitter_get_mentions', () => {
   it('returns error when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_get_mentions', services);
     const result = await (tool.execute as any)({}, baseContext);
@@ -348,8 +348,8 @@ describe('Twitter Tools - twitter_get_mentions', () => {
 
   it('returns error when service unavailable', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_get_mentions', services);
     const result = await (tool.execute as any)({}, baseContext);
@@ -360,9 +360,9 @@ describe('Twitter Tools - twitter_get_mentions', () => {
 
   it('fetches mentions with default count', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      getMentions: mock(() => Promise.resolve([])),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      getMentions: vi.fn(() => Promise.resolve([])),
     };
     const tool = getTool('twitter_get_mentions', services);
     const parsed = tool.inputSchema.parse({});
@@ -374,9 +374,9 @@ describe('Twitter Tools - twitter_get_mentions', () => {
 
   it('fetches mentions with sinceId for pagination', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      getMentions: mock(() => Promise.resolve([])),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      getMentions: vi.fn(() => Promise.resolve([])),
     };
     const tool = getTool('twitter_get_mentions', services);
     const result = await (tool.execute as any)({ sinceId: 's1', count: 10 }, baseContext);
@@ -387,9 +387,9 @@ describe('Twitter Tools - twitter_get_mentions', () => {
 
   it('includes conversation context in response', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      getMentions: mock(() => Promise.resolve([{
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      getMentions: vi.fn(() => Promise.resolve([{
         id: 'm1',
         text: '@bot hi',
         authorId: 'u1',
@@ -418,8 +418,8 @@ describe('Twitter Tools - twitter_get_mentions', () => {
 describe('Twitter Tools - twitter_get_tweet', () => {
   it('returns error when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_get_tweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -430,8 +430,8 @@ describe('Twitter Tools - twitter_get_tweet', () => {
 
   it('returns error when service unavailable', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_get_tweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -442,9 +442,9 @@ describe('Twitter Tools - twitter_get_tweet', () => {
 
   it('fetches specific tweet by ID', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      getTweet: mock(() => Promise.resolve({
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      getTweet: vi.fn(() => Promise.resolve({
         id: 't1',
         text: 'hello',
         authorId: 'u1',
@@ -460,9 +460,9 @@ describe('Twitter Tools - twitter_get_tweet', () => {
 
   it('returns not found for invalid ID', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      getTweet: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      getTweet: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_get_tweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -473,9 +473,9 @@ describe('Twitter Tools - twitter_get_tweet', () => {
 
   it('includes metrics and references in response', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      getTweet: mock(() => Promise.resolve({
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      getTweet: vi.fn(() => Promise.resolve({
         id: 't1',
         text: 'hello',
         authorId: 'u1',
@@ -498,8 +498,8 @@ describe('Twitter Tools - twitter_get_tweet', () => {
 describe('Twitter Tools - twitter_reply', () => {
   it('returns error when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_reply', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hi' }, baseContext);
@@ -510,8 +510,8 @@ describe('Twitter Tools - twitter_reply', () => {
 
   it('returns error when service unavailable', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_reply', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hi' }, baseContext);
@@ -522,9 +522,9 @@ describe('Twitter Tools - twitter_reply', () => {
 
   it('posts reply to specified tweet', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      reply: mock(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      reply: vi.fn(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
     };
     const tool = getTool('twitter_reply', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hi' }, baseContext);
@@ -535,9 +535,9 @@ describe('Twitter Tools - twitter_reply', () => {
 
   it('includes media URLs when provided', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      reply: mock(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      reply: vi.fn(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
     };
     const tool = getTool('twitter_reply', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hi', mediaUrls: ['https://img'] }, baseContext);
@@ -548,9 +548,9 @@ describe('Twitter Tools - twitter_reply', () => {
 
   it('includes mediaIds when provided (preferred)', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      reply: mock(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      reply: vi.fn(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
     };
     const tool = getTool('twitter_reply', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hi', mediaIds: ['img_abc'] }, baseContext);
@@ -561,9 +561,9 @@ describe('Twitter Tools - twitter_reply', () => {
 
   it('returns new tweet URL on success', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      reply: mock(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      reply: vi.fn(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
     };
     const tool = getTool('twitter_reply', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hi' }, baseContext);
@@ -576,8 +576,8 @@ describe('Twitter Tools - twitter_reply', () => {
 describe('Twitter Tools - twitter_like', () => {
   it('returns error when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_like', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -588,8 +588,8 @@ describe('Twitter Tools - twitter_like', () => {
 
   it('returns error when service unavailable', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_like', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -600,9 +600,9 @@ describe('Twitter Tools - twitter_like', () => {
 
   it('likes specified tweet', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      like: mock(() => Promise.resolve(true)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      like: vi.fn(() => Promise.resolve(true)),
     };
     const tool = getTool('twitter_like', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -613,9 +613,9 @@ describe('Twitter Tools - twitter_like', () => {
 
   it('returns success message', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      like: mock(() => Promise.resolve(true)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      like: vi.fn(() => Promise.resolve(true)),
     };
     const tool = getTool('twitter_like', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -626,9 +626,9 @@ describe('Twitter Tools - twitter_like', () => {
 
   it('handles like failure', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      like: mock(() => Promise.resolve(false)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      like: vi.fn(() => Promise.resolve(false)),
     };
     const tool = getTool('twitter_like', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -641,8 +641,8 @@ describe('Twitter Tools - twitter_like', () => {
 describe('Twitter Tools - twitter_unlike', () => {
   it('returns error when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_unlike', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -653,8 +653,8 @@ describe('Twitter Tools - twitter_unlike', () => {
 
   it('returns error when service unavailable', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_unlike', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -665,9 +665,9 @@ describe('Twitter Tools - twitter_unlike', () => {
 
   it('unlikes specified tweet', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      unlike: mock(() => Promise.resolve(true)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      unlike: vi.fn(() => Promise.resolve(true)),
     };
     const tool = getTool('twitter_unlike', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -678,9 +678,9 @@ describe('Twitter Tools - twitter_unlike', () => {
 
   it('returns success message', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      unlike: mock(() => Promise.resolve(true)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      unlike: vi.fn(() => Promise.resolve(true)),
     };
     const tool = getTool('twitter_unlike', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -693,8 +693,8 @@ describe('Twitter Tools - twitter_unlike', () => {
 describe('Twitter Tools - twitter_retweet', () => {
   it('returns error when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_retweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -705,8 +705,8 @@ describe('Twitter Tools - twitter_retweet', () => {
 
   it('returns error when service unavailable', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_retweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -717,9 +717,9 @@ describe('Twitter Tools - twitter_retweet', () => {
 
   it('retweets specified tweet', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      retweet: mock(() => Promise.resolve(true)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      retweet: vi.fn(() => Promise.resolve(true)),
     };
     const tool = getTool('twitter_retweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -730,9 +730,9 @@ describe('Twitter Tools - twitter_retweet', () => {
 
   it('returns success message', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      retweet: mock(() => Promise.resolve(true)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      retweet: vi.fn(() => Promise.resolve(true)),
     };
     const tool = getTool('twitter_retweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -745,8 +745,8 @@ describe('Twitter Tools - twitter_retweet', () => {
 describe('Twitter Tools - twitter_unretweet', () => {
   it('returns error when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_unretweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -757,8 +757,8 @@ describe('Twitter Tools - twitter_unretweet', () => {
 
   it('returns error when service unavailable', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_unretweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -769,9 +769,9 @@ describe('Twitter Tools - twitter_unretweet', () => {
 
   it('removes retweet', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      unretweet: mock(() => Promise.resolve(true)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      unretweet: vi.fn(() => Promise.resolve(true)),
     };
     const tool = getTool('twitter_unretweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -782,9 +782,9 @@ describe('Twitter Tools - twitter_unretweet', () => {
 
   it('returns success message', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      unretweet: mock(() => Promise.resolve(true)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      unretweet: vi.fn(() => Promise.resolve(true)),
     };
     const tool = getTool('twitter_unretweet', services);
     const result = await (tool.execute as any)({ tweetId: 't1' }, baseContext);
@@ -797,8 +797,8 @@ describe('Twitter Tools - twitter_unretweet', () => {
 describe('Twitter Tools - twitter_quote', () => {
   it('returns error when not connected', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_quote', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hello' }, baseContext);
@@ -809,8 +809,8 @@ describe('Twitter Tools - twitter_quote', () => {
 
   it('returns error when service unavailable', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_quote', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hello' }, baseContext);
@@ -821,9 +821,9 @@ describe('Twitter Tools - twitter_quote', () => {
 
   it('posts quote tweet with text', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      quoteTweet: mock(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      quoteTweet: vi.fn(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
     };
     const tool = getTool('twitter_quote', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hello' }, baseContext);
@@ -834,9 +834,9 @@ describe('Twitter Tools - twitter_quote', () => {
 
   it('includes media URLs when provided', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      quoteTweet: mock(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      quoteTweet: vi.fn(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
     };
     const tool = getTool('twitter_quote', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hello', mediaUrls: ['https://img'] }, baseContext);
@@ -847,9 +847,9 @@ describe('Twitter Tools - twitter_quote', () => {
 
   it('includes mediaIds when provided (preferred)', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      quoteTweet: mock(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      quoteTweet: vi.fn(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
     };
     const tool = getTool('twitter_quote', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hello', mediaIds: ['img_abc'] }, baseContext);
@@ -860,9 +860,9 @@ describe('Twitter Tools - twitter_quote', () => {
 
   it('returns new tweet URL on success', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
-      quoteTweet: mock(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
+      quoteTweet: vi.fn(() => Promise.resolve({ tweetId: 't2', url: 'https://x.com/t2' })),
     };
     const tool = getTool('twitter_quote', services);
     const result = await (tool.execute as any)({ tweetId: 't1', text: 'hello' }, baseContext);
@@ -883,8 +883,8 @@ describe('Twitter Tools - Service Injection', () => {
 
   it('tools call correct service methods', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_status', services);
     await (tool.execute as any)({}, baseContext);
@@ -894,8 +894,8 @@ describe('Twitter Tools - Service Injection', () => {
 
   it('handles missing optional services gracefully', async () => {
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true })),
-      startOAuthFlow: mock(() => Promise.resolve(null)),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true })),
+      startOAuthFlow: vi.fn(() => Promise.resolve(null)),
     };
     const tool = getTool('twitter_post', services);
     const result = await (tool.execute as any)({ text: 'Hello' }, baseContext);
@@ -968,8 +968,8 @@ describe('Twitter Tools - Integration Scenarios', () => {
 
     // Step 1: Check status - not connected
     const disconnectedServices = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: false })),
-      startOAuthFlow: mock(() => Promise.resolve({ authorizationUrl: 'https://twitter.com/oauth/authorize?token=abc123' })),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: false })),
+      startOAuthFlow: vi.fn(() => Promise.resolve({ authorizationUrl: 'https://twitter.com/oauth/authorize?token=abc123' })),
     };
 
     const statusTool = getTool('twitter_status', disconnectedServices);
@@ -991,8 +991,8 @@ describe('Twitter Tools - Integration Scenarios', () => {
 
     // Step 3: After OAuth completion, status shows connected
     const connectedServices = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
-      startOAuthFlow: mock(() => {}),
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
+      startOAuthFlow: vi.fn(() => {}),
     };
 
     const connectedStatusTool = getTool('twitter_status', connectedServices);
@@ -1011,9 +1011,9 @@ describe('Twitter Tools - Integration Scenarios', () => {
     // 4. Receive confirmation with URL
 
     const connectedServices = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
-      startOAuthFlow: mock(() => {}),
-      postTweet: mock(() => Promise.resolve({
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
+      startOAuthFlow: vi.fn(() => {}),
+      postTweet: vi.fn(() => Promise.resolve({
         tweetId: '1234567890123456789',
         url: 'https://twitter.com/avatar_bot/status/1234567890123456789',
       })),
@@ -1074,10 +1074,10 @@ describe('Twitter Tools - Integration Scenarios', () => {
     ];
 
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
-      startOAuthFlow: mock(() => {}),
-      getMentions: mock(() => Promise.resolve(mentionData)),
-      postTweet: mock(() => Promise.resolve({
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
+      startOAuthFlow: vi.fn(() => {}),
+      getMentions: vi.fn(() => Promise.resolve(mentionData)),
+      postTweet: vi.fn(() => Promise.resolve({
         tweetId: 'reply-123',
         url: 'https://twitter.com/avatar_bot/status/reply-123',
       })),
@@ -1130,10 +1130,10 @@ describe('Twitter Tools - Integration Scenarios', () => {
     ];
 
     const services = {
-      getConnectionStatus: mock(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
-      startOAuthFlow: mock(() => {}),
-      getTimeline: mock(() => Promise.resolve(timelineData)),
-      postTweet: mock(() => Promise.resolve({
+      getConnectionStatus: vi.fn(() => Promise.resolve({ connected: true, username: 'avatar_bot' })),
+      startOAuthFlow: vi.fn(() => {}),
+      getTimeline: vi.fn(() => Promise.resolve(timelineData)),
+      postTweet: vi.fn(() => Promise.resolve({
         tweetId: 'engagement-reply-1',
         url: 'https://twitter.com/avatar_bot/status/engagement-reply-1',
       })),

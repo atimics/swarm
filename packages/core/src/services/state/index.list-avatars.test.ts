@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, vi } from 'vitest';
 import { DynamoDBStateService } from './index.js';
 
 // Regression: DynamoDB Scan/Query returns at most 1MB per call.
@@ -7,7 +7,7 @@ import { DynamoDBStateService } from './index.js';
 describe('DynamoDBStateService.listAvatars', () => {
   it('paginates GSI Query results', async () => {
     // listAvatars now uses GSI query first (gsi1pk=CONFIG, gsi1sk=avatarId)
-    const send = mock((command: any) => {
+    const send = vi.fn((command: any) => {
       // First page of GSI query
       if (!command.input?.ExclusiveStartKey) {
         return Promise.resolve({
@@ -45,7 +45,7 @@ describe('DynamoDBStateService.listAvatars', () => {
 
   it('falls back to Scan when GSI returns no results', async () => {
     // Simulate GSI returning no results, then scan finds avatars
-    const send = mock((command: any) => {
+    const send = vi.fn((command: any) => {
       
       // GSI query returns empty
       if (command.input?.IndexName === 'gsi1') {

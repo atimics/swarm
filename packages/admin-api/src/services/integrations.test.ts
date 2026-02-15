@@ -5,7 +5,7 @@
  *
  * @see packages/admin-api/src/services/integrations.ts
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import {
   INTEGRATION_METADATA,
   CONFIGURABLE_INTEGRATIONS,

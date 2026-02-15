@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import type { AICapability } from './types.js';
 import { createModelResolver } from './resolvers.js';
 import { DEFAULT_MODELS } from './types.js';

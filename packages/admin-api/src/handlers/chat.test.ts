@@ -4,7 +4,7 @@
  * Tests for the admin chat tool-call flow including pendingToolCall and history management.
  * These tests focus on logic patterns and data structures, not on mocking external services.
  */
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 describe('Admin Chat - Tool Call Flow', () => {
   beforeEach(() => {

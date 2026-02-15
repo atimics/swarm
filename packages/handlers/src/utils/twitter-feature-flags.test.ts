@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { isTwitterFeatureEnabled } from './twitter-feature-flags.js';
 
 describe('isTwitterFeatureEnabled', () => {

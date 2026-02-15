@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { compareTwitterIds, isTwitterIdGreater, maxTwitterId } from './twitter-id.js';
 
 describe('Twitter ID comparison utilities', () => {

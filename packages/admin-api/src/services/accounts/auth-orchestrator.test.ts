@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { verifyWalletSignature } from './auth-orchestrator.js';

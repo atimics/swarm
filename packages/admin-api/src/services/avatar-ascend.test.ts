@@ -4,7 +4,7 @@
  * Verifies that ascension grants Pro-equivalent entitlements and
  * respects the plan hierarchy (no downgrade from enterprise).
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PLAN_DEFAULTS, type EntitlementRecord, type PlanLimits } from '../types.js';
 
 // ── Mock state ─────────────────────────────────────────────────────────────

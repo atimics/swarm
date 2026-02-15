@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { loadAvatarConfigFromEnv } from './config.js';
 
 describe('config loader (telegram allowlists)', () => {

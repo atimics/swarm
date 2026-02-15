@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 function installMemoryLocalStorage() {
   const store = new Map<string, string>();
@@ -42,7 +42,7 @@ describe('auth bootstrap reliability', () => {
   });
 
   test('clears persisted Privy auth when backend session is unauthenticated', async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       return new Response(JSON.stringify({ authenticated: false }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -65,7 +65,7 @@ describe('auth bootstrap reliability', () => {
   });
 
   test('clears persisted Privy auth when /auth/me fails (e.g., network/401)', async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       return new Response('oops', { status: 401 });
     });
 

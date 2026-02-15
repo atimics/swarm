@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { DEFAULT_MODELS } from './types.js';
 
 describe('core media DEFAULT_MODELS', () => {

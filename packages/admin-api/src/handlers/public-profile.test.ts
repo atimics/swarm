@@ -1,11 +1,11 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 
-const getAvatarMock = mock();
-const getBurnStatsWithProgressMock = mock();
-const getBurnHistoryMock = mock();
-const getAvatarRankMock = mock();
-const getEnergyStatusMock = mock();
+const getAvatarMock = vi.fn();
+const getBurnStatsWithProgressMock = vi.fn();
+const getBurnHistoryMock = vi.fn();
+const getAvatarRankMock = vi.fn();
+const getEnergyStatusMock = vi.fn();
 
 mock.module('../services/avatars.js', () => ({
   getAvatar: getAvatarMock,
