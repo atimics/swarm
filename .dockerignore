@@ -10,3 +10,6 @@ dist
 issues
 images
 cenetex-pages
+cdk.out
+**/cdk.out
+**/cdk.out.*

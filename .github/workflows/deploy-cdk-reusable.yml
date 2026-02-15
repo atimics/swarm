@@ -239,6 +239,9 @@ jobs:
           STACK_HASH: ${{ inputs.stack_hash }}
           ADMIN_CERTIFICATE_ARN: ${{ secrets.ADMIN_CERTIFICATE_ARN || '' }}
         run: |
+          # Clean cdk.out from diff step to prevent recursive asset copy
+          rm -rf cdk.out
+
           ADMIN_DOMAIN=$(echo "${{ inputs.admin_url }}" | sed -E 's|^https?://||' | cut -d/ -f1)
           EXTRA_CONTEXT_ARGS="-c adminDomain=${ADMIN_DOMAIN}"
 
