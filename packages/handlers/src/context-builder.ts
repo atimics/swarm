@@ -8,6 +8,7 @@ import {
   logger,
   buildDynamicSystemPrompt,
   toolsToCategories,
+  type BrainMemoryFact,
   type ProcessorAvatarConfig,
   type RuntimeContext,
   type AvatarConfig,
@@ -253,4 +254,20 @@ export async function buildSystemPrompt(
   };
 
   return buildDynamicSystemPrompt(processorConfig, envelope.platform as Platform, runtimeContext);
+}
+
+/**
+ * Format brain memory facts as a markdown section for system prompt injection.
+ */
+export function formatBrainMemoryContext(facts: BrainMemoryFact[], maxChars = 1600): string {
+  if (facts.length === 0) return '';
+
+  const lines: string[] = ['## Relevant Memories'];
+  for (const f of facts) {
+    const aboutStr = f.about ? ` (about ${f.about})` : '';
+    lines.push(`- ${f.fact}${aboutStr}`);
+  }
+
+  const out = lines.join('\n');
+  return out.length > maxChars ? out.slice(0, maxChars) : out;
 }

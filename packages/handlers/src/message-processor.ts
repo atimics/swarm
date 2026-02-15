@@ -53,7 +53,7 @@ import { createRuntimeBrainService } from './services/brain.js';
 // Extracted modules
 import { callLLM, stripAvatarNamePrefix, type LLMMessage } from './llm-client.js';
 import { toolResultsToActions, maybeTranscribeAudio } from './tool-executor.js';
-import { buildSystemPrompt } from './context-builder.js';
+import { buildSystemPrompt, formatBrainMemoryContext } from './context-builder.js';
 
 const sqs = new SQSClient({});
 const MAX_TOOL_ITERATIONS = 5;
@@ -373,6 +373,42 @@ async function generateResponse(
     presenceService,
     stateService
   );
+  // Inject memory context into system prompt (gated by BRAIN_INJECT_CONTEXT flag)
+  let enrichedSystemPrompt = systemPrompt;
+  if (process.env.BRAIN_INJECT_CONTEXT === 'true') {
+    try {
+      const userText = envelope.content.text || '';
+      if (userText.trim()) {
+        const recallResult = await brainService.recall(
+          avatarRuntime.avatarId,
+          userText,
+          envelope.sender.id
+        );
+        if (recallResult.facts.length > 0) {
+          const memoryContext = formatBrainMemoryContext(recallResult.facts);
+          if (memoryContext) {
+            enrichedSystemPrompt = systemPrompt + '\n\n' + memoryContext;
+          }
+          logger.info('Memory context injected into system prompt', {
+            event: 'brain_context_injected',
+            subsystem: 'brain',
+            avatarId: avatarRuntime.avatarId,
+            factCount: recallResult.facts.length,
+            source: recallResult.source,
+            queryLength: userText.trim().length,
+          });
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to inject memory context, continuing without it', {
+        event: 'brain_context_injection_failed',
+        subsystem: 'brain',
+        avatarId: avatarRuntime.avatarId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const toolDefinitions = toolClient
     .getToolDefinitions()
     .filter((tool: { name: string }) => avatarRuntime.avatarConfig.tools.includes(tool.name));
@@ -381,7 +417,7 @@ async function generateResponse(
   // Build initial messages from channel history + current message
   const maxContext = avatarRuntime.avatarConfig.behavior.maxContextMessages || 20;
   const messages: LLMMessage[] = [
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: enrichedSystemPrompt },
   ];
 
   // Add channel history (excluding the current message which we'll add separately)
