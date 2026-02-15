@@ -276,7 +276,9 @@ jobs:
 
           STACK="SwarmUi-${{ inputs.cdk_env }}${STACK_SUFFIX}"
 
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query \"Stacks[0].Outputs[?ExportName=='swarm-admin-ui-distribution-${{ inputs.cdk_env }}${STACK_SUFFIX}'].OutputValue\" --output text)" >> $GITHUB_OUTPUT
+          # Query by OutputKey (stable CDK construct ID) instead of ExportName
+          # which may include a -split suffix from useExistingResources mode.
+          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query \"Stacks[0].Outputs[?starts_with(OutputKey,'AdminUiDistributionId')].OutputValue | [0]\" --output text)" >> $GITHUB_OUTPUT
 
       - name: Associate domain alias (if skipped during deployment)
         if: inputs.skip_domain_aliases && steps.outputs.outputs.distribution != ''
