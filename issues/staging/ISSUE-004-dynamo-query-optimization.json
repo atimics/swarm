@@ -15,7 +15,7 @@
   "effort": "4 hours",
   "impact": "Medium - query performance improvement for auto-issues",
   "references": [
-    "packages/admin-api/src/services/auto-issues.ts:24"
+    "packages/admin-api/src/services/auto-issues.ts:listIssues"
   ],
   "notes": "Trade-off: Scan can be more efficient for begins_with patterns on large tables with sparse data."
 }
