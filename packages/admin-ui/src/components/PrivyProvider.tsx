@@ -67,7 +67,7 @@ export function buildPrivyConfig(options?: { hostname?: string }): PrivyClientCo
   const enableEmbeddedWallets = shouldEnableEmbeddedWallets(options?.hostname);
 
   return {
-    loginMethods: ['wallet', 'email', 'google', 'twitter'],
+    loginMethods: ['email', 'google', 'twitter'],
     appearance: {
       walletChainType: 'solana-only',
     },
