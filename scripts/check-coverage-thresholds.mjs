@@ -6,10 +6,10 @@ import { resolve } from 'node:path';
 const LCOV_PATH = resolve(process.cwd(), 'coverage/lcov.info');
 
 const thresholds = {
-  lines: 25,
-  functions: 25,
-  branches: 25,
-  statements: 25,
+  lines: 40,
+  functions: 40,
+  branches: 40,
+  statements: 40,
 };
 
 function pct(hit, found) {
