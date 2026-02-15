@@ -83,9 +83,9 @@ export class DiscordGatewayWorker extends Construct {
       },
     });
 
-    // Log group
+    // Log group — let CloudFormation generate the name to avoid collisions
+    // with orphaned log groups from previous failed deployments
     const logGroup = new logs.LogGroup(this, 'LogGroup', {
-      logGroupName: `/ecs/swarm-discord-gateway-${environment}${suffix}`,
       retention: logs.RetentionDays.TWO_WEEKS,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
