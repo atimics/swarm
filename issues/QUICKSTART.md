@@ -47,12 +47,12 @@ All issues in `issues/staging/` are ready for immediate work:
 ## 🎯 M2 Success Criteria
 
 Complete these 6 issues to unblock M2:
-1. ✅ ISSUE-001 (Semantic search)
-2. ✅ ISSUE-002 (Discord tests)
-3. ✅ ISSUE-003 (DLQ tools)
-4. ✅ ISSUE-005 (Auth tests)
-5. ✅ FEATURE-003 (Twitter parity)
-6. ✅ DOC-001 (Discord docs)
+1. ☐ ISSUE-001 (Semantic search)
+2. ☐ ISSUE-002 (Discord tests)
+3. ☐ ISSUE-003 (DLQ tools)
+4. ☐ ISSUE-005 (Auth tests)
+5. ☐ FEATURE-003 (Twitter parity)
+6. ☐ DOC-001 (Discord docs)
 
 ## 📊 Effort vs Impact Matrix
 
