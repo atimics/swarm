@@ -15,7 +15,7 @@
   "effort": "4 hours",
   "impact": "Medium - improves type safety and prevents runtime errors",
   "references": [
-    "packages/handlers/src/services/platform-mcp-adapter.ts:40, 60, 80"
+    "packages/handlers/src/services/platform-mcp-adapter.ts:48, 1350, 1365"
   ],
   "notes": "Dynamic imports avoid static dependency but sacrifice compile-time safety. Consider using type assertions with runtime validation instead."
 }
