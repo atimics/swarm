@@ -1,6 +1,6 @@
 {
   "name": "aws-swarm",
-  "version": "0.1.67",
+  "version": "0.1.68",
   "description": "Social media avatar swarm framework for AWS",
   "private": true,
   "type": "module",
