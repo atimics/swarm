@@ -81,12 +81,16 @@ The workflow auto-creates these labels if they don't exist:
 | `type:bug` | red | Bug report |
 | `type:feature` | blue | New feature request |
 | `type:security` | dark red | Security related |
+| `type:docs` | blue | Documentation work |
+| `type:infra` | blue | Infrastructure changes |
 | `priority:high` | orange | High priority |
 | `priority:medium` | yellow | Medium priority |
 | `priority:low` | green | Low priority |
 | `package:core` | light blue | Affects core package |
 | `package:admin` | light blue | Affects admin packages |
 | `package:infra` | light blue | Affects infrastructure |
+| `package:handlers` | light blue | Affects handlers package |
+| `status:in-progress` | gray | Work is currently in progress |
 | `managed:issue-sync` | purple | Managed by this workflow |
 
 ## Legacy
