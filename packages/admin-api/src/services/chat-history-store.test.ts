@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { createChatHistoryStore } from './chat-history-store.js';
 import type { AdminChatMessage } from '../types.js';
 

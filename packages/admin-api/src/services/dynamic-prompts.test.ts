@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { buildDynamicSystemPrompt, type ProcessorAvatarConfig } from '@swarm/core';
 
 describe('dynamic prompts', () => {

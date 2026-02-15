@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, afterEach } from 'bun:test';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 
 // Bun module mocks must be declared before importing the module under test.
 // bun:test doesn't provide mock.fn(), so we use simple call tracking.
@@ -23,7 +23,7 @@ const storeSecret = async (...args: unknown[]) => {
 
 const _getSecretValueInternal = async () => getSecretValueResult;
 
-mock.module('./secrets.js', () => ({
+vi.mock('./secrets.js', () => ({
   storeSecret,
   _getSecretValueInternal,
 }));

@@ -11,23 +11,23 @@
  *
  * @see packages/handlers/src/response-sender.ts
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Shared mock primitives
 // ---------------------------------------------------------------------------
 
-const mockSqsSend = mock(() => Promise.resolve({ MessageId: 'media-job-1' }));
-const mockDynamoSend = mock((cmd: unknown) => {
+const mockSqsSend = vi.fn(() => Promise.resolve({ MessageId: 'media-job-1' }));
+const mockDynamoSend = vi.fn((cmd: unknown) => {
   const name = (cmd as { constructor?: { name?: string } })?.constructor?.name;
   if (name === 'GetCommand') return Promise.resolve({ Item: undefined });
   return Promise.resolve({});
 });
 
-const mockGetAvatarConfig = mock(() => Promise.resolve(null));
-const mockAddMessageToChannel = mock(() => Promise.resolve({}));
-const mockMarkResponseSent = mock(() => Promise.resolve());
-const mockGetOrCreateChannelState = mock(() => Promise.resolve({}));
+const mockGetAvatarConfig = vi.fn(() => Promise.resolve(null));
+const mockAddMessageToChannel = vi.fn(() => Promise.resolve({}));
+const mockMarkResponseSent = vi.fn(() => Promise.resolve());
+const mockGetOrCreateChannelState = vi.fn(() => Promise.resolve({}));
 
 const mockStateService = {
   getAvatarConfig: mockGetAvatarConfig,
@@ -36,12 +36,12 @@ const mockStateService = {
   getOrCreateChannelState: mockGetOrCreateChannelState,
 };
 
-const mockRecordActivity = mock(() => Promise.resolve());
+const mockRecordActivity = vi.fn(() => Promise.resolve());
 const mockActivityService = {
   record: mockRecordActivity,
 };
 
-const mockOutboundSend = mock(() =>
+const mockOutboundSend = vi.fn(() =>
   Promise.resolve({
     success: true,
     sentMessages: ['Hello from bot!'],
@@ -49,14 +49,14 @@ const mockOutboundSend = mock(() =>
   }),
 );
 
-const mockPlatformGet = mock(() => null);
-const mockPlatformRegister = mock(() => {});
+const mockPlatformGet = vi.fn(() => null);
+const mockPlatformRegister = vi.fn(() => {});
 
 // ---------------------------------------------------------------------------
-// mock.module() calls
+// vi.mock() calls
 // ---------------------------------------------------------------------------
 
-mock.module('@aws-sdk/client-sqs', () => ({
+vi.mock('@aws-sdk/client-sqs', () => ({
   SQSClient: class {
     send = mockSqsSend;
   },
@@ -65,13 +65,13 @@ mock.module('@aws-sdk/client-sqs', () => ({
   },
 }));
 
-mock.module('@aws-sdk/client-dynamodb', () => ({
+vi.mock('@aws-sdk/client-dynamodb', () => ({
   DynamoDBClient: class {
     send = mockDynamoSend;
   },
 }));
 
-mock.module('@aws-sdk/lib-dynamodb', () => ({
+vi.mock('@aws-sdk/lib-dynamodb', () => ({
   DynamoDBDocumentClient: {
     from: () => ({ send: mockDynamoSend }),
   },
@@ -86,14 +86,14 @@ mock.module('@aws-sdk/lib-dynamodb', () => ({
 // NOTE: mock.module is process-global. When run alongside message-processor
 // smoke tests, the last definition wins. We include all exports needed by
 // BOTH handlers to avoid "export not found" errors.
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   // --- response-sender specific ---
   TelegramAdapter: class {
     constructor() {}
     getBot() {
       return {
         api: {
-          sendMessage: mock(() => Promise.resolve({ message_id: 1 })),
+          sendMessage: vi.fn(() => Promise.resolve({ message_id: 1 })),
         },
       };
     }
@@ -117,7 +117,7 @@ mock.module('@swarm/core', () => ({
     send: mockOutboundSend,
   }),
   createSecretsService: () => ({
-    getSecret: mock(() => Promise.resolve('')),
+    getSecret: vi.fn(() => Promise.resolve('')),
   }),
   logger: {
     info: () => {},
@@ -156,13 +156,13 @@ mock.module('@swarm/core', () => ({
   createMediaServiceWithDeps: () => undefined,
   createMediaDependencies: () => ({}),
   createPresenceService: () => ({
-    buildPresenceContext: mock(() => Promise.resolve('')),
-    registerChannel: mock(() => Promise.resolve()),
-    getAllChannels: mock(() => Promise.resolve([])),
-    getChannelWithSummary: mock(() => Promise.resolve(null)),
+    buildPresenceContext: vi.fn(() => Promise.resolve('')),
+    registerChannel: vi.fn(() => Promise.resolve()),
+    getAllChannels: vi.fn(() => Promise.resolve([])),
+    getChannelWithSummary: vi.fn(() => Promise.resolve(null)),
   }),
   createChannelSummaryService: () => ({
-    getOrGenerateSummary: mock(() => Promise.resolve(null)),
+    getOrGenerateSummary: vi.fn(() => Promise.resolve(null)),
   }),
   createCircuitBreaker: () => ({
     canExecute: () => true,
@@ -187,16 +187,16 @@ mock.module('@swarm/core', () => ({
   toolsToCategories: () => ['messaging'],
 }));
 
-mock.module('../dynamo-client.js', () => ({
+vi.mock('../dynamo-client.js', () => ({
   getDynamoClient: () => ({ send: mockDynamoSend }),
   _setDynamoClient: () => {},
 }));
 
-mock.module('../../telegram-webhook-shared.js', () => ({
-  isAllowedDmUserById: mock(() => Promise.resolve(false)),
+vi.mock('../../telegram-webhook-shared.js', () => ({
+  isAllowedDmUserById: vi.fn(() => Promise.resolve(false)),
 }));
 
-mock.module('../../utils/load-avatar-secrets.js', () => ({
+vi.mock('../../utils/load-avatar-secrets.js', () => ({
   loadAvatarSecrets: () =>
     Promise.resolve({
       TELEGRAM_BOT_TOKEN: 'fake-bot-token',
@@ -205,31 +205,31 @@ mock.module('../../utils/load-avatar-secrets.js', () => ({
 }));
 
 // Also mock message-processor dependencies (needed when running alongside those tests)
-mock.module('@swarm/mcp-server', () => ({
+vi.mock('@swarm/mcp-server', () => ({
   ToolRegistry: class { register() {} },
   createToolClient: () => ({
-    execute: mock(() => Promise.resolve({ success: true, data: {} })),
-    getToolDefinitions: mock(() => []),
-    getOpenAIToolsForTools: mock(() => []),
+    execute: vi.fn(() => Promise.resolve({ success: true, data: {} })),
+    getToolDefinitions: vi.fn(() => []),
+    getOpenAIToolsForTools: vi.fn(() => []),
   }),
   registerAllTools: () => {},
 }));
 
-mock.module('../../services/platform-mcp-adapter.js', () => ({
+vi.mock('../../services/platform-mcp-adapter.js', () => ({
   createPlatformMCPServices: () => ({}),
 }));
 
-mock.module('../../services/entitlement-enforcement.js', () => ({
-  checkAndIncrementMessageUsage: mock(() =>
+vi.mock('../../services/entitlement-enforcement.js', () => ({
+  checkAndIncrementMessageUsage: vi.fn(() =>
     Promise.resolve({ allowed: true, limit: 50, current: 1 }),
   ),
-  checkToolCallLimit: mock(() =>
+  checkToolCallLimit: vi.fn(() =>
     Promise.resolve({ allowed: true, limit: 3, current: 0 }),
   ),
-  isMemoryWriteAllowed: mock(() => Promise.resolve(false)),
+  isMemoryWriteAllowed: vi.fn(() => Promise.resolve(false)),
 }));
 
-mock.module('../../utils/system-replicate-key.js', () => ({
+vi.mock('../../utils/system-replicate-key.js', () => ({
   ensureReplicateKey: () => Promise.resolve(true),
 }));
 

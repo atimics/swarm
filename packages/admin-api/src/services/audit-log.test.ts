@@ -4,7 +4,7 @@
  * Uses the dependency-injection variants (recordAuditEventWith, listAuditEventsWith)
  * with an in-memory DynamoDB mock to verify schema, TTL, and query behavior.
  */
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { recordAuditEventWith, listAuditEventsWith } from './audit-log.js';
 import type { AuditEvent, AuditLogDeps } from './audit-log.js';
 

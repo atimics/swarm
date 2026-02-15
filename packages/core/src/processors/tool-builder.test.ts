@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, vi } from 'vitest';
 import {
   detectEnabledCategories,
   resolveAllowedToolsets,
@@ -200,8 +200,8 @@ describe('filterByVisibility', () => {
 
   it('should filter out tools where shouldShow returns false', async () => {
     const tools: FilterableToolDefinition[] = [
-      { name: 'visible_tool', shouldShow: mock(() => Promise.resolve(true)) },
-      { name: 'hidden_tool', shouldShow: mock(() => Promise.resolve(false)) },
+      { name: 'visible_tool', shouldShow: vi.fn(() => Promise.resolve(true)) },
+      { name: 'hidden_tool', shouldShow: vi.fn(() => Promise.resolve(false)) },
     ];
 
     const context = { avatarId: 'test', platform: 'telegram' as const };
@@ -213,7 +213,7 @@ describe('filterByVisibility', () => {
 
   it('should show tools when shouldShow throws an error', async () => {
     const tools: FilterableToolDefinition[] = [
-      { name: 'error_tool', shouldShow: mock(() => Promise.reject(new Error('Check failed'))) },
+      { name: 'error_tool', shouldShow: vi.fn(() => Promise.reject(new Error('Check failed'))) },
     ];
 
     const context = { avatarId: 'test', platform: 'telegram' as const };

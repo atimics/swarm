@@ -1,7 +1,7 @@
 /**
  * Core Module Tests
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 
 describe('Platform Message Normalization', () => {
   describe('Telegram Message Extraction', () => {

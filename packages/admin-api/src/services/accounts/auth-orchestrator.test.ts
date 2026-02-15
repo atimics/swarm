@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { verifyWalletSignature } from './auth-orchestrator.js';
@@ -118,7 +118,7 @@ This signature will not trigger any blockchain transaction or cost any fees.`;
   //
   // For full integration testing, consider:
   // 1. Adding dependency injection to authenticateWallet and authenticatePrivy.
-  // 2. Using bun's mock.module() to mock the service imports
+  // 2. Using bun's vi.mock() to mock the service imports
   // 3. Setting up integration tests with a real DynamoDB Local instance
   //
   // Example structure for future integration tests:

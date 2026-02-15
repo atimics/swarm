@@ -9,7 +9,7 @@
  *   POST         /avatars/{id}/deactivate
  *   GET          /avatars/{id}/audit-log
  */
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock state ─────────────────────────────────────────────────────────────
 let getAvatarResult: unknown = null;
@@ -36,18 +36,18 @@ let activationReadinessResult: unknown = {
   checks: [],
 };
 
-mock.module('../../services/avatars.js', () => ({
+vi.mock('../../services/avatars.js', () => ({
   getAvatar: async () => getAvatarResult,
   activateAvatar: async () => activateResult,
   deactivateAvatar: async () => deactivateResult,
 }));
 
-mock.module('../../services/orb-slots.js', () => ({
+vi.mock('../../services/orb-slots.js', () => ({
   slotOrbToAvatar: async () => slotOrbResult,
   unslotOrbFromAvatar: async () => unslotOrbResult,
 }));
 
-mock.module('../../services/entitlements.js', () => ({
+vi.mock('../../services/entitlements.js', () => ({
   getEntitlement: async () => getEntitlementResult,
   setEntitlement: async () => setEntitlementResult,
 }));
@@ -56,7 +56,7 @@ mock.module('../../services/entitlements.js', () => ({
 // runtime-limits.test.ts when tests run in parallel. The real implementation
 // works fine for these tests.
 
-mock.module('../../services/activation-readiness.js', () => ({
+vi.mock('../../services/activation-readiness.js', () => ({
   ACTIVATION_READINESS_VERSION: 'activation_readiness_v1',
   evaluateActivationReadiness: async () => activationReadinessResult,
   toLegacyActivationIssues: () => {
@@ -65,7 +65,7 @@ mock.module('../../services/activation-readiness.js', () => ({
   },
 }));
 
-mock.module('../../services/audit-log.js', () => ({
+vi.mock('../../services/audit-log.js', () => ({
   recordAuditEvent: async (params: unknown) => {
     recordAuditEventCalls.push(params);
     return { id: 'audit-mock', ...params as Record<string, unknown>, timestamp: Date.now() };
@@ -73,12 +73,12 @@ mock.module('../../services/audit-log.js', () => ({
   listAuditEvents: async () => listAuditEventsResult,
 }));
 
-mock.module('./runtime-sync.js', () => ({
+vi.mock('./runtime-sync.js', () => ({
   syncRuntimeContractForAvatar: async () => {},
   buildRuntimeAugmentations: async () => undefined,
 }));
 
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, setContext: () => {} },
 }));
 

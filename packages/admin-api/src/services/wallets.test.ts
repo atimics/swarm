@@ -2,7 +2,7 @@
  * Wallet Service Tests
  * Tests wallet generation and balance checking with dependency injection
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   generateSolanaWallet,
   generateEthereumWallet,
@@ -15,10 +15,10 @@ import type { UserSession } from '../types.js';
 
 // Helper to create mock deps
 function createMockDeps(): WalletServiceDeps {
-  const mockSend = mock(() => Promise.resolve({}));
-  const mockGetBalance = mock(() => Promise.resolve(1000000000)); // 1 SOL
-  const mockGetParsedTokenAccounts = mock(() => Promise.resolve({ value: [] }));
-  const mockEthGetBalance = mock(() => Promise.resolve(BigInt('1000000000000000000'))); // 1 ETH
+  const mockSend = vi.fn(() => Promise.resolve({}));
+  const mockGetBalance = vi.fn(() => Promise.resolve(1000000000)); // 1 SOL
+  const mockGetParsedTokenAccounts = vi.fn(() => Promise.resolve({ value: [] }));
+  const mockEthGetBalance = vi.fn(() => Promise.resolve(BigInt('1000000000000000000'))); // 1 ETH
 
   return {
     dynamoClient: {
@@ -61,8 +61,8 @@ function createMockDeps(): WalletServiceDeps {
       formatEther: (val: bigint) => (Number(val) / 1e18).toString(),
     },
     secrets: {
-      storeSecret: mock(() => Promise.resolve()) as unknown as WalletServiceDeps['secrets']['storeSecret'],
-      _getSecretValueInternal: mock(() => Promise.resolve(null)) as unknown as WalletServiceDeps['secrets']['_getSecretValueInternal'],
+      storeSecret: vi.fn(() => Promise.resolve()) as unknown as WalletServiceDeps['secrets']['storeSecret'],
+      _getSecretValueInternal: vi.fn(() => Promise.resolve(null)) as unknown as WalletServiceDeps['secrets']['_getSecretValueInternal'],
     },
     bs58: {
       encode: () => 'encoded-secret-key',
@@ -171,7 +171,7 @@ describe('WalletService', () => {
 
   describe('listWallets', () => {
     it('queries DynamoDB for avatar wallets', async () => {
-      (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.dynamoClient.send as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve({
           Items: [
             { id: 'a1-solana-main', avatarId: 'a1', publicKey: 'p1', walletType: 'solana', address: 'p1', name: 'main', createdAt: 1000, createdBy: 'test@example.com' },
@@ -192,7 +192,7 @@ describe('WalletService', () => {
     });
 
     it('returns empty array when no wallets found', async () => {
-      (mockDeps.dynamoClient.send as ReturnType<typeof mock>).mockImplementation(() =>
+      (mockDeps.dynamoClient.send as ReturnType<typeof vi.fn>).mockImplementation(() =>
         Promise.resolve({ Items: [] })
       );
 

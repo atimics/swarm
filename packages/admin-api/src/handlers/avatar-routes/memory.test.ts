@@ -6,7 +6,7 @@
  *   DELETE /avatars/{id}/memories/{memId}  - Delete a specific memory
  *   GET    /avatars/{id}/memories/export   - Export all memories as JSON
  */
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock state ─────────────────────────────────────────────────────────────
 let getAvatarResult: unknown = null;
@@ -17,15 +17,15 @@ let deleteMemoryCalled = false;
 let deleteMemoriesCalled = false;
 let deleteMemoriesSks: string[] = [];
 
-mock.module('../../services/avatars.js', () => ({
+vi.mock('../../services/avatars.js', () => ({
   getAvatar: async () => getAvatarResult,
 }));
 
-mock.module('../../services/entitlements.js', () => ({
+vi.mock('../../services/entitlements.js', () => ({
   isMemoryEnabled: async () => isMemoryEnabledResult,
 }));
 
-mock.module('../../services/memory.js', () => ({
+vi.mock('../../services/memory.js', () => ({
   getMemories: async (_avatarId: string, options: { tier?: string }) => {
     const tier = options?.tier || 'immediate';
     return getMemoriesResults[tier] || [];
@@ -40,7 +40,7 @@ mock.module('../../services/memory.js', () => ({
   },
 }));
 
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, setContext: () => {} },
 }));
 

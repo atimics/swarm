@@ -1,27 +1,31 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 
-const getAvatarMock = mock();
-const getBurnStatsWithProgressMock = mock();
-const getBurnHistoryMock = mock();
-const getAvatarRankMock = mock();
-const getEnergyStatusMock = mock();
-
-mock.module('../services/avatars.js', () => ({
-  getAvatar: getAvatarMock,
+vi.mock('../services/avatars.js', () => ({
+  getAvatar: vi.fn(),
 }));
 
-mock.module('../services/burn-stats.js', () => ({
-  getBurnStatsWithProgress: getBurnStatsWithProgressMock,
-  getBurnHistory: getBurnHistoryMock,
-  getAvatarRank: getAvatarRankMock,
+vi.mock('../services/burn-stats.js', () => ({
+  getBurnStatsWithProgress: vi.fn(),
+  getBurnHistory: vi.fn(),
+  getAvatarRank: vi.fn(),
 }));
 
-mock.module('../services/energy.js', () => ({
-  getEnergyStatus: getEnergyStatusMock,
+vi.mock('../services/energy.js', () => ({
+  getEnergyStatus: vi.fn(),
 }));
 
 import { handler } from './public-profile.js';
+import * as avatars from '../services/avatars.js';
+import * as burnStats from '../services/burn-stats.js';
+import * as energy from '../services/energy.js';
+
+// Get references to the mocked functions
+const getAvatarMock = vi.mocked(avatars.getAvatar);
+const getBurnStatsWithProgressMock = vi.mocked(burnStats.getBurnStatsWithProgress);
+const getBurnHistoryMock = vi.mocked(burnStats.getBurnHistory);
+const getAvatarRankMock = vi.mocked(burnStats.getAvatarRank);
+const getEnergyStatusMock = vi.mocked(energy.getEnergyStatus);
 
 function createEvent(overrides: Partial<APIGatewayProxyEvent> = {}): APIGatewayProxyEvent {
   return {

@@ -1,28 +1,24 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
 process.env.INTERNAL_TEST_KEY = 'test-key';
 process.env.ENVIRONMENT = 'staging';
 
-const listIssuesMock = mock(() => Promise.resolve([]));
-const updateIssueStatusMock = mock(() => Promise.resolve());
-const authenticateRequestMock = mock(() => {
-  throw new Error('No authentication token provided');
-});
-
-mock.module('../services/auto-issues.js', () => ({
-  listIssues: listIssuesMock,
-  updateIssueStatus: updateIssueStatusMock,
-  recordError: mock(() => Promise.resolve({ issueId: 'issue-1', isNew: true, occurrenceCount: 1 })),
-  getIssue: mock(() => Promise.resolve({ issue: null })),
+vi.mock('../services/auto-issues.js', () => ({
+  listIssues: vi.fn(() => Promise.resolve([])),
+  updateIssueStatus: vi.fn(() => Promise.resolve()),
+  recordError: vi.fn(() => Promise.resolve({ issueId: 'issue-1', isNew: true, occurrenceCount: 1 })),
+  getIssue: vi.fn(() => Promise.resolve({ issue: null })),
 }));
 
-mock.module('../auth/request-auth.js', () => ({
-  authenticateRequest: authenticateRequestMock,
-  requireAdmin: mock(() => true),
+vi.mock('../auth/request-auth.js', () => ({
+  authenticateRequest: vi.fn(() => {
+    throw new Error('No authentication token provided');
+  }),
+  requireAdmin: vi.fn(() => true),
 }));
 
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   hasValidInternalTestKey: ({
     headers,
     internalTestKey,
@@ -41,14 +37,21 @@ mock.module('@swarm/core', () => ({
     return value === internalTestKey;
   },
   logger: {
-    setContext: mock(() => {}),
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
+    setContext: vi.fn(() => {}),
+    info: vi.fn(() => {}),
+    warn: vi.fn(() => {}),
+    error: vi.fn(() => {}),
   },
 }));
 
 import { handler } from './issues.js';
+import * as autoIssues from '../services/auto-issues.js';
+import * as requestAuth from '../auth/request-auth.js';
+
+// Get references to the mocked functions
+const listIssuesMock = vi.mocked(autoIssues.listIssues);
+const updateIssueStatusMock = vi.mocked(autoIssues.updateIssueStatus);
+const authenticateRequestMock = vi.mocked(requestAuth.authenticateRequest);
 
 function createEvent(overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 {
   return {

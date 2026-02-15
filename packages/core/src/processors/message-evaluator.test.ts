@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MessageEvaluator } from './message-evaluator.js';
 import type { AvatarConfig } from '../types/index.js';
 
@@ -21,8 +21,8 @@ describe('MessageEvaluator', () => {
     } as any;
 
     mockStateService = {
-      getUserCooldown: mock(() => Promise.resolve(null)),
-      getChannelState: mock(() => Promise.resolve(null)),
+      getUserCooldown: vi.fn(() => Promise.resolve(null)),
+      getChannelState: vi.fn(() => Promise.resolve(null)),
     };
 
     mockEvaluatorConfig = {

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { getLinkedWalletDisplay, formatAddress } from './linked-wallets.js';
 
 describe('linked wallets display', () => {

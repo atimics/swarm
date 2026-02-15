@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect } from 'vitest';
 
 const RUN_PLAN_TESTS = process.env.RUN_PLAN_TESTS === '1';
 const describePlan = RUN_PLAN_TESTS ? describe : describe.skip;

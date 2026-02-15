@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { validateReplicateApiKey } from './replicate.js';
 
 describe('replicate api key validation', () => {

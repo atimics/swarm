@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DynamoDBUsageMeteringService } from './usage.js';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
 describe('UsageMeteringService', () => {
   let service: DynamoDBUsageMeteringService;
-  let mockSend: ReturnType<typeof mock>;
+  let mockSend: ReturnType<typeof vi.fn>;
 
   const tableName = 'test-table';
   const avatarId = 'test-avatar';
@@ -16,7 +16,7 @@ describe('UsageMeteringService', () => {
   };
 
   beforeEach(() => {
-    mockSend = mock(() => Promise.resolve({ Item: undefined }));
+    mockSend = vi.fn(() => Promise.resolve({ Item: undefined }));
     const mockDocClient = { send: mockSend } as unknown as DynamoDBDocumentClient;
     service = new DynamoDBUsageMeteringService(tableName, mockDocClient);
   });

@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { createCanonicalMemoryClient, _setDynamoClient } from './canonical-memory.js';
 
 describe('Canonical Memory Client', () => {
-  let mockSend: ReturnType<typeof mock>;
+  let mockSend: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    mockSend = mock(() => Promise.resolve({}));
+    mockSend = vi.fn(() => Promise.resolve({}));
     const mockDocClient = { send: mockSend } as unknown as DynamoDBDocumentClient;
     _setDynamoClient(mockDocClient);
   });

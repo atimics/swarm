@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { GetCommand, PutCommand, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
@@ -12,7 +12,7 @@ import {
 } from './home-channel.js';
 
 // ── Mock DynamoDB client ────────────────────────────────────────────────────
-const mockSend = mock(() => Promise.resolve({} as unknown));
+const mockSend = vi.fn(() => Promise.resolve({} as unknown));
 
 beforeEach(() => {
   mockSend.mockReset();

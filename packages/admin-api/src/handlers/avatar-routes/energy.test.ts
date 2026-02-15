@@ -8,7 +8,7 @@
  *   POST /avatars/{id}/energy/add
  *   GET  /avatars/{id}/energy/history
  */
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock state ─────────────────────────────────────────────────────────────
 let getAvatarResult: unknown = null;
@@ -19,11 +19,11 @@ let setEnergyResult = { success: true, newValue: 50 };
 let addEnergyResult = { success: true, newValue: 90 };
 let energyHistory: unknown[] = [];
 
-mock.module('../../services/avatars.js', () => ({
+vi.mock('../../services/avatars.js', () => ({
   getAvatar: async () => getAvatarResult,
 }));
 
-mock.module('../../services/energy.js', () => ({
+vi.mock('../../services/energy.js', () => ({
   getEnergyStatus: async () => energyStatus,
   getEnergyBankBalance: async () => bankBalance,
   getEnergyHistory: async () => energyHistory,
@@ -32,15 +32,15 @@ mock.module('../../services/energy.js', () => ({
   ENERGY_COSTS: { message: 1, image: 5 },
 }));
 
-mock.module('../../services/energy-burn.js', () => ({
+vi.mock('../../services/energy-burn.js', () => ({
   burnDepositedTokensForEnergy: async () => burnResult,
 }));
 
-mock.module('./runtime-sync.js', () => ({
+vi.mock('./runtime-sync.js', () => ({
   syncRuntimeContractForAvatar: async () => {},
 }));
 
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, setContext: () => {} },
 }));
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import type { AvatarRecord } from '../types.js';
 import { convertToAvatarConfig } from './config-sync.js';
 

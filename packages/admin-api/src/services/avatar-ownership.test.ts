@@ -4,9 +4,9 @@
  * Covers wallet→avatar lookup using the new wallet-keyed mapping record,
  * with fallback to legacy GSI1 mapping.
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const mockDdbSend = mock(async () => ({}));
+const mockDdbSend = vi.fn(async () => ({}));
 
 const { getInhabitedAvatar } = await import('./avatar-ownership.js');
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, vi } from 'vitest';
 import { registerTelegramWebhook } from './telegram.js';
 
 describe('telegram service', () => {
@@ -6,7 +6,7 @@ describe('telegram service', () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock(async (url: string | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const urlStr = typeof url === 'string' ? url : url.toString();
       calls.push({ url: urlStr, init });
 

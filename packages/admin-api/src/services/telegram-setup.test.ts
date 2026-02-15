@@ -1,13 +1,13 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, vi } from 'vitest';
 import { setupTelegramIntegration } from './telegram-admin.js';
 
 const session = { email: 'test@example.com', userId: 'wallet-1', expiresAt: 0, isAdmin: false, accessToken: '' };
 
 describe('telegram setup', () => {
   it('bails out when token is invalid', async () => {
-    const updateAvatar = mock(async () => undefined);
-    const storeSecret = mock(async () => undefined);
-    const registerTelegramWebhook = mock(async () => ({ success: true, message: 'ok', secretToken: 'secret' }));
+    const updateAvatar = vi.fn(async () => undefined);
+    const storeSecret = vi.fn(async () => undefined);
+    const registerTelegramWebhook = vi.fn(async () => ({ success: true, message: 'ok', secretToken: 'secret' }));
 
     const result = await setupTelegramIntegration({
       avatarId: 'avatar-1',
@@ -29,9 +29,9 @@ describe('telegram setup', () => {
   });
 
   it('does not persist if webhook registration fails', async () => {
-    const updateAvatar = mock(async () => undefined);
-    const storeSecret = mock(async () => undefined);
-    const registerTelegramWebhook = mock(async () => ({ success: false, message: 'Failed' }));
+    const updateAvatar = vi.fn(async () => undefined);
+    const storeSecret = vi.fn(async () => undefined);
+    const registerTelegramWebhook = vi.fn(async () => ({ success: false, message: 'Failed' }));
 
     const result = await setupTelegramIntegration({
       avatarId: 'avatar-1',
@@ -54,13 +54,13 @@ describe('telegram setup', () => {
   it('stores secrets after successful webhook registration', async () => {
     const calls: string[] = [];
 
-    const updateAvatar = mock(async () => {
+    const updateAvatar = vi.fn(async () => {
       calls.push('updateAvatar');
     });
-    const storeSecret = mock(async () => {
+    const storeSecret = vi.fn(async () => {
       calls.push('storeSecret');
     });
-    const registerTelegramWebhook = mock(async () => {
+    const registerTelegramWebhook = vi.fn(async () => {
       calls.push('registerWebhook');
       return { success: true, message: 'ok', secretToken: 'secret-token', webhookUrl: 'https://hook' };
     });

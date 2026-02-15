@@ -4,7 +4,7 @@
  * Tests for the media processing pipeline that handles image and video generation.
  * Uses bun:test with mock functions instead of vi.mock for dependency injection.
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { z } from 'zod';
 
 describe('Media Pipeline Integration', () => {
@@ -143,13 +143,13 @@ describe('Media Pipeline Integration', () => {
   describe('Media Service Mock Integration', () => {
     it('should process a media job and return results', async () => {
       // Create mock media service
-      const mockGenerateImage = mock(() =>
+      const mockGenerateImage = vi.fn(() =>
         Promise.resolve({ url: 'https://example.com/img.png', type: 'image' })
       );
 
       const mockMediaService = {
         generateImage: mockGenerateImage,
-        generateVideo: mock(() =>
+        generateVideo: vi.fn(() =>
           Promise.resolve({ url: 'https://example.com/vid.mp4', type: 'video' })
         ),
       };
@@ -193,7 +193,7 @@ describe('Media Pipeline Integration', () => {
     });
 
     it('should handle video generation action', async () => {
-      const mockGenerateVideo = mock(() =>
+      const mockGenerateVideo = vi.fn(() =>
         Promise.resolve({ url: 'https://example.com/vid.mp4', type: 'video' })
       );
 

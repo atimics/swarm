@@ -2,7 +2,7 @@
  * Tests for avatar-routes/shared.ts — pure utility functions.
  * No module mocks needed since shared.ts has zero service imports.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { jsonResponse, parseSinceParam, parseSinceQueryParam, requireOwnerOrAdmin } from './shared.js';
 import { makeCtx, CORS_HEADERS } from './test-helpers.js';
 

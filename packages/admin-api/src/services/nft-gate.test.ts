@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 const prevEnv = process.env.ENVIRONMENT;
 const prevHeliusApiKey = process.env.HELIUS_API_KEY;

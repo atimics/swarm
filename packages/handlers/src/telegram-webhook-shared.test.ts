@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 
 process.env.ADMIN_TABLE ||= 'ADMIN_TABLE';
 process.env.STATE_TABLE ||= 'STATE_TABLE';

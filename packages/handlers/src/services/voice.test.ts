@@ -4,7 +4,7 @@
  * Tests for voice transcription, generation, and sending functionality.
  * Uses bun:test with mock functions for dependency injection.
  */
-import { describe, it, expect, beforeEach as _beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach as _beforeEach, vi } from 'vitest';
 
 describe('VoiceServices - Pure Logic Tests', () => {
   describe('Audio format detection', () => {
@@ -177,7 +177,7 @@ describe('VoiceServices - Service Mock Integration', () => {
   describe('transcribeAudio', () => {
     it('should transcribe audio from URL via OpenAI Whisper', async () => {
       // Simulate the transcription flow
-      const mockFetch = mock(async (url: string) => {
+      const mockFetch = vi.fn(async (url: string) => {
         if (url === 'https://example.com/audio.mp3') {
           return {
             ok: true,
@@ -207,7 +207,7 @@ describe('VoiceServices - Service Mock Integration', () => {
     });
 
     it('should resolve Telegram file ID to URL', async () => {
-      const mockFetch = mock(async (url: string) => {
+      const mockFetch = vi.fn(async (url: string) => {
         if (url.includes('api.telegram.org') && url.includes('getFile')) {
           return {
             ok: true,
@@ -256,7 +256,7 @@ describe('VoiceServices - Service Mock Integration', () => {
 
     it('should use Replicate for voice cloning when configured', async () => {
       let callCount = 0;
-      const mockFetch = mock(async (url: string) => {
+      const mockFetch = vi.fn(async (url: string) => {
         callCount++;
         // First call: create prediction
         if (url === 'https://api.replicate.com/v1/predictions' && callCount === 1) {
@@ -311,7 +311,7 @@ describe('VoiceServices - Service Mock Integration', () => {
 
   describe('sendVoiceMessage', () => {
     it('should send voice via Telegram API', async () => {
-      const mockFetch = mock(async (url: string, options?: RequestInit) => {
+      const mockFetch = vi.fn(async (url: string, options?: RequestInit) => {
         if (url.includes('api.telegram.org') && url.includes('sendVoice')) {
           expect(options?.method).toBe('POST');
           // We now upload via multipart/form-data (FormData instance)

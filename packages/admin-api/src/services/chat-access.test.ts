@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { createAvatarAccessChecker } from './chat-access.js';
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*' };

@@ -9,7 +9,7 @@
  *
  * @see packages/admin-api/src/services/media.ts
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { DEFAULT_MODELS, getReplicateVersion } from './models-registry.js';
 import type { AICapability, AvatarRecord } from '../types.js';
 

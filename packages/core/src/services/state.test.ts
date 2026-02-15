@@ -8,7 +8,7 @@
  *
  * @see packages/core/src/services/state.ts
  */
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach } from 'vitest';
 import { CHANNEL_CONFIG, DynamoDBStateService } from './state.js';
 import type { ChannelState, ContextMessage, ResponseDecision, Platform } from '../types/index.js';
 

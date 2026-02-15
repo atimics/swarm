@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { diagnoseTelegram } from './telegram-admin.js';
 
 describe('telegram diagnostics', () => {

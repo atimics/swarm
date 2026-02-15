@@ -1,7 +1,7 @@
 /**
  * ToolRegistry Tests
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { ToolRegistry, defineTool, defineManualTool } from './registry.js';
 

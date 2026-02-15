@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   checkActiveUserAccess,
@@ -29,7 +29,7 @@ describe('active-user-limit', () => {
   });
 
   it('fails open when SWARM_ACTIVE_USER_LIMIT is unset', async () => {
-    const send = mock(async () => ({}));
+    const send = vi.fn(async () => ({}));
 
     const deps: ActiveUserLimitDeps = {
       dynamoClient: { send: send as any },
@@ -50,7 +50,7 @@ describe('active-user-limit', () => {
   it('bypasses the limit for Orb holders', async () => {
     process.env.SWARM_ACTIVE_USER_LIMIT = '2';
 
-    const send = mock(async () => {
+    const send = vi.fn(async () => {
       throw new Error('Should not touch Dynamo for Orb holder');
     });
 
@@ -80,7 +80,7 @@ describe('active-user-limit', () => {
 
     const store = new Map<string, ActiveUserSlotsRecord>();
 
-    const send = mock(async (cmd: any) => {
+    const send = vi.fn(async (cmd: any) => {
       const input = cmd?.input as any;
 
       // Put (create)

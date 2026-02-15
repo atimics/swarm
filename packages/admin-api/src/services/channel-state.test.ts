@@ -1,7 +1,7 @@
 /**
  * Channel State Service Tests
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import type { ChannelStateRecord, BufferedMessage } from '../types.js';
 import { buildConversationContext, evaluateResponseTrigger, getResponseTarget } from './channel-state.js';
 

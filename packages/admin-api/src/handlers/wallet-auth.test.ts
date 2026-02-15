@@ -3,11 +3,11 @@
  *
  * Focused unit coverage for /auth/me session reporting.
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
-const mockGetSessionWithUser = mock();
-const mockGetGateStatus = mock();
+const mockGetSessionWithUser = vi.fn();
+const mockGetGateStatus = vi.fn();
 
 const { handleWalletAuth } = await import('./wallet-auth.js');
 

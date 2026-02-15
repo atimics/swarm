@@ -6,7 +6,7 @@
  *
  * Run tests with: bun test src/services/character-reference.test.ts
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 
 describe('Character Reference - S3 Key Generation', () => {
   it('should generate correct S3 key pattern for character reference', () => {

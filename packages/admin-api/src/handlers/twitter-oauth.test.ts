@@ -3,7 +3,7 @@
  *
  * Tests for the OAuth 1.0a handler routes using dependency injection.
  */
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { handler, type TwitterOAuthHandlerDeps } from './twitter-oauth.js';
 import type { UserSession, AvatarRecord } from '../types.js';
@@ -79,29 +79,29 @@ function createMockAvatar(avatarId: string, overrides: Partial<AvatarRecord> = {
 
 describe('Twitter OAuth Handler', () => {
   let mockDeps: TwitterOAuthHandlerDeps;
-  let mockIsConfigured: ReturnType<typeof mock>;
-  let mockProbeOAuthStart: ReturnType<typeof mock>;
-  let mockStartOAuthFlow: ReturnType<typeof mock>;
-  let mockCompleteOAuthFlow: ReturnType<typeof mock>;
-  let mockGetConnectionStatus: ReturnType<typeof mock>;
-  let mockDisconnectTwitter: ReturnType<typeof mock>;
-  let mockGetAvatar: ReturnType<typeof mock>;
-  let mockUpdateAvatar: ReturnType<typeof mock>;
-  let mockAuthenticateRequest: ReturnType<typeof mock>;
-  let mockRequireAdmin: ReturnType<typeof mock>;
-  let mockGetWalletAddress: ReturnType<typeof mock>;
+  let mockIsConfigured: ReturnType<typeof vi.fn>;
+  let mockProbeOAuthStart: ReturnType<typeof vi.fn>;
+  let mockStartOAuthFlow: ReturnType<typeof vi.fn>;
+  let mockCompleteOAuthFlow: ReturnType<typeof vi.fn>;
+  let mockGetConnectionStatus: ReturnType<typeof vi.fn>;
+  let mockDisconnectTwitter: ReturnType<typeof vi.fn>;
+  let mockGetAvatar: ReturnType<typeof vi.fn>;
+  let mockUpdateAvatar: ReturnType<typeof vi.fn>;
+  let mockAuthenticateRequest: ReturnType<typeof vi.fn>;
+  let mockRequireAdmin: ReturnType<typeof vi.fn>;
+  let mockGetWalletAddress: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     // Create fresh mocks for each test
-    mockIsConfigured = mock(() => Promise.resolve(true));
-    mockProbeOAuthStart = mock(() => Promise.resolve());
-    mockStartOAuthFlow = mock(() =>
+    mockIsConfigured = vi.fn(() => Promise.resolve(true));
+    mockProbeOAuthStart = vi.fn(() => Promise.resolve());
+    mockStartOAuthFlow = vi.fn(() =>
       Promise.resolve({
         authorizationUrl: 'https://twitter.com/oauth/authorize?oauth_token=test-token',
         oauthToken: 'test-token',
       })
     );
-    mockCompleteOAuthFlow = mock(() =>
+    mockCompleteOAuthFlow = vi.fn(() =>
       Promise.resolve({
         success: true,
         avatarId: 'test-avatar',
@@ -109,7 +109,7 @@ describe('Twitter OAuth Handler', () => {
         userId: '12345',
       })
     );
-    mockGetConnectionStatus = mock(() =>
+    mockGetConnectionStatus = vi.fn(() =>
       Promise.resolve({
         connected: true,
         username: 'testuser',
@@ -117,12 +117,12 @@ describe('Twitter OAuth Handler', () => {
         connectedAt: Date.now(),
       })
     );
-    mockDisconnectTwitter = mock(() => Promise.resolve());
-    mockGetAvatar = mock(() => Promise.resolve(createMockAvatar('test-avatar')));
-    mockUpdateAvatar = mock(() => Promise.resolve(createMockAvatar('test-avatar')));
-    mockAuthenticateRequest = mock(() => Promise.resolve(createTestSession()));
-    mockRequireAdmin = mock(() => true);
-    mockGetWalletAddress = mock(() => Promise.resolve('admin-wallet-123'));
+    mockDisconnectTwitter = vi.fn(() => Promise.resolve());
+    mockGetAvatar = vi.fn(() => Promise.resolve(createMockAvatar('test-avatar')));
+    mockUpdateAvatar = vi.fn(() => Promise.resolve(createMockAvatar('test-avatar')));
+    mockAuthenticateRequest = vi.fn(() => Promise.resolve(createTestSession()));
+    mockRequireAdmin = vi.fn(() => true);
+    mockGetWalletAddress = vi.fn(() => Promise.resolve('admin-wallet-123'));
 
     mockDeps = {
       twitterOAuth: {

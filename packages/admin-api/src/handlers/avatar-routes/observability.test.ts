@@ -9,7 +9,7 @@
  *   GET   /avatars/{id}/events/counts
  *   PATCH /avatars/{id}/events/{eventId}
  */
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock state ─────────────────────────────────────────────────────────────
 let getAvatarResult: unknown = null;
@@ -21,30 +21,30 @@ let eventsResult: unknown[] = [];
 let eventCountsResult: unknown = { total: 0 };
 const updateIssueCalls: unknown[][] = [];
 
-mock.module('../../services/avatars.js', () => ({
+vi.mock('../../services/avatars.js', () => ({
   getAvatar: async () => getAvatarResult,
 }));
 
-mock.module('../../services/logs.js', () => ({
+vi.mock('../../services/logs.js', () => ({
   queryAvatarLogs: async () => queryLogsResult,
 }));
 
-mock.module('../../services/avatar-observability.js', () => ({
+vi.mock('../../services/avatar-observability.js', () => ({
   listAvatarLogs: async () => listAvatarLogsResult,
   listAvatarEvents: async () => eventsResult,
   getAvatarEventCounts: async () => eventCountsResult,
   updateIssueStatus: async (...args: unknown[]) => { updateIssueCalls.push(args); },
 }));
 
-mock.module('../../services/observability.js', () => ({
+vi.mock('../../services/observability.js', () => ({
   getAvatarActivity: async () => activityResult,
 }));
 
-mock.module('../../services/auto-issues.js', () => ({
+vi.mock('../../services/auto-issues.js', () => ({
   listAvatarIssues: async () => issuesResult,
 }));
 
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, setContext: () => {} },
 }));
 

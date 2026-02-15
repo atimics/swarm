@@ -1,9 +1,9 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, vi } from 'vitest';
 import { copyTextToClipboard } from './clipboard.js';
 
 describe('copyTextToClipboard', () => {
   it('writes text to provided clipboard', async () => {
-    const writeText = mock(async () => undefined);
+    const writeText = vi.fn(async () => undefined);
 
     await copyTextToClipboard('hello', { writeText });
 

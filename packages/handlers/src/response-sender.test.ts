@@ -10,7 +10,7 @@
  *
  * @see packages/handlers/src/response-sender.ts
  */
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, vi } from 'vitest';
 
 describe('Response Sender - JSON Parse Error Handling', () => {
   /**
@@ -516,7 +516,7 @@ describe('Response Sender - Idempotency', () => {
 
 describe('Response Sender - Service Mock Integration', () => {
   it('should send response via platform adapter', async () => {
-    const mockSend = mock(() => Promise.resolve({
+    const mockSend = vi.fn(() => Promise.resolve({
       success: true,
       sentMessages: [{ messageId: 'msg-1', text: 'Hello!' }],
       errors: [],
@@ -541,7 +541,7 @@ describe('Response Sender - Service Mock Integration', () => {
   });
 
   it('should handle send errors gracefully', async () => {
-    const mockSend = mock(() => Promise.resolve({
+    const mockSend = vi.fn(() => Promise.resolve({
       success: false,
       sentMessages: [],
       errors: [{ code: 'RATE_LIMITED', message: 'Too many requests' }],
@@ -559,7 +559,7 @@ describe('Response Sender - Service Mock Integration', () => {
   });
 
   it('should queue media jobs to SQS', async () => {
-    const mockSqsSend = mock(() => Promise.resolve({ MessageId: 'sqs-123' }));
+    const mockSqsSend = vi.fn(() => Promise.resolve({ MessageId: 'sqs-123' }));
 
     const mediaJob = {
       jobId: 'job-123',

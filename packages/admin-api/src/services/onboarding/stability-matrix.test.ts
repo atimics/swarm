@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import {
   ONBOARDING_CONTRACT_VERSION_V1,
   applyOnboardingEvent,
