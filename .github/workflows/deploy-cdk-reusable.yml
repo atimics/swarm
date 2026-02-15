@@ -156,6 +156,25 @@ jobs:
         working-directory: packages/infra
         run: rm -rf cdk.out
 
+      - name: Delete ROLLBACK_COMPLETE stacks
+        env:
+          STACK_HASH: ${{ inputs.stack_hash }}
+        run: |
+          STACK_SUFFIX=""
+          if [ -n "$STACK_HASH" ]; then
+            STACK_SUFFIX="-$STACK_HASH"
+          fi
+
+          for STACK_NAME in "SwarmShared-${{ inputs.cdk_env }}${STACK_SUFFIX}" "SwarmApi-${{ inputs.cdk_env }}${STACK_SUFFIX}" "SwarmUi-${{ inputs.cdk_env }}${STACK_SUFFIX}"; do
+            STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+            if [ "$STATUS" = "ROLLBACK_COMPLETE" ]; then
+              echo "⚠️ Stack '$STACK_NAME' is in ROLLBACK_COMPLETE state — deleting before redeploy"
+              aws cloudformation delete-stack --stack-name "$STACK_NAME"
+              aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
+              echo "✅ Deleted '$STACK_NAME'"
+            fi
+          done
+
       - name: CDK Diff
         id: diff
         working-directory: packages/infra
