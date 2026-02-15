@@ -59,6 +59,9 @@ secrets.json
 auth-profiles.json
 proxim8_nfts.db
 issues/*
+!issues/README.md
+!issues/open/
+!issues/open/**
 audit/
 packages/infra/cdk.out.prod/*
 packages/infra/prod-resource-mapping.json
