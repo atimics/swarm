@@ -52,7 +52,8 @@ COPY --from=builder /build/packages/core/package.json ./node_modules/@swarm/core
 COPY --from=builder /build/packages/mcp-server/dist/ ./node_modules/@swarm/mcp-server/
 COPY --from=builder /build/packages/mcp-server/package.json ./node_modules/@swarm/mcp-server/package.json
 
-# Install production dependencies only
+# Strip workspace: deps (already copied above) and install remaining prod deps
+RUN node -e "const p=require('./package.json');for(const k of Object.keys(p.dependencies||{})){if(String(p.dependencies[k]).startsWith('workspace:')){delete p.dependencies[k]}};require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
 RUN npm install --omit=dev
 
 RUN chown -R swarm:swarm /home/swarm
