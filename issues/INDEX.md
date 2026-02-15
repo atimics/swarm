@@ -4,12 +4,13 @@ This directory contains structured issue files for bugs, features, technical deb
 
 ## Issue Organization
 
-- **staging/** - High-priority issues ready for immediate work (M2 focus)
-- **bugs/** - Bug fixes and technical issues
-- **features/** - New feature requests (M2 and M3)
-- **tech-debt/** - Technical debt cleanup items
-- **docs/** - Documentation improvements
+This index groups issues into logical categories, but all issue JSON files are stored under `issues/staging/` as described in `issues/README.md`.
 
+- **Staging** - High-priority issues ready for immediate work (M2 focus)
+- **Bugs** category - Bug fixes and technical issues
+- **Features** category - New feature requests (M2 and M3)
+- **Tech debt** category - Technical debt cleanup items
+- **Docs** category - Documentation improvements
 ## Issue Summary by Priority
 
 ### P0 (Critical - M2 Blockers)
