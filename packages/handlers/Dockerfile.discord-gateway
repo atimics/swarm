@@ -47,9 +47,9 @@ WORKDIR /home/swarm/app
 # Copy built outputs
 COPY --from=builder /build/packages/handlers/dist/ ./dist/
 COPY --from=builder /build/packages/handlers/package.json ./package.json
-COPY --from=builder /build/packages/core/dist/ ./node_modules/@swarm/core/
+COPY --from=builder /build/packages/core/dist/ ./node_modules/@swarm/core/dist/
 COPY --from=builder /build/packages/core/package.json ./node_modules/@swarm/core/package.json
-COPY --from=builder /build/packages/mcp-server/dist/ ./node_modules/@swarm/mcp-server/
+COPY --from=builder /build/packages/mcp-server/dist/ ./node_modules/@swarm/mcp-server/dist/
 COPY --from=builder /build/packages/mcp-server/package.json ./node_modules/@swarm/mcp-server/package.json
 
 # Strip workspace: deps (already copied above) and install remaining prod deps
