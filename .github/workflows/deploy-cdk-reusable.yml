@@ -177,16 +177,27 @@ jobs:
             fi
           done
 
-          # Clean up orphaned log groups with RETAIN policy that block re-creation
-          if [ -n "$DELETED_STACKS" ]; then
-            echo "Cleaning orphaned log groups from deleted stacks..."
-            for LG in $(aws logs describe-log-groups --log-group-name-prefix "/ecs/swarm-" --query 'logGroups[].logGroupName' --output text); do
-              if [[ "$LG" == *"-${{ inputs.cdk_env }}${STACK_SUFFIX}" ]] || [[ "$LG" == *"-${{ inputs.cdk_env }}${STACK_SUFFIX}-split" ]]; then
-                echo "  Deleting orphaned log group: $LG"
+      - name: Clean orphaned log groups
+        env:
+          STACK_HASH: ${{ inputs.stack_hash }}
+        run: |
+          STACK_SUFFIX=""
+          if [ -n "$STACK_HASH" ]; then
+            STACK_SUFFIX="-$STACK_HASH"
+          fi
+
+          # Delete ECS log groups whose parent stack doesn't exist (orphaned by RETAIN policy)
+          for LG in $(aws logs describe-log-groups --log-group-name-prefix "/ecs/swarm-" --query 'logGroups[].logGroupName' --output text 2>/dev/null); do
+            if [[ "$LG" == *"-${{ inputs.cdk_env }}${STACK_SUFFIX}"* ]]; then
+              # Check if the parent stack exists
+              PARENT_STACK="SwarmApi-${{ inputs.cdk_env }}${STACK_SUFFIX}"
+              STATUS=$(aws cloudformation describe-stacks --stack-name "$PARENT_STACK" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+              if [ "$STATUS" = "DOES_NOT_EXIST" ] || [ "$STATUS" = "ROLLBACK_COMPLETE" ]; then
+                echo "Deleting orphaned log group: $LG (parent stack $PARENT_STACK is $STATUS)"
                 aws logs delete-log-group --log-group-name "$LG" || true
               fi
-            done
-          fi
+            fi
+          done
 
       - name: CDK Diff
         id: diff

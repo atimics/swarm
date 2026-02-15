@@ -87,8 +87,7 @@ export class DiscordGatewayWorker extends Construct {
     const logGroup = new logs.LogGroup(this, 'LogGroup', {
       logGroupName: `/ecs/swarm-discord-gateway-${environment}${suffix}`,
       retention: logs.RetentionDays.TWO_WEEKS,
-      removalPolicy:
-        environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
     // Container
