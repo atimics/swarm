@@ -155,7 +155,7 @@ Each issue includes:
 ## Next Steps
 
 1. **Review Issues**: Team to review and prioritize
-2. **Assign Work**: Use avatar registry (issues/avatars.json)
+2. **Assign Work**: Assign owners based on existing team norms (e.g., CODEOWNERS, service ownership docs)
 3. **Sprint Planning**: Use QUICKSTART.md for sprint 1
 4. **Track Progress**: Update status field in issue JSON files
 5. **Link to PRs**: Reference issue IDs in commit messages
