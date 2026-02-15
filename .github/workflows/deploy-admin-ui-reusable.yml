@@ -125,7 +125,10 @@ jobs:
 
           # Query by OutputKey (stable CDK construct ID) instead of ExportName
           # which may include a -split suffix from useExistingResources mode.
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query \"Stacks[0].Outputs[?starts_with(OutputKey,'AdminUiDistributionId')].OutputValue | [0]\" --output text)" >> $GITHUB_OUTPUT
+          DIST=$(aws cloudformation describe-stacks --stack-name "$STACK" \
+            --query 'Stacks[0].Outputs[?starts_with(OutputKey,`AdminUiDistributionId`)].OutputValue | [0]' \
+            --output text)
+          echo "distribution=$DIST" >> $GITHUB_OUTPUT
 
   admin-ui-deploy:
     name: Deploy Admin UI
@@ -181,7 +184,7 @@ jobs:
           # Query by OutputKey (stable CDK construct ID) instead of ExportName
           # which may include a -split suffix from useExistingResources mode.
           BUCKET=$(aws cloudformation describe-stacks --stack-name "$STACK" \
-            --query "Stacks[0].Outputs[?starts_with(OutputKey,'AdminUiBucketName')].OutputValue | [0]" \
+            --query 'Stacks[0].Outputs[?starts_with(OutputKey,`AdminUiBucketName`)].OutputValue | [0]' \
             --output text)
 
           if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ]; then
@@ -209,7 +212,7 @@ jobs:
             STACK="SwarmUi-${CDK_ENV}${STACK_SUFFIX}"
 
             DIST=$(aws cloudformation describe-stacks --stack-name "$STACK" \
-              --query "Stacks[0].Outputs[?starts_with(OutputKey,'AdminUiDistributionId')].OutputValue | [0]" \
+              --query 'Stacks[0].Outputs[?starts_with(OutputKey,`AdminUiDistributionId`)].OutputValue | [0]' \
               --output text)
           fi
 

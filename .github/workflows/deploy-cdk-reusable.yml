@@ -152,6 +152,10 @@ jobs:
           echo "⚠️  CDK bootstrap missing in ${ACCOUNT_ID}/${AWS_REGION}; bootstrapping now"
           npx cdk bootstrap "aws://${ACCOUNT_ID}/${AWS_REGION}" --require-approval never
 
+      - name: Clean stale CDK output
+        working-directory: packages/infra
+        run: rm -rf cdk.out
+
       - name: CDK Diff
         id: diff
         working-directory: packages/infra
@@ -278,7 +282,10 @@ jobs:
 
           # Query by OutputKey (stable CDK construct ID) instead of ExportName
           # which may include a -split suffix from useExistingResources mode.
-          echo "distribution=$(aws cloudformation describe-stacks --stack-name $STACK --query \"Stacks[0].Outputs[?starts_with(OutputKey,'AdminUiDistributionId')].OutputValue | [0]\" --output text)" >> $GITHUB_OUTPUT
+          DIST=$(aws cloudformation describe-stacks --stack-name "$STACK" \
+            --query 'Stacks[0].Outputs[?starts_with(OutputKey,`AdminUiDistributionId`)].OutputValue | [0]' \
+            --output text)
+          echo "distribution=$DIST" >> $GITHUB_OUTPUT
 
       - name: Associate domain alias (if skipped during deployment)
         if: inputs.skip_domain_aliases && steps.outputs.outputs.distribution != ''
