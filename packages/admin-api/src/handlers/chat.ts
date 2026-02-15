@@ -264,13 +264,18 @@ export async function processChat(
   // Inject memory context if memory is enabled for this avatar
   if (avatarId && avatar?.enabledCategories?.includes('memory')) {
     try {
-      const memoryContext = await memory.getMemoryContext(avatarId);
+      const query = typeof userMessage === 'string' ? userMessage.trim() : '';
+      const memoryContext = query.length > 0
+        ? await memory.getMemoryContextForQuery(avatarId, query)
+        : await memory.getMemoryContext(avatarId);
       if (memoryContext) {
         systemPrompt += `\n\n${memoryContext}`;
         logger.info('Memory context injected', {
           event: 'memory_context_injected',
           avatarId,
           contextLength: memoryContext.length,
+          queryAware: query.length > 0,
+          queryLength: query.length,
         });
       }
     } catch (err) {

@@ -48,6 +48,7 @@ import {
 } from './services/entitlement-enforcement.js';
 import { ensureReplicateKey } from './utils/system-replicate-key.js';
 import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
+import { createRuntimeBrainService } from './services/brain.js';
 
 // Extracted modules
 import { callLLM, stripAvatarNamePrefix, type LLMMessage } from './llm-client.js';
@@ -363,6 +364,7 @@ async function generateResponse(
   channelHistory?: ContextMessage[]
 ): Promise<SwarmResponse> {
   await maybeTranscribeAudio(envelope, toolClient, toolContext, avatarRuntime.avatarConfig);
+  const brainService = createRuntimeBrainService(stateService, avatarRuntime.avatarConfig.brain);
   const systemPrompt = await buildSystemPrompt(
     envelope,
     avatarRuntime.avatarConfig,
@@ -457,11 +459,11 @@ async function generateResponse(
           if (memoryAllowed) {
             for (const thinking of thinkingBlocks) {
               try {
-                await stateService.saveFact(envelope.avatarId, {
-                  fact: `[Internal thought in ${envelope.conversationId}]: ${thinking}`,
-                  about: 'thinking',
-                  timestamp: Date.now(),
-                });
+                await brainService.remember(
+                  envelope.avatarId,
+                  `[Internal thought in ${envelope.conversationId}]: ${thinking}`,
+                  'thinking'
+                );
               } catch (err) {
                 logger.error('Failed to save thinking to memory', { error: err });
               }

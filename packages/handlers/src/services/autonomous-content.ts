@@ -7,10 +7,10 @@
  */
 import type {
   AvatarConfig,
+  BrainMemoryFact,
+  BrainService,
   LLMService,
-  MemoryFact,
 } from '@swarm/core';
-import { DynamoDBStateService } from '@swarm/core';
 
 export type AutonomousContentTargetType = 'tweet' | 'community_post' | 'community_reply';
 
@@ -43,26 +43,28 @@ export interface GeneratedContent {
  */
 export async function generateAutonomousContent(
   params: AutonomousContentParams,
-  stateService: DynamoDBStateService,
+  brainService: BrainService,
   llmService: LLMService
 ): Promise<GeneratedContent> {
   const { avatarId, avatarConfig, targetType, communityContext } = params;
 
   // 1. Recall relevant memories
-  const recentFacts = await stateService.getFacts(avatarId, 'recent');
+  const recentFactsResult = await brainService.recall(avatarId, 'recent');
+  const recentFacts = recentFactsResult.facts;
 
   // Get topic-specific facts if topics are configured
   const topics = avatarConfig.platforms.twitter?.autonomousPosts?.topics;
-  const topicFacts: MemoryFact[] = [];
+  const topicFacts: BrainMemoryFact[] = [];
   if (topics && topics.length > 0) {
     for (const topic of topics.slice(0, 3)) { // Limit to 3 topics
-      const facts = await stateService.getFacts(avatarId, topic);
-      topicFacts.push(...facts);
+      const facts = await brainService.recall(avatarId, topic);
+      topicFacts.push(...facts.facts);
     }
   }
 
   // 2. Get recent post history to avoid repetition
-  const recentPosts = await stateService.getFacts(avatarId, 'posted_tweet');
+  const recentPostsResult = await brainService.recall(avatarId, 'posted_tweet');
+  const recentPosts = recentPostsResult.facts;
 
   // 3. Build context-aware system prompt
   const charLimit = avatarConfig.platforms.twitter?.charLimit ?? 280;
@@ -88,11 +90,11 @@ export async function generateAutonomousContent(
   });
 
   // 5. Save this post as a memory for future reference
-  await stateService.saveFact(avatarId, {
-    fact: `Posted ${targetType}: "${response.content.slice(0, 100)}..."`,
-    about: 'posted_tweet',
-    timestamp: Date.now(),
-  });
+  await brainService.remember(
+    avatarId,
+    `Posted ${targetType}: "${response.content.slice(0, 100)}..."`,
+    'posted_tweet'
+  );
 
   return {
     text: response.content.trim().slice(0, charLimit),
@@ -102,8 +104,8 @@ export async function generateAutonomousContent(
 
 interface BuildPromptParams {
   persona: string;
-  memories: MemoryFact[];
-  recentPosts: MemoryFact[];
+  memories: BrainMemoryFact[];
+  recentPosts: BrainMemoryFact[];
   targetType: AutonomousContentTargetType;
   communityContext?: CommunityContext;
   charLimit: number;

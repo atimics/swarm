@@ -29,6 +29,7 @@ import {
 } from '@swarm/core';
 import { loadAvatarSecrets } from './utils/load-avatar-secrets.js';
 import { checkMediaWithEnergyFallback } from './services/entitlement-enforcement.js';
+import { createRuntimeBrainService } from './services/brain.js';
 import {
   generateAutonomousContent,
   generateImagePrompt,
@@ -149,6 +150,7 @@ async function processAvatar(
 
   // Initialize LLM service
   const llmService = createLLMService(avatarConfig.llm, secrets);
+  const brainService = createRuntimeBrainService(stateService, avatarConfig.brain);
 
   // Decide: regular tweet or community post
   const communities = twitterConfig.communities || [];
@@ -172,7 +174,7 @@ async function processAvatar(
       targetType,
       communityContext,
     },
-    stateService,
+    brainService,
     llmService
   );
 
