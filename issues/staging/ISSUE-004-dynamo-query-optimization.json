@@ -1,0 +1,21 @@
+{
+  "id": "ISSUE-004",
+  "title": "Optimize DynamoDB query pattern in auto-issues service",
+  "status": "open",
+  "priority": "P1",
+  "milestone": "M2",
+  "tags": ["performance", "dynamodb", "optimization", "query"],
+  "summary": "auto-issues.ts uses Query on partition key only. Could optimize with Scan using begins_with filter for batch avatar lookups to reduce full-table scans.",
+  "acceptance": [
+    "Implement Scan with begins_with filter for batch lookups",
+    "Performance benchmarks show improved query time",
+    "No regression in query accuracy",
+    "Documentation updated with pattern choice rationale"
+  ],
+  "effort": "4 hours",
+  "impact": "Medium - query performance improvement for auto-issues",
+  "references": [
+    "packages/admin-api/src/services/auto-issues.ts:24"
+  ],
+  "notes": "Trade-off: Scan can be more efficient for begins_with patterns on large tables with sparse data."
+}
