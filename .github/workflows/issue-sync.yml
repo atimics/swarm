@@ -147,8 +147,12 @@ jobs:
             });
 
             // Build lookup: issue-sync-id footer -> issue number
+            // Filter out pull requests to avoid managing them
             const issueMap = new Map();
             for (const issue of existing.data) {
+              // Skip pull requests
+              if (issue.pull_request) continue;
+              
               const match = issue.body?.match(/<!-- issue-sync-id: (.+?) -->/);
               if (match) {
                 issueMap.set(match[1], issue);
@@ -175,8 +179,18 @@ jobs:
                 // Check if update needed
                 const titleChanged = existingIssue.title !== issue.title;
                 const bodyChanged = existingIssue.body?.replace(footer, '') !== issue.body;
+                
+                // Check if labels changed (compare sorted arrays)
+                const existingLabels = existingIssue.labels.map(l => l.name).sort();
+                const newLabels = [...labels].sort();
+                const labelsChanged = JSON.stringify(existingLabels) !== JSON.stringify(newLabels);
+                
+                // Check if assignees changed
+                const existingAssignees = (existingIssue.assignees || []).map(a => a.login).sort();
+                const newAssignees = [...assignees].sort();
+                const assigneesChanged = JSON.stringify(existingAssignees) !== JSON.stringify(newAssignees);
 
-                if (!titleChanged && !bodyChanged) {
+                if (!titleChanged && !bodyChanged && !labelsChanged && !assigneesChanged) {
                   console.log(`⏭️  ${syncId}: no changes`);
                   summary.skipped++;
                   continue;
@@ -195,6 +209,7 @@ jobs:
                   title: issue.title,
                   body: body,
                   labels: labels,
+                  assignees: assignees,
                 });
                 console.log(`🔄 Updated #${existingIssue.number}: ${issue.title}`);
                 summary.updated++;
