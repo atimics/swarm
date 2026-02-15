@@ -52,8 +52,19 @@ COPY --from=builder /build/packages/core/package.json ./node_modules/@swarm/core
 COPY --from=builder /build/packages/mcp-server/dist/ ./node_modules/@swarm/mcp-server/dist/
 COPY --from=builder /build/packages/mcp-server/package.json ./node_modules/@swarm/mcp-server/package.json
 
-# Strip workspace: deps (already copied above) and install remaining prod deps
-RUN node -e "const p=require('./package.json');for(const k of Object.keys(p.dependencies||{})){if(String(p.dependencies[k]).startsWith('workspace:')){delete p.dependencies[k]}};require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+# Merge deps from all workspace packages and strip workspace: protocol references.
+# Core and mcp-server have their own deps (e.g., @anthropic-ai/sdk, jimp) that must
+# be installed so barrel imports don't fail at runtime.
+RUN node -e "\
+const fs=require('fs');\
+const h=require('./package.json');\
+const c=require('./node_modules/@swarm/core/package.json');\
+const m=require('./node_modules/@swarm/mcp-server/package.json');\
+const deps={...h.dependencies};\
+for(const pkg of [c,m]){for(const[k,v]of Object.entries(pkg.dependencies||{})){if(!deps[k])deps[k]=v}}\
+for(const k of Object.keys(deps)){if(String(deps[k]).startsWith('workspace:'))delete deps[k]}\
+h.dependencies=deps;\
+fs.writeFileSync('package.json',JSON.stringify(h,null,2))"
 RUN npm install --omit=dev
 
 RUN chown -R swarm:swarm /home/swarm
