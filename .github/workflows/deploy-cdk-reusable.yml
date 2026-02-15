@@ -165,6 +165,7 @@ jobs:
             STACK_SUFFIX="-$STACK_HASH"
           fi
 
+          DELETED_STACKS=""
           for STACK_NAME in "SwarmShared-${{ inputs.cdk_env }}${STACK_SUFFIX}" "SwarmApi-${{ inputs.cdk_env }}${STACK_SUFFIX}" "SwarmUi-${{ inputs.cdk_env }}${STACK_SUFFIX}"; do
             STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
             if [ "$STATUS" = "ROLLBACK_COMPLETE" ]; then
@@ -172,8 +173,20 @@ jobs:
               aws cloudformation delete-stack --stack-name "$STACK_NAME"
               aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
               echo "✅ Deleted '$STACK_NAME'"
+              DELETED_STACKS="$DELETED_STACKS $STACK_NAME"
             fi
           done
+
+          # Clean up orphaned log groups with RETAIN policy that block re-creation
+          if [ -n "$DELETED_STACKS" ]; then
+            echo "Cleaning orphaned log groups from deleted stacks..."
+            for LG in $(aws logs describe-log-groups --log-group-name-prefix "/ecs/swarm-" --query 'logGroups[].logGroupName' --output text); do
+              if [[ "$LG" == *"-${{ inputs.cdk_env }}${STACK_SUFFIX}" ]] || [[ "$LG" == *"-${{ inputs.cdk_env }}${STACK_SUFFIX}-split" ]]; then
+                echo "  Deleting orphaned log group: $LG"
+                aws logs delete-log-group --log-group-name "$LG" || true
+              fi
+            done
+          fi
 
       - name: CDK Diff
         id: diff
