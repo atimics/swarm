@@ -12,7 +12,7 @@ issues/open/002-add-tests.yml   ──push to main──▶   GitHub Issue #M (c
 
 1. **Create** — add a YAML file to `issues/open/`. On merge to main, the workflow creates a GitHub Issue.
 2. **Update** — edit the YAML file. The workflow updates the matching GitHub Issue.
-3. **Close** — delete the YAML file (or move it to `issues/closed/`). The workflow closes the GitHub Issue.
+3. **Close** — delete the YAML file from `issues/open/`. The workflow closes the GitHub Issue.
 4. **Manual trigger** — run the workflow manually with `dry_run: true` to preview changes.
 
 All synced issues are tagged with `managed:issue-sync` so they can be identified.
