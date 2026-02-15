@@ -1,42 +1,98 @@
-# Issues + Avatar Registry
+# Issues
 
-This folder tracks issues and avatar assignments in JSON to support automated tooling.
+This folder is the **source of truth** for tracked engineering issues. YAML files in `issues/open/` are automatically synced to GitHub Issues via the `issue-sync` workflow.
 
-## Avatar Registry
-Avatars must register before starting work.
+## How it works
 
-File: `issues/avatars.json`
-
-Entry format:
-```json
-{
-  "codename": "avatar-fox",
-  "role": "dev",
-  "issueId": "ISSUE-0001",
-  "status": "active",
-  "notes": "Working on tool tagging pipeline",
-  "startedAt": "2026-01-13T09:00:00Z"
-}
+```
+issues/open/001-fix-build.yml   ──push to main──▶   GitHub Issue #N (created/updated)
+issues/open/002-add-tests.yml   ──push to main──▶   GitHub Issue #M (created/updated)
+(file deleted)                  ──push to main──▶   GitHub Issue #X (auto-closed)
 ```
 
-- `role`: `dev` or `qa`
-- `issueId`: must match an issue file in `/issues/staging`
+1. **Create** — add a YAML file to `issues/open/`. On merge to main, the workflow creates a GitHub Issue.
+2. **Update** — edit the YAML file. The workflow updates the matching GitHub Issue.
+3. **Close** — delete the YAML file from `issues/open/`. The workflow closes the GitHub Issue.
+4. **Manual trigger** — run the workflow manually with `dry_run: true` to preview changes.
 
-## Issue Files
-Store each issue as a JSON file under `issues/staging/`.
+All synced issues are tagged with `managed:issue-sync` so they can be identified.
 
-Suggested format:
-```json
-{
-  "id": "ISSUE-0001",
-  "title": "Tool tagging engine",
-  "status": "open",
-  "owner": "avatar-fox",
-  "tags": ["tools", "mcp"],
-  "summary": "Add tag metadata and filtering rules",
-  "acceptance": ["Tag filtering respects platform", "Toolsets cap at 3"],
-  "notes": "" 
-}
+## Issue file format
+
+```yaml
+id: "001"
+title: "fix(core): describe the problem"
+priority: P0          # P0 (critical), P1 (high), P2 (medium), P3 (low)
+type: bug             # bug, feature, security, docs, infra
+labels:
+  - type:bug
+  - priority:high
+  - package:core
+assignees:
+  - copilot-swe-agent[bot]
+source: engineering-report-2026-02-15
+
+body: |
+  ## Problem
+  Describe the problem here.
+
+  ## Acceptance Criteria
+  - [ ] Criterion 1
+  - [ ] Criterion 2
 ```
 
-Keep issues short; link to docs or PRs for deeper context.
+### Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Unique issue ID (matches filename) |
+| `title` | Yes | GitHub issue title (use conventional commit format) |
+| `priority` | Yes | P0-P3 |
+| `type` | Yes | bug, feature, security, docs, infra |
+| `labels` | Yes | GitHub labels (must exist or be in the label set) |
+| `assignees` | No | GitHub usernames to assign |
+| `source` | No | Where the issue was identified |
+| `body` | Yes | Markdown body (use YAML block scalar `\|`) |
+
+### Naming convention
+
+```
+NNN-short-description.yml
+```
+
+- `NNN` — zero-padded number matching the `id` field
+- `short-description` — kebab-case summary
+
+## Running the sync
+
+The sync runs automatically on push to `main` when files in `issues/open/` change.
+
+To run manually:
+1. Go to **Actions > Issue Sync**
+2. Click **Run workflow**
+3. Optionally check **dry_run** to preview without creating issues
+
+## Labels
+
+The workflow auto-creates these labels if they don't exist:
+
+| Label | Color | Description |
+|-------|-------|-------------|
+| `type:bug` | red | Bug report |
+| `type:feature` | blue | New feature request |
+| `type:security` | dark red | Security related |
+| `type:docs` | blue | Documentation work |
+| `type:infra` | blue | Infrastructure changes |
+| `priority:high` | orange | High priority |
+| `priority:medium` | yellow | Medium priority |
+| `priority:low` | green | Low priority |
+| `package:core` | light blue | Affects core package |
+| `package:admin` | light blue | Affects admin packages |
+| `package:infra` | light blue | Affects infrastructure |
+| `package:handlers` | light blue | Affects handlers package |
+| `status:in-progress` | gray | Work is currently in progress |
+| `managed:issue-sync` | purple | Managed by this workflow |
+
+## Legacy
+
+The previous `issues/staging/` JSON format and avatar registry (`issues/avatars.json`) are superseded by this YAML-based workflow.
