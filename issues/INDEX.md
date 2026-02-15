@@ -76,7 +76,7 @@ Continuous improvement items
 
 1. Review issues in `staging/` for immediate work
 2. Check milestone alignment in ROADMAP.md
-3. Assign issues using avatars.json registry
+3. Assign issues to agents using the ownership guidance in `AGENTS.md`
 4. Track progress in issue status field
 
 ## Issue File Format
