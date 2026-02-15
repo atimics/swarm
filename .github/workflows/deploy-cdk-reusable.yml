@@ -364,7 +364,7 @@ jobs:
           fi
 
           if [ "${{ inputs.environment }}" = "production" ]; then
-            WILDCARD=$(echo "$DOMAIN" | sed 's/^[^.]*/*./')
+            WILDCARD=$(echo "$DOMAIN" | sed 's/^[^.]*/\*/')
             echo "Attempting to associate wildcard alias '$WILDCARD' with distribution '$DISTRIBUTION_ID'..."
             aws cloudfront associate-alias --target-distribution-id "$DISTRIBUTION_ID" --alias "$WILDCARD" 2>&1 || echo "⚠️ Could not associate wildcard alias"
           fi

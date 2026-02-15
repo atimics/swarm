@@ -266,6 +266,7 @@ Resources:
                 Action:
                   - cloudfront:CreateInvalidation
                   - cloudfront:GetInvalidation
+                  - cloudfront:AssociateAlias
                 Resource: '*'
         
         # Lambda permissions (for deploying functions)
