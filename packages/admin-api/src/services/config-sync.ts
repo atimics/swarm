@@ -17,6 +17,10 @@ interface AvatarConfig {
   name: string;
   version: string;
   persona: string;
+  brain?: {
+    writeMode?: 'legacy' | 'dual' | 'canonical';
+    readMode?: 'legacy' | 'hybrid' | 'canonical';
+  };
 
   // Profile image for Discord webhooks and reference
   profileImage?: {
@@ -150,6 +154,10 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
     name: record.name,
     version: '1.0.0',
     persona: record.persona || `You are ${record.name}, a helpful AI assistant.`,
+    brain: record.mcpConfig?.brain ? {
+      writeMode: record.mcpConfig.brain.writeMode,
+      readMode: record.mcpConfig.brain.readMode,
+    } : undefined,
 
     // Sync profile image for character reference
     profileImage: record.profileImage ? {

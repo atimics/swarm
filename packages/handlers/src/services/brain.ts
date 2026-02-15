@@ -9,6 +9,11 @@ import {
 type BrainWriteMode = 'legacy' | 'dual' | 'canonical';
 type BrainReadMode = 'legacy' | 'hybrid' | 'canonical';
 
+interface BrainModeOverrides {
+  writeMode?: BrainWriteMode;
+  readMode?: BrainReadMode;
+}
+
 interface CanonicalMemoryModule {
   remember: (avatarId: string, fact: string, about?: string, userId?: string) => Promise<{ saved: boolean }>;
   recall: (avatarId: string, query: string, userId?: string) => Promise<{
@@ -67,13 +72,19 @@ function maybeLogBrainTelemetry(): void {
   });
 }
 
-function readWriteMode(): BrainWriteMode {
+function readWriteMode(overrides?: BrainModeOverrides): BrainWriteMode {
+  if (overrides?.writeMode === 'legacy' || overrides?.writeMode === 'dual' || overrides?.writeMode === 'canonical') {
+    return overrides.writeMode;
+  }
   const raw = (process.env.BRAIN_WRITE_MODE || 'legacy').toLowerCase();
   if (raw === 'dual' || raw === 'canonical') return raw;
   return 'legacy';
 }
 
-function readReadMode(): BrainReadMode {
+function readReadMode(overrides?: BrainModeOverrides): BrainReadMode {
+  if (overrides?.readMode === 'legacy' || overrides?.readMode === 'hybrid' || overrides?.readMode === 'canonical') {
+    return overrides.readMode;
+  }
   const raw = (process.env.BRAIN_READ_MODE || 'legacy').toLowerCase();
   if (raw === 'hybrid' || raw === 'canonical') return raw;
   return 'legacy';
@@ -133,12 +144,15 @@ function dedupeFacts(facts: BrainMemoryFact[]): BrainMemoryFact[] {
   return deduped;
 }
 
-export function createRuntimeBrainService(stateService: StateService): BrainService {
+export function createRuntimeBrainService(
+  stateService: StateService,
+  modeOverrides?: BrainModeOverrides
+): BrainService {
   const legacyBrain = createLegacyBrainService(stateService);
 
   return {
     async remember(avatarId: string, fact: string, about?: string, userId?: string) {
-      const writeMode = readWriteMode();
+      const writeMode = readWriteMode(modeOverrides);
       brainTelemetry.writes++;
       brainTelemetry.writesByMode[writeMode]++;
 
@@ -149,6 +163,7 @@ export function createRuntimeBrainService(stateService: StateService): BrainServ
           subsystem: 'brain',
           avatarId,
           writeMode,
+          effectiveFrom: modeOverrides?.writeMode ? 'avatar' : 'env',
           source: result.source,
         });
         maybeLogBrainTelemetry();
@@ -174,6 +189,7 @@ export function createRuntimeBrainService(stateService: StateService): BrainServ
           subsystem: 'brain',
           avatarId,
           writeMode,
+          effectiveFrom: modeOverrides?.writeMode ? 'avatar' : 'env',
           source: result.source,
           canonicalSaved: true,
         });
@@ -213,6 +229,7 @@ export function createRuntimeBrainService(stateService: StateService): BrainServ
         subsystem: 'brain',
         avatarId,
         writeMode,
+        effectiveFrom: modeOverrides?.writeMode ? 'avatar' : 'env',
         source: result.source,
         legacySaved,
         canonicalSaved,
@@ -222,7 +239,7 @@ export function createRuntimeBrainService(stateService: StateService): BrainServ
     },
 
     async recall(avatarId: string, query: string, userId?: string) {
-      const readMode = readReadMode();
+      const readMode = readReadMode(modeOverrides);
       brainTelemetry.reads++;
       brainTelemetry.readsByMode[readMode]++;
       if (readMode === 'legacy') {
@@ -232,6 +249,7 @@ export function createRuntimeBrainService(stateService: StateService): BrainServ
           subsystem: 'brain',
           avatarId,
           readMode,
+          effectiveFrom: modeOverrides?.readMode ? 'avatar' : 'env',
           source: result.source,
           factCount: result.facts.length,
           queryLength: query.length,
@@ -261,6 +279,7 @@ export function createRuntimeBrainService(stateService: StateService): BrainServ
           subsystem: 'brain',
           avatarId,
           readMode,
+          effectiveFrom: modeOverrides?.readMode ? 'avatar' : 'env',
           source: response.source,
           factCount: response.facts.length,
           queryLength: query.length,
@@ -312,6 +331,7 @@ export function createRuntimeBrainService(stateService: StateService): BrainServ
         subsystem: 'brain',
         avatarId,
         readMode,
+        effectiveFrom: modeOverrides?.readMode ? 'avatar' : 'env',
         source: result.source,
         factCount: result.facts.length,
         queryLength: query.length,

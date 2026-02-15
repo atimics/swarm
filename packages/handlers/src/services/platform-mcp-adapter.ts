@@ -96,7 +96,7 @@ export interface PlatformServicesConfig {
  */
 export function createPlatformMCPServices(config: PlatformServicesConfig): AllServices {
   const { avatarId, avatarConfig, stateService, mediaService, wallets } = config;
-  const brainService = createRuntimeBrainService(stateService);
+  const brainService = createRuntimeBrainService(stateService, avatarConfig.brain);
   const rawVoiceServices = createVoiceServices({
     avatarId,
     secrets: config.secrets,

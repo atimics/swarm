@@ -20,6 +20,10 @@ export interface AvatarConfig {
   name: string;
   version: string;
   persona: string; // Path or content of persona markdown
+  brain?: {
+    writeMode?: 'legacy' | 'dual' | 'canonical';
+    readMode?: 'legacy' | 'hybrid' | 'canonical';
+  };
   
   // Avatar/profile image for Discord webhooks
   profileImage?: {

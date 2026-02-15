@@ -234,6 +234,11 @@ export interface McpConfig {
   enabledToolsets: ToolsetId[];
   // External MCP servers
   externalServers: ExternalMcpServer[];
+  // Runtime brain rollout overrides (optional, per avatar)
+  brain?: {
+    writeMode?: 'legacy' | 'dual' | 'canonical';
+    readMode?: 'legacy' | 'hybrid' | 'canonical';
+  };
 }
 
 export interface VoiceProfile {
