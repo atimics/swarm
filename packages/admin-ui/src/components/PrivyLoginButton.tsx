@@ -199,7 +199,10 @@ export function PrivyLoginButton({ className = '' }: PrivyLoginButtonProps) {
     }
 
     // Otherwise, trigger Privy login flow
-    login();
+    login({
+      walletChainType: 'solana-only',
+      loginMethods: ['wallet', 'email', 'google', 'twitter'],
+    });
   }, [login, ready, authenticated, privyUser, privyAuth, getAccessToken]);
 
   const handleLogout = useCallback(async () => {
