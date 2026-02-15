@@ -58,10 +58,8 @@ secrets.json
 .clawdbot/
 auth-profiles.json
 proxim8_nfts.db
-issues/*
-!issues/README.md
-!issues/open/
-!issues/open/**
+issues/*.db
+issues/*.tmp
 audit/
 packages/infra/cdk.out.prod/*
 packages/infra/prod-resource-mapping.json
