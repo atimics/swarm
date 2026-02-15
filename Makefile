@@ -1,7 +1,7 @@
 # Swarm Project Makefile
 # Common tasks for development and deployment
 
-.PHONY: help install build dev test lint typecheck clean secrets deploy gh-secrets synth diff
+.PHONY: help install build dev test lint typecheck clean secrets deploy gh-secrets synth diff bootstrap
 
 # Default target
 help:
@@ -19,6 +19,7 @@ help:
 	@echo "  make secrets-prod - Setup AWS Secrets Manager (production)"
 	@echo "  make gh-secrets   - Manage GitHub repository secrets (CI/CD)"
 	@echo ""
+	@echo "  make bootstrap    - Update OIDC role CloudFormation stack"
 	@echo "  make deploy       - Deploy to staging (via GitHub Actions)"
 	@echo "  make synth        - Synthesize CDK stack"
 	@echo ""
@@ -58,6 +59,16 @@ secrets-prod:
 # GitHub Secrets (CI/CD)
 gh-secrets:
 	./scripts/setup-github-secrets.sh
+
+# Bootstrap / OIDC role
+bootstrap:
+	@echo "Updating OIDC role CloudFormation stack..."
+	aws cloudformation deploy \
+		--template-file .github/cloudformation/github-oidc-role.yml \
+		--stack-name github-oidc-role \
+		--capabilities CAPABILITY_NAMED_IAM \
+		--no-fail-on-empty-changeset
+	@echo "✅ OIDC role stack updated."
 
 # Deployment
 synth:
