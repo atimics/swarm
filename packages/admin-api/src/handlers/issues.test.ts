@@ -4,21 +4,17 @@ import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 process.env.INTERNAL_TEST_KEY = 'test-key';
 process.env.ENVIRONMENT = 'staging';
 
-const listIssuesMock = vi.fn(() => Promise.resolve([]));
-const updateIssueStatusMock = vi.fn(() => Promise.resolve());
-const authenticateRequestMock = vi.fn(() => {
-  throw new Error('No authentication token provided');
-});
-
 vi.mock('../services/auto-issues.js', () => ({
-  listIssues: listIssuesMock,
-  updateIssueStatus: updateIssueStatusMock,
+  listIssues: vi.fn(() => Promise.resolve([])),
+  updateIssueStatus: vi.fn(() => Promise.resolve()),
   recordError: vi.fn(() => Promise.resolve({ issueId: 'issue-1', isNew: true, occurrenceCount: 1 })),
   getIssue: vi.fn(() => Promise.resolve({ issue: null })),
 }));
 
 vi.mock('../auth/request-auth.js', () => ({
-  authenticateRequest: authenticateRequestMock,
+  authenticateRequest: vi.fn(() => {
+    throw new Error('No authentication token provided');
+  }),
   requireAdmin: vi.fn(() => true),
 }));
 
@@ -49,6 +45,13 @@ vi.mock('@swarm/core', () => ({
 }));
 
 import { handler } from './issues.js';
+import * as autoIssues from '../services/auto-issues.js';
+import * as requestAuth from '../auth/request-auth.js';
+
+// Get references to the mocked functions
+const listIssuesMock = vi.mocked(autoIssues.listIssues);
+const updateIssueStatusMock = vi.mocked(autoIssues.updateIssueStatus);
+const authenticateRequestMock = vi.mocked(requestAuth.authenticateRequest);
 
 function createEvent(overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 {
   return {
