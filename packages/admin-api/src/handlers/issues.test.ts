@@ -10,19 +10,19 @@ const authenticateRequestMock = vi.fn(() => {
   throw new Error('No authentication token provided');
 });
 
-mock.module('../services/auto-issues.js', () => ({
+vi.mock('../services/auto-issues.js', () => ({
   listIssues: listIssuesMock,
   updateIssueStatus: updateIssueStatusMock,
   recordError: vi.fn(() => Promise.resolve({ issueId: 'issue-1', isNew: true, occurrenceCount: 1 })),
   getIssue: vi.fn(() => Promise.resolve({ issue: null })),
 }));
 
-mock.module('../auth/request-auth.js', () => ({
+vi.mock('../auth/request-auth.js', () => ({
   authenticateRequest: authenticateRequestMock,
   requireAdmin: vi.fn(() => true),
 }));
 
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   hasValidInternalTestKey: ({
     headers,
     internalTestKey,

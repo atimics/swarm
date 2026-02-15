@@ -6,7 +6,7 @@
  *
  * Strategy: mock all external dependencies (AWS SDK, fetch, @swarm/core,
  * @swarm/mcp-server, entitlement enforcement) and drive the handler with
- * synthetic SQS events. Because `mock.module()` is process-global we keep
+ * synthetic SQS events. Because `vi.mock()` is process-global we keep
  * mock surfaces minimal and reset state in `beforeEach`.
  *
  * @see packages/handlers/src/message-processor.ts
@@ -113,10 +113,10 @@ const mockGetToolDefinitions = vi.fn(() => [
 const mockGetOpenAIToolsForTools = vi.fn(() => []);
 
 // ---------------------------------------------------------------------------
-// mock.module() calls
+// vi.mock() calls
 // ---------------------------------------------------------------------------
 
-mock.module('@aws-sdk/client-sqs', () => ({
+vi.mock('@aws-sdk/client-sqs', () => ({
   SQSClient: class {
     send = mockSqsSend;
   },
@@ -127,13 +127,13 @@ mock.module('@aws-sdk/client-sqs', () => ({
 
 // These are needed when running alongside response-sender smoke tests
 // (mock.module is process-global).
-mock.module('@aws-sdk/client-dynamodb', () => ({
+vi.mock('@aws-sdk/client-dynamodb', () => ({
   DynamoDBClient: class {
     send = vi.fn(() => Promise.resolve({}));
   },
 }));
 
-mock.module('@aws-sdk/lib-dynamodb', () => ({
+vi.mock('@aws-sdk/lib-dynamodb', () => ({
   DynamoDBDocumentClient: {
     from: () => ({ send: vi.fn(() => Promise.resolve({})) }),
   },
@@ -145,7 +145,7 @@ mock.module('@aws-sdk/lib-dynamodb', () => ({
 // NOTE: mock.module is process-global. When run alongside response-sender
 // smoke tests, the last definition wins. We include all exports needed by
 // BOTH handlers to avoid "export not found" errors.
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   // --- shared config ---
   DEFAULT_AVATAR_CONFIG: {
     id: 'unknown',
@@ -231,7 +231,7 @@ mock.module('@swarm/core', () => ({
   }),
 }));
 
-mock.module('@swarm/mcp-server', () => ({
+vi.mock('@swarm/mcp-server', () => ({
   ToolRegistry: class {
     register() {}
   },
@@ -243,27 +243,27 @@ mock.module('@swarm/mcp-server', () => ({
   registerAllTools: () => {},
 }));
 
-mock.module('../../services/platform-mcp-adapter.js', () => ({
+vi.mock('../../services/platform-mcp-adapter.js', () => ({
   createPlatformMCPServices: () => ({}),
 }));
 
-mock.module('../../services/entitlement-enforcement.js', () => ({
+vi.mock('../../services/entitlement-enforcement.js', () => ({
   checkAndIncrementMessageUsage: mockCheckAndIncrementMessageUsage,
   checkToolCallLimit: mockCheckToolCallLimit,
   isMemoryWriteAllowed: mockIsMemoryWriteAllowed,
 }));
 
-mock.module('../../utils/system-replicate-key.js', () => ({
+vi.mock('../../utils/system-replicate-key.js', () => ({
   ensureReplicateKey: () => Promise.resolve(true),
 }));
 
-mock.module('../../utils/load-avatar-secrets.js', () => ({
+vi.mock('../../utils/load-avatar-secrets.js', () => ({
   loadAvatarSecrets: () =>
     Promise.resolve({ OPENROUTER_API_KEY: 'test-key-123' }),
 }));
 
 // Also mock telegram-webhook-shared (needed when running with response-sender tests)
-mock.module('../../telegram-webhook-shared.js', () => ({
+vi.mock('../../telegram-webhook-shared.js', () => ({
   isAllowedDmUserById: vi.fn(() => Promise.resolve(false)),
 }));
 

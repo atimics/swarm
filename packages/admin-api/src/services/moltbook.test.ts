@@ -23,7 +23,7 @@ const storeSecret = async (...args: unknown[]) => {
 
 const _getSecretValueInternal = async () => getSecretValueResult;
 
-mock.module('./secrets.js', () => ({
+vi.mock('./secrets.js', () => ({
   storeSecret,
   _getSecretValueInternal,
 }));

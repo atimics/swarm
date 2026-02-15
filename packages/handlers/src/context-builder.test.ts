@@ -45,7 +45,7 @@ describe('formatBrainMemoryContext', () => {
     }));
     const result = formatBrainMemoryContext(facts);
     expect(result.length).toBeLessThanOrEqual(1600);
-    expect(result).toStartWith('## Relevant Memories');
+    expect(result.startsWith('## Relevant Memories')).toBe(true);
   });
 
   it('respects custom maxChars parameter', () => {
@@ -96,7 +96,7 @@ describe('truncateForPrompt', () => {
   it('truncates and adds ellipsis when over limit', () => {
     const result = truncateForPrompt('hello world', 6);
     expect(result.length).toBeLessThanOrEqual(6);
-    expect(result).toEndWith('…');
+    expect(result.endsWith('…')).toBe(true);
   });
 });
 

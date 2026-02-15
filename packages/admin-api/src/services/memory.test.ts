@@ -11,7 +11,7 @@
  * 7. Error handling throughout
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach, spyOn } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { AvatarMemory, MemoryTier } from '../types.js';
 import * as memory from './memory.js';
@@ -25,9 +25,9 @@ const mockClient = {
 } as unknown as DynamoDBDocumentClient;
 
 // Track transaction calls via spy on DynamoDBClient prototype
-let transactionSendSpy: ReturnType<typeof spyOn>;
+let transactionSendSpy: ReturnType<typeof vi.spyOn>;
 const transactionCalls: unknown[] = [];
-let embeddingServiceSpy: ReturnType<typeof spyOn>;
+let embeddingServiceSpy: ReturnType<typeof vi.spyOn>;
 
 describe('Memory Service', () => {
   beforeEach(() => {
@@ -43,7 +43,7 @@ describe('Memory Service', () => {
     // Avoid external calls during tests (Bedrock/OpenRouter).
     // Memory service should remain deterministic and fast.
     embedding._resetEmbeddingService();
-    embeddingServiceSpy = spyOn(embedding, 'getEmbeddingService').mockImplementation(() => ({
+    embeddingServiceSpy = vi.spyOn(embedding, 'getEmbeddingService').mockImplementation(() => ({
       modelId: 'test-embedding',
       dimensions: 3,
       embed: async () => [0, 0, 0],
@@ -51,7 +51,7 @@ describe('Memory Service', () => {
     }));
 
     // Spy on DynamoDBClient.prototype.send for transactions
-    transactionSendSpy = spyOn(DynamoDBClient.prototype, 'send').mockImplementation(
+    transactionSendSpy = vi.spyOn(DynamoDBClient.prototype, 'send').mockImplementation(
       async (command: unknown) => {
         transactionCalls.push(command);
         return {};

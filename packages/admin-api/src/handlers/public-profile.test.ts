@@ -7,17 +7,17 @@ const getBurnHistoryMock = vi.fn();
 const getAvatarRankMock = vi.fn();
 const getEnergyStatusMock = vi.fn();
 
-mock.module('../services/avatars.js', () => ({
+vi.mock('../services/avatars.js', () => ({
   getAvatar: getAvatarMock,
 }));
 
-mock.module('../services/burn-stats.js', () => ({
+vi.mock('../services/burn-stats.js', () => ({
   getBurnStatsWithProgress: getBurnStatsWithProgressMock,
   getBurnHistory: getBurnHistoryMock,
   getAvatarRank: getAvatarRankMock,
 }));
 
-mock.module('../services/energy.js', () => ({
+vi.mock('../services/energy.js', () => ({
   getEnergyStatus: getEnergyStatusMock,
 }));
 

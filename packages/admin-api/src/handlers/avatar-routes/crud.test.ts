@@ -40,7 +40,7 @@ let onboardingRoutingDecision: unknown = {
   },
 };
 
-mock.module('../../services/avatars.js', () => ({
+vi.mock('../../services/avatars.js', () => ({
   createAvatar: async (..._args: unknown[]) => createAvatarResult,
   createAvatarWithWallet: async (..._args: unknown[]) => createAvatarWithWalletResult,
   createAvatarWithWalletLegacy: async (..._args: unknown[]) => createAvatarWithWalletResult,
@@ -53,19 +53,19 @@ mock.module('../../services/avatars.js', () => ({
   reassignAvatar: async (..._args: unknown[]) => reassignAvatarResult,
 }));
 
-mock.module('../../services/gallery.js', () => ({
+vi.mock('../../services/gallery.js', () => ({
   getLatestProfileImageFromGallery: async () => galleryProfileResult,
 }));
 
-mock.module('../../services/integrations.js', () => ({
+vi.mock('../../services/integrations.js', () => ({
   getAllIntegrationStatuses: async () => integrationStatusesResult,
 }));
 
-mock.module('../../services/onboarding-rollout.js', () => ({
+vi.mock('../../services/onboarding-rollout.js', () => ({
   resolveOnboardingRoutingDecision: async () => onboardingRoutingDecision,
 }));
 
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, setContext: () => {} },
 }));
 

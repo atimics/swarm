@@ -13,7 +13,7 @@ let mockSetEntitlementCalls: Array<Record<string, unknown>> = [];
 let mockSyncCalls: Array<Record<string, unknown>> = [];
 
 // ── Mock modules ───────────────────────────────────────────────────────────
-mock.module('./entitlements.js', () => ({
+vi.mock('./entitlements.js', () => ({
   getEntitlement: async () => mockGetEntitlementResult,
   setEntitlement: async (params: Record<string, unknown>) => {
     mockSetEntitlementCalls.push(params);
@@ -37,7 +37,7 @@ mock.module('./entitlements.js', () => ({
   },
 }));
 
-mock.module('./runtime-limits.js', () => ({
+vi.mock('./runtime-limits.js', () => ({
   getEffectiveLimitsForAvatar: (_avatarId: string, entitlement: EntitlementRecord | null) => {
     const entitlementStatus = entitlement?.status;
     if (!entitlement || (entitlementStatus !== 'active' && entitlementStatus !== 'trial')) {
@@ -72,12 +72,12 @@ mock.module('./runtime-limits.js', () => ({
 }));
 
 // Mock burn-stats (needed by avatar-ascend module-level imports)
-mock.module('./burn-stats.js', () => ({
+vi.mock('./burn-stats.js', () => ({
   getBurnStats: async () => ({ totalBurned: 0, tier: 0, tierName: 'Spark' }),
 }));
 
 // Mock @solana/web3.js Connection (needed by avatar-ascend module-level init)
-mock.module('@solana/web3.js', () => ({
+vi.mock('@solana/web3.js', () => ({
   Connection: class {
     constructor() {}
   },
@@ -85,16 +85,16 @@ mock.module('@solana/web3.js', () => ({
 
 // Mock @aws-sdk DynamoDB (needed by avatar-ascend module-level init).
 // IMPORTANT: mock classes must have `send` on the prototype so that
-// spyOn(DynamoDBClient.prototype, 'send') in later test files still works
+// vi.spyOn(DynamoDBClient.prototype, 'send') in later test files still works
 // (bun:test mock.module is process-global and persistent).
-mock.module('@aws-sdk/client-dynamodb', () => ({
+vi.mock('@aws-sdk/client-dynamodb', () => ({
   DynamoDBClient: class MockDynamoDBClient {
     constructor() {}
     async send(_command: unknown) { return {}; }
   },
 }));
 
-mock.module('@aws-sdk/lib-dynamodb', () => {
+vi.mock('@aws-sdk/lib-dynamodb', () => {
   class MockDynamoDBDocumentClient {
     static from() { return new MockDynamoDBDocumentClient(); }
     async send(_command: unknown) { return {}; }
@@ -107,7 +107,7 @@ mock.module('@aws-sdk/lib-dynamodb', () => {
   };
 });
 
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   RATI_MINT: 'mock-rati-mint',
   GATE_COLLECTION: 'mock-gate-collection',
   ASCENSION_ENERGY_BOOST: {

@@ -11,15 +11,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 let mockSystemStatus: unknown = { healthy: true };
 let mockModelsResult: unknown = {};
 
-mock.module('../../services/observability.js', () => ({
+vi.mock('../../services/observability.js', () => ({
   getSystemStatus: async () => mockSystemStatus,
 }));
 
-mock.module('../../services/integrations.js', () => ({
+vi.mock('../../services/integrations.js', () => ({
   getAvailableModelsForIntegration: () => mockModelsResult,
 }));
 
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, setContext: () => {} },
 }));
 

@@ -11,7 +11,7 @@ let executeRequest: Record<string, unknown> | null = null;
 let restartRequest: Record<string, unknown> | null = null;
 let skipRequest: Record<string, unknown> | null = null;
 
-mock.module('../../services/onboarding/index.js', () => ({
+vi.mock('../../services/onboarding/index.js', () => ({
   getOnboardingStatus: async (request: Record<string, unknown>) => {
     statusRequest = request;
     return statusResponse;

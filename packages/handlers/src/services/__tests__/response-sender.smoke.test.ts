@@ -53,10 +53,10 @@ const mockPlatformGet = vi.fn(() => null);
 const mockPlatformRegister = vi.fn(() => {});
 
 // ---------------------------------------------------------------------------
-// mock.module() calls
+// vi.mock() calls
 // ---------------------------------------------------------------------------
 
-mock.module('@aws-sdk/client-sqs', () => ({
+vi.mock('@aws-sdk/client-sqs', () => ({
   SQSClient: class {
     send = mockSqsSend;
   },
@@ -65,13 +65,13 @@ mock.module('@aws-sdk/client-sqs', () => ({
   },
 }));
 
-mock.module('@aws-sdk/client-dynamodb', () => ({
+vi.mock('@aws-sdk/client-dynamodb', () => ({
   DynamoDBClient: class {
     send = mockDynamoSend;
   },
 }));
 
-mock.module('@aws-sdk/lib-dynamodb', () => ({
+vi.mock('@aws-sdk/lib-dynamodb', () => ({
   DynamoDBDocumentClient: {
     from: () => ({ send: mockDynamoSend }),
   },
@@ -86,7 +86,7 @@ mock.module('@aws-sdk/lib-dynamodb', () => ({
 // NOTE: mock.module is process-global. When run alongside message-processor
 // smoke tests, the last definition wins. We include all exports needed by
 // BOTH handlers to avoid "export not found" errors.
-mock.module('@swarm/core', () => ({
+vi.mock('@swarm/core', () => ({
   // --- response-sender specific ---
   TelegramAdapter: class {
     constructor() {}
@@ -187,16 +187,16 @@ mock.module('@swarm/core', () => ({
   toolsToCategories: () => ['messaging'],
 }));
 
-mock.module('../dynamo-client.js', () => ({
+vi.mock('../dynamo-client.js', () => ({
   getDynamoClient: () => ({ send: mockDynamoSend }),
   _setDynamoClient: () => {},
 }));
 
-mock.module('../../telegram-webhook-shared.js', () => ({
+vi.mock('../../telegram-webhook-shared.js', () => ({
   isAllowedDmUserById: vi.fn(() => Promise.resolve(false)),
 }));
 
-mock.module('../../utils/load-avatar-secrets.js', () => ({
+vi.mock('../../utils/load-avatar-secrets.js', () => ({
   loadAvatarSecrets: () =>
     Promise.resolve({
       TELEGRAM_BOT_TOKEN: 'fake-bot-token',
@@ -205,7 +205,7 @@ mock.module('../../utils/load-avatar-secrets.js', () => ({
 }));
 
 // Also mock message-processor dependencies (needed when running alongside those tests)
-mock.module('@swarm/mcp-server', () => ({
+vi.mock('@swarm/mcp-server', () => ({
   ToolRegistry: class { register() {} },
   createToolClient: () => ({
     execute: vi.fn(() => Promise.resolve({ success: true, data: {} })),
@@ -215,11 +215,11 @@ mock.module('@swarm/mcp-server', () => ({
   registerAllTools: () => {},
 }));
 
-mock.module('../../services/platform-mcp-adapter.js', () => ({
+vi.mock('../../services/platform-mcp-adapter.js', () => ({
   createPlatformMCPServices: () => ({}),
 }));
 
-mock.module('../../services/entitlement-enforcement.js', () => ({
+vi.mock('../../services/entitlement-enforcement.js', () => ({
   checkAndIncrementMessageUsage: vi.fn(() =>
     Promise.resolve({ allowed: true, limit: 50, current: 1 }),
   ),
@@ -229,7 +229,7 @@ mock.module('../../services/entitlement-enforcement.js', () => ({
   isMemoryWriteAllowed: vi.fn(() => Promise.resolve(false)),
 }));
 
-mock.module('../../utils/system-replicate-key.js', () => ({
+vi.mock('../../utils/system-replicate-key.js', () => ({
   ensureReplicateKey: () => Promise.resolve(true),
 }));
 
