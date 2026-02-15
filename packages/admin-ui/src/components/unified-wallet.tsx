@@ -67,7 +67,10 @@ function UnifiedWalletContextBridge({ children }: { children: ReactNode }) {
 export function UnifiedWalletProvider({ children, wallets, config }: UnifiedWalletProviderProps) {
   const env = config?.env ?? 'mainnet-beta';
   const endpoint = useMemo(() => getEndpointForEnv(env), [env]);
-  const fallbackWallets = useMemo(() => [new PhantomWalletAdapter()], []);
+  const fallbackWallets = useMemo(() => {
+    const hasWalletStandard = typeof window !== 'undefined' && 'wallets' in (window.navigator as Navigator & { wallets?: unknown });
+    return hasWalletStandard ? [] : [new PhantomWalletAdapter()];
+  }, []);
   const selectedWallets = wallets && wallets.length > 0 ? wallets : fallbackWallets;
 
   return (
