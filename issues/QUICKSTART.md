@@ -107,4 +107,3 @@ Low Impact (BACKLOG):
 
 - Full issue catalog: `issues/INDEX.md`
 - Analysis summary: `ANALYSIS.md`
-- Avatar registry: `issues/avatars.json`
