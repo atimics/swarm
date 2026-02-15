@@ -324,6 +324,15 @@ export class AdminApiStack extends cdk.Stack {
         'Environment.Variables.ADMIN_TABLE',
         this.adminApi.table.tableName
       );
+
+      // Grant message processor read/write access to admin table for brain service
+      // (canonical memory writes when BRAIN_WRITE_MODE=dual or canonical)
+      this.adminApi.table.grantReadWriteData(this.sharedHandlers.messageProcessor);
+      const cfnMessageProcessor = this.sharedHandlers.messageProcessor.node.defaultChild as lambda.CfnFunction;
+      cfnMessageProcessor.addPropertyOverride(
+        'Environment.Variables.ADMIN_TABLE',
+        this.adminApi.table.tableName
+      );
     }
 
     // Create Discord gateway worker if enabled

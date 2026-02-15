@@ -1,8 +1,10 @@
 import {
   createLegacyBrainService,
+  createCanonicalMemoryClient,
   logger,
   type BrainMemoryFact,
   type BrainService,
+  type CanonicalMemoryModule,
   type StateService,
 } from '@swarm/core';
 
@@ -14,14 +16,7 @@ interface BrainModeOverrides {
   readMode?: BrainReadMode;
 }
 
-interface CanonicalMemoryModule {
-  remember: (avatarId: string, fact: string, about?: string, userId?: string) => Promise<{ saved: boolean }>;
-  recall: (avatarId: string, query: string, userId?: string) => Promise<{
-    facts: Array<{ fact: string; about?: string; timestamp: number; strength?: number }>;
-  }>;
-}
-
-let canonicalMemoryModulePromise: Promise<CanonicalMemoryModule | null> | null = null;
+let _canonicalModule: CanonicalMemoryModule | null = null;
 
 const BRAIN_METRICS_LOG_INTERVAL_MS = Number.parseInt(
   process.env.BRAIN_METRICS_LOG_INTERVAL_MS || '',
@@ -90,44 +85,38 @@ function readReadMode(overrides?: BrainModeOverrides): BrainReadMode {
   return 'legacy';
 }
 
-async function loadCanonicalMemoryModule(): Promise<CanonicalMemoryModule | null> {
-  if (!canonicalMemoryModulePromise) {
-    canonicalMemoryModulePromise = (async () => {
-      brainTelemetry.canonicalModuleLoads++;
-      try {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore - optional runtime import; handlers package does not have a direct static dependency
-        const memoryModule = await import('@swarm/admin-api');
-        if (typeof memoryModule.remember !== 'function' || typeof memoryModule.recall !== 'function') {
-          brainTelemetry.canonicalModuleUnavailable++;
-          logger.warn('Canonical memory module missing required exports', {
-            event: 'brain_canonical_exports_missing',
-          });
-          maybeLogBrainTelemetry();
-          return null;
-        }
-        logger.info('Canonical memory module loaded for runtime brain', {
-          event: 'brain_canonical_module_loaded',
-          subsystem: 'brain',
-        });
-        maybeLogBrainTelemetry();
-        return {
-          remember: memoryModule.remember,
-          recall: memoryModule.recall,
-        };
-      } catch (error) {
-        brainTelemetry.canonicalModuleUnavailable++;
-        logger.warn('Canonical memory module unavailable; using legacy brain path', {
-          event: 'brain_canonical_module_unavailable',
-          error: error instanceof Error ? error.message : String(error),
-        });
-        maybeLogBrainTelemetry();
-        return null;
-      }
-    })();
+function getCanonicalMemoryModule(): CanonicalMemoryModule | null {
+  if (_canonicalModule) return _canonicalModule;
+
+  const adminTable = process.env.ADMIN_TABLE;
+  if (!adminTable) {
+    brainTelemetry.canonicalModuleUnavailable++;
+    logger.warn('Canonical memory unavailable: ADMIN_TABLE not set', {
+      event: 'brain_canonical_module_unavailable',
+    });
+    maybeLogBrainTelemetry();
+    return null;
   }
 
-  return canonicalMemoryModulePromise;
+  try {
+    brainTelemetry.canonicalModuleLoads++;
+    _canonicalModule = createCanonicalMemoryClient(adminTable);
+    logger.info('Canonical memory module created for runtime brain', {
+      event: 'brain_canonical_module_loaded',
+      subsystem: 'brain',
+      adminTable,
+    });
+    maybeLogBrainTelemetry();
+    return _canonicalModule;
+  } catch (error) {
+    brainTelemetry.canonicalModuleUnavailable++;
+    logger.warn('Failed to create canonical memory module', {
+      event: 'brain_canonical_module_unavailable',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    maybeLogBrainTelemetry();
+    return null;
+  }
 }
 
 function dedupeFacts(facts: BrainMemoryFact[]): BrainMemoryFact[] {
@@ -170,7 +159,7 @@ export function createRuntimeBrainService(
         return result;
       }
 
-      const canonicalModule = await loadCanonicalMemoryModule();
+      const canonicalModule = getCanonicalMemoryModule();
 
       if (writeMode === 'canonical') {
         if (!canonicalModule) {
@@ -258,7 +247,7 @@ export function createRuntimeBrainService(
         return result;
       }
 
-      const canonicalModule = await loadCanonicalMemoryModule();
+      const canonicalModule = getCanonicalMemoryModule();
 
       if (readMode === 'canonical') {
         if (!canonicalModule) {

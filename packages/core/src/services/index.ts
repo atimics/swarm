@@ -79,3 +79,8 @@ export {
   type BrainRememberResult,
   type BrainRecallResult,
 } from './brain.js';
+export {
+  createCanonicalMemoryClient,
+  _setDynamoClient as _setCanonicalDynamoClient,
+  type CanonicalMemoryModule,
+} from './brain/canonical-memory.js';
