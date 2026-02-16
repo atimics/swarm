@@ -35,6 +35,22 @@ const DEFAULT_TTL_MS = 5 * 60 * 1000;
 /** Sort key constant for idempotency records */
 const IDEMPOTENCY_SK = 'IDEMPOTENCY';
 
+function logSafe(level: 'debug' | 'info' | 'warn', message: string, meta: Record<string, unknown>): void {
+  try {
+    if (level === 'debug') {
+      logger.debug(message, meta);
+      return;
+    }
+    if (level === 'info') {
+      logger.info(message, meta);
+      return;
+    }
+    logger.warn(message, meta);
+  } catch {
+    // no-op
+  }
+}
+
 // ============================================================================
 // DynamoDB Client (DI pattern)
 // ============================================================================
@@ -123,16 +139,18 @@ function createInMemoryStore<T>(params: {
 export function createIdempotencyStore<T>(params?: {
   now?: () => number;
   ttlMs?: number;
+  dynamoClient?: DynamoDBDocumentClient;
 }): IdempotencyStore<T> {
   const now = params?.now ?? (() => Date.now());
   const ttlMs = params?.ttlMs ?? DEFAULT_TTL_MS;
+  const dynamoClient = params?.dynamoClient;
 
   // In-memory fallback for when DynamoDB is unavailable
   const memoryStore = createInMemoryStore<T>({ now, ttlMs });
 
   const get = async (key: string): Promise<T | null> => {
     try {
-      const result = await getDynamoClient().send(new GetCommand({
+      const result = await (dynamoClient ?? getDynamoClient()).send(new GetCommand({
         TableName: ADMIN_TABLE,
         Key: {
           pk: `IDEMPOTENCY#${key}`,
@@ -152,7 +170,7 @@ export function createIdempotencyStore<T>(params?: {
 
       return record.value as T;
     } catch (error) {
-      logger.warn('DynamoDB idempotency get failed, falling back to memory', {
+      logSafe('warn', 'DynamoDB idempotency get failed, falling back to memory', {
         event: 'idempotency_dynamo_get_error',
         key,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -167,7 +185,7 @@ export function createIdempotencyStore<T>(params?: {
     const ttlEpochSeconds = Math.floor(now() / 1000) + Math.floor(ttlMs / 1000);
 
     try {
-      await getDynamoClient().send(new PutCommand({
+      await (dynamoClient ?? getDynamoClient()).send(new PutCommand({
         TableName: ADMIN_TABLE,
         Item: {
           pk: `IDEMPOTENCY#${key}`,
@@ -190,7 +208,7 @@ export function createIdempotencyStore<T>(params?: {
       // Also set in memory store for fast reads within same instance
       memoryStore.set(key, value);
 
-      logger.debug('Idempotency key set in DynamoDB', {
+      logSafe('debug', 'Idempotency key set in DynamoDB', {
         event: 'idempotency_set',
         key,
         ttlEpochSeconds,
@@ -201,7 +219,7 @@ export function createIdempotencyStore<T>(params?: {
       // ConditionalCheckFailedException means the key already exists (duplicate)
       if (error instanceof ConditionalCheckFailedException ||
           (error instanceof Error && error.name === 'ConditionalCheckFailedException')) {
-        logger.info('Idempotency key already exists (duplicate detected)', {
+        logSafe('info', 'Idempotency key already exists (duplicate detected)', {
           event: 'idempotency_duplicate',
           key,
         });
@@ -209,7 +227,7 @@ export function createIdempotencyStore<T>(params?: {
       }
 
       // DynamoDB is unavailable -- fall back to in-memory store
-      logger.warn('DynamoDB idempotency set failed, falling back to memory', {
+      logSafe('warn', 'DynamoDB idempotency set failed, falling back to memory', {
         event: 'idempotency_dynamo_set_error',
         key,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -230,7 +248,7 @@ export function createIdempotencyStore<T>(params?: {
     const ttlEpochSeconds = Math.floor(now() / 1000) + Math.floor(ttlMs / 1000);
 
     try {
-      await getDynamoClient().send(new PutCommand({
+      await (dynamoClient ?? getDynamoClient()).send(new PutCommand({
         TableName: ADMIN_TABLE,
         Item: {
           pk: `IDEMPOTENCY#${key}`,
@@ -244,7 +262,7 @@ export function createIdempotencyStore<T>(params?: {
 
       memoryStore.set(key, value);
     } catch (error) {
-      logger.warn('DynamoDB idempotency update failed, updating memory only', {
+      logSafe('warn', 'DynamoDB idempotency update failed, updating memory only', {
         event: 'idempotency_dynamo_update_error',
         key,
         error: error instanceof Error ? error.message : 'Unknown error',
