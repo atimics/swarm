@@ -2,13 +2,10 @@ name: Issue Management
 
 on:
   issues:
-    types: [opened, labeled, assigned]
-  pull_request:
-    types: [opened, closed]
+    types: [opened, assigned]
 
 permissions:
   issues: write
-  pull-requests: write
 
 jobs:
   # Auto-label issues based on title
@@ -76,73 +73,3 @@ jobs:
               labels: ['status:in-progress']
             });
 
-  # Link PRs to issues and update status
-  link-pr:
-    name: Link PR to Issue
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.action == 'opened'
-
-    steps:
-      - name: Find and link issues
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const body = context.payload.pull_request.body || '';
-            const title = context.payload.pull_request.title || '';
-
-            // Find issue references (Closes #X, Fixes #X, Related to #X)
-            const issuePattern = /(?:closes|fixes|resolves|related to)\s+#(\d+)/gi;
-            const matches = [...body.matchAll(issuePattern), ...title.matchAll(issuePattern)];
-
-            for (const match of matches) {
-              const issueNumber = parseInt(match[1]);
-
-              // Add comment to issue
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: `PR #${context.payload.pull_request.number} has been opened for this issue.`
-              });
-            }
-
-  # Close issues when PR is merged
-  close-issues:
-    name: Close Linked Issues
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
-
-    steps:
-      - name: Process merged PR
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const body = context.payload.pull_request.body || '';
-
-            // Find "Closes #X" patterns
-            const closePattern = /(?:closes|fixes|resolves)\s+#(\d+)/gi;
-            const matches = [...body.matchAll(closePattern)];
-
-            for (const match of matches) {
-              const issueNumber = parseInt(match[1]);
-
-              // Remove in-progress label
-              try {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueNumber,
-                  name: 'status:in-progress'
-                });
-              } catch (e) {
-                // Label might not exist
-              }
-
-              // Add comment
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: `Closed by PR #${context.payload.pull_request.number}`
-              });
-            }
