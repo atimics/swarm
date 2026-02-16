@@ -920,6 +920,12 @@ export class AdminApiConstruct extends Construct {
 
     // Grant permissions to avatars handler
     this.table.grantReadWriteData(avatarsHandler);
+    avatarsHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:Query'],
+        resources: [`${this.table.tableArn}/index/GSI1`],
+      })
+    );
     if (stateTable) {
       stateTable.grantReadWriteData(avatarsHandler);
     }
