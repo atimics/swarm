@@ -48,10 +48,10 @@ import { handler } from './issues.js';
 import * as autoIssues from '../services/auto-issues.js';
 import * as requestAuth from '../auth/request-auth.js';
 
-// Get references to the mocked functions
-const listIssuesMock = vi.mocked(autoIssues.listIssues);
-const updateIssueStatusMock = vi.mocked(autoIssues.updateIssueStatus);
-const authenticateRequestMock = vi.mocked(requestAuth.authenticateRequest);
+// Get references to the mocked functions (cast instead of vi.mocked for bun compat)
+const listIssuesMock = autoIssues.listIssues as unknown as ReturnType<typeof vi.fn>;
+const updateIssueStatusMock = autoIssues.updateIssueStatus as unknown as ReturnType<typeof vi.fn>;
+const authenticateRequestMock = requestAuth.authenticateRequest as unknown as ReturnType<typeof vi.fn>;
 
 function createEvent(overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 {
   return {

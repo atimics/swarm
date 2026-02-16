@@ -20,12 +20,12 @@ import * as avatars from '../services/avatars.js';
 import * as burnStats from '../services/burn-stats.js';
 import * as energy from '../services/energy.js';
 
-// Get references to the mocked functions
-const getAvatarMock = vi.mocked(avatars.getAvatar);
-const getBurnStatsWithProgressMock = vi.mocked(burnStats.getBurnStatsWithProgress);
-const getBurnHistoryMock = vi.mocked(burnStats.getBurnHistory);
-const getAvatarRankMock = vi.mocked(burnStats.getAvatarRank);
-const getEnergyStatusMock = vi.mocked(energy.getEnergyStatus);
+// Get references to the mocked functions (cast instead of vi.mocked for bun compat)
+const getAvatarMock = avatars.getAvatar as unknown as ReturnType<typeof vi.fn>;
+const getBurnStatsWithProgressMock = burnStats.getBurnStatsWithProgress as unknown as ReturnType<typeof vi.fn>;
+const getBurnHistoryMock = burnStats.getBurnHistory as unknown as ReturnType<typeof vi.fn>;
+const getAvatarRankMock = burnStats.getAvatarRank as unknown as ReturnType<typeof vi.fn>;
+const getEnergyStatusMock = energy.getEnergyStatus as unknown as ReturnType<typeof vi.fn>;
 
 function createEvent(overrides: Partial<APIGatewayProxyEvent> = {}): APIGatewayProxyEvent {
   return {
