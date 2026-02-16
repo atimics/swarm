@@ -37,15 +37,17 @@ export type SettledResult<T> = SettledFulfilled<T> | SettledTimedOut | SettledRe
 /**
  * Race a single promise against a timeout.
  * Returns a sentinel value on timeout instead of rejecting.
+ * Clears the timer when the promise settles early to avoid leaking timers.
  */
 function raceWithTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
 ): Promise<T | typeof TIMEOUT_SENTINEL> {
+  let timer: ReturnType<typeof setTimeout>;
   return Promise.race([
-    promise,
+    promise.finally(() => clearTimeout(timer)),
     new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
-      setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+      timer = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
     }),
   ]);
 }
@@ -96,20 +98,28 @@ export async function promiseAllSettledWithTimeout<T>(
  * All promises must resolve successfully (within the timeout) or the call
  * throws. Use this when partial results are NOT acceptable.
  *
- * @param promises - Array of promises to execute
+ * Supports both homogeneous arrays (`Promise<T>[]`) and heterogeneous
+ * tuples (`[Promise<A>, Promise<B>]`) — the return type mirrors the input
+ * shape so destructured results are correctly typed.
+ *
+ * @param promises - Array or tuple of promises to execute
  * @param timeoutMs - Timeout per individual promise (default: 10s)
  * @param label - Optional label for structured log messages
- * @returns Array of resolved values (same order as input)
+ * @returns Array/tuple of resolved values (same order as input)
  * @throws Error if any promise times out or rejects
  */
-export async function promiseAllWithTimeout<T>(
-  promises: Promise<T>[],
+export async function promiseAllWithTimeout<T extends readonly unknown[]>(
+  promises: readonly [...{ [K in keyof T]: Promise<T[K]> }],
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
   label?: string,
-): Promise<T[]> {
-  const settled = await promiseAllSettledWithTimeout(promises, timeoutMs, label);
+): Promise<[...T]> {
+  const settled = await promiseAllSettledWithTimeout(
+    promises as Promise<unknown>[],
+    timeoutMs,
+    label,
+  );
 
-  const values: T[] = [];
+  const values: unknown[] = [];
   for (const result of settled) {
     if (result.status === 'fulfilled') {
       values.push(result.value);
@@ -124,5 +134,5 @@ export async function promiseAllWithTimeout<T>(
         : new Error(String(result.reason));
     }
   }
-  return values;
+  return values as [...T];
 }
