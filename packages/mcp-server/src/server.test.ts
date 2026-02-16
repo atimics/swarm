@@ -3,7 +3,7 @@
  *
  * Tests for MCP server integration, request handling, and tool execution.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { createMCPServer } from './server.js';
 import { ToolRegistry, defineTool } from './registry.js';

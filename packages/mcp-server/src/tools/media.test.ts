@@ -3,7 +3,7 @@
  *
  * Tests for image, video, and sticker generation tools.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { createMediaTools, type MediaServices, type CreditServices } from './media.js';
 
 const mockMediaServices: MediaServices = {

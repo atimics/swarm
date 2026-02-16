@@ -50,6 +50,8 @@ const mockMarkResponseSent = vi.fn(() => Promise.resolve());
 const mockSetUserCooldown = vi.fn(() => Promise.resolve());
 const mockSaveFact = vi.fn(() => Promise.resolve());
 const mockGetChannelState = vi.fn(() => Promise.resolve(null));
+const mockBrainRemember = vi.fn(() => Promise.resolve({ saved: true, source: 'legacy' as const }));
+const mockBrainRecall = vi.fn(() => Promise.resolve({ facts: [], source: 'legacy' as const }));
 
 const mockStateService = {
   getAvatarConfig: mockGetAvatarConfig,
@@ -178,6 +180,14 @@ vi.mock('@swarm/core', () => ({
   createMediaServiceWithDeps: () => undefined,
   createMediaDependencies: () => ({}),
   createPresenceService: () => mockPresenceService,
+  createLegacyBrainService: () => ({
+    remember: mockBrainRemember,
+    recall: mockBrainRecall,
+  }),
+  createCanonicalMemoryClient: () => ({
+    remember: vi.fn(() => Promise.resolve()),
+    recall: vi.fn(() => Promise.resolve({ facts: [] })),
+  }),
   createChannelSummaryService: () => ({
     getOrGenerateSummary: vi.fn(() => Promise.resolve(null)),
   }),
@@ -370,6 +380,8 @@ describe('Message Processor Smoke Tests', () => {
     mockCheckAndIncrementMessageUsage.mockClear();
     mockCheckToolCallLimit.mockClear();
     mockIsMemoryWriteAllowed.mockClear();
+    mockBrainRemember.mockClear();
+    mockBrainRecall.mockClear();
     mockToolExecute.mockClear();
     mockRegisterChannel.mockClear();
     mockFetchJson.mockClear();

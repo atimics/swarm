@@ -3,7 +3,7 @@
  *
  * Tests for secrets management tools.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { createSecretTools, type SecretServices } from './secrets.js';
 
 const mockSecretServices: SecretServices = {

@@ -3,7 +3,7 @@
  *
  * Tests for Solana wallet management tools.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { createWalletTools, type WalletServices } from './wallet.js';
 
 const mockWalletServices: WalletServices = {

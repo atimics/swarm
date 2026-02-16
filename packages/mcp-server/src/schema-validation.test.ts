@@ -3,7 +3,7 @@
  *
  * Tests for Zod schema validation and JSON schema generation.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { ToolRegistry, defineTool } from './registry.js';

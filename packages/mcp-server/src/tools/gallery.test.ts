@@ -3,7 +3,7 @@
  *
  * Tests for gallery and reference image management tools.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { createGalleryTools, type GalleryServices, type GalleryItem } from './gallery.js';
 
 const mockGalleryItems: GalleryItem[] = [

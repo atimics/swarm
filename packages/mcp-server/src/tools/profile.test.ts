@@ -3,7 +3,7 @@
  *
  * Tests for profile and persona management tools.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { createProfileTools, type ProfileServices } from './profile.js';
 
 const mockProfileServices: ProfileServices = {

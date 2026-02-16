@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const prevEnv = process.env.ENVIRONMENT;
 const prevHeliusApiKey = process.env.HELIUS_API_KEY;
@@ -15,8 +15,8 @@ function restoreEnvVar(key: string, value: string | undefined) {
 }
 
 async function importFresh() {
-  // Cache-bust per test so module-level env-derived variables re-init.
-  return await import(`./nft-gate.js?test=${Date.now()}-${Math.random()}`);
+  vi.resetModules();
+  return await import('./nft-gate.js');
 }
 
 describe('nft-gate (Helius config fallbacks)', () => {

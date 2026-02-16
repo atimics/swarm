@@ -3,7 +3,7 @@
  *
  * Additional tests for tool routing logic, keyword matching, and filtering.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { routeTools } from './tool-router.js';
 import { defineTool, type ToolDefinition } from './registry.js';
