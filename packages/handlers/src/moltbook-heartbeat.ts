@@ -38,7 +38,6 @@ let adminDocClient: DynamoDBDocumentClient;
 async function initialize(): Promise<void> {
   if (stateService) return;
   if (!STATE_TABLE) throw new Error('STATE_TABLE environment variable is required');
-  if (!ADMIN_TABLE) throw new Error('ADMIN_TABLE environment variable is required');
   stateService = createStateService(STATE_TABLE);
   secretsService = createSecretsService();
   adminDocClient = getDynamoClient();
@@ -63,6 +62,14 @@ interface MoltbookEnabledAvatar {
  * Get all avatars with Moltbook enabled in their mcpConfig
  */
 async function getMoltbookEnabledAvatars(): Promise<MoltbookEnabledAvatar[]> {
+  if (!ADMIN_TABLE) {
+    logger.error('Moltbook heartbeat disabled: missing ADMIN_TABLE environment variable', undefined, {
+      subsystem: 'moltbook',
+      event: 'missing_admin_table',
+    });
+    return [];
+  }
+
   const avatars: MoltbookEnabledAvatar[] = [];
   let lastEvaluatedKey: Record<string, unknown> | undefined;
 

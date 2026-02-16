@@ -255,6 +255,17 @@ export class AdminApiStack extends cdk.Stack {
       ? ''
       : process.env.INTERNAL_TEST_KEY || `test-${Date.now()}-${Math.random().toString(36).substring(2)}`;
 
+    // Shared handlers (e.g., moltbook heartbeat) require ADMIN_TABLE at runtime.
+    // Provide a stable table reference here so environment wiring does not depend
+    // on post-hoc Lambda property overrides.
+    const sharedAdminTable = adminEmails
+      ? dynamodb.Table.fromTableName(
+          this,
+          'SharedAdminTableRef',
+          `SwarmAdmin-${environment}${nameSuffix ?? ''}`
+        )
+      : undefined;
+
     // Create SharedHandlers for shared multi-tenant ingress
     this.sharedHandlers = new SharedHandlers(this, 'SharedHandlers', {
       environment,
@@ -263,6 +274,7 @@ export class AdminApiStack extends cdk.Stack {
       stateTable,
       activityTable,
       mediaBucket,
+      adminTable: sharedAdminTable,
       cdnUrl: sharedInfraStack.cdnUrl,
       replicateApiKeyArn,
       secretPrefix,
@@ -306,33 +318,8 @@ export class AdminApiStack extends cdk.Stack {
 
       this.apiEndpoint = this.adminApi.apiEndpoint;
 
-      // Grant SharedHandlers access to the Admin table for DM bot creation flow
-      // This must be done after AdminApi is created since it owns the table
-      this.adminApi.table.grantReadWriteData(this.sharedHandlers.telegramWebhook);
-      // Add ADMIN_TABLE env var to the Telegram webhook Lambda
-      const cfnTelegramWebhook = this.sharedHandlers.telegramWebhook.node.defaultChild as lambda.CfnFunction;
-      cfnTelegramWebhook.addPropertyOverride(
-        'Environment.Variables.ADMIN_TABLE',
-        this.adminApi.table.tableName
-      );
-
-      // Add ADMIN_TABLE env var to the Moltbook heartbeat Lambda
-      // (scans ADMIN_TABLE for avatars with moltbook enabled in mcpConfig)
-      this.adminApi.table.grantReadData(this.sharedHandlers.moltbookHeartbeat);
-      const cfnMoltbookHeartbeat = this.sharedHandlers.moltbookHeartbeat.node.defaultChild as lambda.CfnFunction;
-      cfnMoltbookHeartbeat.addPropertyOverride(
-        'Environment.Variables.ADMIN_TABLE',
-        this.adminApi.table.tableName
-      );
-
-      // Grant message processor read/write access to admin table for brain service
-      // (canonical memory writes when BRAIN_WRITE_MODE=dual or canonical)
-      this.adminApi.table.grantReadWriteData(this.sharedHandlers.messageProcessor);
-      const cfnMessageProcessor = this.sharedHandlers.messageProcessor.node.defaultChild as lambda.CfnFunction;
-      cfnMessageProcessor.addPropertyOverride(
-        'Environment.Variables.ADMIN_TABLE',
-        this.adminApi.table.tableName
-      );
+      // SharedHandlers receives ADMIN_TABLE directly via `adminTable` above.
+      // Keep this stack focused on Admin API construct wiring.
     }
 
     // Create Discord gateway worker if enabled
