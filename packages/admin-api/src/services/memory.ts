@@ -46,6 +46,10 @@ import {
   cosineSimilarity,
   EMBEDDING_VERSION,
 } from './embedding.js';
+import {
+  promiseAllWithTimeout,
+  promiseAllSettledWithTimeout,
+} from './promise-timeout.js';
 
 // ============================================================================
 // Configuration
@@ -564,8 +568,8 @@ export async function getMemories(
 export async function getMemoryCounts(avatarId: string): Promise<Record<MemoryTier, number>> {
   const validAvatarId = validateAvatarId(avatarId);
 
-  // Run all three queries in parallel
-  const [immediateResult, recentResult, coreResult] = await Promise.all([
+  // Run all three queries in parallel with timeout protection
+  const [immediateResult, recentResult, coreResult] = await promiseAllWithTimeout([
     getDynamoClient().send(new QueryCommand({
       TableName: ADMIN_TABLE,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :tier)',
@@ -593,7 +597,7 @@ export async function getMemoryCounts(avatarId: string): Promise<Record<MemoryTi
       },
       Select: 'COUNT',
     })),
-  ]);
+  ], undefined, 'getMemoryCounts');
 
   return {
     immediate: immediateResult.Count || 0,
@@ -999,7 +1003,7 @@ export async function applyDecay(
 
   const now = Date.now();
   for (const batch of updateBatches) {
-    await Promise.all(
+    await promiseAllSettledWithTimeout(
       batch.map(({ sk, newStrength }) =>
         getDynamoClient().send(new UpdateCommand({
           TableName: ADMIN_TABLE,
@@ -1017,7 +1021,8 @@ export async function applyDecay(
             error: err instanceof Error ? err.message : 'Unknown error',
           });
         })
-      )
+      ),
+      undefined, 'applyDecay',
     );
   }
 
@@ -1373,11 +1378,11 @@ export async function recall(
 export async function getMemoryContext(avatarId: string): Promise<string> {
   const validAvatarId = validateAvatarId(avatarId);
 
-  const [coreMemories, recentMemories, identity] = await Promise.all([
+  const [coreMemories, recentMemories, identity] = await promiseAllWithTimeout([
     getCoreMemories(validAvatarId),
     getMemories(validAvatarId, { tier: 'recent', limit: 10 }),
     getIdentity(validAvatarId),
-  ]);
+  ], undefined, 'getMemoryContext');
 
   const sections: string[] = [];
 
@@ -1446,10 +1451,10 @@ export async function getMemoryContextForQuery(
   const minSimilarity = options.minSimilarity ?? 0.28;
   const maxChars = options.maxChars ?? 2400;
 
-  const [identity, relevant] = await Promise.all([
+  const [identity, relevant] = await promiseAllWithTimeout([
     getIdentity(validAvatarId),
     searchMemories(validAvatarId, queryText, limit, { semanticSearch: true, minSimilarity }),
-  ]);
+  ], undefined, 'getMemoryContextForQuery');
 
   const sections: string[] = [];
 
@@ -1499,11 +1504,11 @@ export async function getMemoryStats(avatarId: string): Promise<{
   const totalMemories = counts.immediate + counts.recent + counts.core;
 
   // Get memories for average strength calculation
-  const [immediate, recent, core] = await Promise.all([
+  const [immediate, recent, core] = await promiseAllWithTimeout([
     getMemories(validAvatarId, { tier: 'immediate', limit: 100 }),
     getMemories(validAvatarId, { tier: 'recent', limit: 100 }),
     getMemories(validAvatarId, { tier: 'core', limit: 100 }),
-  ]);
+  ], undefined, 'getMemoryStats');
 
   const avgStrength = (memories: AvatarMemory[]) =>
     memories.length > 0
@@ -1656,10 +1661,10 @@ export async function getEdgesForMemory(
   memoryId: string,
   limit: number = 50
 ): Promise<MemoryEdge[]> {
-  const [outgoing, incoming] = await Promise.all([
+  const [outgoing, incoming] = await promiseAllWithTimeout([
     getEdgesFrom(avatarId, memoryId, limit),
     getEdgesTo(avatarId, memoryId, limit),
-  ]);
+  ], undefined, 'getEdgesForMemory');
 
   // Deduplicate (an edge could appear in both if source === target, unlikely but safe)
   const seen = new Set<string>();
@@ -1936,10 +1941,14 @@ export async function graphSearch(
   for (let depth = 0; depth < graphDepth && frontier.length > 0; depth++) {
     const nextFrontier: string[] = [];
 
-    // Fetch edges for all frontier nodes in parallel
-    const edgeBatches = await Promise.all(
-      frontier.map(memId => getEdgesForMemory(avatarId, memId, DEFAULT_GRAPH_CONFIG.maxEdgesPerNode))
+    // Fetch edges for all frontier nodes in parallel (partial results OK)
+    const edgeSettled = await promiseAllSettledWithTimeout(
+      frontier.map(memId => getEdgesForMemory(avatarId, memId, DEFAULT_GRAPH_CONFIG.maxEdgesPerNode)),
+      undefined, 'graphSearch:edges',
     );
+    const edgeBatches = edgeSettled
+      .filter((r): r is { status: 'fulfilled'; value: MemoryEdge[] } => r.status === 'fulfilled')
+      .map(r => r.value);
 
     for (const edges of edgeBatches) {
       for (const edge of edges) {
@@ -1967,7 +1976,12 @@ export async function graphSearch(
       .slice(0, maxGraphMatches * 2) // Over-fetch slightly
       .map(id => getMemory(avatarId, id));
 
-    const results = await Promise.all(fetchPromises);
+    const fetchSettled = await promiseAllSettledWithTimeout(
+      fetchPromises, undefined, 'graphSearch:fetchMemories',
+    );
+    const results = fetchSettled
+      .filter((r): r is { status: 'fulfilled'; value: AvatarMemory | null } => r.status === 'fulfilled')
+      .map(r => r.value);
     for (const mem of results) {
       if (mem && graphMatches.length < maxGraphMatches) {
         graphMatches.push(mem);
@@ -2128,7 +2142,7 @@ export async function pruneGraph(
   }
 
   for (const batch of updateBatches) {
-    await Promise.all(
+    await promiseAllSettledWithTimeout(
       batch.map(({ sk, newWeight }) =>
         getDynamoClient().send(new UpdateCommand({
           TableName: ADMIN_TABLE,
@@ -2142,7 +2156,8 @@ export async function pruneGraph(
             error: err instanceof Error ? err.message : 'Unknown',
           });
         })
-      )
+      ),
+      undefined, 'pruneGraph',
     );
   }
 
@@ -2194,7 +2209,7 @@ export async function getGraphMemoryContext(
   const maxChars = options.maxChars ?? 2400;
   const includeGraph = options.includeGraph ?? true;
 
-  const [identity, searchResult] = await Promise.all([
+  const [identity, searchResult] = await promiseAllWithTimeout([
     getIdentity(validAvatarId),
     includeGraph
       ? graphSearch(validAvatarId, queryText, {
@@ -2205,7 +2220,7 @@ export async function getGraphMemoryContext(
       : searchMemories(validAvatarId, queryText, limit, { semanticSearch: true }).then(
           directMatches => ({ directMatches, graphMatches: [] as AvatarMemory[], combined: directMatches, edgesTraversed: 0 })
         ),
-  ]);
+  ], undefined, 'getGraphMemoryContext');
 
   const sections: string[] = [];
 
