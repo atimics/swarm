@@ -65,11 +65,19 @@ export interface IdempotencyStore<T> {
   get: (key: string) => Promise<T | null>;
 
   /**
-   * Atomically set a key if it does not already exist.
-   * Returns true if the value was set (first writer wins),
+   * Atomically claim a key if it does not already exist.
+   * Returns true if the key was claimed (first writer wins),
    * false if the key already existed (duplicate detected).
+   * Use this to acquire a lock before starting work.
    */
   set: (key: string, value: T) => Promise<boolean>;
+
+  /**
+   * Unconditionally overwrite the value for an existing key.
+   * Use this after completing work to replace a claim sentinel
+   * with the actual result.
+   */
+  update: (key: string, value: T) => Promise<void>;
 
   /**
    * Clear all entries (primarily for testing).
@@ -218,11 +226,39 @@ export function createIdempotencyStore<T>(params?: {
     }
   };
 
+  const update = async (key: string, value: T): Promise<void> => {
+    const ttlEpochSeconds = Math.floor(now() / 1000) + Math.floor(ttlMs / 1000);
+
+    try {
+      await getDynamoClient().send(new PutCommand({
+        TableName: ADMIN_TABLE,
+        Item: {
+          pk: `IDEMPOTENCY#${key}`,
+          sk: IDEMPOTENCY_SK,
+          value,
+          ttl: ttlEpochSeconds,
+          createdAt: now(),
+        },
+        // No condition — unconditional overwrite
+      }));
+
+      memoryStore.set(key, value);
+    } catch (error) {
+      logger.warn('DynamoDB idempotency update failed, updating memory only', {
+        event: 'idempotency_dynamo_update_error',
+        key,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+
+      memoryStore.set(key, value);
+    }
+  };
+
   const clear = () => {
     memoryStore.clear();
   };
 
-  return { get, set, clear };
+  return { get, set, update, clear };
 }
 
 // ============================================================================
