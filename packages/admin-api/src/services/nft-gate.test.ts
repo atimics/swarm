@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { checkNFTGate, _resetNftGateForTesting } from './nft-gate.js';
 
 const prevEnv = process.env.ENVIRONMENT;
 const prevHeliusApiKey = process.env.HELIUS_API_KEY;
@@ -14,16 +15,6 @@ function restoreEnvVar(key: string, value: string | undefined) {
   }
 }
 
-async function importFresh() {
-  const resetModules = (vi as unknown as { resetModules?: () => void }).resetModules;
-  if (typeof resetModules === 'function') {
-    resetModules();
-    return await import('./nft-gate.js');
-  }
-
-  return await import(`./nft-gate.js?test=${Date.now()}-${Math.random()}`);
-}
-
 describe('nft-gate (Helius config fallbacks)', () => {
   beforeEach(() => {
     process.env.ADMIN_TABLE = process.env.ADMIN_TABLE || 'test-admin-table';
@@ -31,6 +22,8 @@ describe('nft-gate (Helius config fallbacks)', () => {
     delete process.env.HELIUS_API_KEY_ARN;
     delete process.env.DISABLE_NFT_GATE;
     delete process.env.ENVIRONMENT;
+    // Reset cached module-level Helius state so env var changes take effect
+    _resetNftGateForTesting();
   });
 
   afterEach(() => {
@@ -39,13 +32,14 @@ describe('nft-gate (Helius config fallbacks)', () => {
     restoreEnvVar('HELIUS_API_KEY_ARN', prevHeliusApiKeyArn);
     restoreEnvVar('DISABLE_NFT_GATE', prevDisableGate);
     restoreEnvVar('ADMIN_TABLE', prevAdminTable);
+    // Restore cached state to match restored env vars
+    _resetNftGateForTesting();
   });
 
   it('fails closed (0 Orbs) in prod-like env when Helius key missing', async () => {
     process.env.ENVIRONMENT = 'prod';
-    const mod = await importFresh();
 
-    const res = await mod.checkNFTGate('wallet-1');
+    const res = await checkNFTGate('wallet-1');
     expect(res.allowed).toBe(false);
     expect(res.ownedCount).toBe(0);
     expect(res.error).toBe('Helius API key not configured');
@@ -53,9 +47,8 @@ describe('nft-gate (Helius config fallbacks)', () => {
 
   it('bypasses (999 Orbs) in dev-like env when Helius key missing', async () => {
     process.env.ENVIRONMENT = 'dev';
-    const mod = await importFresh();
 
-    const res = await mod.checkNFTGate('wallet-1');
+    const res = await checkNFTGate('wallet-1');
     expect(res.allowed).toBe(true);
     expect(res.ownedCount).toBe(999);
   });
@@ -63,9 +56,8 @@ describe('nft-gate (Helius config fallbacks)', () => {
   it('bypasses when DISABLE_NFT_GATE=true even in prod', async () => {
     process.env.ENVIRONMENT = 'prod';
     process.env.DISABLE_NFT_GATE = 'true';
-    const mod = await importFresh();
 
-    const res = await mod.checkNFTGate('wallet-1');
+    const res = await checkNFTGate('wallet-1');
     expect(res.allowed).toBe(true);
     expect(res.ownedCount).toBe(999);
   });
