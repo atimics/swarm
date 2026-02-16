@@ -1,41 +1,268 @@
+/**
+ * Idempotency Store Service
+ *
+ * DynamoDB-backed idempotency store with in-memory fallback.
+ * Uses conditional PutItem (attribute_not_exists) for atomic check-and-set
+ * to prevent race conditions across concurrent Lambda invocations.
+ *
+ * DynamoDB Key Schema:
+ * - pk: IDEMPOTENCY#{key}
+ * - sk: "IDEMPOTENCY"
+ *
+ * Falls back to an in-memory Map when DynamoDB is unavailable,
+ * preserving basic deduplication within a single Lambda instance.
+ *
+ * @module idempotency
+ */
+import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
+import {
+  type DynamoDBDocumentClient,
+  PutCommand,
+  GetCommand,
+} from '@aws-sdk/lib-dynamodb';
+import { getDynamoClient as getSharedDynamoClient, _setDynamoClient as _setSharedDynamoClient } from './dynamo-client.js';
+import { logger } from '@swarm/core';
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+const ADMIN_TABLE = process.env.ADMIN_TABLE || 'swarm-admin-table';
+
+/** Default TTL: 5 minutes in milliseconds */
+const DEFAULT_TTL_MS = 5 * 60 * 1000;
+
+/** Sort key constant for idempotency records */
+const IDEMPOTENCY_SK = 'IDEMPOTENCY';
+
+// ============================================================================
+// DynamoDB Client (DI pattern)
+// ============================================================================
+
+function getDynamoClient(): DynamoDBDocumentClient {
+  return getSharedDynamoClient();
+}
+
+/** For testing -- inject a mock DynamoDB client */
+export function _setDynamoClient(client: DynamoDBDocumentClient | null): void {
+  _setSharedDynamoClient(client);
+}
+
+// ============================================================================
+// Types
+// ============================================================================
+
 export interface IdempotencyRecord<T> {
   value: T;
   expiresAt: number;
 }
 
 export interface IdempotencyStore<T> {
-  get: (key: string) => T | null;
-  set: (key: string, value: T) => void;
+  /**
+   * Check if a key exists and is not expired.
+   * Returns the cached value or null.
+   */
+  get: (key: string) => Promise<T | null>;
+
+  /**
+   * Atomically claim a key if it does not already exist.
+   * Returns true if the key was claimed (first writer wins),
+   * false if the key already existed (duplicate detected).
+   * Use this to acquire a lock before starting work.
+   */
+  set: (key: string, value: T) => Promise<boolean>;
+
+  /**
+   * Unconditionally overwrite the value for an existing key.
+   * Use this after completing work to replace a claim sentinel
+   * with the actual result.
+   */
+  update: (key: string, value: T) => Promise<void>;
+
+  /**
+   * Clear all entries (primarily for testing).
+   * Only clears the in-memory fallback; DynamoDB entries expire via TTL.
+   */
   clear: () => void;
 }
+
+// ============================================================================
+// In-Memory Fallback Store
+// ============================================================================
+
+function createInMemoryStore<T>(params: {
+  now: () => number;
+  ttlMs: number;
+}): { get: (key: string) => T | null; set: (key: string, value: T) => void; clear: () => void } {
+  const { now, ttlMs } = params;
+  const store = new Map<string, IdempotencyRecord<T>>();
+
+  return {
+    get(key: string): T | null {
+      const record = store.get(key);
+      if (!record) return null;
+      if (record.expiresAt <= now()) {
+        store.delete(key);
+        return null;
+      }
+      return record.value;
+    },
+    set(key: string, value: T): void {
+      store.set(key, { value, expiresAt: now() + ttlMs });
+    },
+    clear(): void {
+      store.clear();
+    },
+  };
+}
+
+// ============================================================================
+// DynamoDB-Backed Idempotency Store
+// ============================================================================
 
 export function createIdempotencyStore<T>(params?: {
   now?: () => number;
   ttlMs?: number;
 }): IdempotencyStore<T> {
   const now = params?.now ?? (() => Date.now());
-  const ttlMs = params?.ttlMs ?? 5 * 60 * 1000;
-  const store = new Map<string, IdempotencyRecord<T>>();
+  const ttlMs = params?.ttlMs ?? DEFAULT_TTL_MS;
 
-  const get = (key: string): T | null => {
-    const record = store.get(key);
-    if (!record) return null;
-    if (record.expiresAt <= now()) {
-      store.delete(key);
-      return null;
+  // In-memory fallback for when DynamoDB is unavailable
+  const memoryStore = createInMemoryStore<T>({ now, ttlMs });
+
+  const get = async (key: string): Promise<T | null> => {
+    try {
+      const result = await getDynamoClient().send(new GetCommand({
+        TableName: ADMIN_TABLE,
+        Key: {
+          pk: `IDEMPOTENCY#${key}`,
+          sk: IDEMPOTENCY_SK,
+        },
+      }));
+
+      if (!result.Item) return null;
+
+      const record = result.Item;
+      const ttlEpochSeconds = record.ttl as number | undefined;
+
+      // Check if expired (ttl is epoch seconds)
+      if (ttlEpochSeconds && ttlEpochSeconds <= Math.floor(now() / 1000)) {
+        return null;
+      }
+
+      return record.value as T;
+    } catch (error) {
+      logger.warn('DynamoDB idempotency get failed, falling back to memory', {
+        event: 'idempotency_dynamo_get_error',
+        key,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+
+      // Fall back to in-memory store
+      return memoryStore.get(key);
     }
-    return record.value;
   };
 
-  const set = (key: string, value: T) => {
-    store.set(key, { value, expiresAt: now() + ttlMs });
+  const set = async (key: string, value: T): Promise<boolean> => {
+    const ttlEpochSeconds = Math.floor(now() / 1000) + Math.floor(ttlMs / 1000);
+
+    try {
+      await getDynamoClient().send(new PutCommand({
+        TableName: ADMIN_TABLE,
+        Item: {
+          pk: `IDEMPOTENCY#${key}`,
+          sk: IDEMPOTENCY_SK,
+          value,
+          ttl: ttlEpochSeconds,
+          createdAt: now(),
+        },
+        // Atomic check-and-set: only write if key does not exist
+        // OR if the existing record has expired
+        ConditionExpression: 'attribute_not_exists(pk) OR #ttl <= :now',
+        ExpressionAttributeNames: {
+          '#ttl': 'ttl',
+        },
+        ExpressionAttributeValues: {
+          ':now': Math.floor(now() / 1000),
+        },
+      }));
+
+      // Also set in memory store for fast reads within same instance
+      memoryStore.set(key, value);
+
+      logger.debug('Idempotency key set in DynamoDB', {
+        event: 'idempotency_set',
+        key,
+        ttlEpochSeconds,
+      });
+
+      return true;
+    } catch (error) {
+      // ConditionalCheckFailedException means the key already exists (duplicate)
+      if (error instanceof ConditionalCheckFailedException ||
+          (error instanceof Error && error.name === 'ConditionalCheckFailedException')) {
+        logger.info('Idempotency key already exists (duplicate detected)', {
+          event: 'idempotency_duplicate',
+          key,
+        });
+        return false;
+      }
+
+      // DynamoDB is unavailable -- fall back to in-memory store
+      logger.warn('DynamoDB idempotency set failed, falling back to memory', {
+        event: 'idempotency_dynamo_set_error',
+        key,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+
+      // Check in-memory first (simulate atomic check-and-set)
+      const existing = memoryStore.get(key);
+      if (existing !== null) {
+        return false; // Already exists in memory
+      }
+
+      memoryStore.set(key, value);
+      return true;
+    }
+  };
+
+  const update = async (key: string, value: T): Promise<void> => {
+    const ttlEpochSeconds = Math.floor(now() / 1000) + Math.floor(ttlMs / 1000);
+
+    try {
+      await getDynamoClient().send(new PutCommand({
+        TableName: ADMIN_TABLE,
+        Item: {
+          pk: `IDEMPOTENCY#${key}`,
+          sk: IDEMPOTENCY_SK,
+          value,
+          ttl: ttlEpochSeconds,
+          createdAt: now(),
+        },
+        // No condition — unconditional overwrite
+      }));
+
+      memoryStore.set(key, value);
+    } catch (error) {
+      logger.warn('DynamoDB idempotency update failed, updating memory only', {
+        event: 'idempotency_dynamo_update_error',
+        key,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+
+      memoryStore.set(key, value);
+    }
   };
 
   const clear = () => {
-    store.clear();
+    memoryStore.clear();
   };
 
-  return { get, set, clear };
+  return { get, set, update, clear };
 }
+
+// ============================================================================
+// Singleton Store for Chat Handler
+// ============================================================================
 
 export const chatIdempotencyStore = createIdempotencyStore<unknown>();

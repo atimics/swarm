@@ -1309,9 +1309,20 @@ export async function handler(
 
     const idempotencyKey = event.headers['idempotency-key'] || event.headers['Idempotency-Key'];
     if (idempotencyKey) {
-      const cached = chatIdempotencyStore.get(idempotencyKey) as APIGatewayProxyResultV2 | null;
+      // Check for a previously completed result
+      const cached = await chatIdempotencyStore.get(idempotencyKey) as APIGatewayProxyResultV2 | null;
       if (cached) {
         return cached;
+      }
+      // Atomically claim the key before doing work to prevent concurrent execution
+      const claimed = await chatIdempotencyStore.set(idempotencyKey, null);
+      if (!claimed) {
+        // Another invocation already claimed this key and is processing
+        return {
+          statusCode: 409,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Duplicate request is already being processed' }),
+        };
       }
     }
 
@@ -1503,7 +1514,7 @@ export async function handler(
     };
 
     if (idempotencyKey) {
-      chatIdempotencyStore.set(idempotencyKey, responsePayload);
+      await chatIdempotencyStore.update(idempotencyKey, responsePayload);
     }
 
     return responsePayload;
