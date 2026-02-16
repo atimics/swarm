@@ -15,8 +15,13 @@ function restoreEnvVar(key: string, value: string | undefined) {
 }
 
 async function importFresh() {
-  vi.resetModules();
-  return await import('./nft-gate.js');
+  const resetModules = (vi as unknown as { resetModules?: () => void }).resetModules;
+  if (typeof resetModules === 'function') {
+    resetModules();
+    return await import('./nft-gate.js');
+  }
+
+  return await import(`./nft-gate.js?test=${Date.now()}-${Math.random()}`);
 }
 
 describe('nft-gate (Helius config fallbacks)', () => {
