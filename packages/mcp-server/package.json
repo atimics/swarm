@@ -6,14 +6,17 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "bun": "./src/index.ts",
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
     "./tools": {
+      "bun": "./src/tools/index.ts",
       "import": "./dist/tools/index.js",
       "types": "./dist/tools/index.d.ts"
     },
     "./client": {
+      "bun": "./src/client.ts",
       "import": "./dist/client.js",
       "types": "./dist/client.d.ts"
     }
