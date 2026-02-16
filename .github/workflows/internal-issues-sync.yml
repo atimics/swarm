@@ -1,0 +1,122 @@
+name: Internal Issues Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to source internal issues from
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      dry_run:
+        description: Dry run (report only, no GitHub issue writes)
+        required: true
+        default: true
+        type: boolean
+      limit:
+        description: Max internal issues to process
+        required: false
+        default: '100'
+        type: string
+  schedule:
+    - cron: '15 * * * *'
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  sync:
+    name: Sync internal issues
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: internal-issues-sync
+
+      - name: Verify AWS account for environment
+        run: |
+          EXPECTED_AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          ACTUAL_AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "Using AWS account: ${ACTUAL_AWS_ACCOUNT_ID}"
+
+          if [ -z "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::error::Missing required environment secret AWS_ACCOUNT_ID"
+            exit 1
+          fi
+
+          if [ "$ACTUAL_AWS_ACCOUNT_ID" != "$EXPECTED_AWS_ACCOUNT_ID" ]; then
+            echo "::error::Wrong AWS account (expected ${EXPECTED_AWS_ACCOUNT_ID}, got ${ACTUAL_AWS_ACCOUNT_ID})"
+            exit 1
+          fi
+
+      - name: Resolve admin API URL and internal key
+        env:
+          TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+        run: |
+          set -euo pipefail
+
+          CDK_ENV="$TARGET_ENV"
+          if [ "$CDK_ENV" = "production" ]; then
+            CDK_ENV="prod"
+          fi
+
+          STACK_NAME="SwarmStack-${CDK_ENV}"
+
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?ExportName=='swarm-admin-api-url-${CDK_ENV}'].OutputValue | [0]" \
+            --output text)
+
+          if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
+            echo "::error::Could not resolve admin API URL for $STACK_NAME"
+            exit 1
+          fi
+
+          FUNCTION_NAME=$(aws cloudformation describe-stack-resources \
+            --stack-name "$STACK_NAME" \
+            --query "StackResources[?ResourceType=='AWS::Lambda::Function' && contains(LogicalResourceId, 'ChatHandler')].PhysicalResourceId | [0]" \
+            --output text)
+
+          INTERNAL_TEST_KEY=$(aws lambda get-function-configuration \
+            --function-name "$FUNCTION_NAME" \
+            --query "Environment.Variables.INTERNAL_TEST_KEY" \
+            --output text)
+
+          if [ -z "$INTERNAL_TEST_KEY" ] || [ "$INTERNAL_TEST_KEY" = "None" ]; then
+            echo "::error::Could not resolve INTERNAL_TEST_KEY for $FUNCTION_NAME"
+            exit 1
+          fi
+
+          echo "SWARM_ADMIN_API_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "SWARM_INTERNAL_TEST_KEY=$INTERNAL_TEST_KEY" >> "$GITHUB_ENV"
+
+      - name: Run internal issue sync
+        env:
+          ISSUES_REPO: ${{ github.repository }}
+          INTERNAL_ISSUE_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '100' }}
+          INTERNAL_ISSUE_SYNC_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'true' }}
+        run: |
+          node scripts/sync-internal-issues-to-github.mjs --config .github/policy/internal-issue-sync-policy.json
+
+      - name: Upload sync summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: internal-issues-sync-summary
+          path: test-outputs/internal-issues-sync/*.json
+          if-no-files-found: ignore

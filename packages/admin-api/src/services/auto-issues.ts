@@ -12,6 +12,7 @@
 import {
   PutCommand,
   QueryCommand,
+  ScanCommand,
   UpdateCommand,
   GetCommand,
 } from '@aws-sdk/lib-dynamodb';
@@ -289,42 +290,103 @@ export async function listIssues(options: {
   subsystem?: string;
   limit?: number;
 } = {}): Promise<AutoIssue[]> {
-  // For simplicity, scan with filters. In production, use GSI.
+  const maxResults = options.limit || 100;
+
+  // Preferred fast path: query lowercase gsi1 (used by some historical stacks).
   const filterParts: string[] = [];
-  const exprNames: Record<string, string> = {};
-  const result = await dynamoClient.send(new QueryCommand({
-    TableName: ADMIN_TABLE,
-    IndexName: 'gsi1',
-    KeyConditionExpression: 'gsi1pk = :pk',
-    FilterExpression: (() => {
-      if (options.status) {
-        filterParts.push('#status = :status');
-        exprNames['#status'] = 'status';
-      }
-      if (options.severity) {
-        filterParts.push('severity = :severity');
-      }
-      if (options.subsystem) {
-        filterParts.push('subsystem = :subsystem');
-      }
-      return filterParts.length ? filterParts.join(' AND ') : undefined;
-    })(),
-    ExpressionAttributeNames: Object.keys(exprNames).length ? exprNames : undefined,
-    ExpressionAttributeValues: {
-      ':pk': 'ISSUES',
-      ...(options.status && { ':status': options.status }),
-      ...(options.severity && { ':severity': options.severity }),
-      ...(options.subsystem && { ':subsystem': options.subsystem }),
-    },
-    Limit: options.limit || 100,
-    ScanIndexForward: false,
-  }));
+  const exprNames: Record<string, string> = { '#status': 'status' };
+  if (options.status) {
+    filterParts.push('#status = :status');
+  }
+  if (options.severity) {
+    filterParts.push('severity = :severity');
+  }
+  if (options.subsystem) {
+    filterParts.push('subsystem = :subsystem');
+  }
 
-  // Return results from GSI query
-  // Note: If no GSI exists yet, this will return empty.
-  // A future enhancement could use Scan with begins_with filter on pk.
+  const expressionAttributeValues = {
+    ':pk': 'ISSUES',
+    ...(options.status && { ':status': options.status }),
+    ...(options.severity && { ':severity': options.severity }),
+    ...(options.subsystem && { ':subsystem': options.subsystem }),
+  };
 
-  return (result.Items || []) as AutoIssue[];
+  try {
+    const result = await dynamoClient.send(new QueryCommand({
+      TableName: ADMIN_TABLE,
+      IndexName: 'gsi1',
+      KeyConditionExpression: 'gsi1pk = :pk',
+      FilterExpression: filterParts.length ? filterParts.join(' AND ') : undefined,
+      ExpressionAttributeNames: exprNames,
+      ExpressionAttributeValues: expressionAttributeValues,
+      Limit: maxResults,
+      ScanIndexForward: false,
+    }));
+    return (result.Items || []) as AutoIssue[];
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const isMissingIndex = errorMessage.includes('does not have the specified index')
+      || errorMessage.includes('Index not found');
+
+    if (!isMissingIndex) {
+      throw error;
+    }
+  }
+
+  // Fallback path: scan ISSUE#/META rows when gsi1 is unavailable on ADMIN_TABLE.
+  const scanFilters: string[] = ['begins_with(#pk, :issuePrefix)', '#sk = :metaSk'];
+  const scanExprNames: Record<string, string> = {
+    '#pk': 'pk',
+    '#sk': 'sk',
+    '#status': 'status',
+  };
+  const scanExprValues: Record<string, string> = {
+    ':issuePrefix': 'ISSUE#',
+    ':metaSk': 'META',
+  };
+
+  if (options.status) {
+    scanFilters.push('#status = :status');
+    scanExprValues[':status'] = options.status;
+  }
+  if (options.severity) {
+    scanFilters.push('severity = :severity');
+    scanExprValues[':severity'] = options.severity;
+  }
+  if (options.subsystem) {
+    scanFilters.push('subsystem = :subsystem');
+    scanExprValues[':subsystem'] = options.subsystem;
+  }
+
+  const collected: AutoIssue[] = [];
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  let pagesScanned = 0;
+  const maxPages = 5;
+
+  while (collected.length < maxResults && pagesScanned < maxPages) {
+    const scanned = await dynamoClient.send(new ScanCommand({
+      TableName: ADMIN_TABLE,
+      FilterExpression: scanFilters.join(' AND '),
+      ExpressionAttributeNames: scanExprNames,
+      ExpressionAttributeValues: scanExprValues,
+      Limit: maxResults,
+      ExclusiveStartKey: exclusiveStartKey,
+    }));
+
+    const items = (scanned.Items || []) as AutoIssue[];
+    collected.push(...items);
+
+    pagesScanned += 1;
+    exclusiveStartKey = scanned.LastEvaluatedKey as Record<string, unknown> | undefined;
+    if (!exclusiveStartKey) {
+      break;
+    }
+  }
+
+  return collected
+    .sort((left, right) => (right.lastSeenAt || 0) - (left.lastSeenAt || 0))
+    .slice(0, maxResults);
 }
 
 /**
