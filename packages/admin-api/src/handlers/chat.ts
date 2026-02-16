@@ -1309,7 +1309,7 @@ export async function handler(
 
     const idempotencyKey = event.headers['idempotency-key'] || event.headers['Idempotency-Key'];
     if (idempotencyKey) {
-      const cached = chatIdempotencyStore.get(idempotencyKey) as APIGatewayProxyResultV2 | null;
+      const cached = await chatIdempotencyStore.get(idempotencyKey) as APIGatewayProxyResultV2 | null;
       if (cached) {
         return cached;
       }
@@ -1503,7 +1503,7 @@ export async function handler(
     };
 
     if (idempotencyKey) {
-      chatIdempotencyStore.set(idempotencyKey, responsePayload);
+      await chatIdempotencyStore.set(idempotencyKey, responsePayload);
     }
 
     return responsePayload;
