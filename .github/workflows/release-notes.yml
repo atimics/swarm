@@ -1,0 +1,65 @@
+name: Release Notes
+
+on:
+  push:
+    tags: ['v*']
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to generate notes for (example: v0.1.69)'
+        required: true
+        type: string
+      use_ai:
+        description: 'Use OpenRouter to polish notes when OPENROUTER_API_KEY exists'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          git rev-parse "${TAG}^{commit}" >/dev/null
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          ENABLE_AI_RELEASE_NOTES: ${{ github.event_name == 'workflow_dispatch' && inputs.use_ai || 'true' }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          node .github/scripts/generate-release-notes.mjs > release-notes.md
+          echo "## Generated Release Notes" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: ${{ steps.tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- AI enabled: ${ENABLE_AI_RELEASE_NOTES}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

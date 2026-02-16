@@ -26,6 +26,13 @@ Manual workflow to deploy individual agents:
 - Deploys agent-specific CDK stack
 - Outputs webhook URLs for configuration
 
+### Release Notes (`release-notes.yml`)
+Generates and publishes GitHub release notes:
+- Auto-runs on `v*` tags
+- Supports manual regeneration for any tag via `workflow_dispatch`
+- Uses deterministic git-based notes by default
+- Optionally polishes notes with OpenRouter when `OPENROUTER_API_KEY` is configured
+
 ## Setup Instructions
 
 ### 1. Create the OIDC Role in AWS
@@ -62,6 +69,7 @@ Go to **Settings > Secrets and variables > Actions** in your GitHub repository a
 | `ADMIN_API_URL` | URL of the deployed Admin API (after first deploy) |
 | `ADMIN_UI_BUCKET` | S3 bucket name for Admin UI static files |
 | `CLOUDFRONT_DISTRIBUTION_ID` | (Optional) CloudFront distribution ID for cache invalidation |
+| `OPENROUTER_API_KEY` | (Optional) Enables AI-polished release notes in `release-notes.yml` |
 
 ### 3. Configure GitHub Environments
 
@@ -98,7 +106,13 @@ ADMIN_UI_BUCKET: swarm-admin-ui-production
 
 # Optional
 CLOUDFRONT_DISTRIBUTION_ID: EXXXXXXXXXX
+OPENROUTER_API_KEY: sk-or-... # optional, for AI release notes
 ```
+
+### Optional Repository Variable
+
+Set `OPENROUTER_MODEL` as a repository variable to choose the model used for AI-polished release notes.
+If unset, workflow defaults to `openai/gpt-4o-mini`.
 
 ## Security Notes
 
