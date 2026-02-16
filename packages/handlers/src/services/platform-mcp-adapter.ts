@@ -35,21 +35,85 @@ import {
 import type { TokenLaunchConfig, TokenLaunchPreflightResult, TokenLaunchResult, TokenLaunchStatus } from '@swarm/core';
 import { getDynamoClient } from './dynamo-client.js';
 
+// ---------------------------------------------------------------------------
+// Dynamic import helper for @swarm/admin-api
+// ---------------------------------------------------------------------------
+// @swarm/admin-api is NOT listed in handlers' package.json to avoid pulling in
+// the full admin-api bundle as a static dependency.  At runtime the module is
+// resolved via pnpm workspace hoisting.  This single helper centralises the
+// the TS error suppression and the export-shape validation so every call
+// site stays DRY.
+// ---------------------------------------------------------------------------
+
+/** Cached module reference so we only import once per cold start. */
+let _adminApiModule: Record<string, unknown> | null = null;
+
+/**
+ * Dynamically import a named export from `@swarm/admin-api` and validate its
+ * shape at runtime.
+ *
+ * @param exportName   Top-level export to extract (e.g. `"tokenLaunch"`).
+ * @param validators   Map of property names on the export to their expected
+ *                     `typeof` strings.  For exports that are themselves bare
+ *                     functions (no sub-properties to check), pass an empty
+ *                     object -- the helper will still verify the export exists.
+ * @param expectedType Optional `typeof` check for the export itself (e.g.
+ *                     `"function"`).  When omitted only the sub-property
+ *                     validators are applied.
+ * @returns The typed export value.
+ */
+async function importAdminApiExport<T>(
+  exportName: string,
+  validators: Record<string, string>,
+  expectedType?: string,
+): Promise<T> {
+  if (!_adminApiModule) {
+    // @ts-expect-error -- resolved at runtime via pnpm workspace hoisting
+    _adminApiModule = (await import('@swarm/admin-api')) as Record<string, unknown>;
+  }
+
+  const exported = _adminApiModule[exportName] as T | undefined;
+
+  if (exported == null) {
+    throw new Error(`Failed to load ${exportName} from @swarm/admin-api: export not found`);
+  }
+
+  if (expectedType && typeof exported !== expectedType) {
+    throw new Error(
+      `Failed to load ${exportName} from @swarm/admin-api: expected ${expectedType}, got ${typeof exported}`,
+    );
+  }
+
+  for (const [prop, kind] of Object.entries(validators)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (typeof (exported as any)[prop] !== kind) {
+      throw new Error(
+        `Failed to load ${exportName} from @swarm/admin-api: expected ${prop} to be ${kind}`,
+      );
+    }
+  }
+
+  return exported;
+}
+
 // Lazy-loaded token launch operations (avoids static dependency on @swarm/admin-api)
-let _tokenLaunch: {
+interface TokenLaunchModule {
   preflightTokenLaunch: (avatarId: string) => Promise<TokenLaunchPreflightResult>;
   launchToken: (avatarId: string, config: TokenLaunchConfig) => Promise<TokenLaunchResult>;
   getTokenStatus: (avatarId: string) => Promise<TokenLaunchStatus>;
-} | null = null;
+}
 
-async function getTokenLaunch() {
+let _tokenLaunch: TokenLaunchModule | null = null;
+
+async function getTokenLaunch(): Promise<TokenLaunchModule> {
   if (!_tokenLaunch) {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore - dynamic import avoids static dependency on admin-api
-    const mod = await import('@swarm/admin-api');
-    _tokenLaunch = mod.tokenLaunch;
+    _tokenLaunch = await importAdminApiExport<TokenLaunchModule>('tokenLaunch', {
+      preflightTokenLaunch: 'function',
+      launchToken: 'function',
+      getTokenStatus: 'function',
+    });
   }
-  return _tokenLaunch!;
+  return _tokenLaunch;
 }
 
 const dynamoClient = getDynamoClient();
@@ -1346,9 +1410,17 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
     // =========================================================================
     billing: {
       createCheckoutSession: async (params) => {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore - dynamic import avoids static dependency on admin-api
-        const { createStripeCheckoutSession } = await import('@swarm/admin-api');
+        type CheckoutFn = (p: {
+          accountId: string; avatarId: string; plan: string;
+          successUrl: string; cancelUrl: string;
+          customerId?: string; customerEmail?: string;
+        }) => Promise<{ id: string; url?: string }>;
+
+        const createStripeCheckoutSession = await importAdminApiExport<CheckoutFn>(
+          'createStripeCheckoutSession',
+          {},
+          'function',
+        );
         const session = await createStripeCheckoutSession({
           accountId: params.accountId,
           avatarId: params.avatarId,
@@ -1361,9 +1433,15 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
         return { checkoutUrl: session.url || '', sessionId: session.id };
       },
       createPortalSession: async (params) => {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore - dynamic import avoids static dependency on admin-api
-        const { createStripeCustomerPortalSession } = await import('@swarm/admin-api');
+        type PortalFn = (p: {
+          customerId: string; returnUrl: string;
+        }) => Promise<{ id: string; url?: string }>;
+
+        const createStripeCustomerPortalSession = await importAdminApiExport<PortalFn>(
+          'createStripeCustomerPortalSession',
+          {},
+          'function',
+        );
         const portal = await createStripeCustomerPortalSession({
           customerId: params.customerId,
           returnUrl: params.returnUrl,
