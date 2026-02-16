@@ -11,6 +11,11 @@ AWS Swarm is a multi-tenant social media avatar platform that runs on AWS server
 - **Admin API** (`packages/admin-api/`) - Conversational admin interface backend
 - **Admin UI** (`packages/admin-ui/`) - React chat frontend
 - **Infra** (`packages/infra/`) - CDK infrastructure as code
+- **MCP Server** (`packages/mcp-server/`) - Model Context Protocol tool server
+- **Layer** (`packages/layer/`) - Lambda layer with shared dependencies
+- **Profile Page** (`packages/profile-page/`) - Public avatar profile pages
+- **Claude Code Worker** (`packages/claude-code-worker/`) - Claude Code agent worker
+- **Plan Tests** (`packages/plan-tests/`) - Integration tests for the plan system (run with `RUN_PLAN_TESTS=1`)
 
 ## Design Philosophy
 
@@ -60,6 +65,8 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/) with scop
 | `admin-api` | `packages/admin-api/` |
 | `admin-ui` | `packages/admin-ui/` |
 | `infra` | `packages/infra/` |
+| `mcp-server` | `packages/mcp-server/` |
+| `profile-page` | `packages/profile-page/` |
 | `plan` | `PLAN.md` |
 | `ci` | `.github/` |
 | `docs` | Documentation files |
@@ -93,12 +100,14 @@ feat(admin-api,infra): add audit logging service
 | `type:docs` | `#0075CA` | Documentation |
 | `type:infra` | `#7057FF` | Infrastructure changes |
 | `type:security` | `#B60205` | Security related |
+| `type:tech-debt` | `#FFA500` | Technical debt cleanup |
 | `priority:high` | `#D93F0B` | High priority |
 | `priority:medium` | `#FBCA04` | Medium priority |
 | `priority:low` | `#0E8A16` | Low priority |
 | `status:in-progress` | `#EDEDED` | Currently being worked on |
 | `status:blocked` | `#000000` | Blocked by something |
 | `package:core` | `#C5DEF5` | Affects core package |
+| `package:handlers` | `#C5DEF5` | Affects handlers package |
 | `package:admin` | `#C5DEF5` | Affects admin packages |
 | `package:infra` | `#C5DEF5` | Affects infrastructure |
 
@@ -126,57 +135,52 @@ Related to #23"
 
 ### PR Workflow
 
-1. Create issue describing the work
+1. Create issue describing the work (or assign to Copilot)
 2. Create branch from `main`: `git checkout -b feat/issue-42-wallet-balance`
 3. Make changes with conventional commits
-4. Push and create PR referencing the issue
+4. Push and create PR referencing the issue (`Closes #42`)
 5. PR title should match commit convention
 6. Squash merge to main
+7. Clean up: `git branch -d feat/issue-42-wallet-balance && git push origin --delete feat/issue-42-wallet-balance`
 
 ## Development Workflow
 
 ### Setup
 
 ```bash
-# Clone repository
-git clone https://github.com/ratimics/aws-swarm.git
+git clone https://github.com/atimics/aws-swarm.git
 cd aws-swarm
-
-# Install dependencies
 pnpm install
-
-# Build all packages
 pnpm build
 ```
 
 ### Local Development
 
 ```bash
-# Watch mode for a specific package
-cd packages/core
-pnpm dev
+# Run tests (bun is the test runner, not vitest)
+bun test                              # all tests
+bun test packages/core/               # single package
+bun test path/to/file.test.ts         # single file
 
-# Run tests
-pnpm test
+# Build / lint / typecheck
+pnpm build                            # all packages
+pnpm lint                             # all packages
+pnpm typecheck                        # all packages
 
-# Type check
-pnpm typecheck
-
-# Lint
-pnpm lint
+# Plan tests (gated behind env var)
+RUN_PLAN_TESTS=1 bun test packages/plan-tests
 ```
 
-### Before Committing
+### Git Hooks (Husky)
 
-```bash
-# Build everything
-pnpm -r build
+Pre-commit and pre-push hooks run automatically — you rarely need to run checks manually.
 
-# Run checks
-pnpm -r lint
-pnpm -r typecheck
-pnpm -r test
-```
+| Hook | What it does | Skip with |
+|------|-------------|-----------|
+| **pre-commit** | Lockfile check, `pnpm lint`, issue scan (blocks on unreviewed critical issues) | `SKIP_PRECOMMIT=1` |
+| **pre-push** | `pnpm lint`, `pnpm build`, admin-ui build, Privy smoke test, `bun test` | `SKIP_PREPUSH=1` |
+
+The pre-push hook also syncs `package.json` version to any `v*` tag on HEAD.
 
 ## CI/CD Pipeline
 
@@ -184,9 +188,13 @@ pnpm -r test
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| `ci.yml` | Push/PR to main | Build, lint, test, CDK synth |
-| `deploy.yml` | Push to main, manual | Deploy infra and admin UI |
-| `deploy-avatar.yml` | Manual | Deploy specific avatar |
+| `ci.yml` | Push/PR to main | Build, lint, test (bun v1.3.9 in CI) |
+| `deploy.yml` | Push to main, manual | Deploy CDK infra and admin UI |
+| `fast-deploy.yml` | Manual | Fast-path deploy (skip build) |
+| `deploy-agent.yml` | Manual | Deploy specific avatar/agent |
+| `issue-management.yml` | Issue events | Auto-label and triage issues |
+| `issue-sync.yml` | Schedule/manual | Sync local issue mirror |
+| `release-notes.yml` | Tag push | Generate release notes |
 
 ### Environments
 
@@ -218,6 +226,43 @@ main (protected)
 - Feature branches follow pattern: `<type>/issue-<number>-<short-description>`
 - Keep branches short-lived (< 1 week)
 - Squash merge to main
+
+### Parallel Development with Worktrees
+
+For working on multiple independent issues simultaneously, use git worktrees:
+
+```bash
+# Create worktrees for parallel work (one per issue)
+git worktree add ../aws-swarm-042 -b fix/issue-42-dynamo-query main
+git worktree add ../aws-swarm-043 -b fix/issue-43-adapter-bug main
+
+# Install deps in each worktree
+(cd ../aws-swarm-042 && pnpm install)
+(cd ../aws-swarm-043 && pnpm install)
+
+# Work independently in each, then push and create PRs
+# Clean up after merge
+git worktree remove ../aws-swarm-042
+git branch -d fix/issue-42-dynamo-query
+```
+
+### Copilot Coding Agent
+
+Some issues can be delegated to GitHub Copilot's coding agent. It autonomously creates a PR from the issue description.
+
+```bash
+# Create issue and assign to Copilot in one step
+scripts/gh-create-issue.sh \
+  --title "fix(core): convert vitest tests to bun:test" \
+  --body "Details..." \
+  --labels "type:bug,priority:high,package:core" \
+  --copilot
+
+# Or assign Copilot to an existing issue
+scripts/gh-assign-copilot.sh 80
+```
+
+> The REST API cannot assign bot actors. These scripts use GraphQL internally.
 
 ## Code Review Checklist
 
