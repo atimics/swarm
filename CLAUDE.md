@@ -192,8 +192,7 @@ The pre-push hook also syncs `package.json` version to any `v*` tag on HEAD.
 | `deploy.yml` | Push to main, manual | Deploy CDK infra and admin UI |
 | `fast-deploy.yml` | Manual | Fast-path deploy (skip build) |
 | `deploy-agent.yml` | Manual | Deploy specific avatar/agent |
-| `issue-management.yml` | Issue events | Auto-label and triage issues |
-| `issue-sync.yml` | Schedule/manual | Sync local issue mirror |
+| `internal-issues-sync.yml` | Schedule/manual | Sync runtime errors to GitHub issues |
 | `release-notes.yml` | Tag push | Generate release notes |
 
 ### Environments
