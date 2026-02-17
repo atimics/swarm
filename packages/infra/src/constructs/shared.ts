@@ -166,7 +166,7 @@ export class SharedInfrastructure extends Construct {
 
     // GSI for listing by type
     stateTable.addGlobalSecondaryIndex({
-      indexName: 'gsi1',
+      indexName: 'GSI1',
       partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,

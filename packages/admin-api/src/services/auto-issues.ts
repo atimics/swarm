@@ -315,7 +315,7 @@ export async function listIssues(options: {
   try {
     const result = await dynamoClient.send(new QueryCommand({
       TableName: ADMIN_TABLE,
-      IndexName: 'gsi1',
+      IndexName: 'GSI1',
       KeyConditionExpression: 'gsi1pk = :pk',
       FilterExpression: filterParts.length ? filterParts.join(' AND ') : undefined,
       ExpressionAttributeNames: exprNames,

@@ -282,7 +282,7 @@ async function updateLeaderboardEntry(
 export async function getBurnLeaderboard(limit: number = 100): Promise<LeaderboardEntry[]> {
   const result = await dynamoClient.send(new QueryCommand({
     TableName: ADMIN_TABLE,
-    IndexName: 'gsi1',
+    IndexName: 'GSI1',
     KeyConditionExpression: 'gsi1pk = :pk',
     ExpressionAttributeValues: {
       ':pk': 'BURN_LEADERBOARD',

@@ -313,7 +313,7 @@ export async function listLogsByLevel(
 
   const result = await dynamoClient.send(new QueryCommand({
     TableName: ADMIN_TABLE,
-    IndexName: 'gsi1',
+    IndexName: 'GSI1',
     KeyConditionExpression: 'gsi1pk = :gsi1pk AND gsi1sk >= :since',
     FilterExpression: filterParts.length ? filterParts.join(' AND ') : undefined,
     ExpressionAttributeValues: exprValues,
@@ -348,7 +348,7 @@ export async function countLogsByLevel(
   do {
     const result = await dynamoClient.send(new QueryCommand({
       TableName: ADMIN_TABLE,
-      IndexName: 'gsi1',
+      IndexName: 'GSI1',
       KeyConditionExpression: 'gsi1pk = :gsi1pk AND gsi1sk >= :since',
       ExpressionAttributeValues: {
         ':gsi1pk': `LOGS#${level}`,
@@ -600,7 +600,7 @@ export async function listAllEvents(
 
   const result = await dynamoClient.send(new QueryCommand({
     TableName: ADMIN_TABLE,
-    IndexName: 'gsi1',
+    IndexName: 'GSI1',
     KeyConditionExpression: 'gsi1pk = :gsi1pk AND gsi1sk >= :since',
     FilterExpression: filterParts.length ? filterParts.join(' AND ') : undefined,
     ExpressionAttributeNames: Object.keys(exprNames).length ? exprNames : undefined,

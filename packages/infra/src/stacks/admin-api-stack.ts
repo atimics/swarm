@@ -200,7 +200,7 @@ export class AdminApiStack extends cdk.Stack {
     // Note: CDK requires only one of tableArn or tableName, not both
     const stateTable = dynamodb.Table.fromTableAttributes(this, 'StateTable', {
       tableArn: sharedInfraStack.stateTableArn,
-      globalIndexes: ['gsi1'],
+      globalIndexes: ['GSI1'],
     });
 
     const activityTable = dynamodb.Table.fromTableAttributes(this, 'ActivityTable', {

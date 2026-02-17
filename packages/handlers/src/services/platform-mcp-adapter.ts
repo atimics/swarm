@@ -1455,7 +1455,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
         // Query ADMIN_TABLE directly to avoid cross-package dependency
         const result = await dynamoClient.send(new QueryCommand({
           TableName: ADMIN_TABLE,
-          IndexName: 'gsi1',
+          IndexName: 'GSI1',
           KeyConditionExpression: 'gsi1pk = :pk AND gsi1sk = :sk',
           ExpressionAttributeValues: {
             ':pk': `AVATAR#${targetAvatarId}`,

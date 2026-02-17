@@ -40,7 +40,7 @@ export async function getEntitlement(avatarId: string): Promise<EntitlementRecor
   // First, try to find by avatar GSI
   const result = await dynamoClient.send(new QueryCommand({
     TableName: ADMIN_TABLE,
-    IndexName: 'gsi1',
+    IndexName: 'GSI1',
     KeyConditionExpression: 'gsi1pk = :pk AND gsi1sk = :sk',
     ExpressionAttributeValues: {
       ':pk': `AVATAR#${avatarId}`,

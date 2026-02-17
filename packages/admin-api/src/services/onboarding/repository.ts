@@ -148,12 +148,11 @@ export async function acquireTransitionLock(
         'transitionLockExpiresAt = :lockExpiresAt',
       ].join(', '),
       ConditionExpression: [
-        'attribute_exists(pk)',
-        'attribute_exists(sk)',
-        '(attribute_not_exists(transitionLockExpiresAt)',
+        'attribute_exists(pk) AND attribute_exists(sk)',
+        'AND (attribute_not_exists(transitionLockExpiresAt)',
         'OR transitionLockExpiresAt <= :now',
         'OR transitionLockRequestId = :requestId)',
-      ].join(' AND '),
+      ].join(' '),
       ExpressionAttributeValues: {
         ':requestId': params.requestId,
         ':actionType': params.actionType,
