@@ -138,13 +138,22 @@ jobs:
             RUN_BROWSER_TESTS="${INPUT_RUN_BROWSER_TESTS:-false}"
             RUN_PROD_SMOKE="${INPUT_RUN_PROD_SMOKE:-false}"
           else
-            USE_EXISTING_BUCKETS="false"
-            SKIP_DOMAIN_ALIASES="false"
+            # For push/tag triggers, set safe defaults per environment.
+            # Production: retained S3 buckets always exist after first deploy;
+            # domain aliases blocked until OIDC role gets cloudfront:AssociateAlias.
+            if [ "$ENV" = "production" ]; then
+              USE_EXISTING_BUCKETS="true"
+              SKIP_DOMAIN_ALIASES="true"
+              RUN_PROD_SMOKE="true"
+            else
+              USE_EXISTING_BUCKETS="false"
+              SKIP_DOMAIN_ALIASES="false"
+              RUN_PROD_SMOKE="false"
+            fi
             STACK_HASH=""
             STACK=""
             USE_HOTSWAP="false"
             RUN_BROWSER_TESTS="false"
-            RUN_PROD_SMOKE="false"
           fi
 
           echo "environment=$ENV" >> "$GITHUB_OUTPUT"
