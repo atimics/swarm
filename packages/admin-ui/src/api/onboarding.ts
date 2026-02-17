@@ -128,7 +128,7 @@ function mapEnvelopeToStatus(payload: Record<string, unknown>): OnboardingStatus
     }
 
     const stepError = isRecord(rawStep.lastError) ? rawStep.lastError : undefined;
-    const lastError: OnboardingStepError | undefined = stepError
+    const parsedError = stepError
       ? {
           ...(typeof stepError.category === 'string' ? { class: stepError.category } : {}),
           ...(typeof stepError.code === 'string' ? { code: stepError.code } : {}),
@@ -136,6 +136,8 @@ function mapEnvelopeToStatus(payload: Record<string, unknown>): OnboardingStatus
           ...(typeof stepError.retryable === 'boolean' ? { retryable: stepError.retryable } : {}),
         }
       : undefined;
+    const lastError: OnboardingStepError | undefined =
+      parsedError && Object.keys(parsedError).length > 0 ? parsedError : undefined;
 
     steps.push({
       id: rawStep.stepId,
