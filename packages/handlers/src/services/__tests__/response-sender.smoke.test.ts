@@ -12,6 +12,7 @@
  * @see packages/handlers/src/response-sender.ts
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createCanonicalMemoryClient as createCanonicalMemoryClientActual } from '../../../../core/src/services/brain/canonical-memory.js';
 
 // ---------------------------------------------------------------------------
 // Shared mock primitives
@@ -119,6 +120,14 @@ vi.mock('@swarm/core', () => ({
   createSecretsService: () => ({
     getSecret: vi.fn(() => Promise.resolve('')),
   }),
+  // --- keep parity with message-processor expectations when this global mock wins ---
+  createLegacyBrainService: () => ({
+    remember: vi.fn(() => Promise.resolve({ saved: true, source: 'legacy' as const })),
+    recall: vi.fn(() => Promise.resolve({ facts: [], source: 'legacy' as const })),
+  }),
+  // Keep canonical memory behavior aligned with the real implementation so
+  // global mock ordering cannot break core package canonical-memory tests.
+  createCanonicalMemoryClient: createCanonicalMemoryClientActual,
   logger: {
     info: () => {},
     warn: () => {},

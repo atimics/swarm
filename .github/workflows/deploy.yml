@@ -139,11 +139,10 @@ jobs:
             RUN_PROD_SMOKE="${INPUT_RUN_PROD_SMOKE:-false}"
           else
             # For push/tag triggers, set safe defaults per environment.
-            # Production: retained S3 buckets always exist after first deploy;
-            # domain aliases blocked until OIDC role gets cloudfront:AssociateAlias.
+            # Production: retained S3 buckets always exist after first deploy.
             if [ "$ENV" = "production" ]; then
               USE_EXISTING_BUCKETS="true"
-              SKIP_DOMAIN_ALIASES="true"
+              SKIP_DOMAIN_ALIASES="false"
               RUN_PROD_SMOKE="true"
             else
               USE_EXISTING_BUCKETS="false"

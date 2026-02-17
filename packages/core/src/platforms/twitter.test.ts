@@ -321,21 +321,20 @@ describe('TwitterAdapter - Tweet Posting', () => {
   });
 
   it('postTweet uploads and attaches single image', async () => {
-    // Mock fetch for image download
-    globalThis.fetch = mock(() => Promise.resolve({
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      headers: {
-        get: () => 'image/png',
-      },
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
-    } as Response));
+    // Avoid global fetch races across parallel files by stubbing uploadMedia directly.
+    const uploadMediaSpy = mock(() => Promise.resolve(['media-id-1']));
+    adapter.uploadMedia = uploadMediaSpy as unknown as TwitterAdapter['uploadMedia'];
 
-    await adapter.postTweet('Tweet with image', [{ type: 'image', url: 'https://example.com/image.png' }]);
+    await adapter.postTweet(
+      'Tweet with image',
+      [{ type: 'image', url: 'https://example.com/image.png' }],
+    );
 
-    expect(mockClient.v1.uploadMedia).toHaveBeenCalled();
+    expect(uploadMediaSpy).toHaveBeenCalledTimes(1);
     expect(mockClient.v2.tweet).toHaveBeenCalled();
+
+    const tweetCall = (mockClient.v2.tweet as unknown as ReturnType<typeof mock>).mock.calls[0][0];
+    expect(tweetCall.media).toEqual({ media_ids: ['media-id-1'] });
   });
 
   it('postTweet handles media upload failure gracefully', async () => {
