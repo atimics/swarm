@@ -14,8 +14,7 @@ import { ChatMessage as ChatMessageComponent } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { AvatarDisplay } from './AvatarSidebar';
 import { PromptPreviewPanel } from './PromptPreviewPanel';
-import { PlanModal } from './PlanModal';
-import { UsageMeterPanel } from './UsageMeterPanel';
+import { PlanUsagePanel } from './PlanUsagePanel';
 
 // Track active polling jobs to avoid duplicate polling
 const activePollers = new Map<string, { controller: AbortController; avatarId: string }>();
@@ -34,8 +33,7 @@ export function ChatPanel({ onMenuClick }: ChatPanelProps) {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
-  const [planModalOpen, setPlanModalOpen] = useState(false);
-  const [usagePanelOpen, setUsagePanelOpen] = useState(false);
+  const [planUsagePanelOpen, setPlanUsagePanelOpen] = useState(false);
   const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
   const [showHint, setShowHint] = useState(true);
 
@@ -935,18 +933,11 @@ export function ChatPanel({ onMenuClick }: ChatPanelProps) {
             {accessMode === 'admin' && (
               <>
                 <button
-                  onClick={() => setPlanModalOpen(true)}
-                  className="px-2 lg:px-3 py-1.5 text-xs lg:text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors"
-                  title="View and set plan limits"
+                  onClick={() => setPlanUsagePanelOpen(!planUsagePanelOpen)}
+                  className={`px-2 lg:px-3 py-1.5 text-xs lg:text-sm transition-colors rounded-lg ${planUsagePanelOpen ? "text-brand-400 bg-brand-900/20" : "text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"}`}
+                  title="View plan and usage"
                 >
-                  Plan
-                </button>
-                <button
-                  onClick={() => setUsagePanelOpen(!usagePanelOpen)}
-                  className={`px-2 lg:px-3 py-1.5 text-xs lg:text-sm transition-colors rounded-lg ${usagePanelOpen ? "text-brand-400 bg-brand-900/20" : "text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"}`}
-                  title="View usage metering"
-                >
-                  Usage
+                  Plan & Usage
                 </button>
                 <button
                   onClick={() => setPromptPreviewOpen(true)}
@@ -975,11 +966,16 @@ export function ChatPanel({ onMenuClick }: ChatPanelProps) {
         </header>
       ) : null}
 
-      {/* Inline Usage Meter Panel (chat-first) */}
-      {usagePanelOpen && activeAvatar && (
+      {/* Inline Plan & Usage Panel (chat-first) */}
+      {planUsagePanelOpen && activeAvatar && (
         <div className="border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/60 px-3 lg:px-6 py-3">
           <div className="max-w-3xl mx-auto">
-            <UsageMeterPanel avatarId={activeAvatar.id} />
+            <PlanUsagePanel
+              avatarId={activeAvatar.id}
+              avatarName={activeAvatar.name}
+              canEdit={account?.role === 'admin'}
+              onClose={() => setPlanUsagePanelOpen(false)}
+            />
           </div>
         </div>
       )}
@@ -1033,15 +1029,6 @@ export function ChatPanel({ onMenuClick }: ChatPanelProps) {
         onClose={() => setPromptPreviewOpen(false)}
       />
 
-      {activeAvatar && (
-        <PlanModal
-          avatarId={activeAvatar.id}
-          avatarName={activeAvatar.name}
-          isOpen={planModalOpen}
-          canEdit={account?.role === 'admin'}
-          onClose={() => setPlanModalOpen(false)}
-        />
-      )}
     </div>
   );
 }
