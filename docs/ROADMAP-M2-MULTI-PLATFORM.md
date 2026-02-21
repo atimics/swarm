@@ -2,11 +2,11 @@
 
 **Status:** Planning (research complete, pending implementation)
 
-**Last reviewed:** 2026-02-07
+**Last reviewed:** 2026-02-21
 
 **Prerequisite:** M1 Paid Telegram MVP (see [ROADMAP-M1-PAID-TELEGRAM-MVP.md](ROADMAP-M1-PAID-TELEGRAM-MVP.md))
 
-This document defines the M2 milestone: bringing Discord and Twitter (X) adapters to feature parity with Telegram, unifying the tool registry, surfacing usage metering in the admin UI, adding SQS payload offload for large media, and integrating Stripe for self-serve billing.
+This document defines the M2 milestone: bringing Discord and Twitter (X) adapters to feature parity with Telegram, unifying the tool registry, surfacing usage metering in the admin UI, adding SQS payload offload for large media, integrating Stripe for self-serve billing, and hardening the shipped semantic retrieval path with production coverage tracking, benchmarks, and regression tests.
 
 ---
 
@@ -19,11 +19,14 @@ An operator can:
 4. Subscribe to a paid plan via Stripe Checkout, manage billing via the customer portal, and see overages reflected in invoices.
 5. Send and receive media payloads larger than 256 KB without hitting SQS size limits.
 6. Inspect and replay messages from the dead-letter queue via admin tools.
+7. Demonstrate higher-relevance memory retrieval via the shipped semantic path with production embedding coverage, a benchmark harness, and regression evidence.
 
 Primary references:
 - [BILLING-STRATEGY.md](BILLING-STRATEGY.md) -- Web2 Floor + Web3 Ceiling model, tier definitions
 - [ROADMAP-M1-PAID-TELEGRAM-MVP.md](ROADMAP-M1-PAID-TELEGRAM-MVP.md) -- M1 scope and shipped items
 - [TOOL-COMPOSITION-OBSERVABILITY-RFC.md](TOOL-COMPOSITION-OBSERVABILITY-RFC.md) -- Tool metadata and composition design
+- [PLAYBOOK-M2-MULTI-PLATFORM.md](PLAYBOOK-M2-MULTI-PLATFORM.md) -- execution cadence, readiness gates, and rollout checklist
+- [SEMANTIC-MEMORY-DESIGN.md](SEMANTIC-MEMORY-DESIGN.md) -- embedding architecture, hybrid scoring formula, migration strategy
 
 ---
 
@@ -168,6 +171,17 @@ Primary references:
 | No DLQ inspection tools | No admin tool to list, inspect, or replay messages from the dead-letter queue |
 | No DLQ alarm routing | CloudWatch alarms fire to SNS but no admin chat notification or dashboard integration |
 | Media queue backpressure | No mechanism to slow media generation requests when the media queue depth alarm fires |
+
+### 2.6 Memory Relevance Gaps
+
+> **Status update (2026-02-21):** Semantic retrieval is now wired into the primary path. `searchMemories()` in `memory.ts` generates a query embedding and re-ranks results by cosine similarity using the hybrid scoring formula (55% semantic, 25% recency, 15% strength, 5% about-match). `createMemory()` generates embeddings on write. A `backfill_embeddings` MCP tool and `memory-migration.ts` service exist for backfilling older records. See [SEMANTIC-MEMORY-DESIGN.md](SEMANTIC-MEMORY-DESIGN.md) for the full design.
+
+| Gap | Description |
+|---|---|
+| Embedding coverage not tracked in production | No visibility into what percentage of memories per avatar have embeddings; no alert when coverage drops below a threshold |
+| No benchmark harness | No repeatable before/after benchmark to compare relevance and latency when changing retrieval logic or tuning hybrid weights |
+| No retrieval regression suite | Unit tests cover basic semantic re-ranking (`memory.test.ts`), but no dedicated regression tests assert latency budgets, ranking stability across weight changes, or fallback correctness under partial embedding coverage |
+| Backfill not automated | `backfill_embeddings` requires manual invocation per avatar; no scheduled job ensures new avatars or migrated records have full coverage |
 
 ---
 
@@ -476,6 +490,9 @@ Producer                          SQS                      Consumer
 | M2-017 | `check_usage` admin chat tool | mcp-server | M | -- | Query and format daily/weekly usage summary with limits and remaining |
 | M2-018 | Usage aggregation service | admin-api | M | -- | Scan DynamoDB usage records for date ranges, compute totals and trends |
 | M2-019 | Per-platform usage breakdown | handlers | M | -- | Add platform dimension to usage counter keys in `entitlement-enforcement.ts` |
+| M2-054 | Semantic retrieval hardening | admin-api, infra | M | -- | Add embedding coverage dashboard metric per avatar, automate backfill via scheduled EventBridge job, and add coverage-drop alerting |
+| M2-055 | Retrieval benchmark harness | admin-api, docs | S | -- | Add repeatable benchmark fixture set and reporting script for relevance (MRR/nDCG) and p95 latency before/after weight or model changes |
+| M2-056 | Semantic retrieval regression coverage | admin-api | M | -- | Add dedicated regression tests for ranking stability, fallback correctness under partial coverage, and latency budget assertions (p95 < agreed threshold) |
 
 ### P2: Enhanced platform features (Weeks 5-10)
 
@@ -552,6 +569,13 @@ M2-018 (usage aggregation)
   ├── M2-030 (overage reporting)
   └── M2-052 (dashboard API)
 
+M2-054 (semantic retrieval hardening)
+  (independent -- wiring shipped; M2-055 and M2-056 can start in parallel)
+
+M2-055 (benchmark harness)
+
+M2-056 (regression coverage)
+
 M2-040 (DLQ inspect)
   ├── M2-041 (DLQ replay)
   └── M2-042 (DLQ purge)
@@ -569,7 +593,7 @@ M2-040 (DLQ inspect)
 
 **Total estimated effort:**
 - P0 (8 tasks): ~4-5 weeks of work (parallelizable to 2-3 calendar weeks)
-- P1 (10 tasks): ~6-8 weeks of work (parallelizable to 4-5 calendar weeks)
+- P1 (13 tasks): ~8-10 weeks of work (parallelizable to 5-6 calendar weeks)
 - P2 (12 tasks): ~8-10 weeks of work (parallelizable to 5-6 calendar weeks)
 - P3 (14 tasks): ~6-8 weeks of work (parallelizable to 4-5 calendar weeks)
 
@@ -577,6 +601,7 @@ M2-040 (DLQ inspect)
 - 1 engineer on platform adapters (Discord/Twitter parity -- M2-001/002/020-029)
 - 1 engineer on billing infrastructure (Stripe + metering -- M2-010-019/030-031)
 - 1 engineer on plumbing (SQS offload + tool registry unification + DLQ -- M2-003-008/040-047)
+- 1 engineer on memory relevance (operational hardening + benchmark + regression -- M2-054-056; all three are now parallelizable since wiring is shipped)
 
 ---
 
@@ -591,3 +616,5 @@ M2-040 (DLQ inspect)
 4. **SQS offload threshold:** 200 KB is conservative. Should we profile actual payload sizes to set an optimal threshold? Could we avoid offload entirely by stripping base64 media earlier in the pipeline?
 
 5. **Cross-platform tool:** Is a unified `send_to_platform` meta-tool valuable, or do operators prefer platform-specific tools for clarity?
+
+6. **Semantic retrieval quality bar:** Semantic retrieval is live in the primary path. What minimum embedding coverage percentage per avatar is required before declaring M2-054 complete? What p95 latency budget should the benchmark harness (M2-055) enforce?
