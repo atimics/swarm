@@ -5,6 +5,12 @@ import { dirname, resolve } from 'node:path';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 
+import {
+  COST_CONTROL_THRESHOLDS,
+  SIGNAL_STATUS,
+  evaluateCostControlSignals,
+} from './lib/cost-control-signals.mjs';
+
 const ROADMAP_REVIEWED_AT = '2026-02-20';
 const MAX_REPORT_DAYS = 30;
 const DEFAULT_REPORT_DAYS = 7;
@@ -397,6 +403,7 @@ function buildMarkdownReport(params) {
     usage,
     rates,
     awsCost,
+    signals,
   } = params;
 
   const avgActivityPerActiveAvatar = usage.activeAvatarCount
@@ -412,7 +419,6 @@ function buildMarkdownReport(params) {
     ? awsCost.totalUsd / usage.totals.messagesProcessed
     : 0;
 
-  const topAvatars = usage.avatars.slice(0, 10);
   const topActiveAvatars = usage.avatars.filter((avatar) => avatar.activityUnits > 0).slice(0, 10);
   const topAwsServices = awsCost?.ok ? awsCost.services.slice(0, 8) : [];
 
@@ -467,6 +473,45 @@ function buildMarkdownReport(params) {
     lines.push(tableLine(['AWS cost per message', usage.totals.messagesProcessed ? formatUsd(awsCostPerMessage) : 'n/a']));
   } else {
     lines.push(tableLine(['AWS unblended cost (Cost Explorer)', `unavailable (${awsCost?.error || 'not requested'})`]));
+  }
+  lines.push('');
+  lines.push('## Cost Control Signals');
+  lines.push('');
+  lines.push(tableLine(['Signal', 'Severity', 'Status', 'Observed', 'Threshold']));
+  lines.push(tableLine(['---', '---', '---', '---', '---']));
+  lines.push(tableLine([
+    signals.awsCostJump.name,
+    signals.awsCostJump.severity,
+    signals.awsCostJump.status,
+    signals.awsCostJump.observed,
+    signals.awsCostJump.threshold,
+  ]));
+  lines.push(tableLine([
+    signals.costPerMessageJump.name,
+    signals.costPerMessageJump.severity,
+    signals.costPerMessageJump.status,
+    signals.costPerMessageJump.observed,
+    signals.costPerMessageJump.threshold,
+  ]));
+  lines.push(tableLine([
+    signals.spendRiseActivityFlat.name,
+    signals.spendRiseActivityFlat.severity,
+    signals.spendRiseActivityFlat.status,
+    signals.spendRiseActivityFlat.observed,
+    signals.spendRiseActivityFlat.threshold,
+  ]));
+  lines.push(tableLine([
+    signals.projectedMonthEndSpendBreach.name,
+    signals.projectedMonthEndSpendBreach.severity,
+    signals.projectedMonthEndSpendBreach.status,
+    signals.projectedMonthEndSpendBreach.observed,
+    signals.projectedMonthEndSpendBreach.threshold,
+  ]));
+  lines.push('');
+  if (signals.triggeredCount > 0) {
+    lines.push(`- Triggered signals (${signals.triggeredCount}): ${signals.triggered.map((signalId) => `\`${signalId}\``).join(', ')}`);
+  } else {
+    lines.push('- Triggered signals: none');
   }
   lines.push('');
   lines.push('## Top Avatars by Estimated Usage Cost');
@@ -537,6 +582,7 @@ function buildMarkdownReport(params) {
   lines.push(`- Report window is capped to ${MAX_REPORT_DAYS} days because usage records have ~35 day TTL.`);
   lines.push('- Estimated usage cost uses configurable unit rates; defaults are zero until rates are provided.');
   lines.push('- AWS cost comes from Cost Explorer (`ce:GetCostAndUsage`) and can be unavailable if IAM permissions are missing.');
+  lines.push('- `MONTHLY_BUDGET_USD` enables projected month-end budget breach detection.');
   lines.push('- Token-level LLM spend per API key is not yet durable in current model (tracked separately in issue #206).');
   lines.push('');
 
@@ -555,6 +601,7 @@ Options:
   --output <path>             Markdown output path (default: test-outputs/reports/cost-activity-report.md)
   --json-output <path>        JSON output path (default: markdown path with .json extension)
   --include-aws-cost <bool>   Query Cost Explorer via AWS CLI (default: true)
+  --monthly-budget-usd <n>    Monthly budget target used for breach signal (optional)
   -h, --help                  Show this help
 
 Required environment variables:
@@ -569,6 +616,7 @@ Optional environment variables:
   COST_PER_IMAGE_GEN_USD
   COST_PER_VIDEO_GEN_USD
   COST_PER_STICKER_GEN_USD
+  MONTHLY_BUDGET_USD
 `);
 }
 
@@ -587,6 +635,11 @@ async function main() {
     args['include-aws-cost'] ?? process.env.REPORT_INCLUDE_AWS_COST,
     true,
   );
+  const monthlyBudgetRaw = args['monthly-budget-usd'] ?? process.env.MONTHLY_BUDGET_USD;
+  const monthlyBudgetParsed = parseNumberWithDefault(monthlyBudgetRaw, Number.NaN);
+  const monthlyBudgetUsd = Number.isFinite(monthlyBudgetParsed) && monthlyBudgetParsed > 0
+    ? monthlyBudgetParsed
+    : null;
 
   const markdownOutput = resolve(
     args.output ?? process.env.REPORT_OUTPUT ?? 'test-outputs/reports/cost-activity-report.md',
@@ -637,6 +690,11 @@ async function main() {
   const awsCost = includeAwsCost
     ? getAwsCostAndUsageBreakdown(startDateStr, endDateExclusiveStr)
     : { ok: false, error: 'disabled', source: 'aws-cost-explorer' };
+  const signals = evaluateCostControlSignals({
+    usage,
+    awsCost,
+    monthlyBudgetUsd,
+  });
 
   const generatedAtIso = new Date().toISOString();
   const markdown = buildMarkdownReport({
@@ -651,6 +709,7 @@ async function main() {
     usage,
     rates,
     awsCost,
+    signals,
   });
 
   const reportJson = {
@@ -669,6 +728,7 @@ async function main() {
     usage,
     rates,
     awsCost,
+    signals,
   };
 
   mkdirSync(dirname(markdownOutput), { recursive: true });
@@ -686,6 +746,9 @@ async function main() {
     awsCost.ok
       ? `AWS unblended cost: ${formatUsd(awsCost.totalUsd)}`
       : `AWS unblended cost: unavailable (${awsCost.error})`,
+    signals.triggeredCount
+      ? `Triggered cost-control signals: ${signals.triggered.map((signalId) => `\`${signalId}\``).join(', ')}`
+      : 'Triggered cost-control signals: none',
   ].join('\n');
 
   process.stdout.write(`${summary}\n`);
