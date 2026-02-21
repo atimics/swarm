@@ -19,6 +19,7 @@ import {
   type DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
+  DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { getDynamoClient as getSharedDynamoClient, _setDynamoClient as _setSharedDynamoClient } from './dynamo-client.js';
 import { logger } from '@swarm/core';
@@ -96,6 +97,13 @@ export interface IdempotencyStore<T> {
   update: (key: string, value: T) => Promise<void>;
 
   /**
+   * Remove a key, releasing the in-flight claim.
+   * Use this when a request fails with a transient error so the
+   * client can retry with the same idempotency key.
+   */
+  remove: (key: string) => Promise<void>;
+
+  /**
    * Clear all entries (primarily for testing).
    * Only clears the in-memory fallback; DynamoDB entries expire via TTL.
    */
@@ -109,22 +117,39 @@ export interface IdempotencyStore<T> {
 function createInMemoryStore<T>(params: {
   now: () => number;
   ttlMs: number;
-}): { get: (key: string) => T | null; set: (key: string, value: T) => void; clear: () => void } {
+}): {
+  get: (key: string) => T | null;
+  has: (key: string) => boolean;
+  set: (key: string, value: T) => void;
+  delete: (key: string) => void;
+  clear: () => void;
+} {
   const { now, ttlMs } = params;
   const store = new Map<string, IdempotencyRecord<T>>();
 
+  const getRecord = (key: string): IdempotencyRecord<T> | null => {
+    const record = store.get(key);
+    if (!record) return null;
+    if (record.expiresAt <= now()) {
+      store.delete(key);
+      return null;
+    }
+    return record;
+  };
+
   return {
     get(key: string): T | null {
-      const record = store.get(key);
-      if (!record) return null;
-      if (record.expiresAt <= now()) {
-        store.delete(key);
-        return null;
-      }
-      return record.value;
+      const record = getRecord(key);
+      return record ? record.value : null;
+    },
+    has(key: string): boolean {
+      return getRecord(key) !== null;
     },
     set(key: string, value: T): void {
       store.set(key, { value, expiresAt: now() + ttlMs });
+    },
+    delete(key: string): void {
+      store.delete(key);
     },
     clear(): void {
       store.clear();
@@ -234,8 +259,7 @@ export function createIdempotencyStore<T>(params?: {
       });
 
       // Check in-memory first (simulate atomic check-and-set)
-      const existing = memoryStore.get(key);
-      if (existing !== null) {
+      if (memoryStore.has(key)) {
         return false; // Already exists in memory
       }
 
@@ -272,11 +296,38 @@ export function createIdempotencyStore<T>(params?: {
     }
   };
 
+  const remove = async (key: string): Promise<void> => {
+    try {
+      await (dynamoClient ?? getDynamoClient()).send(new DeleteCommand({
+        TableName: ADMIN_TABLE,
+        Key: {
+          pk: `IDEMPOTENCY#${key}`,
+          sk: IDEMPOTENCY_SK,
+        },
+      }));
+
+      memoryStore.delete(key);
+
+      logSafe('debug', 'Idempotency key removed', {
+        event: 'idempotency_remove',
+        key,
+      });
+    } catch (error) {
+      logSafe('warn', 'DynamoDB idempotency remove failed, removing from memory only', {
+        event: 'idempotency_dynamo_remove_error',
+        key,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+
+      memoryStore.delete(key);
+    }
+  };
+
   const clear = () => {
     memoryStore.clear();
   };
 
-  return { get, set, update, clear };
+  return { get, set, update, remove, clear };
 }
 
 // ============================================================================

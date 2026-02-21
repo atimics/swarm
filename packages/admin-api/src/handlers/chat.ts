@@ -1170,6 +1170,9 @@ export async function handler(
     };
   }
 
+  // Extract idempotency key early so the catch block can release it on transient errors.
+  const idempotencyKey = event.headers['idempotency-key'] || event.headers['Idempotency-Key'];
+
   try {
     // Authenticate the request
     const session = await authenticateRequest(event);
@@ -1315,7 +1318,6 @@ export async function handler(
     }
     const { message, history, avatar, systemPrompt: customSystemPrompt, attachments, model } = parseResult.data;
 
-    const idempotencyKey = event.headers['idempotency-key'] || event.headers['Idempotency-Key'];
     if (idempotencyKey) {
       // Check for a previously completed result
       const cached = await chatIdempotencyStore.get(idempotencyKey) as APIGatewayProxyResultV2 | null;
@@ -1325,7 +1327,14 @@ export async function handler(
       // Atomically claim the key before doing work to prevent concurrent execution
       const claimed = await chatIdempotencyStore.set(idempotencyKey, null);
       if (!claimed) {
-        // Another invocation already claimed this key and is processing
+        // The key already exists. Re-check whether a completed response has been
+        // written since our initial get() — this closes a narrow race window where
+        // a prior request finalises between our get() and set() calls.
+        const recheck = await chatIdempotencyStore.get(idempotencyKey) as APIGatewayProxyResultV2 | null;
+        if (recheck) {
+          return recheck;
+        }
+        // Still in-flight (null sentinel) — another invocation is actively processing.
         return {
           statusCode: 409,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -1335,7 +1344,12 @@ export async function handler(
     }
 
     const accessError = await ensureAvatarAccess(avatar?.id);
-    if (accessError) return accessError;
+    if (accessError) {
+      if (idempotencyKey) {
+        await chatIdempotencyStore.update(idempotencyKey, accessError);
+      }
+      return accessError;
+    }
 
     // Apply rate limiting for public access mode (daily limits based on Orb ownership)
     let publicRateLimitInfo: PublicRateLimitResult | null = null;
@@ -1371,7 +1385,7 @@ export async function handler(
           hasOrb,
           limit: rateLimitStatus.limit,
         });
-        return {
+        const rateLimitResponse = {
           statusCode: 429,
           headers: {
             ...corsHeaders,
@@ -1386,6 +1400,10 @@ export async function handler(
             isOrbHolder: hasOrb,
           }),
         };
+        if (idempotencyKey) {
+          await chatIdempotencyStore.update(idempotencyKey, rateLimitResponse);
+        }
+        return rateLimitResponse;
       }
       // Record the message for rate limiting (fire and forget)
       void recordPublicRateLimit(session.userId, avatar.id);
@@ -1479,11 +1497,15 @@ export async function handler(
         MessageBody: JSON.stringify({ jobId }),
       }));
 
-      return {
+      const asyncResponse = {
         statusCode: 202,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId, status: 'pending' }),
       };
+      if (idempotencyKey) {
+        await chatIdempotencyStore.update(idempotencyKey, asyncResponse);
+      }
+      return asyncResponse;
     }
 
     const result = await processChat(message, history, session, avatarContext, {
@@ -1546,6 +1568,15 @@ export async function handler(
     }).catch(() => {
       // Ignore recording failures
     });
+
+    // Release the idempotency key so the client can retry on transient errors.
+    // We remove (rather than update) because caught errors are typically transient
+    // (5xx, timeouts) and the client should be able to retry with the same key.
+    if (idempotencyKey) {
+      await chatIdempotencyStore.remove(idempotencyKey).catch(() => {
+        // Best-effort release; if it fails the key will expire via TTL.
+      });
+    }
 
     return {
       statusCode,
