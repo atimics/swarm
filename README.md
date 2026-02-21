@@ -79,6 +79,7 @@ Roadmaps and planning:
 - M1 (Paid Telegram MVP): [docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md](docs/ROADMAP-M1-PAID-TELEGRAM-MVP.md)
 - M2 (Multi-platform): [docs/ROADMAP-M2-MULTI-PLATFORM.md](docs/ROADMAP-M2-MULTI-PLATFORM.md)
 - Next-milestone task list: [PLAN.md](PLAN.md)
+- Positioning and messaging pitchbook: [docs/PITCHBOOK.md](docs/PITCHBOOK.md)
 - Automated cost/activity reporting: [docs/OPERATIONS-REPORTS.md](docs/OPERATIONS-REPORTS.md)
 
 Local dev expects AWS credentials and the core tables/buckets configured (see CDK stacks in [packages/infra](packages/infra)). Environment variables most handlers rely on: `ADMIN_TABLE`, `STATE_TABLE`, `ACTIVITY_TABLE`, `MESSAGE_QUEUE_URL`, `RESPONSE_QUEUE_URL`, `MEDIA_BUCKET`, `SECRETS_ARN`, and `LLM_API_KEY_SECRET_ARN`.
