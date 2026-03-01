@@ -13,7 +13,7 @@ let mockSetEntitlementCalls: Array<Record<string, unknown>> = [];
 let mockSyncCalls: Array<Record<string, unknown>> = [];
 
 // ── Mock modules ───────────────────────────────────────────────────────────
-vi.mock('./entitlements.js', () => ({
+vi.mock('./billing/entitlements.js', () => ({
   getEntitlement: async () => mockGetEntitlementResult,
   setEntitlement: async (params: Record<string, unknown>) => {
     mockSetEntitlementCalls.push(params);
@@ -37,7 +37,7 @@ vi.mock('./entitlements.js', () => ({
   },
 }));
 
-vi.mock('./runtime-limits.js', () => ({
+vi.mock('./billing/runtime-limits.js', () => ({
   getEffectiveLimitsForAvatar: (_avatarId: string, entitlement: EntitlementRecord | null) => {
     const entitlementStatus = entitlement?.status;
     if (!entitlement || (entitlementStatus !== 'active' && entitlementStatus !== 'trial')) {
@@ -72,7 +72,7 @@ vi.mock('./runtime-limits.js', () => ({
 }));
 
 // Mock burn-stats (needed by avatar-ascend module-level imports)
-vi.mock('./burn-stats.js', () => ({
+vi.mock('./web3/burn-stats.js', () => ({
   getBurnStats: async () => ({ totalBurned: 0, tier: 0, tierName: 'Spark' }),
 }));
 
@@ -107,18 +107,44 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
   };
 });
 
-vi.mock('@swarm/core', () => ({
+// IMPORTANT: bun:test mock.module is process-global and persistent. This @swarm/core
+// mock MUST provide every export that any other test file might import, or those
+// tests will break. We use a Proxy as the base so unknown properties return safe
+// defaults instead of undefined.
+const noopFn = () => {};
+const noopLogger = { debug: noopFn, info: noopFn, warn: noopFn, error: noopFn, child: () => noopLogger };
+const coreOverrides: Record<string, unknown> = {
   RATI_MINT: 'mock-rati-mint',
   GATE_COLLECTION: 'mock-gate-collection',
-  ASCENSION_ENERGY_BOOST: {
-    maxEnergyMultiplier: 1.5,
-    regenRateMultiplier: 1.5,
-  },
-  getAscensionCost: () => ({
-    currentTier: { tier: 0, name: 'Spark' },
-    ratiBurnRequired: 100,
-  }),
+  ASCENSION_ENERGY_BOOST: { maxEnergyMultiplier: 1.5, regenRateMultiplier: 1.5 },
+  getAscensionCost: () => ({ currentTier: { tier: 0, name: 'Spark' }, ratiBurnRequired: 100 }),
   getTierForBurnAmount: () => ({ tier: 0, name: 'Spark' }),
+  getNextTier: () => ({ tier: 1, name: 'Ember', requiredBurn: 1000 }),
+  logger: noopLogger,
+  buildMediaUrl: noopFn,
+  canonicalizeMediaUrl: noopFn,
+  validateEnv: noopFn,
+  HandlerEnvSchema: {},
+  DEFAULT_AVATAR_CONFIG: {},
+  DEFAULT_LLM_MODEL: 'openrouter/auto',
+  extractCorrelationIdFromSqsRecord: () => undefined,
+  createContentStoreService: noopFn,
+  enqueuePost: noopFn,
+  isPostQueueConfigured: () => false,
+  getPostQueueUrl: () => '',
+  enqueueMediaJob: noopFn,
+  isMediaQueueConfigured: () => false,
+  getMediaQueueUrl: () => '',
+  // Platform adapters
+  TwitterAdapter: class { constructor() {} },
+  DiscordAdapter: class { constructor() {} },
+};
+vi.mock('@swarm/core', () => new Proxy(coreOverrides, {
+  get(target, prop) {
+    if (prop in target) return target[prop as string];
+    // Return a no-op function for unknown exports to prevent "X is undefined" errors
+    return noopFn;
+  },
 }));
 
 // ── Import AFTER mocks ─────────────────────────────────────────────────────
