@@ -939,6 +939,7 @@ export class AdminApiConstruct extends Construct {
         LOG_LEVEL: logLevel,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
         LLM_API_KEY_SECRET_ARN: llmApiKey.secretArn,
+        CDN_URL: cdnUrl || '',
         INTERNAL_TEST_KEY: internalTestKey,
         ...activeUserLimitEnvVars,
       },
@@ -979,6 +980,7 @@ export class AdminApiConstruct extends Construct {
         NODE_ENV: environment,
         LOG_LEVEL: logLevel,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
+        CDN_URL: cdnUrl || '',
         ...activeUserLimitEnvVars,
       },
       bundling: {
@@ -1057,6 +1059,7 @@ export class AdminApiConstruct extends Construct {
         INTERNAL_TEST_KEY: internalTestKey,
         // Discord gateway runtime status (so admin API can report accurate health)
         DISCORD_GATEWAY_ENABLED: props.enableDiscordGateway ? 'true' : 'false',
+        CDN_URL: cdnUrl || '',
         ...activeUserLimitEnvVars,
       },
       bundling: {
@@ -1399,6 +1402,7 @@ export class AdminApiConstruct extends Construct {
         NODE_ENV: environment,
         LOG_LEVEL: logLevel,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
+        CDN_URL: cdnUrl || '',
         INTERNAL_TEST_KEY: internalTestKey,
         ...activeUserLimitEnvVars,
       },
@@ -1472,6 +1476,7 @@ export class AdminApiConstruct extends Construct {
         ADMIN_TABLE: this.table.tableName,
         NODE_ENV: environment,
         LOG_LEVEL: logLevel,
+        CDN_URL: cdnUrl || '',
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1508,6 +1513,7 @@ export class AdminApiConstruct extends Construct {
         ADMIN_TABLE: this.table.tableName,
         NODE_ENV: environment,
         LOG_LEVEL: logLevel,
+        CDN_URL: cdnUrl || '',
       },
       bundling: {
         externalModules: ['@aws-sdk/*'],
@@ -1621,6 +1627,7 @@ export class AdminApiConstruct extends Construct {
         NODE_ENV: environment,
         LOG_LEVEL: logLevel,
         ALLOWED_ORIGINS: allowedOrigins.join(','),
+        CDN_URL: cdnUrl || '',
         ...activeUserLimitEnvVars,
       },
       bundling: {
@@ -1741,6 +1748,7 @@ export class AdminApiConstruct extends Construct {
         PRIVY_APP_ID: props.privyAppId || '',
         PRIVY_APP_SECRET_ARN: privyAppSecret?.secretArn || '',
         PRIVY_JWT_VERIFICATION_KEY_ARN: privyJwtVerificationKey?.secretArn || '',
+        CDN_URL: cdnUrl || '',
         ...activeUserLimitEnvVars,
       },
       bundling: {
@@ -1852,6 +1860,7 @@ export class AdminApiConstruct extends Construct {
         STRIPE_WEBHOOK_SECRET_ARN: stripeWebhookSecret?.secretArn || '',
         STRIPE_PRICE_ID_PRO: props.stripePriceIdPro || '',
         STRIPE_PRICE_ID_ENTERPRISE: props.stripePriceIdEnterprise || '',
+        CDN_URL: cdnUrl || '',
         ...activeUserLimitEnvVars,
       },
       bundling: {
@@ -1923,6 +1932,7 @@ export class AdminApiConstruct extends Construct {
         NODE_ENV: environment,
         LOG_LEVEL: logLevel,
         NODE_OPTIONS: '--enable-source-maps',
+        CDN_URL: cdnUrl || '',
         ...activeUserLimitEnvVars,
       },
       bundling: {
@@ -1969,6 +1979,7 @@ export class AdminApiConstruct extends Construct {
         CONSOLIDATION_MODEL: 'anthropic/claude-3-5-haiku-latest',
         NODE_ENV: environment,
         LOG_LEVEL: logLevel,
+        CDN_URL: cdnUrl || '',
         ...activeUserLimitEnvVars,
       },
       bundling: {
@@ -2092,6 +2103,7 @@ export class AdminApiConstruct extends Construct {
         ADMIN_TABLE: this.table.tableName,
         NODE_ENV: environment,
         LOG_LEVEL: logLevel,
+        CDN_URL: cdnUrl || '',
         ...activeUserLimitEnvVars,
       },
       bundling: {
@@ -2158,6 +2170,7 @@ export class AdminApiConstruct extends Construct {
         // Twitter App credentials from Secrets Manager
         TWITTER_APP_CREDENTIALS_ARN: twitterAppCredentialsSecret.secretArn,
         TWITTER_OAUTH_CALLBACK_URL: twitterOAuthCallbackUrl,
+        CDN_URL: cdnUrl || '',
         ...activeUserLimitEnvVars,
       },
       bundling: {
