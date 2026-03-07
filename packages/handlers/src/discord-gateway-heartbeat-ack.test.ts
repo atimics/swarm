@@ -37,28 +37,23 @@ mock.module('ws', () => {
   return { default: MockWebSocket, WebSocket: MockWebSocket, __esModule: true };
 });
 
-// Enumerate every named export other test files import from these SDK modules,
-// because bun's mock.module() is process-global and ESM resolves named exports
-// at link time (Proxy traps don't help).
-const Cmd = class { constructor(public input?: unknown) {} };
-
 mock.module('@aws-sdk/client-sqs', () => ({
   SQSClient: class { send() { return Promise.resolve({}); } destroy() {} },
-  SendMessageCommand: Cmd,
-  GetQueueAttributesCommand: Cmd,
-  ReceiveMessageCommand: Cmd,
-  DeleteMessageCommand: Cmd,
+  GetQueueAttributesCommand: class { constructor(public input: unknown) {} },
+  SendMessageCommand: class { constructor(public input: unknown) {} },
+  ReceiveMessageCommand: class { constructor(public input: unknown) {} },
+  DeleteMessageCommand: class { constructor(public input: unknown) {} },
 }));
 
 mock.module('@aws-sdk/client-secrets-manager', () => ({
   SecretsManagerClient: class { send() { return Promise.resolve({}); } },
-  GetSecretValueCommand: Cmd,
-  CreateSecretCommand: Cmd,
-  UpdateSecretCommand: Cmd,
-  DeleteSecretCommand: Cmd,
-  DescribeSecretCommand: Cmd,
-  RestoreSecretCommand: Cmd,
-  PutSecretValueCommand: Cmd,
+  GetSecretValueCommand: class { constructor(public input: unknown) {} },
+  CreateSecretCommand: class { constructor(public input: unknown) {} },
+  UpdateSecretCommand: class { constructor(public input: unknown) {} },
+  DeleteSecretCommand: class { constructor(public input: unknown) {} },
+  DescribeSecretCommand: class { constructor(public input: unknown) {} },
+  RestoreSecretCommand: class { constructor(public input: unknown) {} },
+  PutSecretValueCommand: class { constructor(public input: unknown) {} },
 }));
 
 type GatewayConnectionClass = typeof import('./discord/discord-gateway-shared.js').GatewayConnection;
@@ -206,21 +201,31 @@ describe('GatewayConnection heartbeat ACK timeout', () => {
   });
 
   it('triggers reconnect when ACK timeout fires', async () => {
-    // Use a very short heartbeat interval so the 1.5x timeout fires quickly
-    const heartbeatInterval = 50; // 50ms -> timeout at 75ms
-    const { conn, internals } = createAndStartConnection(heartbeatInterval);
+    // Start with a valid interval (clamping applies >= 10_000ms)
+    const { conn, internals } = createAndStartConnection(10_000);
 
-    // Stop the periodic heartbeat interval to avoid interference,
-    // but keep the ACK timeout timer active
+    // Stop the periodic heartbeat interval to avoid interference
     if (internals.heartbeatTimer) {
       clearInterval(internals.heartbeatTimer);
       internals.heartbeatTimer = null;
     }
+    // Clear the long ACK timeout from the initial heartbeat
+    if (internals.heartbeatAckTimeoutTimer) {
+      clearTimeout(internals.heartbeatAckTimeoutTimer);
+      internals.heartbeatAckTimeoutTimer = null;
+    }
+
+    // Override heartbeatIntervalMs to a tiny value so the ACK timeout fires fast
+    internals.heartbeatIntervalMs = 50;
+
+    // Manually trigger a heartbeat to set up a short ACK timeout (1.5x 50ms = 75ms)
+    const sendHeartbeat = (conn as unknown as { sendHeartbeat: () => void }).sendHeartbeat.bind(conn);
+    sendHeartbeat();
 
     const attemptsBefore = internals.reconnectAttempts;
     expect(internals.heartbeatAckTimeoutTimer).not.toBeNull();
 
-    // Do NOT send ACK. Wait for the timeout to fire (1.5x 50ms = 75ms + margin).
+    // Do NOT send ACK. Wait for the timeout to fire (75ms + margin).
     await new Promise(resolve => setTimeout(resolve, 200));
 
     // scheduleReconnect should have fired, incrementing reconnectAttempts
@@ -230,8 +235,23 @@ describe('GatewayConnection heartbeat ACK timeout', () => {
   });
 
   it('does not trigger reconnect if ACK is received in time', async () => {
-    const heartbeatInterval = 100; // 100ms -> timeout at 150ms
-    const { conn, ws, internals } = createAndStartConnection(heartbeatInterval);
+    // Start with a valid interval
+    const { conn, ws, internals } = createAndStartConnection(10_000);
+
+    // Override to a tiny value for testing
+    if (internals.heartbeatTimer) {
+      clearInterval(internals.heartbeatTimer);
+      internals.heartbeatTimer = null;
+    }
+    if (internals.heartbeatAckTimeoutTimer) {
+      clearTimeout(internals.heartbeatAckTimeoutTimer);
+      internals.heartbeatAckTimeoutTimer = null;
+    }
+    internals.heartbeatIntervalMs = 100;
+
+    // Manually trigger heartbeat with short ACK timeout (1.5x 100ms = 150ms)
+    const sendHeartbeat = (conn as unknown as { sendHeartbeat: () => void }).sendHeartbeat.bind(conn);
+    sendHeartbeat();
 
     const attemptsBefore = internals.reconnectAttempts;
 
