@@ -4,13 +4,17 @@
  * Verifies that ascension grants Pro-equivalent entitlements and
  * respects the plan hierarchy (no downgrade from enterprise).
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PLAN_DEFAULTS, type EntitlementRecord, type PlanLimits } from '../types.js';
+import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
 // ── Mock state ─────────────────────────────────────────────────────────────
 let mockGetEntitlementResult: EntitlementRecord | null = null;
 let mockSetEntitlementCalls: Array<Record<string, unknown>> = [];
 let mockSyncCalls: Array<Record<string, unknown>> = [];
+
+const prevHeliusApiKey = process.env.HELIUS_API_KEY;
+process.env.HELIUS_API_KEY = 'test-helius-key';
 
 // ── Mock modules ───────────────────────────────────────────────────────────
 vi.mock('./billing/entitlements.js', () => ({
@@ -181,7 +185,8 @@ vi.mock('@swarm/core', () => new Proxy(coreOverrides, {
 }));
 
 // ── Import AFTER mocks ─────────────────────────────────────────────────────
-const { grantAscensionEntitlement } = await import('./avatar-ascend.js');
+const avatarAscendModule = await import('./avatar-ascend.js');
+const { grantAscensionEntitlement } = avatarAscendModule;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function makeEntitlement(
@@ -324,4 +329,112 @@ describe('grantAscensionEntitlement', () => {
     expect(runtimeLimits.dailyMediaCredits).toBe(50);
     expect(runtimeLimits.autonomousPostsEnabled).toBe(true);
   });
+});
+
+// ── Ascension NFT validation tests ──────────────────────────────────────────
+describe('validateAscensionNftMint', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('accepts an NFT whose owner and metadata match the ascended avatar', async () => {
+    vi.spyOn(DynamoDBDocumentClient.prototype, 'send').mockResolvedValue({
+      Item: {
+        avatarId: 'avatar-1',
+        name: 'Avatar One',
+      },
+    } as never);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            ownership: { owner: 'wallet-abc' },
+            content: {
+              metadata: { name: 'Avatar One (Ascended)', symbol: 'ASCEND' },
+              json_uri: 'https://example.com/ascension.json',
+            },
+          },
+        }),
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          external_url: 'https://rati.chat/avatar/avatar-1',
+          attributes: [{ trait_type: 'Avatar ID', value: 'avatar-1' }],
+          properties: { creators: [{ address: 'wallet-abc', share: 100 }] },
+        }),
+      } as never));
+
+    const result = await avatarAscendModule.validateAscensionNftMint('avatar-1', 'wallet-abc', 'mint-1');
+    expect(result).toEqual({ valid: true, owner: 'wallet-abc' });
+  });
+
+  it('rejects an owned NFT whose metadata is not linked to the avatar', async () => {
+    vi.spyOn(DynamoDBDocumentClient.prototype, 'send').mockResolvedValue({
+      Item: {
+        avatarId: 'avatar-1',
+        name: 'Avatar One',
+      },
+    } as never);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            ownership: { owner: 'wallet-abc' },
+            content: {
+              metadata: { name: 'Avatar One (Ascended)', symbol: 'ASCEND' },
+              json_uri: 'https://example.com/unrelated.json',
+            },
+          },
+        }),
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          external_url: 'https://rati.chat/avatar/other-avatar',
+          attributes: [{ trait_type: 'Avatar ID', value: 'other-avatar' }],
+          properties: { creators: [{ address: 'wallet-abc', share: 100 }] },
+        }),
+      } as never));
+
+    const result = await avatarAscendModule.validateAscensionNftMint('avatar-1', 'wallet-abc', 'mint-2');
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe('Ascension NFT metadata is not linked to this avatar');
+  });
+
+  it('rejects a mint owned by a different wallet', async () => {
+    vi.spyOn(DynamoDBDocumentClient.prototype, 'send').mockResolvedValue({
+      Item: {
+        avatarId: 'avatar-1',
+        name: 'Avatar One',
+      },
+    } as never);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        result: {
+          ownership: { owner: 'other-wallet' },
+          content: {
+            metadata: { name: 'Avatar One (Ascended)', symbol: 'ASCEND' },
+            json_uri: 'https://example.com/ascension.json',
+          },
+        },
+      }),
+    } as never));
+
+    const result = await avatarAscendModule.validateAscensionNftMint('avatar-1', 'wallet-abc', 'mint-3');
+    expect(result.valid).toBe(false);
+    expect(result.owner).toBe('other-wallet');
+    expect(result.error).toBe('Ascension NFT is not owned by your wallet');
+  });
+});
+
+process.on('exit', () => {
+  if (prevHeliusApiKey === undefined) {
+    delete process.env.HELIUS_API_KEY;
+  } else {
+    process.env.HELIUS_API_KEY = prevHeliusApiKey;
+  }
 });

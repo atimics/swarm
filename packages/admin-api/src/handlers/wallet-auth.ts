@@ -42,6 +42,7 @@ import {
   verifyAscensionBurns,
   executeAscension,
   getAvatarAscensionStatus,
+  validateAscensionNftMint,
 } from '../services/avatar-ascend.js';
 
 // Internal test key for E2E tests - bypasses NFT gate requirements
@@ -820,6 +821,17 @@ export async function handleExecuteAscension(
         error: burnVerification.error || 'Burn verification failed',
         orb: burnVerification.orbResult,
         rati: burnVerification.ratiResult,
+      }, cors);
+    }
+
+    const nftValidation = await validateAscensionNftMint(
+      avatarId,
+      session.user.walletAddress,
+      nftMint
+    );
+    if (!nftValidation.valid) {
+      return jsonResponse(400, {
+        error: nftValidation.error || 'Ascension NFT validation failed',
       }, cors);
     }
 
