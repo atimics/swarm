@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useAvatarStore } from './store';
+import { useTaskCardStore } from './store/task-cards';
 import { useAuth } from './store/auth';
 import { useConsentStore, CURRENT_POLICY_VERSION } from './store/consent';
 import { bootstrapAuthFromBackendSession } from './auth/bootstrap';
@@ -218,6 +219,40 @@ function App() {
     }
   }, [avatars, activeAvatarId, chatAvatarId, initialized, setActiveAvatar]);
 
+  /**
+   * Find the most recent pending twitter/integration task card in the store
+   * and resolve it. Returns the card ID if one was found, undefined otherwise.
+   *
+   * This uses the task card store (not message.toolCalls) as source of truth
+   * because syncChatHistory reconstructs all tool calls as 'completed',
+   * clobbering the pending status before this handler runs.
+   */
+  const resolveOAuthTaskCard = useCallback((
+    avatarId: string,
+    status: 'completed' | 'failed',
+    resultData: unknown,
+  ): string | undefined => {
+    const cards = useTaskCardStore.getState().getCardsForAvatar(avatarId);
+
+    const isTwitterCard = (c: { toolName: string; arguments: Record<string, unknown> }) => {
+      if (c.toolName === 'request_twitter_connection' || c.toolName === 'twitter_request_integration') return true;
+      // configure_integration is shared across many integrations — only match twitter
+      if (c.toolName === 'configure_integration') return c.arguments.integration === 'twitter';
+      return false;
+    };
+
+    // Find the most recent pending Twitter-specific card by createdAt (descending)
+    const pending = cards
+      .filter((c) => c.status === 'pending' && isTwitterCard(c))
+      .sort((a, b) => b.createdAt - a.createdAt);
+
+    if (pending.length === 0) return undefined;
+
+    const target = pending[0];
+    useTaskCardStore.getState().updateStatus(target.id, status, resultData);
+    return target.id;
+  }, []);
+
   const handleTwitterOAuthResult = useCallback(async (result: TwitterOAuthResult) => {
     if (result.avatarId) {
       setActiveAvatar(result.avatarId);
@@ -245,6 +280,11 @@ function App() {
       const displayUsername = backendUsername || result.username;
 
       if (backendConnected === false) {
+        // Resolve the pending task card as failed before returning
+        resolveOAuthTaskCard(targetAvatarId, 'failed', {
+          error: 'OAuth completed but backend still reports disconnected',
+        });
+
         const disconnectErrorContent = JSON.stringify({
           connected: false,
           error: true,
@@ -264,20 +304,24 @@ function App() {
         return;
       }
 
-      // Clear any twitter connection tool call messages (pending OR completed - status may have changed when user clicked Connect)
-      const avatarChats = useAvatarStore.getState().chats[targetAvatarId] || [];
-      for (const msg of avatarChats) {
-        if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' || tc.name === 'configure_integration')) {
-          const updatedToolCalls = msg.toolCalls.map(tc =>
-            (tc.name === 'request_twitter_connection' || tc.name === 'configure_integration')
-              ? { ...tc, status: 'completed' as const }
-              : tc
-          );
-          // Clear the message content - the panel handles its own UI
-          updateMessage(targetAvatarId, msg.id, {
-            toolCalls: updatedToolCalls,
-            content: '',
-          });
+      // Resolve the most recent PENDING twitter/integration task card.
+      // Use the task card store as source of truth — message.toolCalls may have
+      // been clobbered to 'completed' by syncChatHistory before this runs.
+      const pendingOAuthCardId = resolveOAuthTaskCard(targetAvatarId, 'completed', { connected: true });
+
+      // Best-effort: also update the message-level toolCalls for cosmetic consistency
+      if (pendingOAuthCardId) {
+        const avatarChats = useAvatarStore.getState().chats[targetAvatarId] || [];
+        for (const chatMsg of avatarChats) {
+          const tc = chatMsg.toolCalls?.find(t => t.id === pendingOAuthCardId);
+          if (tc) {
+            updateMessage(targetAvatarId, chatMsg.id, {
+              toolCalls: chatMsg.toolCalls?.map(t =>
+                t.id === pendingOAuthCardId ? { ...t, status: 'completed' as const } : t
+              ),
+            });
+            break;
+          }
         }
       }
 
@@ -316,19 +360,22 @@ function App() {
         });
       }
     } else {
-      // On error, clear the tool call message (check both pending AND completed status)
-      const avatarChats = useAvatarStore.getState().chats[targetAvatarId] || [];
-      for (const msg of avatarChats) {
-        if (msg.toolCalls?.some(tc => tc.name === 'request_twitter_connection' || tc.name === 'configure_integration')) {
-          const updatedToolCalls = msg.toolCalls.map(tc =>
-            (tc.name === 'request_twitter_connection' || tc.name === 'configure_integration')
-              ? { ...tc, status: 'completed' as const }
-              : tc
-          );
-          updateMessage(targetAvatarId, msg.id, {
-            toolCalls: updatedToolCalls,
-            content: '',
-          });
+      // On error, resolve the most recent PENDING twitter/integration card as failed.
+      // Task card store is authoritative — message.toolCalls may already be 'completed' from sync.
+      const failedOAuthCardId = resolveOAuthTaskCard(targetAvatarId, 'failed', { error: result.error });
+
+      if (failedOAuthCardId) {
+        const avatarChats = useAvatarStore.getState().chats[targetAvatarId] || [];
+        for (const chatMsg of avatarChats) {
+          const tc = chatMsg.toolCalls?.find(t => t.id === failedOAuthCardId);
+          if (tc) {
+            updateMessage(targetAvatarId, chatMsg.id, {
+              toolCalls: chatMsg.toolCalls?.map(t =>
+                t.id === failedOAuthCardId ? { ...t, status: 'failed' as const, result: { error: result.error } } : t
+              ),
+            });
+            break;
+          }
         }
       }
 
@@ -351,7 +398,7 @@ function App() {
         content: errorContent,
       });
     }
-  }, [activeAvatarId, addMessage, fetchAvatars, setActiveAvatar, syncChatHistory, updateMessage]);
+  }, [activeAvatarId, addMessage, fetchAvatars, resolveOAuthTaskCard, setActiveAvatar, syncChatHistory, updateMessage]);
 
   // If we're in a popup window (OAuth redirect), close it
   // The main window will handle the result via localStorage storage event
