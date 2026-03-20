@@ -488,6 +488,9 @@ export const DiscordConfigSchema = z.object({
   allowedChannels: z.array(z.string()).optional(),
   allowedGuilds: z.array(z.string()).optional(),
   allowedRoleIds: z.array(z.string()).optional(),
+  homeChannelId: z.string().optional(),
+  homeGuildId: z.string().optional(),
+  homeChannelName: z.string().optional(),
 });
 
 export const TwitterCommunityConfigSchema = z.object({

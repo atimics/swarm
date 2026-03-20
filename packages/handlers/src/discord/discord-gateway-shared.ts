@@ -39,6 +39,10 @@ import {
   logAccessDecision,
   type DiscordAccessContext,
 } from './discord-chat-access.js';
+import {
+  resolveDiscordHomeChannel,
+  maybeBootstrapDiscordHomeChannel,
+} from './discord-home-channel.js';
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 
@@ -375,6 +379,74 @@ async function discoverDiscordAvatars(): Promise<Map<string, DiscordAvatarBindin
 }
 
 // ─── Message Handling ────────────────────────────────────────────────────────
+
+function applyResolvedDiscordHomeChannel(
+  discordConfig: NonNullable<AvatarConfig['platforms']['discord']>,
+  channel: {
+    channelId: string;
+    guildId?: string;
+    channelName?: string;
+  }
+): void {
+  discordConfig.homeChannelId = channel.channelId;
+  if (channel.guildId) {
+    discordConfig.homeGuildId = channel.guildId;
+  }
+  if (channel.channelName) {
+    discordConfig.homeChannelName = channel.channelName;
+  }
+}
+
+async function ensureDiscordHomeChannelForEngagedMessage(
+  message: DiscordMessage,
+  binding: DiscordAvatarBinding
+): Promise<void> {
+  const discordConfig = binding.config.platforms.discord;
+  if (!discordConfig || discordConfig.homeChannelId || message.author.bot) {
+    return;
+  }
+
+  const botUserId = binding.botUserId;
+  if (!botUserId) {
+    return;
+  }
+
+  const isMention = message.mentions.some((mention) => mention.id === botUserId);
+  const isReplyToBot = !!(
+    message.referenced_message &&
+    message.referenced_message.author.id === botUserId
+  );
+
+  if (!isMention && !isReplyToBot) {
+    return;
+  }
+
+  const resolved = await resolveDiscordHomeChannel({
+    avatarId: binding.avatarId,
+    avatarConfig: binding.config,
+  });
+
+  if (resolved) {
+    applyResolvedDiscordHomeChannel(discordConfig, resolved);
+    return;
+  }
+
+  const bootstrapped = await maybeBootstrapDiscordHomeChannel({
+    avatarId: binding.avatarId,
+    avatarConfig: binding.config,
+    channelId: message.channel_id,
+    guildId: message.guild_id,
+    isMention,
+    isReplyToBot,
+  });
+
+  if (bootstrapped) {
+    applyResolvedDiscordHomeChannel(discordConfig, {
+      channelId: message.channel_id,
+      guildId: message.guild_id,
+    });
+  }
+}
 
 async function handleDiscordMessage(
   message: DiscordMessage,
@@ -854,6 +926,8 @@ class GatewayConnection {
             }
           }
         }
+
+        await ensureDiscordHomeChannelForEngagedMessage(message, binding);
         eligible.push(binding);
       }
 
