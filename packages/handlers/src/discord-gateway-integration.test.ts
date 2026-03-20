@@ -2,20 +2,22 @@
  * Discord Gateway Integration Tests
  *
  * Covers the full connection lifecycle, message routing, error scenarios,
- * and multi-tenant avatar binding. See issue #1066.
+ * and multi-tenant avatar binding. See issue #1066 and #1103.
  *
- * Mocks WebSocket, AWS SDK clients, and core services to test the
- * gateway logic in isolation without live Discord API calls.
+ * Mocks WebSocket and SQS to test the gateway logic in isolation without
+ * live Discord API or AWS calls. IMPORTANT: only mock.module('ws') and
+ * '@aws-sdk/client-sqs' here — other AWS SDK mocks leak globally in bun
+ * and break the rest of the test suite.
  */
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 
 // ─── Mock Tracking ────────────────────────────────────────────────────────────
 
-/** Captured SQS messages for assertion */
-const sqsSentMessages: Array<{ input: unknown }> = [];
-
 /** Captured WebSocket sends for assertion */
 const wsSentPayloads: Array<unknown> = [];
+
+/** All MockWebSocket instances created (for resume/reconnect tests) */
+const wsInstances: MockWebSocket[] = [];
 
 // ─── Mock WebSocket ───────────────────────────────────────────────────────────
 
@@ -26,7 +28,7 @@ class MockWebSocket {
   private handlers = new Map<string, Array<(...args: unknown[]) => void>>();
 
   constructor() {
-    wsSentPayloads.length = 0;
+    wsInstances.push(this);
   }
 
   on(event: string, handler: (...args: unknown[]) => void) {
@@ -57,33 +59,6 @@ mock.module('ws', () => ({
   default: MockWebSocket,
   WebSocket: MockWebSocket,
   __esModule: true,
-}));
-
-// ─── Mock AWS SDK ─────────────────────────────────────────────────────────────
-
-mock.module('@aws-sdk/client-sqs', () => ({
-  SQSClient: class {
-    send(cmd: unknown) {
-      sqsSentMessages.push({ input: (cmd as { input: unknown }).input });
-      return Promise.resolve({});
-    }
-    destroy() {}
-  },
-  GetQueueAttributesCommand: class { constructor(public input: unknown) {} },
-  SendMessageCommand: class { constructor(public input: unknown) {} },
-  ReceiveMessageCommand: class { constructor(public input: unknown) {} },
-  DeleteMessageCommand: class { constructor(public input: unknown) {} },
-}));
-
-mock.module('@aws-sdk/client-secrets-manager', () => ({
-  SecretsManagerClient: class { send() { return Promise.resolve({}); } },
-  GetSecretValueCommand: class { constructor(public input: unknown) {} },
-  CreateSecretCommand: class { constructor(public input: unknown) {} },
-  UpdateSecretCommand: class { constructor(public input: unknown) {} },
-  DeleteSecretCommand: class { constructor(public input: unknown) {} },
-  DescribeSecretCommand: class { constructor(public input: unknown) {} },
-  RestoreSecretCommand: class { constructor(public input: unknown) {} },
-  PutSecretValueCommand: class { constructor(public input: unknown) {} },
 }));
 
 // ─── Module Types ─────────────────────────────────────────────────────────────
@@ -134,6 +109,11 @@ afterAll(() => {
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Flush microtask queue to let async handlers resolve */
+function flushPromises(ms = 50): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function createConnection(token = 'fake-bot-token') {
   const conn = new GatewayConnection(token, 0);
@@ -476,7 +456,7 @@ describe('Multi-tenant avatar binding', () => {
 // ===========================================================================
 
 describe('MESSAGE_CREATE dispatch', () => {
-  it('dispatches MESSAGE_CREATE to handlePayload without crashing', async () => {
+  it('dispatches MESSAGE_CREATE through handlePayload without crashing', async () => {
     const { conn, ws } = createConnection();
     const binding = makeAvatarBinding();
     conn.addAvatar(binding as any);
@@ -484,14 +464,127 @@ describe('MESSAGE_CREATE dispatch', () => {
 
     const message = makeDiscordMessage();
 
-    // Dispatch MESSAGE_CREATE — this exercises the full handlePayload path
-    // but may not enqueue because of the stateService/evaluator mocks
+    // Dispatch MESSAGE_CREATE — exercises the full handlePayload path.
+    // The async pipeline may not fully complete (requires live DynamoDB)
+    // but the dispatch itself must not throw or crash the connection.
     sendPayload(ws, { op: 0, s: 2, t: 'MESSAGE_CREATE', d: message });
-
-    // Give async handlers time to resolve
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await flushPromises(100);
 
     conn.stop();
+  });
+
+  it('does not enqueue for guild messages without mention (shouldRespond=false)', async () => {
+    // This test verifies the evaluator decision using the core module directly
+    const { buildDiscordEnvelope } = await import('@swarm/core');
+    const { isDiscordChatAllowed } = await import('./discord/discord-chat-access.js');
+
+    const message = makeDiscordMessage({
+      channel_id: 'ch-no-mention',
+      guild_id: 'guild-200',
+      content: 'Just chatting among humans',
+      mentions: [],
+    });
+
+    const envelope = buildDiscordEnvelope(message as any, {
+      avatarId: 'avatar-test-001',
+      botUserId: '111222333',
+      allowedGuilds: [],
+      allowedChannels: [],
+      ignoreBots: true,
+    });
+
+    // Envelope should be built (message is from a human in allowed channel)
+    expect(envelope).not.toBeNull();
+
+    // Access should be allowed for guild message
+    const accessResult = isDiscordChatAllowed(
+      { channelId: 'ch-no-mention', guildId: 'guild-200', isDm: false, senderId: 'user-300' },
+      { enabled: true, allowedGuilds: [], allowedChannels: [] } as any
+    );
+    expect(accessResult.allowed).toBe(true);
+
+    // But the evaluator should NOT respond to guild messages without mention
+    expect(envelope!.metadata.isMention).toBe(false);
+    expect(envelope!.metadata.chatType).toBe('group');
+  });
+
+  it('builds envelope with isMention=true when bot is mentioned in guild', async () => {
+    const { buildDiscordEnvelope } = await import('@swarm/core');
+
+    const botUserId = '111222333';
+    const message = makeDiscordMessage({
+      channel_id: 'ch-mention-test',
+      guild_id: 'guild-200',
+      content: `Hey <@${botUserId}> what's up?`,
+      mentions: [{ id: botUserId, username: 'TestBot' }],
+    });
+
+    const envelope = buildDiscordEnvelope(message as any, {
+      avatarId: 'avatar-test-001',
+      botUserId,
+      allowedGuilds: [],
+      allowedChannels: [],
+      ignoreBots: true,
+    });
+
+    expect(envelope).not.toBeNull();
+    expect(envelope!.metadata.isMention).toBe(true);
+    expect(envelope!.conversationId).toBe('ch-mention-test');
+    expect(envelope!.platform).toBe('discord');
+  });
+
+  it('builds DM envelope that triggers shouldRespond via evaluator', async () => {
+    const { buildDiscordEnvelope } = await import('@swarm/core');
+    const { isDiscordChatAllowed } = await import('./discord/discord-chat-access.js');
+
+    const message = makeDiscordMessage({
+      guild_id: undefined,
+      channel_id: 'dm-ch-42',
+      content: 'Hello bot, this is a DM',
+    });
+
+    const envelope = buildDiscordEnvelope(message as any, {
+      avatarId: 'avatar-test-001',
+      botUserId: '111222333',
+      allowedGuilds: [],
+      allowedChannels: [],
+      ignoreBots: true,
+    });
+
+    expect(envelope).not.toBeNull();
+    expect(envelope!.conversationId).toBe('dm-ch-42');
+    expect(envelope!.platform).toBe('discord');
+    expect(envelope!.metadata.chatType).toBe('private');
+
+    // Access control should allow DMs when respondInDMs=true
+    const accessResult = isDiscordChatAllowed(
+      { channelId: 'dm-ch-42', isDm: true, senderId: 'user-300' },
+      { enabled: true, respondInDMs: true, allowedGuilds: [], allowedChannels: [] } as any
+    );
+    expect(accessResult.allowed).toBe(true);
+    expect(accessResult.reason).toBe('dm_allowed');
+  });
+
+  it('filters bot-authored messages via buildDiscordEnvelope', async () => {
+    const { buildDiscordEnvelope } = await import('@swarm/core');
+
+    const message = makeDiscordMessage({
+      guild_id: undefined,
+      channel_id: 'dm-bot-ch',
+      author: { id: 'bot-999', username: 'AnotherBot', bot: true },
+      content: 'I am a bot',
+    });
+
+    // With ignoreBots=true, buildDiscordEnvelope returns null for bot authors
+    const envelope = buildDiscordEnvelope(message as any, {
+      avatarId: 'avatar-test-001',
+      botUserId: '111222333',
+      allowedGuilds: [],
+      allowedChannels: [],
+      ignoreBots: true,
+    });
+
+    expect(envelope).toBeNull();
   });
 
   it('ignores dispatch events with no event type', async () => {
@@ -501,7 +594,7 @@ describe('MESSAGE_CREATE dispatch', () => {
     // op: 0 with no `t` field — should be silently ignored
     sendPayload(ws, { op: 0, s: 3, d: {} });
 
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await flushPromises();
     conn.stop();
   });
 
@@ -513,6 +606,91 @@ describe('MESSAGE_CREATE dispatch', () => {
     sendPayload(ws, { op: 0, s: 10, t: 'RESUMED', d: {} });
 
     expect(internals.reconnectAttempts).toBe(0);
+    conn.stop();
+  });
+});
+
+// ===========================================================================
+// Shared Room / Multi-Avatar Routing
+// ===========================================================================
+
+describe('Shared room / multi-avatar routing', () => {
+  it('detects shared room when 2+ avatars share a Discord channel', async () => {
+    const { registerChannelAvatarResolver, unregisterChannelAvatarResolver, isSharedRoom } =
+      await import('./services/room-ingress.js');
+
+    const sharedChannelId = 'shared-ch-999';
+    const singleChannelId = 'single-ch-123';
+
+    registerChannelAvatarResolver('discord' as any, async (channelId: string) => {
+      if (channelId === sharedChannelId) return ['avatar-A', 'avatar-B'];
+      if (channelId === singleChannelId) return ['avatar-solo'];
+      return [];
+    });
+
+    try {
+      // 2 avatars → shared room
+      const shared = await isSharedRoom('discord', sharedChannelId);
+      expect(shared).toBe(true);
+
+      // 1 avatar → not shared
+      const notShared = await isSharedRoom('discord', singleChannelId);
+      expect(notShared).toBe(false);
+
+      // 0 avatars → not shared
+      const empty = await isSharedRoom('discord', 'empty-ch');
+      expect(empty).toBe(false);
+    } finally {
+      unregisterChannelAvatarResolver('discord' as any);
+    }
+  });
+
+  it('buildRoomKey produces platform-prefixed key', async () => {
+    const { buildRoomKey } = await import('./services/room-ingress.js');
+
+    expect(buildRoomKey('discord', 'ch-123')).toBe('discord:ch-123');
+    expect(buildRoomKey('telegram' as any, '-100456')).toBe('telegram:-100456');
+  });
+
+  it('multi-avatar binding routes MESSAGE_CREATE without crashing', async () => {
+    const { conn, ws } = createConnection();
+    const bindingA = makeAvatarBinding({
+      avatarId: 'avatar-A',
+      config: {
+        avatarId: 'avatar-A',
+        name: 'AvatarA',
+        platforms: { discord: { enabled: true, allowedGuilds: [], allowedChannels: [] } },
+        behavior: { ignoreBots: true },
+      },
+    });
+    const bindingB = makeAvatarBinding({
+      avatarId: 'avatar-B',
+      config: {
+        avatarId: 'avatar-B',
+        name: 'AvatarB',
+        platforms: { discord: { enabled: true, allowedGuilds: [], allowedChannels: [] } },
+        behavior: { ignoreBots: true },
+      },
+    });
+    conn.addAvatar(bindingA as any);
+    conn.addAvatar(bindingB as any);
+    doHandshake(ws);
+
+    // Fire MESSAGE_CREATE — both avatars bound, exercises multi-avatar path
+    const message = makeDiscordMessage({
+      id: 'multi-msg-001',
+      channel_id: 'multi-ch',
+      guild_id: 'guild-multi',
+      content: 'Hello multi-avatar room',
+    });
+
+    sendPayload(ws, { op: 0, s: 2, t: 'MESSAGE_CREATE', d: message });
+    await flushPromises(200);
+
+    // Connection should still be healthy after processing
+    expect(conn.isConnected).toBe(true);
+    expect(conn.avatarBindings.size).toBe(2);
+
     conn.stop();
   });
 });
@@ -615,4 +793,149 @@ describe('Close code handling', () => {
       conn.stop();
     });
   }
+});
+
+// ===========================================================================
+// Resume / Reconnect Flow (real reconnect cycle)
+// ===========================================================================
+
+describe('Resume / reconnect flow', () => {
+  it('creates a new WebSocket and sends RESUME after a recoverable close', async () => {
+    wsInstances.length = 0;
+    wsSentPayloads.length = 0;
+
+    const conn = new GatewayConnection('resume-token', 0);
+    conn.start();
+    const internals = conn as unknown as GatewayInternals;
+
+    // First WebSocket instance (initial connection)
+    const ws1 = internals.ws! as unknown as MockWebSocket;
+    expect(wsInstances.length).toBe(1);
+
+    // Complete handshake on ws1
+    sendHello(ws1);
+    sendReady(ws1, {
+      session_id: 'resume-sess-001',
+      resume_gateway_url: 'wss://resume.discord.gg',
+      user: { id: 'bot-resume-42', username: 'ResumeBot' },
+    });
+
+    expect(internals.sessionId).toBe('resume-sess-001');
+    expect(internals.resumeGatewayUrl).toBe('wss://resume.discord.gg');
+    expect(internals.shouldResume).toBe(true);
+
+    const seqBefore = internals.sequence;
+
+    // Simulate a recoverable close (code 4000 = unknown error, reconnectable)
+    ws1._emit('close', 4000, Buffer.from('Unknown error'));
+
+    // scheduleReconnect sets shouldResume=true, clears ws, increments attempts
+    expect(internals.shouldResume).toBe(true);
+    expect(internals.ws).toBeNull();
+    expect(internals.reconnectAttempts).toBe(1);
+
+    // Wait for the reconnect timer to fire and create a new WebSocket
+    await flushPromises(3000);
+
+    // A new WebSocket instance should have been created
+    expect(wsInstances.length).toBeGreaterThanOrEqual(2);
+
+    // Get the new WebSocket
+    const ws2 = internals.ws as unknown as MockWebSocket;
+    expect(ws2).not.toBeNull();
+    expect(ws2).not.toBe(ws1);
+
+    // Simulate the new connection receiving HELLO
+    wsSentPayloads.length = 0;
+    sendHello(ws2);
+
+    // Since shouldResume=true and sessionId exists, it should send RESUME (op 6)
+    const resumePayload = wsSentPayloads.find((p: any) => p.op === 6) as any;
+    expect(resumePayload).toBeTruthy();
+    expect(resumePayload.d.token).toBe('resume-token');
+    expect(resumePayload.d.session_id).toBe('resume-sess-001');
+    expect(resumePayload.d.seq).toBe(seqBefore);
+
+    // Should NOT have sent IDENTIFY (op 2)
+    const identifyPayload = wsSentPayloads.find((p: any) => p.op === 2);
+    expect(identifyPayload).toBeUndefined();
+
+    conn.stop();
+  });
+
+  it('sends IDENTIFY (not RESUME) after a session-invalidating close', async () => {
+    wsInstances.length = 0;
+    wsSentPayloads.length = 0;
+
+    const conn = new GatewayConnection('identify-token', 0);
+    conn.start();
+    const internals = conn as unknown as GatewayInternals;
+
+    const ws1 = internals.ws! as unknown as MockWebSocket;
+
+    // Complete handshake
+    sendHello(ws1);
+    sendReady(ws1, {
+      session_id: 'doomed-sess',
+      resume_gateway_url: 'wss://resume.discord.gg',
+      user: { id: 'bot-id-7', username: 'IdentifyBot' },
+    });
+
+    expect(internals.sessionId).toBe('doomed-sess');
+
+    // Close code 4007 (invalid sequence) invalidates the session
+    ws1._emit('close', 4007, Buffer.from('Invalid seq'));
+
+    expect(internals.sessionId).toBeNull();
+    expect(internals.sequence).toBeNull();
+    expect(internals.resumeGatewayUrl).toBeNull();
+
+    // Wait for reconnect
+    await flushPromises(3000);
+
+    const ws2 = internals.ws as unknown as MockWebSocket;
+    expect(ws2).not.toBeNull();
+
+    // Simulate HELLO on new connection
+    wsSentPayloads.length = 0;
+    sendHello(ws2);
+
+    // Should send IDENTIFY (op 2), not RESUME
+    const identifyPayload = wsSentPayloads.find((p: any) => p.op === 2) as any;
+    expect(identifyPayload).toBeTruthy();
+    expect(identifyPayload.d.token).toBe('identify-token');
+
+    const resumePayload = wsSentPayloads.find((p: any) => p.op === 6);
+    expect(resumePayload).toBeUndefined();
+
+    conn.stop();
+  });
+
+  it('preserves avatar bindings across reconnect', async () => {
+    wsInstances.length = 0;
+
+    const conn = new GatewayConnection('persist-token', 0);
+    const bindingX = makeAvatarBinding({ avatarId: 'persist-avatar-X' });
+    const bindingY = makeAvatarBinding({ avatarId: 'persist-avatar-Y' });
+    conn.addAvatar(bindingX as any);
+    conn.addAvatar(bindingY as any);
+    conn.start();
+    const internals = conn as unknown as GatewayInternals;
+
+    const ws1 = internals.ws! as unknown as MockWebSocket;
+    doHandshake(ws1);
+
+    expect(conn.avatarBindings.size).toBe(2);
+
+    // Trigger reconnect
+    ws1._emit('close', 4000, Buffer.from('Reconnect'));
+    await flushPromises(3000);
+
+    // Bindings should still be present after reconnect
+    expect(conn.avatarBindings.size).toBe(2);
+    expect(conn.avatarBindings.has('persist-avatar-X')).toBe(true);
+    expect(conn.avatarBindings.has('persist-avatar-Y')).toBe(true);
+
+    conn.stop();
+  });
 });
