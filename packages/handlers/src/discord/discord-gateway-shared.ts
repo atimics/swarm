@@ -27,6 +27,7 @@ import {
   createActivityService,
   logger,
   DiscordRateLimiter,
+  DiscordAdapter,
   logIntentValidation,
   logGatewayClose,
   computeReconnectDelay,
@@ -557,6 +558,17 @@ async function handleDiscordMessage(
       admittedToContext: shouldAdmit,
     });
     return;
+  }
+
+  // Send typing indicator immediately so user sees instant feedback
+  // (only for guild messages getting a response - typing is expected user feedback)
+  if (envelope.metadata.chatType !== 'private') {
+    try {
+      const discordAdapter = new DiscordAdapter(config, {
+        botToken: binding.botToken,
+      });
+      await discordAdapter.sendTypingIndicator(envelope.conversationId);
+    } catch { /* non-critical */ }
   }
 
   // Enqueue to shared message queue (with S3 offload for large payloads)
