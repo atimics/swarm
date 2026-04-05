@@ -227,7 +227,7 @@ export interface PublishBlogPostOptions {
 
 export async function publishBlogPost(
   post: BlogPostContent,
-  options?: PubblishBlogPostOptions
+  options?: PublishBlogPostOptions
 ): Promise<BlogPostResult> {
   try {
     // Validate input

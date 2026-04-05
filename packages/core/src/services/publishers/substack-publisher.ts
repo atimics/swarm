@@ -5,7 +5,7 @@
  * Handles session management, draft creation, scheduling, and publishing.
  */
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { logger } from '../utils/logger.js';
+import { logger } from '../../utils/logger.js';
 
 // ============================================================================
 // Types
