@@ -45,7 +45,6 @@ export interface SubstackPublishResult {
 // ============================================================================
 
 const SUBSTACK_API_BASE = 'https://substack.com/api/v1';
-const SUBSTACK_DOMAIN = 'https://substack.com';
 const SESSION_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1000;
