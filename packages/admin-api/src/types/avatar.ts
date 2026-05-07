@@ -151,8 +151,8 @@ export interface AvatarRecord {
   inhabitedAt?: number;
 
   // Slot type - tracks how this avatar was created
-  // 'free' = first avatar (free slot), 'orb' = NFT-backed slot
-  slotType?: 'free' | 'orb';
+  // 'free' = first avatar, 'orb' = Orb-backed slot, 'nft' = collection NFT-backed avatar
+  slotType?: 'free' | 'orb' | 'nft';
 
   // Orb slotting - optional explicit Orb NFT backing for this avatar
   orbMint?: string;
