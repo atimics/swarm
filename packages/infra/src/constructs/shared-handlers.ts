@@ -24,6 +24,7 @@ import type * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import type * as s3 from 'aws-cdk-lib/aws-s3';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { LogGroupWithRetention } from '../utils/log-group-with-retention.js';
 
 // ESM equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -363,61 +364,61 @@ export class SharedHandlers extends Construct {
       ? logs.RetentionDays.ONE_MONTH
       : logs.RetentionDays.ONE_WEEK;
 
-    const messageProcessorLogGroup = new logs.LogGroup(this, 'MessageProcessorLogGroup', {
+    const messageProcessorLogGroup = new LogGroupWithRetention(this, 'MessageProcessorLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-message-processor`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
     });
 
-    const telegramWebhookLogGroup = new logs.LogGroup(this, 'TelegramWebhookLogGroup', {
+    const telegramWebhookLogGroup = new LogGroupWithRetention(this, 'TelegramWebhookLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-telegram-webhook`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
     });
 
-    const responseSenderLogGroup = new logs.LogGroup(this, 'ResponseSenderLogGroup', {
+    const responseSenderLogGroup = new LogGroupWithRetention(this, 'ResponseSenderLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-response-sender`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
     });
 
-    const mediaProcessorLogGroup = new logs.LogGroup(this, 'MediaProcessorLogGroup', {
+    const mediaProcessorLogGroup = new LogGroupWithRetention(this, 'MediaProcessorLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-media-processor`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
     });
 
-    const twitterMentionPollerLogGroup = new logs.LogGroup(this, 'TwitterMentionPollerLogGroup', {
+    const twitterMentionPollerLogGroup = new LogGroupWithRetention(this, 'TwitterMentionPollerLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-twitter-mention-poller`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
     });
 
-    const autonomousTweetPosterLogGroup = new logs.LogGroup(this, 'AutonomousTweetPosterLogGroup', {
+    const autonomousTweetPosterLogGroup = new LogGroupWithRetention(this, 'AutonomousTweetPosterLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-autonomous-tweet-poster`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
     });
 
-    const platformHeartbeatLogGroup = new logs.LogGroup(this, 'PlatformHeartbeatLogGroup', {
+    const platformHeartbeatLogGroup = new LogGroupWithRetention(this, 'PlatformHeartbeatLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-platform-heartbeat`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
     });
 
-    const stationAgentRunnerLogGroup = new logs.LogGroup(this, 'StationAgentRunnerLogGroup', {
+    const stationAgentRunnerLogGroup = new LogGroupWithRetention(this, 'StationAgentRunnerLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-station-agent-runner`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
     });
 
-    const tweetSenderLogGroup = new logs.LogGroup(this, 'TweetSenderLogGroup', {
+    const tweetSenderLogGroup = new LogGroupWithRetention(this, 'TweetSenderLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-tweet-sender`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
     });
 
-    const chatWorkerLogGroup = new logs.LogGroup(this, 'ChatWorkerLogGroup', {
+    const chatWorkerLogGroup = new LogGroupWithRetention(this, 'ChatWorkerLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-chat-worker`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
@@ -440,7 +441,7 @@ export class SharedHandlers extends Construct {
       },
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: messageProcessorLogGroup,
+      logGroup: messageProcessorLogGroup.logGroup,
     });
 
     this.telegramWebhook = new nodejs.NodejsFunction(this, 'TelegramWebhookShared', {
@@ -455,11 +456,11 @@ export class SharedHandlers extends Construct {
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: telegramWebhookLogGroup,
+      logGroup: telegramWebhookLogGroup.logGroup,
     });
 
     // Raticross relay handler - receives inbound messages from peer systems
-    const raticrossRelayLogGroup = new logs.LogGroup(this, 'RaticrossRelayLogGroup', {
+    const raticrossRelayLogGroup = new LogGroupWithRetention(this, 'RaticrossRelayLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-raticross-relay`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
@@ -477,11 +478,11 @@ export class SharedHandlers extends Construct {
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: raticrossRelayLogGroup,
+      logGroup: raticrossRelayLogGroup.logGroup,
     });
 
     // Raticross health handler - responds to health probes from the relay
-    const raticrossHealthLogGroup = new logs.LogGroup(this, 'RaticrossHealthLogGroup', {
+    const raticrossHealthLogGroup = new LogGroupWithRetention(this, 'RaticrossHealthLogGroup', {
       logGroupName: `/aws/lambda/swarm-${environment}${suffix}-raticross-health`,
       retention: logRetention,
       removalPolicy: logRemovalPolicy,
@@ -499,7 +500,7 @@ export class SharedHandlers extends Construct {
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: raticrossHealthLogGroup,
+      logGroup: raticrossHealthLogGroup.logGroup,
     });
 
     this.messageProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.messageQueue, {
@@ -520,7 +521,7 @@ export class SharedHandlers extends Construct {
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: chatWorkerLogGroup,
+      logGroup: chatWorkerLogGroup.logGroup,
     });
 
     this.chatWorker.addEventSource(new lambdaEventSources.SqsEventSource(this.chatWorkerQueue, {
@@ -541,7 +542,7 @@ export class SharedHandlers extends Construct {
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: responseSenderLogGroup,
+      logGroup: responseSenderLogGroup.logGroup,
     });
 
     this.responseSender.addEventSource(new lambdaEventSources.SqsEventSource(this.responseQueue, {
@@ -562,7 +563,7 @@ export class SharedHandlers extends Construct {
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: mediaProcessorLogGroup,
+      logGroup: mediaProcessorLogGroup.logGroup,
     });
 
     this.mediaProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.mediaQueue, {
@@ -582,7 +583,7 @@ export class SharedHandlers extends Construct {
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: twitterMentionPollerLogGroup,
+      logGroup: twitterMentionPollerLogGroup.logGroup,
     });
 
     this.schedulerDlq = new sqs.Queue(this, 'SchedulerDLQ', {
@@ -614,7 +615,7 @@ export class SharedHandlers extends Construct {
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: autonomousTweetPosterLogGroup,
+      logGroup: autonomousTweetPosterLogGroup.logGroup,
     });
 
     const autonomousTweetRule = new events.Rule(this, 'AutonomousTweetSchedule', {
@@ -640,7 +641,7 @@ export class SharedHandlers extends Construct {
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: platformHeartbeatLogGroup,
+      logGroup: platformHeartbeatLogGroup.logGroup,
     });
 
     const platformHeartbeatRule = new events.Rule(this, 'PlatformHeartbeatSchedule', {
@@ -666,7 +667,7 @@ export class SharedHandlers extends Construct {
       environment: commonEnv,
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: stationAgentRunnerLogGroup,
+      logGroup: stationAgentRunnerLogGroup.logGroup,
     });
 
     new events.Rule(this, 'StationAgentSchedule', {
@@ -698,7 +699,7 @@ export class SharedHandlers extends Construct {
       },
       bundling: bundlingOptions,
       tracing: lambda.Tracing.ACTIVE,
-      logGroup: tweetSenderLogGroup,
+      logGroup: tweetSenderLogGroup.logGroup,
     });
 
     this.tweetSender.addEventSource(new lambdaEventSources.SqsEventSource(this.postQueue, {
