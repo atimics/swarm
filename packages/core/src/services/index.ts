@@ -13,6 +13,8 @@ export {
   createMediaService,
   createMediaServiceWithDeps,
   buildVoiceCloneInput,
+  getOpenRouterImageModalities,
+  openRouterImageModelSupportsTextOutput,
   type GeneratedMediaExtended,
   type VoiceCloneInput,
 } from './media/index.js';

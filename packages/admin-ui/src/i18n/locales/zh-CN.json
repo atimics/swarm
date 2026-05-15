@@ -421,15 +421,15 @@
     "secretTemplates": {
       "replicate": {
         "title": "Replicate API 密钥",
-        "description": "用于通过 Replicate 生成图片和视频"
+        "description": "用于通过 Replicate 生成语音和音频"
       },
       "telegram": {
         "title": "Telegram 机器人令牌",
         "description": "用于 Telegram 机器人集成"
       },
       "openrouter": {
-        "title": "OpenRouter API 密钥",
-        "description": "用于通过 OpenRouter 访问大语言模型"
+        "title": "OpenRouter",
+        "description": "由服务器管理的大语言模型、图片和视频访问"
       },
       "openai": {
         "title": "OpenAI API 密钥",

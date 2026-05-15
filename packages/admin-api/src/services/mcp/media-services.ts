@@ -7,7 +7,6 @@
 import type { AllServices } from '@swarm/mcp-server';
 import type { UserSession } from '../../types.js';
 import type { ServiceContainer } from '../service-container.js';
-import { searchReplicateModels } from '../replicate-schema.js';
 import { DEFAULT_MODELS } from '../models-registry.js';
 import { searchOpenRouterModels } from '../openrouter-models.js';
 
@@ -227,49 +226,31 @@ export function createMediaServices(
     // =========================================================================
     mediaModels: {
       browseMediaModels: async (query, capability, provider = 'openrouter') => {
-        if (provider === 'openrouter') {
-          let apiKey: string | undefined;
-          try {
-            apiKey = await media.getProviderApiKey(avatarId, 'openrouter') ?? undefined;
-          } catch {
-            apiKey = process.env.OPENROUTER_API_KEY;
-          }
-
-          const results = await searchOpenRouterModels(query, { capability, apiKey });
-          return results.map(r => ({
-            id: r.id,
-            name: r.name,
-            description: r.description,
-            runCount: 0,
-          }));
+        if (provider === 'replicate') {
+          throw new Error('Replicate is not supported for image/video generation. Use OpenRouter media models instead.');
         }
 
         let apiKey: string | undefined;
         try {
-          apiKey = await media.getProviderApiKey(avatarId, 'replicate') ?? undefined;
+          apiKey = await media.getProviderApiKey(avatarId, 'openrouter') ?? undefined;
         } catch {
-          apiKey = process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY;
-        }
-        if (!apiKey) {
-          throw new Error('No Replicate API key available for model search. Configure a Replicate key first.');
+          apiKey = process.env.OPENROUTER_API_KEY;
         }
 
-        const searchQuery = capability === 'video'
-          ? `${query} video generation`
-          : `${query} image generation`;
-
-        const { results } = await searchReplicateModels(searchQuery, apiKey);
-
+        const results = await searchOpenRouterModels(query, { capability, apiKey });
         return results.map(r => ({
-          id: `${r.owner}/${r.name}`,
+          id: r.id,
           name: r.name,
-          description: r.description || '',
-          runCount: r.run_count || 0,
-          coverImageUrl: r.cover_image_url,
+          description: r.description,
+          runCount: 0,
         }));
       },
 
       setMediaModel: async (targetAvatarId, capability, modelId, provider = 'openrouter') => {
+        if (provider === 'replicate') {
+          throw new Error('Replicate is not supported for image/video generation. Use OpenRouter media models instead.');
+        }
+
         await integrations.setModelPreference(
           targetAvatarId,
           provider,

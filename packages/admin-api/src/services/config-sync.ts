@@ -159,27 +159,19 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
     ...record.voiceConfig,
   };
   const integrationOpenRouterImageModel = record.integrations?.openrouter?.models?.image_generation;
-  const integrationReplicateImageModel = record.integrations?.replicate?.models?.image_generation;
-  const mediaImageProvider = integrationOpenRouterImageModel
-    ? 'openrouter'
-    : integrationReplicateImageModel
-      ? 'replicate'
-      : record.mediaConfig?.image?.provider || 'openrouter';
+  const legacyOpenRouterImageModel = record.mediaConfig?.image?.provider === 'openrouter'
+    ? record.mediaConfig.image.model
+    : undefined;
   const mediaImageModel = integrationOpenRouterImageModel
-    || integrationReplicateImageModel
-    || record.mediaConfig?.image?.model
+    || legacyOpenRouterImageModel
     || DEFAULT_MODELS.image_generation;
 
   const integrationOpenRouterVideoModel = record.integrations?.openrouter?.models?.video_generation;
-  const integrationReplicateVideoModel = record.integrations?.replicate?.models?.video_generation;
-  const mediaVideoProvider = integrationOpenRouterVideoModel
-    ? 'openrouter'
-    : integrationReplicateVideoModel
-      ? 'replicate'
-      : record.mediaConfig?.video?.provider || 'openrouter';
+  const legacyOpenRouterVideoModel = record.mediaConfig?.video?.provider === 'openrouter'
+    ? record.mediaConfig.video.model
+    : undefined;
   const mediaVideoModel = integrationOpenRouterVideoModel
-    || integrationReplicateVideoModel
-    || record.mediaConfig?.video?.model
+    || legacyOpenRouterVideoModel
     || DEFAULT_MODELS.video_generation;
 
   const config: AvatarConfig = {
@@ -220,12 +212,11 @@ export function convertToAvatarConfig(record: AvatarRecord): AvatarConfig {
     },
     media: {
       image: {
-        // Priority: OpenRouter integration > legacy Replicate integration > mediaConfig > default
-        provider: mediaImageProvider,
+        provider: 'openrouter',
         model: mediaImageModel,
       },
       video: {
-        provider: mediaVideoProvider,
+        provider: 'openrouter',
         model: mediaVideoModel,
       },
     },

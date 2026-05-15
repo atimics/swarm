@@ -49,7 +49,7 @@ export interface AdminApiConstructProps {
 
   /**
    * Global Replicate API key (stored in Secrets Manager)
-   * Used for image/video generation with a trial limit per avatar
+   * Used for voice/audio generation and legacy Replicate paths
    */
   replicateApiKeyArn?: string;
 
@@ -523,7 +523,7 @@ export class AdminApiConstruct extends Construct {
           description: 'API key for the admin chatbot LLM',
         });
 
-    // Secret for Replicate API key (optional - enables free trial image generation)
+    // Secret for Replicate API key (optional - enables voice/audio and legacy Replicate paths)
     const replicateApiKey = props.replicateApiKeyArn
       ? secretsmanager.Secret.fromSecretCompleteArn(this, 'ReplicateApiKey', props.replicateApiKeyArn)
       : undefined;

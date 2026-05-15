@@ -312,6 +312,13 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
   // them from OpenRouter's live /models catalog before sending a request.
 ];
 
+export function isRetiredReplicateMediaModel(model: Pick<ModelInfo, 'provider' | 'capabilities'>): boolean {
+  return model.provider === 'replicate' && (
+    model.capabilities.includes('image_generation') ||
+    model.capabilities.includes('video_generation')
+  );
+}
+
 /**
  * Get models for a specific capability
  */
@@ -321,6 +328,7 @@ export function getModelsForCapability(
 ): ModelInfo[] {
   return AVAILABLE_MODELS.filter(
     (model) =>
+      !isRetiredReplicateMediaModel(model) &&
       model.capabilities.includes(capability) &&
       (!provider || model.provider === provider)
   );
@@ -399,7 +407,7 @@ export function getValidModelId(value: unknown): string | undefined {
  * Get all models for a provider
  */
 export function getModelsForProvider(provider: string): ModelInfo[] {
-  return AVAILABLE_MODELS.filter((m) => m.provider === provider);
+  return AVAILABLE_MODELS.filter((m) => m.provider === provider && !isRetiredReplicateMediaModel(m));
 }
 
 /**

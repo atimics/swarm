@@ -30,6 +30,7 @@ import {
 import { createPlatformMCPServices } from '../services/platform-mcp-adapter.js';
 import { parseSqsRecordBody, cleanupSqsRecord, sendSqsMessage } from '../services/sqs-send.js';
 import { ensureReplicateKey } from '../utils/system-replicate-key.js';
+import { ensureOpenRouterKey } from '../utils/system-openrouter-key.js';
 import { loadAvatarSecrets } from '../utils/load-avatar-secrets.js';
 import { createRuntimeBrainService } from '../services/brain.js';
 import { executeToolLoop, buildResponseFromToolLoop } from './tool-loop.js';
@@ -120,6 +121,13 @@ async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
   };
 
   const secrets = await loadAvatarSecrets(secretsService, avatarId);
+  try {
+    await ensureOpenRouterKey(secrets, secretsService);
+  } catch (err) {
+    logger.warn('Failed to load system OpenRouter key', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   try {
     await ensureReplicateKey(secrets, secretsService);
   } catch (err) {

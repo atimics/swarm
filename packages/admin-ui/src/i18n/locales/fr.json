@@ -421,15 +421,15 @@
     "secretTemplates": {
       "replicate": {
         "title": "Clé API Replicate",
-        "description": "Pour la génération d'images et de vidéos via Replicate"
+        "description": "Pour la génération de voix et d'audio via Replicate"
       },
       "telegram": {
         "title": "Jeton du bot Telegram",
         "description": "Pour l'intégration du bot Telegram"
       },
       "openrouter": {
-        "title": "Clé API OpenRouter",
-        "description": "Pour l'accès aux LLM via OpenRouter"
+        "title": "OpenRouter",
+        "description": "Accès LLM, image et vidéo géré côté serveur"
       },
       "openai": {
         "title": "Clé API OpenAI",

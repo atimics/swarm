@@ -9,6 +9,7 @@ import type { IntegrationType, AICapability } from '../integrations.js';
 import type { UserSession } from '../../types.js';
 import type { ServiceContainer } from '../service-container.js';
 import { getBotToken } from './helpers.js';
+import { isRetiredReplicateMediaModel } from '../models-registry.js';
 
 type PlatformServices = Pick<AllServices, 'telegram' | 'twitter' | 'discord' | 'integrations'>;
 
@@ -221,9 +222,9 @@ export function createPlatformServices(
         } else if (capability) {
           return _getModelsForCapability(capability as AICapability);
         } else if (integration) {
-          return _AVAILABLE_MODELS.filter(m => m.provider === integration);
+          return _AVAILABLE_MODELS.filter(m => m.provider === integration && !isRetiredReplicateMediaModel(m));
         }
-        return _AVAILABLE_MODELS;
+        return _AVAILABLE_MODELS.filter(m => !isRetiredReplicateMediaModel(m));
       },
 
       setModelPreference: async (integration: string, capability: string, modelId: string) => {

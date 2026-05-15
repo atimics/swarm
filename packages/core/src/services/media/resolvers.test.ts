@@ -34,7 +34,7 @@ describe('core media resolvers', () => {
       expect(result.provider).toBe('openrouter');
     });
 
-    it('uses legacy integrations.replicate.models[capability] when no OpenRouter model is configured', async () => {
+    it('ignores legacy integrations.replicate image models and uses OpenRouter defaults', async () => {
       const docClient = createDocClientWithItem({
         integrations: {
           replicate: {
@@ -47,8 +47,8 @@ describe('core media resolvers', () => {
 
       const resolveModel = createModelResolver({ tableName: 'T', dynamoClient: docClient })!;
       const result = await resolveModel('avatar-1', 'image_generation');
-      expect(result.model).toBe('google/nano-banana-pro');
-      expect(result.provider).toBe('replicate');
+      expect(result.model).toBe(DEFAULT_MODELS.image_generation);
+      expect(result.provider).toBe('openrouter');
     });
 
     it('falls back to OpenRouter for image and video defaults', async () => {
@@ -64,7 +64,7 @@ describe('core media resolvers', () => {
       expect(video.provider).toBe('openrouter');
     });
 
-    it('uses synced config.media.image.model only for image_generation', async () => {
+    it('ignores legacy synced Replicate image config', async () => {
       const docClient = createDocClientWithItem({
         config: {
           media: {
@@ -75,13 +75,14 @@ describe('core media resolvers', () => {
 
       const resolveModel = createModelResolver({ tableName: 'T', dynamoClient: docClient })!;
       const image = await resolveModel('avatar-1', 'image_generation');
-      expect(image.model).toBe('synced/image-model');
+      expect(image.model).toBe(DEFAULT_MODELS.image_generation);
+      expect(image.provider).toBe('openrouter');
 
       const audio = await resolveModel('avatar-1', 'audio_generation' as AICapability);
       expect(audio.model).toBe(DEFAULT_MODELS.audio_generation);
     });
 
-    it('uses synced config.media.video.model only for video_generation', async () => {
+    it('ignores legacy synced Replicate video config', async () => {
       const docClient = createDocClientWithItem({
         config: {
           media: {
@@ -92,7 +93,8 @@ describe('core media resolvers', () => {
 
       const resolveModel = createModelResolver({ tableName: 'T', dynamoClient: docClient })!;
       const video = await resolveModel('avatar-1', 'video_generation');
-      expect(video.model).toBe('synced/video-model');
+      expect(video.model).toBe(DEFAULT_MODELS.video_generation);
+      expect(video.provider).toBe('openrouter');
 
       const image = await resolveModel('avatar-1', 'image_generation');
       expect(image.model).toBe(DEFAULT_MODELS.image_generation);

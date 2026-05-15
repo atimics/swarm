@@ -421,15 +421,15 @@
     "secretTemplates": {
       "replicate": {
         "title": "Replicate API Key",
-        "description": "For image and video generation via Replicate"
+        "description": "For voice and audio generation via Replicate"
       },
       "telegram": {
         "title": "Telegram Bot Token",
         "description": "For Telegram bot integration"
       },
       "openrouter": {
-        "title": "OpenRouter API Key",
-        "description": "For LLM access via OpenRouter"
+        "title": "OpenRouter",
+        "description": "Server-managed LLM, image, and video access"
       },
       "openai": {
         "title": "OpenAI API Key",

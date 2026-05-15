@@ -11,10 +11,12 @@ import type {
   GenerateImageOptions,
   GalleryItemOutput,
 } from './types.js';
+import { getOpenRouterImageModalities } from './openrouter-image.js';
 
 // Re-export types and resolvers
 export * from './types.js';
 export * from './resolvers.js';
+export * from './openrouter-image.js';
 export { buildVoiceCloneInput, type VoiceCloneInput } from './voice-input.js';
 
 const IMAGE_GENERATION_MAX_REFERENCE_IMAGES = 14;
@@ -333,7 +335,7 @@ export class SwarmMediaService implements MediaService {
             content,
           },
         ],
-        modalities: ['image', 'text'],
+        modalities: getOpenRouterImageModalities(model),
         image_config: {
           aspect_ratio: options?.aspectRatio || '1:1',
           image_size: options?.resolution || '2K',
