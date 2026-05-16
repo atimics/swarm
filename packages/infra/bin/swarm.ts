@@ -12,7 +12,6 @@ import * as cdk from 'aws-cdk-lib';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { CoreInfraStack } from '../src/stacks/core-infra-stack.js';
-import { MediaStack } from '../src/stacks/media-stack.js';
 import { AdminApiStack } from '../src/stacks/admin-api-stack.js';
 import { FrontendStack } from '../src/stacks/frontend-stack.js';
 import { ProfilePageStack } from '../src/stacks/profile-page-stack.js';
@@ -131,8 +130,8 @@ const stackHashRaw = getContextValue<string>('stackHash', envConfig);
 function normalizeStackHash(value?: string): string | undefined {
   if (!value) return undefined;
   const trimmed = value.trim();
-  if (!/^[a-f0-9]{6}$/i.test(trimmed)) {
-    throw new Error(`Invalid stackHash "${value}". Expected 6 hex chars.`);
+  if (!/^[a-z0-9]{6}$/i.test(trimmed)) {
+    throw new Error(`Invalid stackHash "${value}". Expected 6 alphanumeric chars.`);
   }
   return trimmed.toLowerCase();
 }
@@ -187,6 +186,7 @@ if (environment === 'prod' && !useExistingResources) {
 // ============================================
 
 // 1. Core Infrastructure Stack (deploys first, rarely changes)
+// Data plane: DynamoDB tables, S3 bucket, Lambda layer, CDN, SNS alarms
 const coreInfraStack = new CoreInfraStack(app, `SwarmCore-${environment}${nameSuffix}`, {
   environment,
   nameSuffix,
@@ -202,17 +202,8 @@ const coreInfraStack = new CoreInfraStack(app, `SwarmCore-${environment}${nameSu
   description: `Swarm Core Infrastructure (${environment})`,
 });
 
-// 2. Media Stack (depends on core, contains image/voice/media processing)
-const mediaStack = new MediaStack(app, `SwarmMedia-${environment}${nameSuffix}`, {
-  environment,
-  nameSuffix: nonSharedResourceSuffix,
-  coreInfraStack,
-  env: stackEnv,
-  description: `Swarm Media Processing (${environment})`,
-});
-mediaStack.addDependency(coreInfraStack);
-
-// 3. Admin API Stack (depends on core, changes with code updates)
+// 2. Admin API Stack (depends on core, application plane)
+// Contains: API Gateway, Lambda handlers, messaging handlers, Discord gateway, SQS queues
 const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}${nameSuffix}`, {
   environment,
   nameSuffix: nonSharedResourceSuffix,
@@ -249,7 +240,8 @@ const adminApiStack = new AdminApiStack(app, `SwarmApi-${environment}${nameSuffi
 });
 adminApiStack.addDependency(coreInfraStack);
 
-// 4. Frontend Stack (depends on Admin API, changes with UI updates)
+// 3. Frontend Stack (depends on Admin API, UI plane)
+// Contains: CloudFront for Admin UI, edge functions
 const frontendStack = new FrontendStack(app, `SwarmUi-${environment}${nameSuffix}`, {
   environment,
   nameSuffix: nonSharedResourceSuffix,
@@ -264,7 +256,7 @@ const frontendStack = new FrontendStack(app, `SwarmUi-${environment}${nameSuffix
 });
 frontendStack.addDependency(adminApiStack);
 
-// 5. Profile Page Stack (independent, changes with profile page updates)
+// Optional: Profile Page Stack (independent, changes with profile page updates)
 // Hosts public avatar profile pages at *.rati.chat subdomains
 if (profileDomain || app.node.tryGetContext('deployProfilePage')) {
   new ProfilePageStack(app, `SwarmProfilePage-${environment}${nameSuffix}`, {
@@ -280,7 +272,7 @@ if (profileDomain || app.node.tryGetContext('deployProfilePage')) {
   });
 }
 
-// 6. Docs Site Stack (independent, changes with docs updates)
+// Optional: Docs Site Stack (independent, changes with docs updates)
 // Hosts API documentation at docs.rati.chat
 if (docsDomain || app.node.tryGetContext('deployDocsSite')) {
   new DocsSiteStack(app, `SwarmDocsSite-${environment}${nameSuffix}`, {
