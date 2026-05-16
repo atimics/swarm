@@ -23,6 +23,7 @@ import {
   type SwarmResponse,
 } from '@swarm/core/types';
 import { ensureReplicateKey } from '../utils/system-replicate-key.js';
+import { ensureOpenRouterKey } from '../utils/system-openrouter-key.js';
 import { parseSqsRecordBody, cleanupSqsRecord, sendSqsMessage } from '../services/sqs-send.js';
 import { checkMediaWithEnergyFallback } from '../services/entitlement-enforcement.js';
 import { getDynamoClient } from '../services/dynamo-client.js';
@@ -237,6 +238,26 @@ async function getAvatarRuntime(avatarId: string): Promise<AvatarMediaRuntime> {
   };
 
   const secrets = await loadAvatarSecrets(secretsService, avatarId, SECRET_PREFIX);
+
+  try {
+    const ok = await ensureOpenRouterKey(secrets, secretsService);
+    if (ok && secrets.OPENROUTER_API_KEY) {
+      logger.info('Loaded system OpenRouter key for media processor', { subsystem: 'media', avatarId });
+    } else if (!ok) {
+      logger.warn('System OpenRouter key not configured for media processor', {
+        subsystem: 'media',
+        avatarId,
+        hasEnvKey: Boolean(process.env.OPENROUTER_API_KEY || process.env.LLM_API_KEY),
+        hasSecretArn: Boolean(process.env.OPENROUTER_API_KEY_SECRET_ARN || process.env.LLM_API_KEY_SECRET_ARN),
+      });
+    }
+  } catch (err) {
+    logger.warn('Failed to load system OpenRouter key for media processor', {
+      subsystem: 'media',
+      avatarId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   try {
     const ok = await ensureReplicateKey(secrets, secretsService);

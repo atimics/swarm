@@ -154,8 +154,14 @@ describe('Models Registry', () => {
       expect(models.every(m => m.capabilities.includes('voice_clone'))).toBe(true);
     });
 
-    it('should filter by provider when specified', () => {
+    it('should not expose retired Replicate image models', () => {
       const replicateModels = getModelsForCapability('image_generation', 'replicate');
+      expect(replicateModels).toEqual([]);
+    });
+
+    it('should filter by provider when specified', () => {
+      const replicateModels = getModelsForCapability('audio_generation', 'replicate');
+      expect(replicateModels.length).toBeGreaterThan(0);
       expect(replicateModels.every(m => m.provider === 'replicate')).toBe(true);
 
       const openaiModels = getModelsForCapability('llm', 'openai');
@@ -213,14 +219,14 @@ describe('Models Registry', () => {
       expect(model?.provider).toBe('openrouter');
     });
 
-    it('keeps FLUX 1.1 Pro as a selectable legacy Replicate image model', () => {
+    it('keeps FLUX 1.1 Pro registered for legacy Replicate config recognition', () => {
       const model = getModelById('black-forest-labs/flux-1.1-pro');
       expect(model).toBeTruthy();
       expect(model?.capabilities).toContain('image_generation');
       expect(model?.provider).toBe('replicate');
     });
 
-    it('should expose Nano Banana Pro as a selectable Replicate image model', () => {
+    it('keeps Nano Banana Pro registered for legacy Replicate config recognition', () => {
       const model = getModelById('google/nano-banana-pro');
       expect(model).toBeTruthy();
       expect(model?.capabilities).toContain('image_generation');
@@ -241,10 +247,12 @@ describe('Models Registry', () => {
   });
 
   describe('getModelsForProvider', () => {
-    it('should return all Replicate models', () => {
+    it('should return active Replicate models only', () => {
       const models = getModelsForProvider('replicate');
       expect(models.length).toBeGreaterThan(0);
       expect(models.every(m => m.provider === 'replicate')).toBe(true);
+      expect(models.every(m => !m.capabilities.includes('image_generation'))).toBe(true);
+      expect(models.every(m => !m.capabilities.includes('video_generation'))).toBe(true);
     });
 
     it('should return all OpenAI models', () => {

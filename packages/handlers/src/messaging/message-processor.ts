@@ -48,6 +48,7 @@ import {
   isMemoryWriteAllowed,
 } from '../services/entitlement-enforcement.js';
 import { ensureReplicateKey } from '../utils/system-replicate-key.js';
+import { ensureOpenRouterKey } from '../utils/system-openrouter-key.js';
 import { loadAvatarSecrets } from '../utils/load-avatar-secrets.js';
 import { createRuntimeBrainService } from '../services/brain.js';
 
@@ -338,7 +339,23 @@ async function getAvatarRuntime(avatarId: string): Promise<AvatarRuntime> {
   // Fetch individual secrets from Secrets Manager using direct paths
   const secrets = await fetchAvatarSecrets(avatarId);
 
-  // If avatar secrets don't include Replicate, fall back to a system key (if configured).
+  // If avatar secrets don't include OpenRouter/Replicate, fall back to system keys.
+  try {
+    const ok = await ensureOpenRouterKey(secrets, secretsService);
+    if (ok && !secrets.openrouter_api_key && secrets.OPENROUTER_API_KEY) {
+      logger.info('Loaded system OpenRouter key for runtime handler');
+    } else if (!ok) {
+      logger.warn('System OpenRouter key not configured for runtime handler', {
+        hasEnvKey: Boolean(process.env.OPENROUTER_API_KEY || process.env.LLM_API_KEY),
+        hasSecretArn: Boolean(process.env.OPENROUTER_API_KEY_SECRET_ARN || process.env.LLM_API_KEY_SECRET_ARN),
+      });
+    }
+  } catch (err) {
+    logger.warn('Failed to load system OpenRouter key', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   try {
     const ok = await ensureReplicateKey(secrets, secretsService);
     if (ok && !secrets.REPLICATE_API_TOKEN && secrets.REPLICATE_API_KEY) {

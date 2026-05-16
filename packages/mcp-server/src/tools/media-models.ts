@@ -70,7 +70,7 @@ export const createMediaModelTools = (services: MediaModelServices) => [
         .enum(['openrouter', 'replicate'])
         .optional()
         .default('openrouter')
-        .describe('Model provider to search; defaults to OpenRouter for image/video generation'),
+        .describe('Model provider to search; use OpenRouter for image/video generation. Replicate is legacy and should not be used as an image/video fallback.'),
     }),
     execute: async (input, _context): Promise<ToolResult> => {
       const results = await services.browseMediaModels(input.query, input.capability, input.provider);
@@ -125,7 +125,7 @@ export const createMediaModelTools = (services: MediaModelServices) => [
         .enum(['openrouter', 'replicate'])
         .optional()
         .default('openrouter')
-        .describe('Provider to store this model under; defaults to OpenRouter'),
+        .describe('Provider to store this model under; use OpenRouter for image/video generation'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
       await services.setMediaModel(context.avatarId, input.capability, input.model, input.provider);
@@ -159,7 +159,7 @@ export const createMediaModelTools = (services: MediaModelServices) => [
         .enum(['openrouter', 'replicate'])
         .optional()
         .default('openrouter')
-        .describe('Provider to read; defaults to OpenRouter'),
+        .describe('Provider to read; image/video generation defaults to OpenRouter'),
     }),
     execute: async (input, context): Promise<ToolResult> => {
       const config = await services.getMediaModel(context.avatarId, input.capability, input.provider);

@@ -13,7 +13,11 @@ import * as observabilityService from '../../services/observability.js';
 import * as integrationsService from '../../services/integrations.js';
 import { searchReplicateModels } from '../../services/media/replicate-schema.js';
 import { searchOpenRouterModels } from '../../services/openrouter-models.js';
-import { AVAILABLE_MODELS, type ModelInfo } from '../../services/models-registry.js';
+import {
+  AVAILABLE_MODELS,
+  isRetiredReplicateMediaModel,
+  type ModelInfo,
+} from '../../services/models-registry.js';
 
 // Module-level cache for the Replicate API key resolved from Secrets Manager.
 let cachedReplicateApiKey: string | null = null;
@@ -268,6 +272,6 @@ function filterHardcodedModels(
       m.description.toLowerCase().includes(q);
     const matchesCap = !capability || m.capabilities.includes(capability as ModelInfo['capabilities'][number]);
     const matchesProvider = !provider || m.provider === provider;
-    return matchesQuery && matchesCap && matchesProvider;
+    return matchesQuery && matchesCap && matchesProvider && !isRetiredReplicateMediaModel(m);
   });
 }

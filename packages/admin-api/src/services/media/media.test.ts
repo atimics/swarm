@@ -356,8 +356,8 @@ describe('Integration Config Model Selection', () => {
       avatar: Partial<AvatarRecord> | null,
       capability: AICapability
     ): string {
-      if (avatar?.integrations?.replicate?.models?.[capability]) {
-        return avatar.integrations.replicate.models[capability]!;
+      if (avatar?.integrations?.openrouter?.models?.[capability]) {
+        return avatar.integrations.openrouter.models[capability]!;
       }
       return DEFAULT_MODELS[capability];
     }
@@ -365,18 +365,16 @@ describe('Integration Config Model Selection', () => {
     it('should return configured model when avatar has integration config', () => {
       const avatar: Partial<AvatarRecord> = {
         integrations: {
-          replicate: {
+          openrouter: {
             enabled: true,
             useGlobalKey: false,
-            models: {
-              image_generation: 'black-forest-labs/flux-schnell',
-            },
+            models: { image_generation: 'black-forest-labs/flux.2-flex' },
           },
         },
       };
 
       const model = getConfiguredModel(avatar, 'image_generation');
-      expect(model).toBe('black-forest-labs/flux-schnell');
+      expect(model).toBe('black-forest-labs/flux.2-flex');
     });
 
     it('should return default model when avatar has no integration config', () => {
@@ -390,7 +388,7 @@ describe('Integration Config Model Selection', () => {
       expect(model).toBe(DEFAULT_MODELS.image_generation);
     });
 
-    it('should return default model when replicate integration not configured', () => {
+    it('should return default model when OpenRouter integration not configured', () => {
       const avatar: Partial<AvatarRecord> = {
         integrations: {
           telegram: {
@@ -406,12 +404,10 @@ describe('Integration Config Model Selection', () => {
     it('should return default model when capability not specified in config', () => {
       const avatar: Partial<AvatarRecord> = {
         integrations: {
-          replicate: {
+          openrouter: {
             enabled: true,
             useGlobalKey: true,
-            models: {
-              video_generation: 'luma/ray',
-            },
+            models: { video_generation: 'bytedance/seedance-2.0-fast' },
           },
         },
       };
@@ -433,7 +429,7 @@ describe('Integration Config Model Selection', () => {
 
       const avatar: Partial<AvatarRecord> = {
         integrations: {
-          replicate: {
+          openrouter: {
             enabled: true,
             useGlobalKey: false,
             models: capabilityModelMap,

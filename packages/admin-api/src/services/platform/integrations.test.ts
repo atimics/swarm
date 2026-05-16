@@ -330,7 +330,7 @@ describe('Model Selection Logic', () => {
     capability: AICapability,
     defaultModelId: string
   ): string {
-    const config = avatar?.integrations?.replicate;
+    const config = avatar?.integrations?.openrouter;
     const configuredModel = config?.models?.[capability];
 
     if (configuredModel) {
@@ -343,18 +343,18 @@ describe('Model Selection Logic', () => {
   it('should return configured model when set', () => {
     const avatar: MockAvatar = {
       integrations: {
-        replicate: {
+        openrouter: {
           enabled: true,
           useGlobalKey: false,
           models: {
-            image_generation: 'custom/model',
+            image_generation: 'black-forest-labs/flux.2-flex',
           },
         },
       },
     };
 
     const model = getConfiguredModel(avatar, 'image_generation', 'default/model');
-    expect(model).toBe('custom/model');
+    expect(model).toBe('black-forest-labs/flux.2-flex');
   });
 
   it('should return default when no config', () => {
@@ -371,7 +371,7 @@ describe('Model Selection Logic', () => {
   it('should return default when capability not in models', () => {
     const avatar: MockAvatar = {
       integrations: {
-        replicate: {
+        openrouter: {
           enabled: true,
           useGlobalKey: true,
           models: {

@@ -64,7 +64,7 @@ function getDefaultProvider(capability: AICapability): ValidProvider {
 
 function getPreferredProviders(capability: AICapability): ValidProvider[] {
   if (capability === 'image_generation' || capability === 'video_generation') {
-    return ['openrouter', 'replicate'];
+    return ['openrouter'];
   }
   if (capability === 'llm') {
     return ['openrouter', 'anthropic', 'openai'];
@@ -123,7 +123,11 @@ export function createModelResolver(config: ResolverConfig): MediaServiceDepende
         }
       }
 
-      if (syncedConfigModel) {
+      const isLegacyReplicateMediaConfig =
+        (capability === 'image_generation' || capability === 'video_generation') &&
+        syncedConfigProvider === 'replicate';
+
+      if (syncedConfigModel && !isLegacyReplicateMediaConfig) {
         const resolvedProvider = isValidProvider(syncedConfigProvider)
           ? syncedConfigProvider
           : getDefaultProvider(capability);
@@ -440,7 +444,7 @@ export function createApiKeyResolver(config: ResolverConfig): MediaServiceDepend
     // System key exists - check trial credits (but don't consume yet)
     const { available } = await getTrialCredits(docClient, config.tableName, avatarId);
     if (available <= 0) {
-      throw new Error('Free image credits exhausted. Credits recharge at 1/day (max 3). Set your own Replicate API key for unlimited use.');
+      throw new Error('Free Replicate media credits exhausted. Credits recharge at 1/day (max 3).');
     }
 
     return {

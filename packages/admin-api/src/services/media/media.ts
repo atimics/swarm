@@ -14,6 +14,7 @@ import {
   createModelResolver,
   createApiKeyResolver,
   createTrialCreditConsumer,
+  getOpenRouterImageModalities,
   type ResolverConfig,
 } from '@swarm/core/services';
 import * as mediaJobs from './media-jobs.js';
@@ -26,6 +27,7 @@ import type { MediaJob, GalleryItem, SecretType, AICapability } from '../../type
 import { getDynamoClient } from '../dynamo-client.js';
 import { createSystemLogger } from '../structured-logger.js';
 import { buildMediaUrl, canonicalizeMediaUrl } from '../../utils/media-url.js';
+import { getSystemOpenRouterApiKey } from '../openrouter-key.js';
 
 const log = createSystemLogger('media');
 
@@ -371,7 +373,7 @@ interface ResolvedApiKeyWithSource {
 }
 
 /**
- * Get Replicate API key for image generation using core resolver
+ * Get Replicate API key for legacy Replicate media paths using core resolver
  * Handles avatar key -> system key -> trial credits fallback
  * Note: For trial usage, credits are checked but NOT consumed here.
  * Caller must call consumeTrialCreditAfterSuccess() after successful operation.
@@ -418,6 +420,10 @@ async function resolveMediaModel(
   const resolved = await coreModelResolver(avatarId, capability);
   const registryProvider = modelOverride ? getModelById(modelOverride)?.provider : undefined;
   const provider = registryProvider || resolved.provider;
+
+  if ((capability === 'image_generation' || capability === 'video_generation') && provider === 'replicate') {
+    throw new Error(`${capability} uses OpenRouter; Replicate is only supported for voice/audio generation.`);
+  }
 
   if (!isSupportedMediaProvider(provider)) {
     throw new Error(`Unsupported media provider for ${capability}: ${provider}`);
@@ -492,6 +498,8 @@ async function generateImageWithOpenRouter(params: {
     })),
   ];
 
+  const modalities = getOpenRouterImageModalities(modelId);
+
   const requestBody: Record<string, unknown> = {
     model: modelId,
     messages: [
@@ -500,7 +508,7 @@ async function generateImageWithOpenRouter(params: {
         content,
       },
     ],
-    modalities: ['image', 'text'],
+    modalities,
     image_config: {
       aspect_ratio: normalizedAspectRatio || '1:1',
       image_size: resolution || '2K',
@@ -511,6 +519,7 @@ async function generateImageWithOpenRouter(params: {
   log.info('image_gen', 'openrouter_image_gen_started', {
     avatarId,
     modelId,
+    modalities,
     refs: accessibleReferenceUrls.length,
     promptPreview: prompt.slice(0, 50),
   });
@@ -678,6 +687,11 @@ export async function getProviderApiKey(
   avatarId: string,
   provider: 'openrouter' | 'replicate' | 'openai'
 ): Promise<string | null> {
+  if (provider === 'openrouter') {
+    const systemKey = await getSystemOpenRouterApiKey();
+    if (systemKey) return systemKey;
+  }
+
   // For replicate, use core resolver which handles avatar key -> system key -> trial credits
   if (provider === 'replicate') {
     try {
@@ -739,7 +753,7 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gall
   if (provider === 'openrouter') {
     const apiKey = await getProviderApiKey(avatarId, 'openrouter');
     if (!apiKey) {
-      throw new Error('No OpenRouter API key configured. Please set up an API key first.');
+      throw new Error('No server-side OpenRouter API key configured. Ask an admin to configure the backend key.');
     }
 
     const galleryItem = await generateImageWithOpenRouter({
@@ -1094,7 +1108,7 @@ export async function generateImageAsync(options: GenerateImageAsyncOptions): Pr
   if (provider === 'openrouter') {
     const apiKey = apiKeyOverride || await getProviderApiKey(avatarId, 'openrouter');
     if (!apiKey) {
-      throw new Error('No OpenRouter API key configured. Please set up an API key first.');
+      throw new Error('No server-side OpenRouter API key configured. Ask an admin to configure the backend key.');
     }
 
     const jobId = uuid();
@@ -1352,7 +1366,7 @@ export async function generateVideo(options: GenerateVideoOptions): Promise<Medi
   if (provider === 'openrouter') {
     const apiKey = await getProviderApiKey(avatarId, 'openrouter');
     if (!apiKey) {
-      throw new Error('No OpenRouter API key configured. Please set up an API key first.');
+      throw new Error('No server-side OpenRouter API key configured. Ask an admin to configure the backend key.');
     }
 
     const jobId = uuid();
