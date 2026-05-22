@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { createCanonicalMemoryClient, _setDynamoClient } from './canonical-memory.js';
+import { _setEmbeddingServiceForTest } from '../embeddings.js';
 
 describe('Canonical Memory Client', () => {
   let mockSend: ReturnType<typeof mock>;
@@ -9,10 +10,18 @@ describe('Canonical Memory Client', () => {
     mockSend = mock(() => Promise.resolve({}));
     const mockDocClient = { send: mockSend } as unknown as DynamoDBDocumentClient;
     _setDynamoClient(mockDocClient);
+    _setEmbeddingServiceForTest({
+      modelId: 'test-embedding',
+      embedText: async (text: string) => ({
+        model: 'test-embedding',
+        vector: text.toLowerCase().includes('canine') ? [1, 0] : [0, 1],
+      }),
+    });
   });
 
   afterEach(() => {
     _setDynamoClient(null);
+    _setEmbeddingServiceForTest(null);
   });
 
   describe('createCanonicalMemoryClient', () => {
@@ -240,6 +249,63 @@ describe('Canonical Memory Client', () => {
       const result = await client.recall('avatar', 'dogs');
 
       expect(result.facts).toHaveLength(1);
+    });
+
+    it('returns semantically similar embedded memories when lexical text does not match', async () => {
+      mockSend.mockImplementation(() =>
+        Promise.resolve({
+          Items: [
+            {
+              content: 'Dogs are loyal',
+              about: 'pets',
+              createdAt: 1000,
+              strength: 1.0,
+              embedding: [1, 0],
+            },
+            {
+              content: 'Cats are independent',
+              about: 'pets',
+              createdAt: 900,
+              strength: 1.0,
+              embedding: [0, 1],
+            },
+          ],
+        })
+      );
+
+      const client = createCanonicalMemoryClient('test-table');
+      const result = await client.recall('avatar', 'canine companion');
+
+      expect(result.facts).toHaveLength(1);
+      expect(result.facts[0].fact).toBe('Dogs are loyal');
+    });
+
+    it('falls back to lexical recall when semantic query embedding fails', async () => {
+      _setEmbeddingServiceForTest({
+        modelId: 'failing-embedding',
+        embedText: async () => {
+          throw new Error('embedding unavailable');
+        },
+      });
+      mockSend.mockImplementation(() =>
+        Promise.resolve({
+          Items: [
+            {
+              content: 'Dogs are loyal',
+              about: 'dogs',
+              createdAt: 1000,
+              strength: 1.0,
+              embedding: [1, 0],
+            },
+          ],
+        })
+      );
+
+      const client = createCanonicalMemoryClient('test-table');
+      const result = await client.recall('avatar', 'dogs');
+
+      expect(result.facts).toHaveLength(1);
+      expect(result.facts[0].fact).toBe('Dogs are loyal');
     });
   });
 

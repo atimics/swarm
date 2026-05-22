@@ -5,7 +5,7 @@ import {
   PutCommand,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { getEmbeddingService } from '../embeddings.js';
+import { cosineSimilarity, getEmbeddingService } from '../embeddings.js';
 import { logger } from '../../utils/index.js';
 
 /**
@@ -40,6 +40,7 @@ const DEFAULT_RETENTION_DAYS = 30;
 const SECONDS_PER_DAY = 86400;
 const MAX_RECALL_RESULTS = 20;
 const MAX_RECALL_CANDIDATES = 200;
+const MIN_SEMANTIC_SIMILARITY = 0.3;
 
 let _client: DynamoDBDocumentClient | null = null;
 
@@ -84,8 +85,9 @@ function validateContent(content: string): string {
 
 /**
  * Create a lightweight canonical memory client that writes/reads the
- * admin-api ADMIN_TABLE `MEMORY#` schema. No embeddings, graph, or
- * consolidation — those run separately in admin-api.
+ * admin-api ADMIN_TABLE `MEMORY#` schema. It writes embeddings when an
+ * embedding provider is available and uses them for semantic recall; graph
+ * and consolidation still run separately in admin-api.
  *
  * Items written by this client are fully compatible with admin-api's
  * memory.ts `AvatarMemory` schema so both systems can read/write
@@ -141,7 +143,7 @@ export function createCanonicalMemoryClient(
         });
       }
 
-      const item: Record<string, any> = {
+      const item: Record<string, unknown> = {
         pk: `MEMORY#${validAvatarId}`,
         sk: `immediate#${now}#${id}`,
         id,
@@ -211,14 +213,52 @@ export function createCanonicalMemoryClient(
         userId?: string;
         createdAt: number;
         strength: number;
+        embedding?: number[];
       }>;
 
-      const matched = items.filter((item) => {
-        const contentMatch = item.content.toLowerCase().includes(queryLower);
-        const aboutMatch = (item.about || '').toLowerCase().includes(queryLower);
-        const userMatch = !userId || !item.userId || item.userId === userId;
-        return (contentMatch || aboutMatch) && userMatch;
-      });
+      const scopedItems = items.filter((item) => !userId || !item.userId || item.userId === userId);
+      let queryEmbedding: number[] | null = null;
+
+      if (scopedItems.some((item) => item.embedding && item.embedding.length > 0)) {
+        try {
+          queryEmbedding = (await getEmbeddingService().embedText(query.trim())).vector;
+        } catch (error) {
+          logger.warn('Semantic canonical memory recall failed, using lexical fallback', {
+            event: 'canonical_memory_semantic_recall_fallback',
+            avatarId: validAvatarId,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      }
+
+      const matched = scopedItems
+        .map((item, index) => {
+          const contentMatch = item.content.toLowerCase().includes(queryLower);
+          const aboutMatch = (item.about || '').toLowerCase().includes(queryLower);
+          const semanticScore = queryEmbedding && item.embedding
+            ? cosineSimilarity(queryEmbedding, item.embedding)
+            : 0;
+
+          return {
+            item,
+            index,
+            lexicalMatch: contentMatch || aboutMatch,
+            semanticScore,
+          };
+        })
+        .filter(({ lexicalMatch, semanticScore }) => (
+          lexicalMatch || semanticScore >= MIN_SEMANTIC_SIMILARITY
+        ))
+        .sort((a, b) => {
+          const aSemantic = a.semanticScore >= MIN_SEMANTIC_SIMILARITY;
+          const bSemantic = b.semanticScore >= MIN_SEMANTIC_SIMILARITY;
+          if (aSemantic !== bSemantic) return aSemantic ? -1 : 1;
+          if (aSemantic && bSemantic && a.semanticScore !== b.semanticScore) {
+            return b.semanticScore - a.semanticScore;
+          }
+          return a.index - b.index;
+        })
+        .map(({ item }) => item);
 
       return {
         facts: matched.slice(0, MAX_RECALL_RESULTS).map((item) => ({

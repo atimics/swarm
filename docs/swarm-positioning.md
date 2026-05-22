@@ -11,7 +11,7 @@ Before rewriting the landing page, the current copy contradicts what's actually 
 
 - **"300+ AI models"** — Swarm wires three LLM providers: Bedrock, OpenRouter, Anthropic (`packages/core/src/types/platform.ts:312`). The "300+" number is OpenRouter's own catalogue, accessible via passthrough. There is no model picker UI, no router, no curated list. Saying "300+" reads as inflated to a technical audience.
 - **"Multi-agent collaboration — agents interact with each other"** — Raticross is a documented inbound envelope protocol (`packages/handlers/src/messaging/adapters/raticross-adapter.ts`, `docs/raticross-protocol.md`). No avatar-to-avatar tool exists in `packages/mcp-server/src/tools/`. The feature is plumbing, not a product. Drop the claim.
-- **"Persistent memory… shared memory across all platforms"** — Memory survives sessions on one platform fine (`packages/core/src/services/brain/canonical-memory.ts`). Cross-platform sharing is gated by an explicit identity-link consent and off by default (`packages/handlers/src/services/cross-platform-consent.ts`). Recall is also substring-based, not semantic — embeddings are written but not queried in the recall path (lines 162 and 216 of `canonical-memory.ts`).
+- **"Persistent memory… shared memory across all platforms"** — Memory survives sessions on one platform fine (`packages/core/src/services/brain/canonical-memory.ts`). Cross-platform sharing is gated by an explicit identity-link consent and off by default (`packages/handlers/src/services/cross-platform-consent.ts`). Runtime recall depends on the configured brain read mode: the legacy path is lexical, while canonical/hybrid recall can use stored embeddings for semantic ranking when an embedding provider is available.
 - **"Live in 10 minutes"** — Wiring Telegram requires the user to register with @BotFather and paste a token. Discord requires the user to create a Discord application and grant scopes. The chat-first config is fast; the third-party prerequisites are not. Honest answer is closer to 15–25 minutes for the first platform.
 - **"Discord bot creation as a platform feature"** — `packages/admin-api/src/services/platform/discord-admin.ts:38` validates a user-supplied token. Swarm does not provision Discord applications. It's BYO token, the same as Telegram.
 - **Free tier shows "CosyWorld branding"** — the current product is Swarm. CosyWorld is the separate open-source substrate. Mixing the two on a paid-tier comparison confuses the buyer.
@@ -94,7 +94,7 @@ That line was overselling. Under the hood, Swarm calls OpenRouter for avatar cha
 
 **3. "Does the bot actually remember a user across Telegram and Discord?"**
 
-Within one platform: yes, by default. The bot remembers what your regulars said across sessions. Across platforms — the same person on Discord and on Telegram — memory sharing is gated by an explicit identity-link consent flow and is off by default (`packages/handlers/src/services/cross-platform-consent.ts`). We deliberately don't auto-correlate identities; that would be a privacy footgun for a community-ops tool. Also worth flagging: recall today is keyword/substring-based; embeddings are written to DynamoDB but not yet used in the recall path. Semantic recall is on the work queue (issue #183 follow-ups).
+Within one platform: yes, by default. The bot remembers what your regulars said across sessions. Across platforms — the same person on Discord and on Telegram — memory sharing is gated by an explicit identity-link consent flow and is off by default (`packages/handlers/src/services/cross-platform-consent.ts`). We deliberately don't auto-correlate identities; that would be a privacy footgun for a community-ops tool. Also worth flagging: legacy runtime recall remains keyword/substring-based. Canonical and hybrid runtime recall can use stored embeddings for semantic ranking when `BRAIN_READ_MODE` and the embedding provider are configured; otherwise they degrade to deterministic lexical recall.
 
 **4. "What stops the bot from saying something stupid and getting our community pissed at us?"**
 
@@ -157,7 +157,7 @@ Optional. The burn-tier system (`packages/core/src/constants.ts:93-148`) is alre
 
 - **A single reproducible deploy story.** "From @BotFather to a live Telegram persona in 14 minutes" — screen recording, no cuts. Posted as an X thread and a Farcaster cast. (Honesty: don't claim 10.)
 - **Side-by-side vs. ElizaOS.** Same persona, same prompt, deployed to the same Telegram group. Show the ElizaOS docker-compose vs. the Swarm chat flow. Show the AWS bill at the end of week one.
-- **One "what we don't do yet" post.** Counter-positioning. We don't have SOC 2, semantic memory recall, automatic Discord provisioning. Calling it out builds trust faster than another feature list does.
+- **One "what we don't do yet" post.** Counter-positioning. We don't have SOC 2 or automatic Discord provisioning. Semantic memory recall exists only in the canonical/hybrid runtime path and still needs production tuning, so avoid presenting it as universal behavior.
 - **Public bot examples to talk to.** A live Swarm-run persona in a public Telegram group readers can join and message. The product is conversational; the demo should be conversational.
 
 ### Single first experiment
