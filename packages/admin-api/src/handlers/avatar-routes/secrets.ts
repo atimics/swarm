@@ -46,6 +46,8 @@ export async function handleSecretsRoutes(
       webhookUrl?: string;
       webhookInfo?: { url?: string; pending_update_count?: number };
       reRegistered?: boolean;
+      botUsername?: string;
+      botId?: number;
     } | null = null;
 
     const normalizedKey = typeof rawKey === 'string' ? rawKey.trim().toLowerCase() : rawKey;
@@ -107,6 +109,8 @@ export async function handleSecretsRoutes(
             webhookUrl: setupResult.status.webhookUrl,
             webhookInfo: setupResult.status.webhookInfo,
             reRegistered: setupResult.status.reRegistered,
+            botUsername: setupResult.status.botUsername,
+            botId: setupResult.status.botId,
           }
         : null;
     } else if (normalizedKey === 'discord_bot_token') {
