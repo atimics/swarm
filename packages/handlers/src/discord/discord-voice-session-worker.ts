@@ -25,6 +25,12 @@ const DEFAULT_GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
 const INTENT_GUILDS = 1 << 0;
 const DEFAULT_INTENTS = INTENT_GUILDS | INTENT_GUILD_VOICE_STATES;
 const require = createRequire(import.meta.url);
+const GLOBAL_DISCORD_TOKEN_SECRET_NAMES = [
+  'global/discord_bot_token/global-bot',
+  'global/discord-bot-token/global-bot',
+  'global/discord_bot_token/default',
+  'global/discord-bot-token/default',
+] as const;
 
 interface GatewayPayload {
   op: number;
@@ -39,6 +45,29 @@ interface GatewayHello {
 
 interface GatewayReady {
   user: { id: string; username: string };
+}
+
+function parseDiscordTokenSecret(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed.DISCORD_BOT_TOKEN || parsed.discord_bot_token || parsed.token || raw;
+  } catch {
+    return raw;
+  }
+}
+
+async function loadGlobalDiscordBotToken(
+  secretsService: ReturnType<typeof createSecretsService>,
+  secretPrefix: string,
+): Promise<string | undefined> {
+  for (const suffix of GLOBAL_DISCORD_TOKEN_SECRET_NAMES) {
+    try {
+      return parseDiscordTokenSecret(await secretsService.getSecret(`${secretPrefix}/${suffix}`));
+    } catch {
+      // Try the next historical global-token naming convention.
+    }
+  }
+  return undefined;
 }
 
 class MinimalDiscordGateway {
@@ -491,7 +520,9 @@ async function run(): Promise<void> {
     avatarId,
     process.env.SECRET_PREFIX || 'swarm',
   );
-  const botToken = secrets.DISCORD_BOT_TOKEN || secrets.discord_bot_token;
+  const botToken = secrets.DISCORD_BOT_TOKEN ||
+    secrets.discord_bot_token ||
+    await loadGlobalDiscordBotToken(secretsService, process.env.SECRET_PREFIX || 'swarm');
   if (!botToken) {
     throw new Error(`Discord bot token not configured for avatar ${avatarId}`);
   }

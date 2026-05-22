@@ -734,10 +734,6 @@ async function maybeLaunchDiscordVoiceSession(
   message: DiscordMessage,
   binding: DiscordAvatarBinding,
 ): Promise<void> {
-  if (binding.isGlobalMode) {
-    return;
-  }
-
   const decision = decideDiscordVoiceLaunch({
     message,
     avatarConfig: binding.config,
