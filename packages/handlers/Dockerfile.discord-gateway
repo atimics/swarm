@@ -28,6 +28,8 @@ RUN --mount=type=cache,id=discord-gateway-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --prefer-offline --filter @swarm/core --filter @swarm/mcp-server --filter @swarm/sticker-engine --filter @swarm/handlers
 
 # Copy source AFTER install so source-only changes don't bust the install cache
+ARG DISCORD_GATEWAY_SOURCE_HASH
+RUN echo "" > /tmp/discord-gateway-source-hash
 COPY packages/core/src/ packages/core/src/
 COPY packages/mcp-server/src/ packages/mcp-server/src/
 COPY packages/sticker-engine/src/ packages/sticker-engine/src/
@@ -79,6 +81,14 @@ h.dependencies=deps;\
 fs.writeFileSync('package.json',JSON.stringify(h,null,2))"
 RUN --mount=type=cache,id=discord-gateway-npm-cache,target=/root/.npm \
     npm install --omit=dev --prefer-offline --no-audit --no-fund
+RUN node -e "\
+const fs=require('fs');\
+for(const file of ['node_modules/@discordjs/voice/dist/index.js','node_modules/@discordjs/voice/dist/index.mjs']){\
+  let source=fs.readFileSync(file,'utf8');\
+  source=source.replaceAll('?v=4','?v=8');\
+  source=source.replace('token: this.state.connectionOptions.token\\n        }\\n      };','token: this.state.connectionOptions.token,\\n          max_dave_protocol_version: 0\\n        }\\n      };');\
+  fs.writeFileSync(file,source);\
+}"
 
 # Copy workspace packages after npm install so npm prune cannot remove them.
 COPY --chown=swarm:swarm --from=builder /build/packages/core/dist/ ./node_modules/@swarm/core/dist/

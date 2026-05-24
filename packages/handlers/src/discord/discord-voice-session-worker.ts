@@ -46,19 +46,54 @@ class MinimalDiscordGateway {
   private sequence: number | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private adapterMethods: DiscordGatewayAdapterLibraryMethods | null = null;
+  private pendingVoiceServerUpdate:
+    | Parameters<DiscordGatewayAdapterLibraryMethods['onVoiceServerUpdate']>[0]
+    | null = null;
+  private pendingVoiceStateUpdate:
+    | Parameters<DiscordGatewayAdapterLibraryMethods['onVoiceStateUpdate']>[0]
+    | null = null;
   private readyResolve?: () => void;
   private readyReject?: (err: Error) => void;
   private botUserId?: string;
+  private voiceStateUpdateCount = 0;
+  private voiceServerUpdateCount = 0;
+  private lastVoiceStateUpdateAt?: number;
+  private lastVoiceServerUpdateAt?: number;
 
-  constructor(private readonly botToken: string) {}
+  constructor(
+    private readonly botToken: string,
+    private readonly logContext: {
+      avatarId: string;
+      guildId: string;
+      voiceChannelId: string;
+    },
+  ) {}
 
   readonly adapterCreator: DiscordGatewayAdapterCreator = (
     methods: DiscordGatewayAdapterLibraryMethods,
   ): DiscordGatewayAdapterImplementerMethods => {
     this.adapterMethods = methods;
+    setTimeout(() => this.flushPendingVoiceUpdates(), 0);
+    logger.info('Discord voice gateway adapter attached', {
+      event: 'discord_voice_gateway_adapter_attached',
+      subsystem: 'discord-voice',
+      ...this.logContext,
+      hasPendingVoiceStateUpdate: Boolean(this.pendingVoiceStateUpdate),
+      hasPendingVoiceServerUpdate: Boolean(this.pendingVoiceServerUpdate),
+    });
     return {
       sendPayload: (payload: unknown) => {
-        this.send(payload as GatewayPayload);
+        const gatewayPayload = payload as GatewayPayload;
+        const sent = this.send(gatewayPayload);
+        logger.info('Discord voice gateway adapter payload sent', {
+          event: 'discord_voice_gateway_adapter_payload_sent',
+          subsystem: 'discord-voice',
+          ...this.logContext,
+          op: gatewayPayload.op,
+          sent,
+          websocketState: this.ws?.readyState,
+          hasChannelId: typeof (gatewayPayload.d as { channel_id?: unknown } | undefined)?.channel_id === 'string',
+        });
         return true;
       },
       destroy: () => {
@@ -71,6 +106,14 @@ class MinimalDiscordGateway {
 
   start(): void {
     this.ws = new WebSocket(DEFAULT_GATEWAY_URL);
+
+    this.ws.on('open', () => {
+      logger.info('Discord voice worker gateway WebSocket opened', {
+        event: 'discord_voice_gateway_connected',
+        subsystem: 'discord-voice',
+        ...this.logContext,
+      });
+    });
 
     this.ws.on('message', (data: WebSocket.RawData) => {
       try {
@@ -86,6 +129,16 @@ class MinimalDiscordGateway {
 
     this.ws.on('error', (err) => {
       this.readyReject?.(err instanceof Error ? err : new Error(String(err)));
+    });
+
+    this.ws.on('close', (code, reason) => {
+      logger.warn('Discord voice worker gateway WebSocket closed', {
+        event: 'discord_voice_gateway_closed',
+        subsystem: 'discord-voice',
+        ...this.logContext,
+        code,
+        reason: reason.toString(),
+      });
     });
   }
 
@@ -121,6 +174,26 @@ class MinimalDiscordGateway {
     return this.botUserId;
   }
 
+  getVoiceUpdateStats(): {
+    voiceStateUpdateCount: number;
+    voiceServerUpdateCount: number;
+    lastVoiceStateUpdateAt?: number;
+    lastVoiceServerUpdateAt?: number;
+    hasAdapterMethods: boolean;
+    hasPendingVoiceStateUpdate: boolean;
+    hasPendingVoiceServerUpdate: boolean;
+  } {
+    return {
+      voiceStateUpdateCount: this.voiceStateUpdateCount,
+      voiceServerUpdateCount: this.voiceServerUpdateCount,
+      lastVoiceStateUpdateAt: this.lastVoiceStateUpdateAt,
+      lastVoiceServerUpdateAt: this.lastVoiceServerUpdateAt,
+      hasAdapterMethods: Boolean(this.adapterMethods),
+      hasPendingVoiceStateUpdate: Boolean(this.pendingVoiceStateUpdate),
+      hasPendingVoiceServerUpdate: Boolean(this.pendingVoiceServerUpdate),
+    };
+  }
+
   private handlePayload(payload: GatewayPayload): void {
     if (payload.op === 10) {
       const hello = payload.d as GatewayHello;
@@ -133,29 +206,90 @@ class MinimalDiscordGateway {
       return;
     }
 
+    if (payload.op === 9) {
+      this.readyReject?.(new Error('Discord voice worker gateway invalid session'));
+      logger.warn('Discord voice worker gateway invalid session', {
+        event: 'discord_voice_gateway_invalid_session',
+        subsystem: 'discord-voice',
+        ...this.logContext,
+      });
+      return;
+    }
+
     if (payload.op !== 0 || !payload.t) return;
 
     if (payload.t === 'READY') {
       const ready = payload.d as GatewayReady;
       this.botUserId = ready.user.id;
+      logger.info('Discord voice worker gateway ready', {
+        event: 'discord_voice_gateway_ready',
+        subsystem: 'discord-voice',
+        ...this.logContext,
+        botUserId: this.botUserId,
+      });
       this.readyResolve?.();
       return;
     }
 
     if (payload.t === 'VOICE_SERVER_UPDATE') {
-      this.adapterMethods?.onVoiceServerUpdate(
-        payload.d as Parameters<DiscordGatewayAdapterLibraryMethods['onVoiceServerUpdate']>[0],
-      );
+      this.voiceServerUpdateCount += 1;
+      this.lastVoiceServerUpdateAt = Date.now();
+      const update = payload.d as Parameters<DiscordGatewayAdapterLibraryMethods['onVoiceServerUpdate']>[0];
+      if (this.adapterMethods) {
+        this.adapterMethods.onVoiceServerUpdate(update);
+      } else {
+        this.pendingVoiceServerUpdate = update;
+      }
+      logger.info('Discord voice worker received VOICE_SERVER_UPDATE', {
+        event: 'discord_voice_gateway_voice_server_update',
+        subsystem: 'discord-voice',
+        ...this.logContext,
+        hasEndpoint: typeof (update as { endpoint?: unknown }).endpoint === 'string',
+        deliveredToAdapter: Boolean(this.adapterMethods),
+      });
       return;
     }
 
     if (payload.t === 'VOICE_STATE_UPDATE') {
-      const update = payload.d as { user_id?: string };
+      const update = payload.d as Parameters<DiscordGatewayAdapterLibraryMethods['onVoiceStateUpdate']>[0] & {
+        user_id?: string;
+        channel_id?: string | null;
+        session_id?: string;
+      };
       if (!this.botUserId || update.user_id === this.botUserId) {
-        this.adapterMethods?.onVoiceStateUpdate(
-          payload.d as Parameters<DiscordGatewayAdapterLibraryMethods['onVoiceStateUpdate']>[0],
-        );
+        this.voiceStateUpdateCount += 1;
+        this.lastVoiceStateUpdateAt = Date.now();
+        const isLeaveUpdate = update.channel_id === null;
+        if (this.adapterMethods) {
+          this.adapterMethods.onVoiceStateUpdate(update);
+        } else if (!isLeaveUpdate) {
+          this.pendingVoiceStateUpdate = update;
+        } else {
+          this.pendingVoiceStateUpdate = null;
+        }
+        logger.info('Discord voice worker received own VOICE_STATE_UPDATE', {
+          event: 'discord_voice_gateway_voice_state_update',
+          subsystem: 'discord-voice',
+          ...this.logContext,
+          userId: update.user_id,
+          channelId: update.channel_id,
+          hasSessionId: typeof update.session_id === 'string' && update.session_id.length > 0,
+          deliveredToAdapter: Boolean(this.adapterMethods),
+          bufferedForAdapter: !this.adapterMethods && !isLeaveUpdate,
+        });
       }
+    }
+  }
+
+  private flushPendingVoiceUpdates(): void {
+    if (!this.adapterMethods) return;
+    if (this.pendingVoiceStateUpdate) {
+      this.adapterMethods.onVoiceStateUpdate(this.pendingVoiceStateUpdate);
+      this.pendingVoiceStateUpdate = null;
+    }
+    if (this.pendingVoiceServerUpdate) {
+      this.adapterMethods.onVoiceServerUpdate(this.pendingVoiceServerUpdate);
+      this.pendingVoiceServerUpdate = null;
     }
   }
 
@@ -174,9 +308,10 @@ class MinimalDiscordGateway {
     });
   }
 
-  private send(payload: GatewayPayload): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+  private send(payload: GatewayPayload): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     this.ws.send(JSON.stringify(payload));
+    return true;
   }
 }
 
@@ -531,6 +666,19 @@ async function joinDiscordVoiceWithRetry(params: {
       adapterCreator: params.gateway.adapterCreator,
       selfDeaf: false,
       selfMute: false,
+      debug: true,
+    });
+    connection.on('debug', (debugMessage) => {
+      logger.info('Discord voice connection debug', {
+        subsystem: 'discord-voice',
+        service: 'discord-voice-session-worker',
+        avatarId: params.avatarId,
+        guildId: params.guildId,
+        voiceChannelId: params.voiceChannelId,
+        event: 'discord_voice_connection_debug',
+        attempt,
+        debugMessage,
+      });
     });
     const stopObserving = observeVoiceConnection({
       connection,
@@ -568,6 +716,7 @@ async function joinDiscordVoiceWithRetry(params: {
         attempts: params.attempts,
         timeoutMs: params.timeoutMs,
         status: connection.state.status,
+        gatewayStats: params.gateway.getVoiceUpdateStats(),
         errorName: err instanceof Error ? err.name : undefined,
         errorMessage: err instanceof Error ? err.message : String(err),
       });
@@ -628,7 +777,7 @@ async function run(): Promise<void> {
   });
 
   const voice = await import('@discordjs/voice');
-  const gateway = new MinimalDiscordGateway(botToken);
+  const gateway = new MinimalDiscordGateway(botToken, { avatarId, guildId, voiceChannelId });
   gateway.start();
   await gateway.waitReady();
 

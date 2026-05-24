@@ -16,11 +16,22 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 
+import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function hashFiles(paths: string[]): string {
+  const hash = crypto.createHash('sha256');
+  for (const filePath of paths) {
+    hash.update(filePath);
+    hash.update(fs.readFileSync(filePath));
+  }
+  return hash.digest('hex');
+}
 
 export interface DiscordGatewayWorkerProps {
   /**
@@ -104,12 +115,23 @@ export class DiscordGatewayWorker extends Construct {
     const logRetention = isProd
       ? logs.RetentionDays.ONE_MONTH
       : logs.RetentionDays.ONE_WEEK;
+    const repoRoot = path.resolve(__dirname, '../../../..');
+    const discordGatewayImageHash = hashFiles([
+      path.join(repoRoot, 'packages/handlers/Dockerfile.discord-gateway'),
+      path.join(repoRoot, 'packages/handlers/src/discord/discord-gateway-shared.ts'),
+      path.join(repoRoot, 'packages/handlers/src/discord/discord-voice-session-worker.ts'),
+      path.join(repoRoot, 'packages/handlers/src/discord/discord-voice-task-launcher.ts'),
+      path.join(repoRoot, 'packages/handlers/package.json'),
+      path.join(repoRoot, 'pnpm-lock.yaml'),
+    ]);
 
     const image = ecs.ContainerImage.fromAsset(
-      path.resolve(__dirname, '../../../..'),
+      repoRoot,
       {
         file: 'packages/handlers/Dockerfile.discord-gateway',
         platform: ecr_assets.Platform.LINUX_ARM64,
+        extraHash: discordGatewayImageHash,
+        buildArgs: { DISCORD_GATEWAY_SOURCE_HASH: discordGatewayImageHash },
         // Cache layers in GitHub Actions cache to avoid full rebuild/push on every deploy.
         // Requires buildx driver: docker-container (set in deploy-cdk-reusable.yml).
         cacheFrom: [{ type: 'gha', params: { scope: 'discord-gateway-arm64' } }],
