@@ -28,7 +28,7 @@ class ResourceCountNodejsFunction extends lambda.Function {
 
     super(scope, id, {
       ...functionProps,
-      runtime: (props.runtime as lambda.Runtime | undefined) ?? lambda.Runtime.NODEJS_20_X,
+      runtime: (props.runtime as lambda.Runtime | undefined) ?? lambda.Runtime.NODEJS_22_X,
       handler: (props.handler as string | undefined) ?? 'handler',
       code: lambda.Code.fromInline('exports.handler = async () => undefined;'),
     });

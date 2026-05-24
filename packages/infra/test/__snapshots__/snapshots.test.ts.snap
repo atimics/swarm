@@ -263,7 +263,7 @@ exports[`CDK Infrastructure Snapshots SharedInfraStack snapshot (dev) 1`] = `
       "DeletionPolicy": "Retain",
       "Properties": {
         "CompatibleRuntimes": [
-          "nodejs20.x",
+          "nodejs22.x",
         ],
         "Content": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-east-1",
@@ -1009,7 +1009,7 @@ exports[`CDK Infrastructure Snapshots SharedInfraStack snapshot (prod) 1`] = `
       "DeletionPolicy": "Retain",
       "Properties": {
         "CompatibleRuntimes": [
-          "nodejs20.x",
+          "nodejs22.x",
         ],
         "Content": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-east-1",
@@ -1553,7 +1553,7 @@ exports[`CDK Infrastructure Snapshots SharedInfraStack snapshot (useExistingReso
       "DeletionPolicy": "Retain",
       "Properties": {
         "CompatibleRuntimes": [
-          "nodejs20.x",
+          "nodejs22.x",
         ],
         "Content": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-east-1",
@@ -1749,7 +1749,7 @@ exports[`CDK Infrastructure Snapshots SharedInfraStack snapshot (useExistingReso
       "DeletionPolicy": "Retain",
       "Properties": {
         "CompatibleRuntimes": [
-          "nodejs20.x",
+          "nodejs22.x",
         ],
         "Content": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-east-1",

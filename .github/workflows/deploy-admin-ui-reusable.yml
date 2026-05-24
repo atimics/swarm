@@ -41,7 +41,7 @@ on:
         value: ${{ jobs.stack-outputs.outputs.distribution }}
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
   AWS_REGION: us-east-1
 
 permissions:

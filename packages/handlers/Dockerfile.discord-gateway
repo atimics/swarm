@@ -7,7 +7,7 @@
 # Build context should be the repo root so we can access core + handlers.
 # Usage: docker build -f packages/handlers/Dockerfile.discord-gateway .
 
-FROM node:20-slim AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /build
 ENV PNPM_HOME=/pnpm
@@ -40,7 +40,7 @@ RUN pnpm --filter @swarm/handlers build
 
 # ─── Production image ─────────────────────────────────────────────────────────
 
-FROM node:20-slim
+FROM node:22-slim
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \

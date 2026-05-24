@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REQUIRED_MAJOR=20
-MIN_MINOR=18
-MIN_PATCH=1
+REQUIRED_MAJOR=22
+MIN_MINOR=12
+MIN_PATCH=0
 
 CURRENT_VERSION=$(node -v | sed 's/^v//')
 CURRENT_MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
