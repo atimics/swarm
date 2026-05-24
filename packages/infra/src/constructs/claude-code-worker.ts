@@ -355,7 +355,7 @@ export class ClaudeCodeWorker extends Construct {
 
       const callbackLambda = new lambda.Function(this, 'CallbackHandler', {
         functionName: `swarm-claude-code-callback-${environment}${suffix}`,
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_22_X,
         handler: 'claude-code-callback.handler',
         code: lambda.Code.fromAsset(props.handlersCodePath),
         timeout: cdk.Duration.seconds(30),

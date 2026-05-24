@@ -587,7 +587,7 @@ export class AdminApiConstruct extends Construct {
 
     // Lambda function for chat handler
     this.chatHandler = new nodejs.NodejsFunction(this, 'ChatHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/chat.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(180), // Increased for image generation with Nano Banana Pro
@@ -828,7 +828,7 @@ export class AdminApiConstruct extends Construct {
 
     // Chat Worker Lambda - processes async admin chat jobs
     this.chatWorkerHandler = new nodejs.NodejsFunction(this, 'ChatWorkerHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/chat-worker.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(600),
@@ -1007,7 +1007,7 @@ export class AdminApiConstruct extends Construct {
 
       // Media conversion handler (audio/video transcoding)
       const mediaConvertHandler = new nodejs.NodejsFunction(this, 'MediaConvertHandler', {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_22_X,
         entry: path.join(__dirname, '../../../admin-api/src/handlers/media-convert.ts'),
         handler: 'handler',
         timeout: cdk.Duration.seconds(60),
@@ -1037,7 +1037,7 @@ export class AdminApiConstruct extends Construct {
 
     // Transcribe handler - for audio transcription
     const transcribeHandler = new nodejs.NodejsFunction(this, 'TranscribeHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/transcribe.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(30),
@@ -1080,7 +1080,7 @@ export class AdminApiConstruct extends Construct {
 
     // Shared chat handler (public group chat)
     const sharedChatHandler = new nodejs.NodejsFunction(this, 'SharedChatHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/shared-chat.ts'),
       handler: 'handleSharedChat',
       timeout: cdk.Duration.seconds(15),
@@ -1124,7 +1124,7 @@ export class AdminApiConstruct extends Construct {
 
     // Avatars handler - for CRUD operations on avatars
     const avatarsHandler = new nodejs.NodejsFunction(this, 'Avatarsandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/avatars.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(30),
@@ -1655,7 +1655,7 @@ export class AdminApiConstruct extends Construct {
 
     // Issues handler - for auto-issue tracking system (used by CI/CD, browser tests)
     const issuesHandler = new nodejs.NodejsFunction(this, 'IssuesHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/issues.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(15),
@@ -1701,7 +1701,7 @@ export class AdminApiConstruct extends Construct {
 
     // DSAR handler - privacy data export and erasure (GDPR Article 15/17)
     const dsarHandler = new nodejs.NodejsFunction(this, 'DSARHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/dsar.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(30),
@@ -1752,7 +1752,7 @@ export class AdminApiConstruct extends Construct {
 
     // Health check endpoint
     const healthHandler = new nodejs.NodejsFunction(this, 'HealthHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       code: lambda.Code.fromInline(`
         exports.handler = async () => ({
           statusCode: 200,
@@ -1781,7 +1781,7 @@ export class AdminApiConstruct extends Construct {
     // Public endpoints for avatar profile pages and leaderboard.
     // CORS is handled in the handler itself with Access-Control-Allow-Origin: *
     const publicProfileHandler = new nodejs.NodejsFunction(this, 'PublicProfileHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/public-profile.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(15),
@@ -1818,7 +1818,7 @@ export class AdminApiConstruct extends Construct {
 
     // Leaderboard handler - separate for potential different scaling needs
     const leaderboardHandler = new nodejs.NodejsFunction(this, 'LeaderboardHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/public-profile.ts'),
       handler: 'leaderboardHandler',
       timeout: cdk.Duration.seconds(15),
@@ -1860,7 +1860,7 @@ export class AdminApiConstruct extends Construct {
     // can use with the familiar OpenAI API format. Authentication is via API key
     // (Bearer token in Authorization header).
     this.openaiCompatHandler = new nodejs.NodejsFunction(this, 'OpenAICompatHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/openai-compat.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(120), // Longer timeout for chat completions
@@ -1914,7 +1914,7 @@ export class AdminApiConstruct extends Construct {
     // True token-by-token SSE streaming via Lambda response streaming.
     // Separate from the buffered API Gateway path above.
     const openaiStreamHandler = new nodejs.NodejsFunction(this, 'OpenAIStreamHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/openai-compat-stream.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(120),
@@ -1987,7 +1987,7 @@ export class AdminApiConstruct extends Construct {
 
     // Jobs handler - for polling media job status
     const jobsHandler = new nodejs.NodejsFunction(this, 'JobsHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/jobs.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(10),
@@ -2035,7 +2035,7 @@ export class AdminApiConstruct extends Construct {
     // container. Services read env vars at module load time, so we must provide
     // the same core env vars that the chat handler uses.
     const promptPreviewHandler = new nodejs.NodejsFunction(this, 'PromptPreviewHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/prompt-preview.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(30),
@@ -2102,7 +2102,7 @@ export class AdminApiConstruct extends Construct {
 
     // Wallet authentication handler - for Solana wallet sign-in
     const walletAuthHandler = new nodejs.NodejsFunction(this, 'WalletAuthHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/wallet-auth.ts'),
       handler: 'handleWalletAuth',
       timeout: cdk.Duration.seconds(15), // Increased for NFT verification
@@ -2178,7 +2178,7 @@ export class AdminApiConstruct extends Construct {
 
     // Billing handler - Stripe checkout + customer portal + webhook sync
     const billingHandler = new nodejs.NodejsFunction(this, 'BillingHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/billing.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(30),
@@ -2250,7 +2250,7 @@ export class AdminApiConstruct extends Construct {
 
     // Consent handler - privacy-policy consent persistence
     const consentHandler = new nodejs.NodejsFunction(this, 'ConsentHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/consent.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(10),
@@ -2303,7 +2303,7 @@ export class AdminApiConstruct extends Construct {
 
     // Dream worker: consumes from dreamQueue and writes dream state
     this.dreamWorker = new nodejs.NodejsFunction(this, 'DreamWorkerHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/dream-worker.ts'),
       handler: 'handler',
       timeout: cdk.Duration.minutes(5),
@@ -2352,7 +2352,7 @@ export class AdminApiConstruct extends Construct {
 
     // Memory Consolidation Worker: scheduled daily to decay/promote/evolve memories
     this.consolidationWorker = new nodejs.NodejsFunction(this, 'ConsolidationWorkerHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/consolidation-worker.ts'),
       handler: 'handler',
       timeout: cdk.Duration.minutes(10),
@@ -2409,7 +2409,7 @@ export class AdminApiConstruct extends Construct {
 
     // Metadata Evolution Worker: scheduled monthly to evolve Ascension NFT metadata
     const metadataEvolutionWorker = new nodejs.NodejsFunction(this, 'MetadataEvolutionHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/metadata-evolution.ts'),
       handler: 'handler',
       timeout: cdk.Duration.minutes(10),
@@ -2499,7 +2499,7 @@ export class AdminApiConstruct extends Construct {
 
     // Replicate webhook handler - for async video generation callbacks
     const replicateWebhookHandler = new nodejs.NodejsFunction(this, 'ReplicateWebhookHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/replicate-webhook.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(60),
@@ -2545,7 +2545,7 @@ export class AdminApiConstruct extends Construct {
     // Response Sender Lambda - delivers generated media to platforms
     // Triggered by SQS messages from the Replicate webhook handler
     this.responseSenderHandler = new nodejs.NodejsFunction(this, 'ResponseSenderHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/response-sender.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(60),
@@ -2603,7 +2603,7 @@ export class AdminApiConstruct extends Construct {
 
     // Twitter OAuth handler - for connecting X/Twitter accounts via OAuth 1.0a
     const twitterOAuthHandler = new nodejs.NodejsFunction(this, 'TwitterOAuthHandler', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../../../admin-api/src/handlers/twitter-oauth.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(30),
@@ -3174,7 +3174,7 @@ export class AdminApiConstruct extends Construct {
 
       const githubIssueSyncFn = new nodejs.NodejsFunction(this, 'GitHubIssueSync', {
         functionName: `swarm-${environment}${suffix}-github-issue-sync`,
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_22_X,
         entry: path.join(handlersEntry, 'issue-sync/github-issue-sync.ts'),
         handler: 'handler',
         layers: dependencyLayer ? [dependencyLayer] : undefined,

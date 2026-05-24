@@ -428,7 +428,7 @@ export class SharedHandlers extends Construct {
 
     this.messageProcessor = new nodejs.NodejsFunction(this, 'MessageProcessor', {
       functionName: `swarm-${environment}${suffix}-message-processor`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'messaging/message-processor.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -448,7 +448,7 @@ export class SharedHandlers extends Construct {
 
     this.telegramWebhook = new nodejs.NodejsFunction(this, 'TelegramWebhookShared', {
       functionName: `swarm-${environment}${suffix}-telegram-webhook`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'telegram/telegram-webhook-shared.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -470,7 +470,7 @@ export class SharedHandlers extends Construct {
 
     this.raticrossRelay = new nodejs.NodejsFunction(this, 'RaticrossRelay', {
       functionName: `swarm-${environment}${suffix}-raticross-relay`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'relay/raticross-inbound.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -492,7 +492,7 @@ export class SharedHandlers extends Construct {
 
     this.raticrossHealth = new nodejs.NodejsFunction(this, 'RaticrossHealth', {
       functionName: `swarm-${environment}${suffix}-raticross-health`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'relay/raticross-health.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -512,7 +512,7 @@ export class SharedHandlers extends Construct {
 
     this.chatWorker = new nodejs.NodejsFunction(this, 'ChatWorker', {
       functionName: `swarm-${environment}${suffix}-chat-worker`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'messaging/chat-worker.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -533,7 +533,7 @@ export class SharedHandlers extends Construct {
 
     this.responseSender = new nodejs.NodejsFunction(this, 'ResponseSender', {
       functionName: `swarm-${environment}${suffix}-response-sender`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'messaging/response-sender.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -554,7 +554,7 @@ export class SharedHandlers extends Construct {
 
     this.mediaProcessor = new nodejs.NodejsFunction(this, 'MediaProcessor', {
       functionName: `swarm-${environment}${suffix}-media-processor`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'media/media-processor.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -575,7 +575,7 @@ export class SharedHandlers extends Construct {
 
     const twitterMentionPoller = new nodejs.NodejsFunction(this, 'TwitterMentionPollerShared', {
       functionName: `swarm-${environment}${suffix}-twitter-mention-poller`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'twitter/twitter-mention-poller-shared.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -607,7 +607,7 @@ export class SharedHandlers extends Construct {
     // Each avatar has 4-6 hour randomized intervals configured in their autonomousPosts settings
     const autonomousTweetPoster = new nodejs.NodejsFunction(this, 'AutonomousTweetPoster', {
       functionName: `swarm-${environment}${suffix}-autonomous-tweet-poster`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'twitter/autonomous-tweet-poster.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -633,7 +633,7 @@ export class SharedHandlers extends Construct {
     // Each avatar gets platform-specific feed checks and optional engagement via adapters
     this.platformHeartbeat = new nodejs.NodejsFunction(this, 'PlatformHeartbeat', {
       functionName: `swarm-${environment}${suffix}-platform-heartbeat`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'social/platform-heartbeat.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -659,7 +659,7 @@ export class SharedHandlers extends Construct {
     // Each avatar observes its Signal station and issues commands (prices, hails, builds)
     const stationAgentRunner = new nodejs.NodejsFunction(this, 'StationAgentRunner', {
       functionName: `swarm-${environment}${suffix}-station-agent-runner`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'station/station-agent-runner.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -685,7 +685,7 @@ export class SharedHandlers extends Construct {
     // Handles rate limiting, backoff, and content store integration
     this.tweetSender = new nodejs.NodejsFunction(this, 'TweetSender', {
       functionName: `swarm-${environment}${suffix}-tweet-sender`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'twitter/tweet-sender.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
@@ -714,7 +714,7 @@ export class SharedHandlers extends Construct {
     // Runs every 15 minutes to batch-process DLQ entries
     this.dlqProcessor = new nodejs.NodejsFunction(this, 'DlqProcessor', {
       functionName: `swarm-${environment}${suffix}-dlq-processor`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(handlersEntry, 'dlq-processor.ts'),
       handler: 'handler',
       layers: dependencyLayer ? [dependencyLayer] : undefined,
