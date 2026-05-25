@@ -206,7 +206,7 @@ export class DiscordGatewayWorker extends Construct {
         ENVIRONMENT: environment,
         DISCORD_VOICE_WORKER_ENABLED: 'true',
         DISCORD_VOICE_WORKER_CLUSTER_ARN: cluster.clusterArn,
-        DISCORD_VOICE_WORKER_TASK_DEFINITION_ARN: this.voiceTaskDefinition.taskDefinitionArn,
+        DISCORD_VOICE_WORKER_TASK_DEFINITION_ARN: this.voiceTaskDefinition.family,
         DISCORD_VOICE_WORKER_SUBNET_IDS: voiceSubnets.subnetIds.join(','),
         DISCORD_VOICE_WORKER_SECURITY_GROUP_IDS: voiceWorkerSecurityGroup.securityGroupId,
         DISCORD_VOICE_WORKER_CONTAINER_NAME: 'DiscordVoiceWorker',
@@ -253,6 +253,11 @@ export class DiscordGatewayWorker extends Construct {
     if (this.voiceTaskDefinition.executionRole) {
       voicePassRoleResources.push(this.voiceTaskDefinition.executionRole.roleArn);
     }
+    const voiceTaskDefinitionFamilyArn = cdk.Stack.of(this).formatArn({
+      service: 'ecs',
+      resource: 'task-definition',
+      resourceName: `${this.voiceTaskDefinition.family}:*`,
+    });
 
     const voiceTaskDefinitionFamilyArn = cdk.Stack.of(this).formatArn({
       service: 'ecs',
