@@ -59,6 +59,13 @@ export interface ToolContext {
     displayName?: string;
     avatarUrl?: string;
   };
+  /** Discord-specific request context, when invoked from Discord */
+  discord?: {
+    guildId?: string;
+    channelId?: string;
+    messageId?: string;
+    voiceChannelId?: string;
+  };
 }
 
 /**

@@ -85,6 +85,8 @@ export class DiscordGatewayWorker extends Construct {
   public readonly service: ecs.FargateService;
   public readonly taskDefinition: ecs.FargateTaskDefinition;
   public readonly voiceTaskDefinition: ecs.FargateTaskDefinition;
+  public readonly voiceSubnets: ec2.SelectedSubnets;
+  public readonly voiceWorkerSecurityGroup: ec2.SecurityGroup;
 
   constructor(scope: Construct, id: string, props: DiscordGatewayWorkerProps) {
     super(scope, id);
@@ -126,6 +128,8 @@ export class DiscordGatewayWorker extends Construct {
       allowAllOutbound: true,
       description: 'Outbound-only security group for ephemeral Discord voice workers',
     });
+    this.voiceSubnets = voiceSubnets;
+    this.voiceWorkerSecurityGroup = voiceWorkerSecurityGroup;
 
     // Task definition — lightweight: WebSocket connections are I/O-bound, not CPU.
     this.taskDefinition = new ecs.FargateTaskDefinition(this, 'TaskDef', {
@@ -250,10 +254,16 @@ export class DiscordGatewayWorker extends Construct {
       voicePassRoleResources.push(this.voiceTaskDefinition.executionRole.roleArn);
     }
 
+    const voiceTaskDefinitionFamilyArn = cdk.Stack.of(this).formatArn({
+      service: 'ecs',
+      resource: 'task-definition',
+      resourceName: `${this.voiceTaskDefinition.family}:*`,
+    });
+
     this.taskDefinition.taskRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ['ecs:RunTask'],
-        resources: [this.voiceTaskDefinition.taskDefinitionArn],
+        resources: [voiceTaskDefinitionFamilyArn],
       })
     );
     this.taskDefinition.taskRole.addToPrincipalPolicy(

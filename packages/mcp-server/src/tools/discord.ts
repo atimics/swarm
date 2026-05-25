@@ -150,6 +150,25 @@ export interface DiscordServices {
   setPresence?: (status: 'online' | 'idle' | 'dnd' | 'invisible', activity?: string) => Promise<boolean>;
 
   /**
+   * Launch the avatar voice worker into a Discord voice channel
+   */
+  joinVoice?: (params: {
+    guildId?: string;
+    voiceChannelId?: string;
+    textChannelId?: string;
+    triggerMessageId?: string;
+    triggerUserId?: string;
+    maxSessionSeconds?: number;
+  }) => Promise<{
+    launched: boolean;
+    reason: string;
+    taskArn?: string;
+    guildId?: string;
+    voiceChannelId?: string;
+    detail?: string;
+  }>;
+
+  /**
    * Get LLM-generated summary for a channel
    */
   getChannelSummary?: (channelId: string) => Promise<string | null>;
@@ -279,6 +298,77 @@ export function createDiscordTools(services: DiscordServices) {
               members: g.memberCount,
             })),
             message: `Discord ${status.connected ? 'connected' : 'configured'} in ${status.mode} mode${status.botUsername ? ` as ${status.botUsername}` : ''}`,
+          },
+        };
+      },
+    }),
+
+    defineTool({
+      name: 'discord_join_voice',
+      description: 'Join a Discord voice channel by launching this avatar voice worker. If voiceChannelId is omitted, the tool will try the invoking user current voice channel, then the current channel when called from a voice channel chat.',
+      category: 'config',
+      toolset: 'discord',
+      tags: ['discord', 'voice', 'channels'],
+      platforms: ['discord'],
+      inputSchema: z.object({
+        guildId: z.string().optional().describe('Discord guild/server ID. Usually inferred from the current Discord message.'),
+        voiceChannelId: z.string().optional().describe('Discord voice channel ID to join. Optional when the caller is already in voice or when invoked from voice channel chat.'),
+        maxSessionSeconds: z.number().int().min(30).max(3600).optional().describe('Optional maximum voice session length in seconds. Defaults to avatar voice config.'),
+      }),
+      execute: async (input, context): Promise<ToolResult> => {
+        const status = await services.getConnectionStatus();
+        if (!canUseBotApi(status)) {
+          return {
+            success: false,
+            error: botApiUnavailableError('Voice join'),
+          };
+        }
+
+        if (!services.joinVoice) {
+          return { success: false, error: 'Discord voice joining is not available in this runtime.' };
+        }
+
+        let guildId = input.guildId || context.discord?.guildId;
+        let voiceChannelId = input.voiceChannelId || context.discord?.voiceChannelId;
+        const textChannelId = context.discord?.channelId || context.conversationId;
+
+        if (!voiceChannelId && textChannelId && services.getChannel) {
+          const currentChannel = await services.getChannel(textChannelId);
+          if (currentChannel?.type === 'voice') {
+            voiceChannelId = currentChannel.id;
+            guildId = guildId || currentChannel.guildId;
+          }
+        }
+
+        if (!guildId && voiceChannelId && services.getChannel) {
+          const voiceChannel = await services.getChannel(voiceChannelId);
+          guildId = voiceChannel?.guildId;
+        }
+
+        const result = await services.joinVoice({
+          guildId,
+          voiceChannelId,
+          textChannelId,
+          triggerMessageId: context.discord?.messageId || context.replyToMessageId,
+          triggerUserId: context.userId,
+          maxSessionSeconds: input.maxSessionSeconds,
+        });
+
+        if (!result.launched && result.reason !== 'duplicate_recent_session') {
+          return {
+            success: false,
+            error: result.detail || `Discord voice join failed: ${result.reason}`,
+            data: result,
+          };
+        }
+
+        return {
+          success: true,
+          data: {
+            ...result,
+            message: result.reason === 'duplicate_recent_session'
+              ? 'Discord voice session is already starting or active.'
+              : 'Discord voice worker launched.',
           },
         };
       },

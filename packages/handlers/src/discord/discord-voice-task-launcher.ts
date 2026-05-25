@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   ECSClient,
   RunTaskCommand,
@@ -58,12 +59,13 @@ export class DiscordVoiceTaskLauncher {
       request.decision.voiceChannelId,
     ].join(':');
     const now = Date.now();
+    const clientToken = buildRunTaskClientToken(dedupKey, now);
     const lastLaunch = this.recentLaunches.get(dedupKey);
     if (lastLaunch && now - lastLaunch < DEFAULT_SESSION_DEDUP_MS) {
       return { launched: false, reason: 'duplicate_recent_session' };
     }
 
-    const input = this.buildRunTaskInput(config, request);
+    const input = this.buildRunTaskInput(config, request, clientToken);
 
     try {
       const result = await this.ecsClient.send(new RunTaskCommand(input));
@@ -121,6 +123,7 @@ export class DiscordVoiceTaskLauncher {
   private buildRunTaskInput(
     config: NonNullable<ReturnType<DiscordVoiceTaskLauncher['getConfig']>>,
     request: DiscordVoiceTaskRequest,
+    clientToken: string,
   ): RunTaskCommandInput {
     const env = [
       ['AVATAR_ID', request.avatarId],
@@ -145,7 +148,8 @@ export class DiscordVoiceTaskLauncher {
       cluster: config.clusterArn,
       taskDefinition: config.taskDefinitionArn,
       launchType: 'FARGATE',
-      startedBy: `voice-${request.avatarId}`.slice(0, 128),
+      clientToken,
+      startedBy: clientToken.slice(0, 128),
       networkConfiguration: {
         awsvpcConfiguration: {
           subnets: config.subnetIds,
@@ -163,6 +167,15 @@ export class DiscordVoiceTaskLauncher {
       },
     };
   }
+}
+
+function buildRunTaskClientToken(dedupKey: string, now: number): string {
+  const windowId = Math.floor(now / DEFAULT_SESSION_DEDUP_MS);
+  const digest = createHash('sha256')
+    .update(`${dedupKey}:${windowId}`)
+    .digest('hex')
+    .slice(0, 32);
+  return `voice-${digest}`;
 }
 
 function splitCsv(value: string | undefined): string[] {

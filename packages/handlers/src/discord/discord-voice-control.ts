@@ -88,6 +88,12 @@ export function isDiscordVoiceMention(message: DiscordMessage, botUserId?: strin
   return mentioned || repliedToBot;
 }
 
+export function isDiscordVoiceJoinRequest(message: DiscordMessage): boolean {
+  const text = message.content.toLowerCase();
+  return /\b(join|enter|come|connect)\b[\s\S]{0,40}\b(vc|voice|voice chat|voice channel)\b/.test(text)
+    || /\b(vc|voice chat|voice channel)\b[\s\S]{0,40}\b(join|enter|come|connect)\b/.test(text);
+}
+
 export function decideDiscordVoiceLaunch(params: {
   message: DiscordMessage;
   avatarConfig: AvatarConfig;
@@ -116,7 +122,8 @@ export function decideDiscordVoiceLaunch(params: {
     return { shouldLaunch: false, reason: 'not_mentioned' };
   }
 
-  const voiceChannelId = tracker.getUserVoiceChannel(message.guild_id, message.author.id);
+  const voiceChannelId = tracker.getUserVoiceChannel(message.guild_id, message.author.id)
+    || (isDiscordVoiceJoinRequest(message) ? message.channel_id : undefined);
   if (!voiceChannelId) {
     return { shouldLaunch: false, reason: 'sender_not_in_voice' };
   }

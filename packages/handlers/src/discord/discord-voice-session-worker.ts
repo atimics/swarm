@@ -19,11 +19,16 @@ import { createVoiceServices } from '../services/voice.js';
 import { callLLM, stripAvatarNamePrefix, type LLMMessage } from '../messaging/llm-client.js';
 import { buildSystemPrompt } from '../messaging/context-builder.js';
 import { loadAvatarSecrets } from '../utils/load-avatar-secrets.js';
+import { ensureOpenRouterKey } from '../utils/system-openrouter-key.js';
 import { INTENT_GUILD_VOICE_STATES } from './discord-voice-control.js';
 
 const DEFAULT_GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
 const INTENT_GUILDS = 1 << 0;
 const DEFAULT_INTENTS = INTENT_GUILDS | INTENT_GUILD_VOICE_STATES;
+const OPENROUTER_CHAT_COMPLETIONS_ENDPOINT = process.env.OPENROUTER_CHAT_COMPLETIONS_ENDPOINT || 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_AUDIO_TRANSCRIPTION_MODEL = process.env.OPENROUTER_AUDIO_TRANSCRIPTION_MODEL || process.env.OPENROUTER_AUDIO_MODEL || 'openai/gpt-audio-mini';
+const OPENROUTER_HTTP_REFERER = process.env.OPENROUTER_HTTP_REFERER || 'https://swarm.rati.chat';
+const OPENROUTER_X_TITLE = process.env.OPENROUTER_X_TITLE || 'Ruby High';
 const require = createRequire(import.meta.url);
 
 interface GatewayPayload {
@@ -336,8 +341,37 @@ async function transcribeDiscordVoiceTurn(params: {
   secrets: Record<string, string>;
   language?: string;
 }): Promise<string> {
+  if (params.audio.length === 0) return '';
+
+  const openRouterKey = getOpenRouterKey(params.secrets);
+  if (openRouterKey) {
+    try {
+      const openRouterTranscript = await transcribeDiscordVoiceTurnWithOpenRouter({
+        audio: params.audio,
+        apiKey: openRouterKey,
+        language: params.language,
+      });
+      if (openRouterTranscript) {
+        return openRouterTranscript;
+      }
+    } catch (error) {
+      logger.warn('OpenRouter Discord voice transcription failed; falling back to OpenAI transcription', {
+        event: 'discord_voice_openrouter_transcription_failed',
+        subsystem: 'discord-voice',
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const openAiKey = params.secrets.OPENAI_API_KEY || params.secrets.openai_api_key;
-  if (!openAiKey || params.audio.length === 0) return '';
+  if (!openAiKey) {
+    logger.warn('Skipping Discord voice transcription because no OpenRouter or OpenAI transcription key is available', {
+      event: 'discord_voice_transcription_missing_key',
+      subsystem: 'discord-voice',
+      hasOpenRouterKey: Boolean(openRouterKey),
+    });
+    return '';
+  }
 
   const form = new FormData();
   form.append('file', new Blob([params.audio], { type: 'audio/ogg' }), 'discord-voice.ogg');
@@ -358,6 +392,85 @@ async function transcribeDiscordVoiceTurn(params: {
 
   const data = await response.json() as { text?: string };
   return sanitizeDiscordVoiceTranscript(data.text || '');
+}
+
+function getOpenRouterKey(secrets: Record<string, string>): string | undefined {
+  return secrets.OPENROUTER_API_KEY
+    || secrets.openrouter_api_key
+    || secrets.LLM_API_KEY
+    || secrets.llm_api_key;
+}
+
+async function transcribeDiscordVoiceTurnWithOpenRouter(params: {
+  audio: Buffer;
+  apiKey: string;
+  language?: string;
+}): Promise<string> {
+  const response = await fetch(OPENROUTER_CHAT_COMPLETIONS_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${params.apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': OPENROUTER_HTTP_REFERER,
+      'X-Title': OPENROUTER_X_TITLE,
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_AUDIO_TRANSCRIPTION_MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Transcribe this Discord voice message${params.language ? ` in ${params.language}` : ''}. Return only the spoken words. If there is no clear speech, return an empty string.`,
+            },
+            {
+              type: 'input_audio',
+              input_audio: {
+                data: params.audio.toString('base64'),
+                format: 'ogg',
+              },
+            },
+          ],
+        },
+      ],
+      temperature: 0,
+      stream: false,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`OpenRouter audio transcription failed: ${response.status} ${text.slice(0, 200)}`);
+  }
+
+  const data = await response.json() as {
+    choices?: Array<{
+      message?: {
+        content?: unknown;
+      };
+    }>;
+  };
+  return sanitizeDiscordVoiceTranscript(extractOpenRouterTextContent(data.choices?.[0]?.message?.content));
+}
+
+function extractOpenRouterTextContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content.trim();
+  }
+  if (!Array.isArray(content)) {
+    return '';
+  }
+  return content
+    .map((part) => {
+      if (!part || typeof part !== 'object') {
+        return '';
+      }
+      const maybeText = (part as { text?: unknown }).text;
+      return typeof maybeText === 'string' ? maybeText : '';
+    })
+    .join('')
+    .trim();
 }
 
 function buildDiscordVoiceEnvelope(params: {
@@ -615,6 +728,13 @@ async function run(): Promise<void> {
     avatarId,
     process.env.SECRET_PREFIX || 'swarm',
   );
+  const hasOpenRouterKey = await ensureOpenRouterKey(secrets, secretsService);
+  if (hasOpenRouterKey) {
+    logger.info('OpenRouter key available for Discord voice TTS', {
+      event: 'discord_voice_openrouter_key_available',
+      avatarId,
+    });
+  }
   const botToken = secrets.DISCORD_BOT_TOKEN || secrets.discord_bot_token;
   if (!botToken) {
     throw new Error(`Discord bot token not configured for avatar ${avatarId}`);
@@ -643,13 +763,21 @@ async function run(): Promise<void> {
   });
 
   try {
-    const audioUrl = await buildGreetingAudioUrl(avatarId, avatarConfig, secrets);
-    if (audioUrl) {
-      await playDiscordVoiceUrl({
-        voice,
-        connection,
-        audioUrl,
-        timeoutMs: Math.min(sessionTimeoutMs, 120_000),
+    try {
+      const audioUrl = await buildGreetingAudioUrl(avatarId, avatarConfig, secrets);
+      if (audioUrl) {
+        await playDiscordVoiceUrl({
+          voice,
+          connection,
+          audioUrl,
+          timeoutMs: Math.min(sessionTimeoutMs, 120_000),
+        });
+      }
+    } catch (err) {
+      logger.warn('Discord voice greeting failed; continuing voice session', {
+        event: 'discord_voice_greeting_failed',
+        avatarId,
+        errorMessage: err instanceof Error ? err.message : String(err),
       });
     }
 

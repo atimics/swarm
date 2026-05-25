@@ -16,6 +16,7 @@ import { buildMediaUrl, logger } from '@swarm/core';
 import type { AllServices } from '@swarm/mcp-server';
 import type {
   AvatarConfig,
+  DiscordMessage,
   StateService,
   MediaService,
   ContentStoreService,
@@ -26,6 +27,8 @@ import { GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { createVoiceServices } from './voice.js';
 import { createRuntimeBrainService } from './brain.js';
 import { createRuntimeStickerServices } from './telegram-sticker-packs.js';
+import { DiscordVoiceTaskLauncher } from '../discord/discord-voice-task-launcher.js';
+import { resolveDiscordVoiceBehavior } from '../discord/discord-voice-control.js';
 import {
   checkMediaLimit,
   checkMediaWithEnergyFallback,
@@ -208,6 +211,7 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
       publicKey: discordConfig.publicKey,
     })
     : null;
+  const discordVoiceTaskLauncher = new DiscordVoiceTaskLauncher();
 
   // Initialize content store for decoupled Twitter posting
   const stateTable = process.env.STATE_TABLE;
@@ -1618,6 +1622,149 @@ export function createPlatformMCPServices(config: PlatformServicesConfig): AllSe
           // not via REST API. Return false from platform handler context.
           logger.warn('[Discord] setPresence is only available via the Gateway WebSocket connection');
           return false;
+        },
+
+        joinVoice: async (params: {
+          guildId?: string;
+          voiceChannelId?: string;
+          textChannelId?: string;
+          triggerMessageId?: string;
+          triggerUserId?: string;
+          maxSessionSeconds?: number;
+        }) => {
+          if (!discordConfig?.enabled) {
+            return { launched: false, reason: 'disabled', detail: 'Discord is not enabled for this avatar.' };
+          }
+          if (!discordBotToken) {
+            return { launched: false, reason: 'missing_config', detail: 'Discord bot token is not configured.' };
+          }
+
+          const behavior = resolveDiscordVoiceBehavior(discordConfig);
+          if (!behavior.enabled) {
+            return { launched: false, reason: 'disabled', detail: 'Discord voice is disabled for this avatar.' };
+          }
+
+          let guildId = params.guildId;
+          let voiceChannelId = params.voiceChannelId;
+          const triggerUserId = params.triggerUserId || 'tool';
+
+          if (!voiceChannelId && guildId && params.triggerUserId) {
+            try {
+              const voiceStateResponse = await fetch(
+                `${DISCORD_API_BASE}/guilds/${guildId}/voice-states/${params.triggerUserId}`,
+                { headers: { Authorization: `Bot ${discordBotToken}` } },
+              );
+              if (voiceStateResponse.ok) {
+                const voiceState = (await voiceStateResponse.json()) as { channel_id?: string | null };
+                voiceChannelId = voiceState.channel_id || undefined;
+              }
+            } catch (error) {
+              logger.warn('[Discord] Failed to resolve user voice state for joinVoice tool', {
+                errorMessage: error instanceof Error ? error.message : String(error),
+                guildId,
+                triggerUserId: params.triggerUserId,
+              });
+            }
+          }
+
+          if (!voiceChannelId && params.textChannelId) {
+            try {
+              const response = await fetch(`${DISCORD_API_BASE}/channels/${params.textChannelId}`, {
+                headers: { Authorization: `Bot ${discordBotToken}` },
+              });
+              if (response.ok) {
+                const channel = (await response.json()) as { id: string; type: number; guild_id?: string };
+                if (mapDiscordChannelType(channel.type) === 'voice') {
+                  voiceChannelId = channel.id;
+                  guildId = guildId || channel.guild_id;
+                }
+              }
+            } catch (error) {
+              logger.warn('[Discord] Failed to inspect current channel for joinVoice tool', {
+                errorMessage: error instanceof Error ? error.message : String(error),
+                textChannelId: params.textChannelId,
+              });
+            }
+          }
+
+          if (!guildId && voiceChannelId) {
+            try {
+              const response = await fetch(`${DISCORD_API_BASE}/channels/${voiceChannelId}`, {
+                headers: { Authorization: `Bot ${discordBotToken}` },
+              });
+              if (response.ok) {
+                const channel = (await response.json()) as { guild_id?: string };
+                guildId = channel.guild_id;
+              }
+            } catch (error) {
+              logger.warn('[Discord] Failed to resolve voice channel guild for joinVoice tool', {
+                errorMessage: error instanceof Error ? error.message : String(error),
+                voiceChannelId,
+              });
+            }
+          }
+
+          if (!guildId) {
+            return { launched: false, reason: 'missing_config', detail: 'Discord guild ID is required to join voice.' };
+          }
+          if (!voiceChannelId) {
+            return {
+              launched: false,
+              reason: 'missing_config',
+              detail: 'No Discord voice channel could be resolved. Provide voiceChannelId or call from voice channel chat.',
+              guildId,
+            };
+          }
+
+          if (
+            behavior.allowedVoiceChannelIds?.length &&
+            !behavior.allowedVoiceChannelIds.includes(voiceChannelId)
+          ) {
+            return {
+              launched: false,
+              reason: 'disabled',
+              detail: 'This voice channel is not allowed for the avatar.',
+              guildId,
+              voiceChannelId,
+            };
+          }
+
+          const message: DiscordMessage = {
+            id: params.triggerMessageId || `tool-${Date.now()}`,
+            channel_id: params.textChannelId || voiceChannelId,
+            guild_id: guildId,
+            author: {
+              id: triggerUserId,
+              username: triggerUserId === 'tool' ? 'tool' : triggerUserId,
+              bot: false,
+            },
+            content: '[tool:discord_join_voice]',
+            timestamp: new Date().toISOString(),
+            tts: false,
+            mention_everyone: false,
+            mentions: [],
+            attachments: [],
+            embeds: [],
+            type: 0,
+          };
+
+          const result = await discordVoiceTaskLauncher.launch({
+            avatarId,
+            avatarConfig,
+            message,
+            decision: {
+              shouldLaunch: true,
+              reason: 'ready',
+              voiceChannelId,
+              maxSessionSeconds: params.maxSessionSeconds ?? behavior.maxSessionSeconds,
+            },
+          });
+
+          return {
+            ...result,
+            guildId,
+            voiceChannelId,
+          };
         },
       },
     } : {}),

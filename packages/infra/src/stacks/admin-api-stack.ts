@@ -13,6 +13,7 @@ import * as sns from 'aws-cdk-lib/aws-sns';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { AdminApiConstruct } from '../constructs/admin-api.js';
 import { SharedHandlers } from '../constructs/shared-handlers.js';
@@ -490,6 +491,38 @@ export class AdminApiStack extends cdk.Stack {
         secretPrefix,
         desiredCount: isProd ? 1 : 0,
       });
+
+      const discordVoiceWorkerEnv = {
+        DISCORD_VOICE_WORKER_ENABLED: 'true',
+        DISCORD_VOICE_WORKER_CLUSTER_ARN: discordCluster.clusterArn,
+        DISCORD_VOICE_WORKER_TASK_DEFINITION_ARN: this.discordGatewayWorker.voiceTaskDefinition.taskDefinitionArn,
+        DISCORD_VOICE_WORKER_SUBNET_IDS: this.discordGatewayWorker.voiceSubnets.subnetIds.join(','),
+        DISCORD_VOICE_WORKER_SECURITY_GROUP_IDS: this.discordGatewayWorker.voiceWorkerSecurityGroup.securityGroupId,
+        DISCORD_VOICE_WORKER_CONTAINER_NAME: 'DiscordVoiceWorker',
+      };
+      for (const fn of [this.sharedHandlers.messageProcessor, this.sharedHandlers.chatWorker]) {
+        for (const [key, value] of Object.entries(discordVoiceWorkerEnv)) {
+          fn.addEnvironment(key, value);
+        }
+        const voiceTaskDefinitionFamilyArn = cdk.Stack.of(this).formatArn({
+          service: 'ecs',
+          resource: 'task-definition',
+          resourceName: `${this.discordGatewayWorker.voiceTaskDefinition.family}:*`,
+        });
+        fn.addToRolePolicy(new iam.PolicyStatement({
+          actions: ['ecs:RunTask'],
+          resources: [voiceTaskDefinitionFamilyArn],
+        }));
+
+        const voicePassRoleResources = [this.discordGatewayWorker.voiceTaskDefinition.taskRole.roleArn];
+        if (this.discordGatewayWorker.voiceTaskDefinition.executionRole) {
+          voicePassRoleResources.push(this.discordGatewayWorker.voiceTaskDefinition.executionRole.roleArn);
+        }
+        fn.addToRolePolicy(new iam.PolicyStatement({
+          actions: ['iam:PassRole'],
+          resources: voicePassRoleResources,
+        }));
+      }
     }
 
     // ── Discord Gateway Guardrail ─────────────────────────────────────────────

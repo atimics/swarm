@@ -1608,6 +1608,15 @@ export const handler = async (event: SQSEvent, context: Context): Promise<{ batc
         userId: envelope.sender.id,
         conversationId: envelope.conversationId,
         replyToMessageId: envelope.messageId,
+        ...(envelope.platform === 'discord'
+          ? {
+              discord: {
+                guildId: envelope.metadata.guildId,
+                channelId: envelope.conversationId,
+                messageId: envelope.messageId,
+              },
+            }
+          : {}),
       };
 
       // Send typing indicator before LLM call so the user sees feedback

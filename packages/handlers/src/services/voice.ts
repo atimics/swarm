@@ -31,6 +31,9 @@ interface S3ClientLike {
 // Default: x-lance/f5-tts — SOTA open-source clone, materially better than
 // XTTS-v2 (Coqui is defunct). Override to the legacy model via env if needed.
 const VOICE_TTS_MODEL = process.env.VOICE_TTS_MODEL || 'x-lance/f5-tts';
+const OPENROUTER_SPEECH_ENDPOINT = process.env.OPENROUTER_SPEECH_ENDPOINT || 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_SPEECH_MODEL = process.env.OPENROUTER_SPEECH_MODEL || process.env.OPENROUTER_TTS_MODEL || 'openai/gpt-audio-mini';
+const OPENROUTER_SPEECH_VOICE = process.env.OPENROUTER_SPEECH_VOICE || process.env.OPENROUTER_TTS_VOICE || 'alloy';
 
 // Official models (like stability-ai) use a different endpoint than community models
 const OFFICIAL_MODEL_PREFIXES = ['stability-ai', 'meta', 'openai', 'mistralai', 'resemble-ai'];
@@ -58,6 +61,133 @@ function detectAudioFormat(contentType?: string | null, url?: string | null): Au
   if (lowerUrl.endsWith('.wav')) return 'wav';
   if (lowerUrl.endsWith('.ogg') || lowerUrl.endsWith('.oga') || lowerUrl.endsWith('.opus')) return 'ogg';
   return 'ogg';
+}
+
+function getOpenRouterKey(secrets: Record<string, string>): string | undefined {
+  return secrets.OPENROUTER_API_KEY || secrets.openrouter_api_key || secrets.LLM_API_KEY || secrets.llm_api_key;
+}
+
+function getOpenRouterResponseFormat(format: AudioFormat): string {
+  if (format === 'mp3') return 'mp3';
+  return 'mp3';
+}
+
+async function generateOpenRouterSpeech(params: {
+  apiKey: string;
+  avatarId: string;
+  text: string;
+  format: AudioFormat;
+  mediaBucket: string;
+  cdnUrl?: string;
+  fetchFn?: FetchFn;
+}): Promise<{ assetId: string; url: string; durationMs?: number; format: AudioFormat }> {
+  const responseFormat = getOpenRouterResponseFormat(params.format);
+  const response = await (params.fetchFn || fetch)(OPENROUTER_SPEECH_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${params.apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER || 'https://swarm.rati.chat',
+      'X-Title': process.env.OPENROUTER_X_TITLE || 'Ruby High',
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_SPEECH_MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: params.text,
+        },
+      ],
+      modalities: ['text', 'audio'],
+      audio: {
+        voice: OPENROUTER_SPEECH_VOICE,
+        format: responseFormat,
+      },
+      stream: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenRouter speech synthesis failed: ${response.status} - ${errorText}`);
+  }
+
+  const buffer = await readOpenRouterAudioStream(response);
+  const detectedFormat = detectAudioFormat(undefined, `speech.${responseFormat}`);
+  const asset = await uploadAudioAsset({
+    avatarId: params.avatarId,
+    buffer,
+    format: detectedFormat,
+    mediaBucket: params.mediaBucket,
+    cdnUrl: params.cdnUrl,
+  });
+
+  return { assetId: asset.assetId, url: asset.url, durationMs: undefined, format: detectedFormat };
+}
+
+async function readOpenRouterAudioStream(response: Response): Promise<Buffer> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('OpenRouter speech synthesis returned no response body');
+  }
+
+  const decoder = new TextDecoder();
+  const audioChunks: string[] = [];
+  let pending = '';
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    pending += decoder.decode(value, { stream: true });
+
+    let newlineIndex = pending.indexOf('\n');
+    while (newlineIndex >= 0) {
+      const line = pending.slice(0, newlineIndex).trim();
+      pending = pending.slice(newlineIndex + 1);
+      readOpenRouterAudioStreamLine(line, audioChunks);
+      newlineIndex = pending.indexOf('\n');
+    }
+  }
+
+  pending += decoder.decode();
+  if (pending.trim()) {
+    readOpenRouterAudioStreamLine(pending.trim(), audioChunks);
+  }
+
+  if (audioChunks.length === 0) {
+    throw new Error('OpenRouter speech synthesis returned no audio chunks');
+  }
+
+  return Buffer.from(audioChunks.join(''), 'base64');
+}
+
+function readOpenRouterAudioStreamLine(line: string, audioChunks: string[]): void {
+  if (!line.startsWith('data:')) return;
+
+  const data = line.slice('data:'.length).trim();
+  if (!data || data === '[DONE]') return;
+
+  try {
+    const parsed = JSON.parse(data) as {
+      choices?: Array<{
+        delta?: {
+          audio?: {
+            data?: unknown;
+          };
+        };
+      }>;
+    };
+    const audioData = parsed.choices?.[0]?.delta?.audio?.data;
+    if (typeof audioData === 'string' && audioData.length > 0) {
+      audioChunks.push(audioData);
+    }
+  } catch (error) {
+    logger.warn('Failed to parse OpenRouter speech synthesis stream chunk', {
+      event: 'openrouter_speech_stream_parse_failed',
+      subsystem: 'voice',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function formatToContentType(format: AudioFormat): string {
@@ -421,6 +551,32 @@ export function createVoiceServices(config: {
 
       const referenceUrl = config.voiceConfig?.referenceUrl;
       const voiceId = params.voiceId;
+      const requestedFormat = params.format || config.voiceConfig?.format || 'ogg';
+      const seedUrl = referenceUrl || (isUrl(voiceId) ? voiceId : undefined);
+      const openRouterKey = getOpenRouterKey(config.secrets);
+
+      if (!seedUrl && openRouterKey) {
+        const asset = await generateOpenRouterSpeech({
+          apiKey: openRouterKey,
+          avatarId: config.avatarId,
+          text: params.text,
+          format: requestedFormat,
+          mediaBucket: config.mediaBucket,
+          cdnUrl: config.cdnUrl,
+          fetchFn: config._deps?.fetch,
+        });
+
+        if (requestedFormat === 'ogg' && asset.format !== 'ogg') {
+          try {
+            const converted = await convertAudioToOgg({ avatarId: params.avatarId, sourceUrl: asset.url });
+            if (converted) return { ...asset, url: converted, format: 'ogg' };
+          } catch (err) {
+            logger.warn('[Voice] Media convert failed, falling back to OpenRouter audio', { errorMessage: err instanceof Error ? err.message : String(err) });
+          }
+        }
+
+        return asset;
+      }
 
       if (!replicateKey) {
         throw new Error('Replicate API key not configured');
@@ -430,7 +586,6 @@ export function createVoiceServices(config: {
         throw new Error('Voice cloning not enabled');
       }
 
-      const seedUrl = referenceUrl || (isUrl(voiceId) ? voiceId : undefined);
       if (!seedUrl) {
         throw new Error('Voice reference URL not configured');
       }
@@ -485,6 +640,90 @@ export function createVoiceServices(config: {
       // Generate the voice message first
       const referenceUrl = config.voiceConfig?.referenceUrl;
       const voiceId = params.voiceId;
+      const requestedFormat = params.format || config.voiceConfig?.format || 'ogg';
+      const seedUrl = referenceUrl || (isUrl(voiceId) ? voiceId : undefined);
+      const openRouterKey = getOpenRouterKey(config.secrets);
+
+      if (!seedUrl && openRouterKey) {
+        const asset = await generateOpenRouterSpeech({
+          apiKey: openRouterKey,
+          avatarId: config.avatarId,
+          text: params.text,
+          format: requestedFormat,
+          mediaBucket: config.mediaBucket,
+          cdnUrl: config.cdnUrl,
+          fetchFn: config._deps?.fetch,
+        });
+
+        const assetId = asset.assetId;
+        const url = asset.url;
+        let accessibleUrl = await makeUrlAccessible(url, config.cdnUrl);
+        let detectedFormat = asset.format;
+
+        if (requestedFormat === 'ogg' && detectedFormat !== 'ogg') {
+          try {
+            const converted = await convertAudioToOgg({ avatarId: params.avatarId, sourceUrl: accessibleUrl });
+            if (converted) {
+              accessibleUrl = converted;
+              detectedFormat = 'ogg';
+            }
+          } catch (err) {
+            logger.warn('[Voice] Media convert failed, falling back to OpenRouter audio', { errorMessage: err instanceof Error ? err.message : String(err) });
+          }
+        }
+
+        if (params.platform === 'telegram') {
+          if (!params.conversationId) {
+            throw new Error('conversationId is required for Telegram voice messages');
+          }
+
+          if (!telegramToken) {
+            throw new Error('TELEGRAM_BOT_TOKEN not configured');
+          }
+
+          let telegramSourceUrl = accessibleUrl;
+          if (detectedFormat !== 'ogg') {
+            try {
+              const converted = await convertAudioToOgg({ avatarId: params.avatarId, sourceUrl: accessibleUrl });
+              if (converted) telegramSourceUrl = converted;
+            } catch (err) {
+              logger.warn('[Voice] Media convert failed, falling back to original audio', { errorMessage: err instanceof Error ? err.message : String(err) });
+            }
+          }
+
+          const audioResponse = await fetchWithTimeout(telegramSourceUrl);
+          if (!audioResponse.ok) {
+            const errorText = await audioResponse.text();
+            throw new Error(`Failed to download voice audio for Telegram upload: ${audioResponse.status} - ${errorText}`);
+          }
+
+          const buffer = Buffer.from(await audioResponse.arrayBuffer());
+          const contentType = audioResponse.headers.get('content-type');
+          const uploadType = contentType || 'audio/ogg';
+          const fileName = 'voice.ogg';
+
+          const form = new FormData();
+          form.append('chat_id', params.conversationId.toString());
+          form.append('voice', new Blob([buffer], { type: uploadType }), fileName);
+          if (params.replyToMessageId) {
+            form.append('reply_to_message_id', Number(params.replyToMessageId).toString());
+          }
+
+          const response = await fetch(`https://api.telegram.org/bot${telegramToken}/sendVoice`, {
+            method: 'POST',
+            body: form,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Telegram sendVoice failed: ${response.status} - ${errorText}`);
+          }
+
+          return { success: true, assetId, url, sent: true };
+        }
+
+        return { success: true, assetId, url, sent: false };
+      }
 
       if (!replicateKey) {
         throw new Error('Replicate API key not configured');
@@ -494,7 +733,6 @@ export function createVoiceServices(config: {
         throw new Error('Voice cloning not enabled');
       }
 
-      const seedUrl = referenceUrl || (isUrl(voiceId) ? voiceId : undefined);
       if (!seedUrl) {
         throw new Error('Voice reference URL not configured');
       }
