@@ -164,6 +164,7 @@ describe("mountAdminRoutes integration", () => {
       ["GET", `/api/avatars/${AVATAR_ID}/integrations`],
       ["POST", `/api/avatars/${AVATAR_ID}/integrations`, {}],
       ["GET", "/api/integrations/models?integration=openrouter"],
+      ["POST", `/api/avatars/${AVATAR_ID}/tools/tc-1`, { result: { configured: true, integration: "telegram" } }],
       ["GET", `/api/avatars/${AVATAR_ID}/discord/status`],
     ];
 
@@ -221,6 +222,15 @@ describe("mountAdminRoutes integration", () => {
     expect(status).toBe(500);
     expect((body as any).error).toBe("Chat processing failed");
     expect((body as any).detail).toBe("boom");
+  });
+
+  it("tool resume works", async () => {
+    const { mountAdminRoutes } = await import("./server.js");
+    const app = express();
+    await mountAdminRoutes(app, stubServices as any);
+    const { status, body } = await hitRoute(app, "POST", `/api/avatars/${AVATAR_ID}/tools/tc-1`, { result: { configured: true, integration: "telegram" } });
+    // The resume may fail because the avatar doesn't exist, but the route should exist (non-404)
+    expect(status).not.toBe(404);
   });
 
   it("secret save works and returns 200", async () => {

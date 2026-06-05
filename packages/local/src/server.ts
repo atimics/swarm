@@ -555,10 +555,13 @@ export async function mountAdminRoutes(
       const { key, value } = req.body as { key?: string; value?: string };
       if (!key || !value) { res.status(400).json({ error: "key and value required" }); return; }
       const secretName = key.includes("_") ? key : `${key}_api_key`;
+      console.log(`[local] Saving secret ${secretName} for avatar ${req.params.id}`);
       await _services.secrets.setSecret(secretName, value);
       await _services.secrets.flush();
+      console.log(`[local] Secret ${secretName} saved successfully`);
       res.json({ success: true, message: `${key} stored securely` });
     } catch (err) {
+      console.error(`[local] Secret save error for ${req.params.id}:`, err);
       res.status(500).json({ error: (err as Error).message });
     }
   });
@@ -576,14 +579,15 @@ export async function mountAdminRoutes(
     try {
       const { type, value } = req.body as { type?: string; value?: string };
       if (!type || !value) { res.status(400).json({ error: "type and value required" }); return; }
+      console.log(`[local] Validating token type=${type} for avatar ${req.params.id}`);
       if (type === "telegram_bot_token" || type === "discord_bot_token") {
-        // Best-effort validation: check format
         const looksValid = value.length > 20;
         res.json({ valid: looksValid, botInfo: looksValid ? { username: "local_bot" } : undefined });
       } else {
         res.json({ valid: true });
       }
     } catch (err) {
+      console.error(`[local] Token validation error for ${req.params.id}:`, err);
       res.status(500).json({ error: (err as Error).message });
     }
   });
@@ -604,9 +608,11 @@ export async function mountAdminRoutes(
     try {
       const { updateAvatar } = await import("../../admin-api/src/services/avatars.js");
       const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      console.log(`[local] Updating avatar ${req.params.id}:`, JSON.stringify(req.body).slice(0, 200));
       const result = await updateAvatar(req.params.id, req.body, session);
       res.json(result);
     } catch (err) {
+      console.error(`[local] Avatar update error for ${req.params.id}:`, err);
       res.status(500).json({ error: (err as Error).message });
     }
   });
@@ -665,6 +671,35 @@ export async function mountAdminRoutes(
       res.json(avatar);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ── Resume chat after tool result ───────────────────────────────
+  app.post("/api/avatars/:id/tools/:toolCallId", async (req, res) => {
+    try {
+      const { result } = req.body as { result?: unknown };
+      if (result === undefined) { res.status(400).json({ error: "result is required" }); return; }
+      const { resumeChatAfterToolResult } = await import(
+        "../../admin-api/src/handlers/chat-tools/resume-chat.js"
+      );
+      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const resumed = await resumeChatAfterToolResult({
+        avatarId: req.params.id,
+        toolCallId: req.params.toolCallId,
+        result,
+        session,
+      });
+      res.json({
+        response: resumed.response,
+        history: resumed.history,
+        media: resumed.media,
+        pendingJobs: resumed.pendingJobs,
+        pendingToolCall: resumed.pendingToolCall,
+        avatarUpdates: resumed.avatarUpdates,
+      });
+    } catch (err) {
+      console.error(`[local] Tool resume error for ${req.params.id}:`, err);
+      res.status(400).json({ error: (err as Error).message });
     }
   });
 
