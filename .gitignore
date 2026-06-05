@@ -78,3 +78,4 @@ migrations/
 # Ephemeral issue-harvest outputs from scripts/download-issues.sh
 issues/staging/
 issues/prod/
+dist/
