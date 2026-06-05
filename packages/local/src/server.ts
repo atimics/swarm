@@ -463,13 +463,15 @@ export async function startServer(options: ServerOptions = {}) {
 
 // ── Route mounting ──────────────────────────────────────────────────────
 
-async function mountAdminRoutes(
+export async function mountAdminRoutes(
   app: express.Express,
   _services: ReturnType<typeof createLocalServices>,
+  processChatOverride?: (...args: any[]) => Promise<any>,
 ) {
   const { processChat } = await import(
     '../../admin-api/src/handlers/chat.js'
   );
+  const chat = processChatOverride ?? processChat;
 
   app.post('/api/chat', async (req, res) => {
     try {
@@ -492,7 +494,7 @@ async function mountAdminRoutes(
         isAdmin: sessionOverride?.isAdmin ?? true,
       };
 
-      const result = await processChat(
+      const result = await chat(
         message ?? null,
         history as Array<{ role: string; content: string }>,
         session,
@@ -547,6 +549,125 @@ async function mountAdminRoutes(
       res.status(500).json({ error: (err as Error).message });
     }
   });
+  // ── Avatar sub-routes (secrets, integrations, tokens) ────────────
+  app.post("/api/avatars/:id/secrets", async (req, res) => {
+    try {
+      const { key, value } = req.body as { key?: string; value?: string };
+      if (!key || !value) { res.status(400).json({ error: "key and value required" }); return; }
+      const secretName = key.includes("_") ? key : `${key}_api_key`;
+      await _services.secrets.setSecret(secretName, value);
+      await _services.secrets.flush();
+      res.json({ success: true, message: `${key} stored securely` });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/avatars/:id/secrets", async (_req, res) => {
+    try {
+      const names = await _services.secrets.listSecrets();
+      res.json(names);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post("/api/avatars/:id/validate-token", async (req, res) => {
+    try {
+      const { type, value } = req.body as { type?: string; value?: string };
+      if (!type || !value) { res.status(400).json({ error: "type and value required" }); return; }
+      if (type === "telegram_bot_token" || type === "discord_bot_token") {
+        // Best-effort validation: check format
+        const looksValid = value.length > 20;
+        res.json({ valid: looksValid, botInfo: looksValid ? { username: "local_bot" } : undefined });
+      } else {
+        res.json({ valid: true });
+      }
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post("/api/avatars/:id/validate-ai-key", async (req, res) => {
+    res.json({ valid: true });  // local mode always accepts keys
+  });
+
+  app.get("/api/avatars/:id/telegram/diagnose", async (_req, res) => {
+    res.json({ status: "not_configured", message: "Telegram not configured in local mode" });
+  });
+
+  app.post("/api/avatars/:id/telegram/repair", async (_req, res) => {
+    res.json({ success: false, message: "Telegram webhook repair not available in local mode" });
+  });
+
+  app.put("/api/avatars/:id", async (req, res) => {
+    try {
+      const { updateAvatar } = await import("../../admin-api/src/services/avatars.js");
+      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const result = await updateAvatar(req.params.id, req.body, session);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.patch("/api/avatars/:id", async (req, res) => {
+    try {
+      const { updateAvatar } = await import("../../admin-api/src/services/avatars.js");
+      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const result = await updateAvatar(req.params.id, req.body, session);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/avatars/:id/integrations", async (_req, res) => {
+    res.json({ integrations: {} });  // local mode: no integrations configured yet
+  });
+
+  app.post("/api/avatars/:id/integrations", async (req, res) => {
+    try {
+      const { updateAvatar } = await import("../../admin-api/src/services/avatars.js");
+      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const result = await updateAvatar(req.params.id, req.body, session);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/integrations/models", async (req, res) => {
+    try {
+      const integration = String(req.query.integration || "");
+      // Return a basic model list for the integration
+      const models = integration === "openrouter" ? [
+        { id: "openai/gpt-4o", name: "GPT-4o", provider: "openai" },
+        { id: "anthropic/claude-sonnet-4-20250514", name: "Claude Sonnet 4", provider: "anthropic" },
+        { id: "google/gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "google" },
+        { id: "amazon/nova-2-lite-v1", name: "Nova 2 Lite", provider: "amazon" },
+      ] : [];
+      res.json({ models });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/avatars/:id/discord/status", async (_req, res) => {
+    res.json({ connected: false, mode: "bot" });
+  });
+
+  app.get("/api/avatars/:id", async (req, res) => {
+    try {
+      const { getAvatar } = await import("../../admin-api/src/services/avatars.js");
+      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const avatar = await getAvatar(req.params.id, session);
+      res.json(avatar);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
 }
 
 function mountStubRoutes(app: express.Express) {
