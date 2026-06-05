@@ -503,6 +503,11 @@ async function mountAdminRoutes(
         response: result.response,
         history: result.history,
         avatar: result.avatar,
+        pendingToolCall: (result as any).pendingToolCall,
+        taskActions: (result as any).taskActions,
+        media: (result as any).media,
+        pendingJobs: (result as any).pendingJobs,
+        avatarUpdates: (result as any).avatarUpdates,
       });
     } catch (err) {
       console.error('[local] Chat error:', err);
