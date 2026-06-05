@@ -26,7 +26,7 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { z } from 'zod';
 import { createHash, randomBytes } from 'crypto';
-import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, QueryCommand, UpdateCommand } from '@swarm/core';
 import { logger, detectEnabledCategories } from '@swarm/core';
 import { processChat } from './chat.js';
 import {

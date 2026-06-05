@@ -12,6 +12,7 @@
  * scheduled `station-agent-runner` is intentionally separate.
  */
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { getSecretsClient } from '../aws-clients.js';
 import type { SignalStationServices, StationState, CommandResult } from '@swarm/mcp-server';
 
 const SIGNAL_API_BASE = process.env.SIGNAL_API_URL || 'https://signal-ws.ratimics.com';
@@ -35,7 +36,7 @@ async function resolveToken(): Promise<string> {
   }
 
   cachedTokenPromise = (async () => {
-    const client = new SecretsManagerClient({});
+    const client = getSecretsClient();
     const response = await client.send(new GetSecretValueCommand({ SecretId: secretArn }));
     if (!response.SecretString) {
       throw new Error('SIGNAL_API_TOKEN secret value is empty');

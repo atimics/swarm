@@ -4,10 +4,11 @@
  *
  * Uses core media resolvers for model/API key resolution to avoid duplication.
  */
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@swarm/core';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { PutCommand, QueryCommand, DeleteCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { getS3Client, getSQSClient } from '../aws-clients.js';
+import { SQSClient, SendMessageCommand } from '@swarm/core';
+import { PutCommand, QueryCommand, DeleteCommand, UpdateCommand, GetCommand } from '@swarm/core';
 import { createHmac } from 'crypto';
 import { v4 as uuid } from 'uuid';
 import {
@@ -33,8 +34,8 @@ import { getSystemOpenRouterApiKey } from '../openrouter-key.js';
 
 const log = createSystemLogger('media');
 
-const s3Client = new S3Client({});
-const sqsClient = new SQSClient({});
+const s3Client = getS3Client();
+const sqsClient = getSQSClient();
 const dynamoClient = getDynamoClient();
 
 const MEDIA_BUCKET = process.env.MEDIA_BUCKET!;

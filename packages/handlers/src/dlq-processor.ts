@@ -21,9 +21,10 @@ import {
   DeleteMessageCommand,
   SendMessageCommand,
   GetQueueAttributesCommand,
-} from '@aws-sdk/client-sqs';
-import { PutCommand } from '@aws-sdk/lib-dynamodb';
+} from '@swarm/core';
+import { PutCommand } from '@swarm/core';
 import { CloudWatchClient, PutMetricDataCommand } from '@aws-sdk/client-cloudwatch';
+import { getSQSClient } from './services/aws-clients.js';
 import { logger } from '@swarm/core';
 import { getDynamoClient } from './services/dynamo-client.js';
 
@@ -115,7 +116,7 @@ const PERMANENT_ERROR_PATTERNS: string[] = [
 // Clients (lazy-init on cold start)
 // ---------------------------------------------------------------------------
 
-const sqsClient = new SQSClient({});
+const sqsClient = getSQSClient();
 const cwClient = new CloudWatchClient({});
 const dynamoClient = getDynamoClient();
 

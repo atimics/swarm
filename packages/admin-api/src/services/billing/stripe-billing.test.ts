@@ -12,7 +12,6 @@
  */
 import { createHmac } from 'crypto';
 import { beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 
 // ---------------------------------------------------------------------------
 // Set env vars BEFORE dynamically loading the module under test

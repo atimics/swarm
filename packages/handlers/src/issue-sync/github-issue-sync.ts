@@ -19,7 +19,7 @@
  * - ENVIRONMENT: Deployment environment name
  */
 import type { DynamoDBStreamEvent, DynamoDBRecord, Context } from 'aws-lambda';
-import { UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { UpdateCommand, GetCommand } from '@swarm/core';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { logger, GitHubAppTokenProvider, type GitHubTokenProvider } from '@swarm/core';

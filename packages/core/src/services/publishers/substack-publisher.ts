@@ -1,3 +1,4 @@
+import { GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 /**
  * Substack Publisher Adapter
  *
@@ -7,7 +8,6 @@
  * Authentication uses cookie-based auth (substack.sid, connect.sid) stored in Secrets Manager
  * instead of unreliable email/password login endpoint.
  */
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { logger } from '../../utils/logger.js';
 
 // ============================================================================

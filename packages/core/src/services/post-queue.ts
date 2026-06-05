@@ -1,9 +1,9 @@
+import { SendMessageCommand } from '@aws-sdk/client-sqs';
 /**
  * Post Queue Service
  *
  * Utility for enqueueing posts to POST_QUEUE for decoupled Twitter posting.
  */
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import type { PostQueueMessage } from '../types/content-store.js';
 
 let sqsClient: SQSClient | null = null;

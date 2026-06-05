@@ -1,6 +1,5 @@
-import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
-import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { MemoryFact } from '../../types/index.js';
+import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 
 export async function saveFact(
   docClient: DynamoDBDocumentClient,

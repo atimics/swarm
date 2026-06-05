@@ -18,7 +18,7 @@ import { isRequestValidationError } from '../middleware/validate.js';
 import {
   GetCommand,
   UpdateCommand,
-} from '@aws-sdk/lib-dynamodb';
+} from '@swarm/core';
 import type { MessageSender } from '../types.js';
 import * as avatarService from '../services/avatars.js';
 import { createSharedChatProcessor } from '../services/processor-adapter.js';

@@ -3,7 +3,7 @@
  * Handles home channel registration, cleanup, channel state management,
  * and bootstrap logic for the Telegram webhook handler.
  */
-import { QueryCommand, DeleteCommand, PutCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand, DeleteCommand, PutCommand, UpdateCommand, GetCommand } from '@swarm/core';
 import { logger, type AvatarConfig } from '@swarm/core';
 import { getDynamoClient } from '../services/dynamo-client.js';
 import { mergeAllowedChats } from './webhook-chat-access.js';

@@ -9,7 +9,7 @@ import {
   PutCommand,
   UpdateCommand,
   QueryCommand,
-} from '@aws-sdk/lib-dynamodb';
+} from '@swarm/core';
 import {
   BURN_TIERS,
   getTierForBurnAmount,

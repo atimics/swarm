@@ -1,3 +1,4 @@
+import { GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 /**
  * GitHub App Token Provider
  *
@@ -19,7 +20,6 @@
  * - GITHUB_APP_CREDENTIALS_ARN: Secrets Manager ARN for the JSON credentials blob
  * - GITHUB_REPO: owner/repo used to discover the installation (e.g. "cenetex/aws-swarm")
  */
-import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import * as crypto from 'node:crypto';
 
 // ---------------------------------------------------------------------------

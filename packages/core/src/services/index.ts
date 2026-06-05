@@ -280,3 +280,8 @@ export {
   type EmbeddingService,
   type EmbeddingResult,
 } from './embeddings.js';
+export type { KeyValueStore } from './key-value-store.js';
+export type { CompositeKey, ConditionalPutOptions, QueryOptions, PaginatedResult } from './dynamo-repository.js';
+
+// Local command classes (drop-in for @aws-sdk/*)
+export * from "../commands/index.js";

@@ -1,10 +1,10 @@
+import { SendMessageCommand } from '@aws-sdk/client-sqs';
 /**
  * Media Queue Service
  *
  * Utility for enqueueing media generation jobs to MEDIA_QUEUE.
  * Similar to post-queue.ts but for image/video generation.
  */
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import type { SwarmResponse } from '../types/index.js';
 import { randomUUID } from 'node:crypto';
 

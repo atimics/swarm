@@ -5,7 +5,8 @@
  * All handlers should use sendSqsMessage() instead of directly calling sqs.send()
  * for message bodies that could exceed 256KB (e.g., envelopes with media attachments).
  */
-import { SQSClient, SendMessageCommand, type SendMessageCommandInput } from '@aws-sdk/client-sqs';
+import { SQSClient, SendMessageCommand, type SendMessageCommandInput } from '@swarm/core';
+import { getSQSClient } from './aws-clients.js';
 import {
   createSqsOffloadServiceFromEnv,
   logger,
@@ -17,7 +18,7 @@ let _offloadService: SqsOffloadService | null | undefined;
 
 function getSqsClient(): SQSClient {
   if (!_sqsClient) {
-    _sqsClient = new SQSClient({});
+    _sqsClient = getSQSClient();
   }
   return _sqsClient;
 }

@@ -16,6 +16,7 @@
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import { logger } from '@swarm/core';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { getSecretsClient } from '../services/aws-clients.js';
 import {
   getDreamJob,
   updateDreamJobStatus,
@@ -49,7 +50,7 @@ async function getLlmApiKey(): Promise<string> {
     throw new Error('LLM_API_KEY_SECRET_ARN not configured');
   }
 
-  const client = new SecretsManagerClient({});
+  const client = getSecretsClient();
   const response = await client.send(new GetSecretValueCommand({
     SecretId: LLM_API_KEY_SECRET_ARN,
   }));

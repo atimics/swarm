@@ -4,6 +4,7 @@
  * bot token management, and Telegram adapter lifecycle for the webhook handler.
  */
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { getSecretsClient } from '../services/aws-clients.js';
 import { timingSafeEqual } from 'crypto';
 import {
   TelegramAdapter,
@@ -13,7 +14,7 @@ import {
 } from '@swarm/core';
 import { getTelegramBotTokenFromSecrets } from './bot-token-secrets.js';
 
-const secretsClient = new SecretsManagerClient({});
+const secretsClient = getSecretsClient();
 
 const STATE_TABLE = process.env.STATE_TABLE!;
 const SECRET_PREFIX = process.env.SECRET_PREFIX || 'swarm';

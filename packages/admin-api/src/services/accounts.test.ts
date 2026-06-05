@@ -9,7 +9,7 @@ import {
   type AccountsServiceDeps,
 } from './accounts.js';
 
-import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import type { DynamoDBDocumentClient } from '@swarm/core';
 
 type DbItem = Record<string, unknown>;
 

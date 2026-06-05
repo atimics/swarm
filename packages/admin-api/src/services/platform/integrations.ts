@@ -2,7 +2,7 @@
  * Integrations Service
  * Unified configuration and status management for all integrations.
  */
-import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { UpdateCommand } from '@swarm/core';
 import {
   normalizeOpenRouterMediaCapability,
   resolveDefaultOpenRouterMediaModel,
@@ -22,6 +22,7 @@ import { getAvatar } from '../avatars.js';
 import { _getSecretValueInternal, secretExists, storeSecret } from '../secrets.js';
 import { getDefaultModel, getModelsForCapability, type ModelInfo } from '../models-registry.js';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { getSecretsClient } from '../aws-clients.js';
 import { getDynamoClient } from '../dynamo-client.js';
 import { hasSystemOpenRouterApiKey } from '../openrouter-key.js';
 
@@ -98,7 +99,7 @@ async function hasSystemReplicateKeyConfigured(): Promise<boolean> {
   }
 
   try {
-    const client = new SecretsManagerClient({});
+    const client = getSecretsClient();
     const resp = await client.send(new GetSecretValueCommand({ SecretId: arn }));
     const raw = (resp.SecretString || '').trim();
     const parsed = raw ? parseReplicateApiKeyFromJson(raw) : undefined;

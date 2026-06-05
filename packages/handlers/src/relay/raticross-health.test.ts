@@ -1,9 +1,9 @@
+import { RATICROSS_PROTOCOL_VERSION } from '@swarm/core';
 /**
  * Raticross Health Check Handler Tests
  */
 import { describe, it, expect } from 'bun:test';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
-import { RATICROSS_PROTOCOL_VERSION } from '@swarm/core';
 
 // Set env before importing handler
 process.env.RATICROSS_INBOUND_KEY = 'test-health-key';

@@ -14,7 +14,7 @@
  */
 import type { ScheduledHandler, Context } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@swarm/core';
 import {
   createStateService,
   createSecretsService,

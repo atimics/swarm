@@ -3,7 +3,7 @@
  * Sends generated responses to platforms
  */
 import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
-import { GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, DeleteCommand } from '@swarm/core';
 import { randomUUID } from 'crypto';
 import {
   TelegramAdapter,

@@ -63,8 +63,7 @@ async function getLLMApiKey(): Promise<string> {
     throw new Error('LLM_API_KEY_SECRET_ARN not configured');
   }
 
-  const { SecretsManagerClient, GetSecretValueCommand } = await import('@aws-sdk/client-secrets-manager');
-  const client = new SecretsManagerClient({});
+  const client = getSecretsClient();
   const response = await client.send(new GetSecretValueCommand({
     SecretId: LLM_API_KEY_SECRET_ARN,
   }));

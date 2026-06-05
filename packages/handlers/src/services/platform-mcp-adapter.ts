@@ -23,7 +23,7 @@ import type {
   PostMedia,
 } from '@swarm/core';
 import { TwitterAdapter, DiscordAdapter, createContentStoreService, enqueuePost, isPostQueueConfigured, getPostQueueUrl, enqueueMediaJob, isMediaQueueConfigured, getMediaQueueUrl } from '@swarm/core';
-import { GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, QueryCommand } from '@swarm/core';
 import { createVoiceServices } from './voice.js';
 import { createRuntimeBrainService } from './brain.js';
 import { createRuntimeStickerServices } from './telegram-sticker-packs.js';

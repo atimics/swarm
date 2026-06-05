@@ -3,7 +3,7 @@
  * Consumes media jobs from SQS and enqueues send_media actions back to response queue.
  */
 import type { SQSEvent, Context } from 'aws-lambda';
-import { PutCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand } from '@swarm/core';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { logger, DEFAULT_LLM_MODEL } from '@swarm/core';

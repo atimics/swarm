@@ -13,7 +13,7 @@ import {
   PutCommand,
   GetCommand,
   DeleteCommand,
-} from '@aws-sdk/lib-dynamodb';
+} from '@swarm/core';
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
@@ -22,6 +22,7 @@ import * as secretsServiceDefault from '../secrets.js';
 import type { UserSession } from '../../types.js';
 import { getDynamoClient } from '../dynamo-client.js';
 import { createSystemLogger } from '../structured-logger.js';
+import { getSecretsClient } from '../aws-clients.js';
 
 const log = createSystemLogger('twitter-oauth-service');
 
@@ -49,7 +50,7 @@ export interface TwitterOAuthServiceDeps {
 }
 
 const defaultDynamoClient = getDynamoClient();
-const defaultSecretsClient = new SecretsManagerClient({});
+const defaultSecretsClient = getSecretsClient();
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 const OAUTH_CALLBACK_URL = process.env.TWITTER_OAUTH_CALLBACK_URL || '';

@@ -8,6 +8,7 @@
 import type { RouteContext } from './types.js';
 import type { APIGatewayProxyResultV2 } from 'aws-lambda';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { getSecretsClient } from '../../services/aws-clients.js';
 import { jsonResponse, parseSinceQueryParam } from './shared.js';
 import * as observabilityService from '../../services/observability.js';
 import * as integrationsService from '../../services/integrations.js';
@@ -41,7 +42,7 @@ async function resolveReplicateApiKey(): Promise<string | null> {
   if (!secretArn) return null;
 
   try {
-    const secretsClient = new SecretsManagerClient({});
+    const secretsClient = getSecretsClient();
     const response = await secretsClient.send(new GetSecretValueCommand({
       SecretId: secretArn,
     }));

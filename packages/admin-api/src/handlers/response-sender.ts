@@ -5,16 +5,17 @@
  * Triggered by SQS messages from the Replicate webhook handler
  */
 import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
-import { GetCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@swarm/core';
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
 } from '@aws-sdk/client-secrets-manager';
 import { logger } from '@swarm/core';
 import { getDynamoClient } from '../services/dynamo-client.js';
+import { getSecretsClient } from '../services/aws-clients.js';
 
 const dynamoClient = getDynamoClient();
-const secretsClient = new SecretsManagerClient({});
+const secretsClient = getSecretsClient();
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 

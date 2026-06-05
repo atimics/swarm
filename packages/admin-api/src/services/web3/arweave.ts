@@ -10,6 +10,7 @@
  * if the optional dependency is not installed.
  */
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { getSecretsClient } from '../aws-clients.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type IrysClient = any;
@@ -38,7 +39,7 @@ const DEFAULT_WALLET_SECRET = process.env.ARWEAVE_WALLET_SECRET || 'swarm/arweav
 let _secretsClient: SecretsManagerClient | null = null;
 function getSecretsClient(): SecretsManagerClient {
   if (!_secretsClient) {
-    _secretsClient = new SecretsManagerClient({});
+    _secretsClient = getSecretsClient();
   }
   return _secretsClient;
 }

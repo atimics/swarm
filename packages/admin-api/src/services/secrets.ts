@@ -17,12 +17,13 @@ import {
   GetCommand,
   QueryCommand,
   DeleteCommand,
-} from '@aws-sdk/lib-dynamodb';
+} from '@swarm/core';
 import { logger } from '@swarm/core';
 import type { SecretMetadata, SecretType, UserSession } from '../types.js';
 import { getDynamoClient } from './dynamo-client.js';
+import { getSecretsClient } from './aws-clients.js';
 
-const secretsClient = new SecretsManagerClient({});
+const secretsClient = getSecretsClient();
 const dynamoClient = getDynamoClient();
 
 const SECRETS_TABLE = process.env.ADMIN_TABLE!;

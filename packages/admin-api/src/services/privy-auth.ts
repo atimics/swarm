@@ -6,8 +6,9 @@ import {
   GetCommand,
   PutCommand,
   UpdateCommand,
-} from '@aws-sdk/lib-dynamodb';
+} from '@swarm/core';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { getSecretsClient } from './aws-clients.js';
 import { randomBytes } from 'crypto';
 import { logger } from '@swarm/core';
 import { PrivyClient, type User as PrivyUser } from '@privy-io/node';
@@ -26,7 +27,7 @@ import { emitAuthEvent } from './funnel-emitter.js';
 
 const dynamoClient = getDynamoClient();
 
-const secretsClient = new SecretsManagerClient({});
+const secretsClient = getSecretsClient();
 
 const ADMIN_TABLE = process.env.ADMIN_TABLE!;
 

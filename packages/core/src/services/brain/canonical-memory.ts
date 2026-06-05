@@ -4,7 +4,7 @@ import {
   DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
-} from '@aws-sdk/lib-dynamodb';
+} from '@swarm/core';
 import { getEmbeddingService } from '../embeddings.js';
 import { logger } from '../../utils/index.js';
 

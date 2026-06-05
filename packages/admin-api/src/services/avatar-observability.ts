@@ -26,7 +26,7 @@ import {
   QueryCommand,
   UpdateCommand,
   BatchWriteCommand,
-} from '@aws-sdk/lib-dynamodb';
+} from '@swarm/core';
 import { redactLogData, redactString } from '@swarm/core';
 import { getDynamoClient } from './dynamo-client.js';
 

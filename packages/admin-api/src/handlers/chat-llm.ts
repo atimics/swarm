@@ -4,6 +4,7 @@
  * and OpenRouter client initialization for the admin chat handler.
  */
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { getSecretsClient } from '../services/aws-clients.js';
 import {
   DEFAULT_LLM_MAX_TOKENS,
   DEFAULT_LLM_MODEL,
@@ -169,7 +170,7 @@ export async function getLlmApiKey(): Promise<string> {
     throw new Error('LLM_API_KEY_SECRET_ARN not configured');
   }
 
-  const client = new SecretsManagerClient({});
+  const client = getSecretsClient();
   const response = await client.send(new GetSecretValueCommand({
     SecretId: LLM_API_KEY_SECRET_ARN,
   }));

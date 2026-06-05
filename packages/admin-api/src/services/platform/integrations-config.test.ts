@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearOpenRouterMediaCatalogCache } from '@swarm/core';
 import type { UserSession } from '../../types.js';
 import { _setDynamoClient } from '../dynamo-client.js';
+import { clearOpenRouterMediaCatalogCache } from '@swarm/core';
 
 process.env.ADMIN_TABLE = 'AdminTable';
 process.env.OPENROUTER_MEDIA_CATALOG_TTL_MS = '1';

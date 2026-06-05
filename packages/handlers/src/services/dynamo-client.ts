@@ -4,23 +4,28 @@
  * Provides a singleton DynamoDBDocumentClient for reuse across all
  * handler modules, avoiding redundant client instantiation per module.
  *
- * The `_setDynamoClient` helper allows tests to inject a mock client.
+ * The `_setDynamoClient` helper allows tests (or local-first backends)
+ * to inject any send()-compatible client.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
-let _client: DynamoDBDocumentClient | null = null;
+export interface DynamoLikeClient {
+  send(command: { constructor: { name: string }; input: unknown }): Promise<unknown>;
+}
 
-export function getDynamoClient(): DynamoDBDocumentClient {
+let _client: DynamoLikeClient | null = null;
+
+export function getDynamoClient(): DynamoLikeClient {
   if (!_client) {
     _client = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
       marshallOptions: { removeUndefinedValues: true },
-    });
+    }) as unknown as DynamoLikeClient;
   }
   return _client;
 }
 
-/** For testing -- inject a mock client */
-export function _setDynamoClient(client: DynamoDBDocumentClient | null): void {
+/** Inject a local adapter (or test mock). */
+export function _setDynamoClient(client: DynamoLikeClient | null): void {
   _client = client;
 }

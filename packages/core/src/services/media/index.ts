@@ -1,10 +1,10 @@
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 /**
  * Media Service - Image and video generation via multiple providers
  *
  * This service can be used standalone with basic functionality, or enhanced
  * with injected dependencies for model resolution, credits, and gallery.
  */
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import type { MediaService, MediaConfig, GeneratedMedia } from '../../types/index.js';
 import type {
   MediaServiceDependencies,

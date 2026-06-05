@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
 
 import { execFileSync } from 'node:child_process';
-import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, ListObjectsV2Command } from '@swarm/core';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, ScanCommand, UpdateCommand } from '@swarm/core';
 
 type EnvName = 'dev' | 'staging' | 'prod';
 

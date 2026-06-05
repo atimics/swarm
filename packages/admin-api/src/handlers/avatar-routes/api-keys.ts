@@ -6,7 +6,7 @@
  * - POST /avatars/{id}/tools/{toolCallId}
  */
 import type { APIGatewayProxyResultV2 } from 'aws-lambda';
-import { QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand, UpdateCommand } from '@swarm/core';
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
 import { logger } from '@swarm/core';

@@ -9,7 +9,7 @@ import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
-import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
+import { SendMessageCommand, SQSClient } from '@swarm/core';
 import {
   DEFAULT_LLM_MAX_TOKENS,
   DEFAULT_LLM_MODEL,
@@ -67,6 +67,7 @@ import {
 import { resolvePublicAvatarIdFromRequest } from './chat-public-access.js';
 
 // Per-domain modules
+import { getSQSClient } from '../services/aws-clients.js';
 import {
   type AvatarContext,
   type ProcessChatOptions,
@@ -96,7 +97,7 @@ import {
 export type { AvatarContext, ProcessChatOptions, ProcessChatResult };
 
 const CHAT_QUEUE_URL = process.env.CHAT_QUEUE_URL;
-const sqsClient = CHAT_QUEUE_URL ? new SQSClient({}) : null;
+const sqsClient = CHAT_QUEUE_URL ? getSQSClient() : null;
 
 function prefersAsyncResponse(event: APIGatewayProxyEventV2): boolean {
   const prefer = event.headers['prefer'] || event.headers['Prefer'] || '';

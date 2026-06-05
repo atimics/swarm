@@ -5,7 +5,7 @@
  * This is a shared handler that routes responses to the appropriate avatar.
  */
 import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
-import { GetCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@swarm/core';
 import {
   TelegramAdapter,
   TwitterAdapter,

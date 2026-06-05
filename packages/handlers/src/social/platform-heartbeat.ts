@@ -12,8 +12,8 @@
  * - executeAction(action, avatarId, secrets) -- upvote, comment, etc.
  */
 import type { ScheduledHandler, Context } from 'aws-lambda';
-import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import { ScanCommand } from '@aws-sdk/lib-dynamodb';
+import type { DynamoDBDocumentClient } from '@swarm/core';
+import { ScanCommand } from '@swarm/core';
 import {
   createSecretsService,
   createLLMService,

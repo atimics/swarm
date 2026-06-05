@@ -2,9 +2,10 @@
  * Voice Services for runtime handlers
  */
 import { randomUUID } from 'crypto';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@swarm/core';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { getLambdaClient, getS3Client } from './aws-clients.js';
 import { buildMediaUrl, canonicalizeMediaUrl, logger, buildVoiceCloneInput } from '@swarm/core';
 
 // Default S3 client - lazy initialized
@@ -14,7 +15,7 @@ const MEDIA_CONVERT_FUNCTION = process.env.MEDIA_CONVERT_FUNCTION;
 
 function getDefaultS3Client(): S3Client {
   if (!defaultS3Client) {
-    defaultS3Client = new S3Client({});
+    defaultS3Client = getS3Client();
   }
   return defaultS3Client;
 }
@@ -251,7 +252,7 @@ async function makeUrlAccessible(url: string, cdnUrl?: string): Promise<string> 
 async function convertAudioToOgg(params: { avatarId: string; sourceUrl: string }): Promise<string | null> {
   if (!MEDIA_CONVERT_FUNCTION) return null;
 
-  const client = new LambdaClient({});
+  const client = getLambdaClient();
   const payload = JSON.stringify({
     avatarId: params.avatarId,
     sourceUrl: params.sourceUrl,

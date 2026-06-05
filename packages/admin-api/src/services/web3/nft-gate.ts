@@ -6,7 +6,7 @@
  * 1. HOLDING = Permission to create avatars (1 NFT held = 1 creation slot)
  * 2. BURNING = Permission to abandon an inhabited avatar
  */
-import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@swarm/core';
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
@@ -14,6 +14,7 @@ import {
 import { getDynamoClient } from '../dynamo-client.js';
 import { createSystemLogger } from '../structured-logger.js';
 import { fetchAllAssetsByOwner } from './helius-pagination.js';
+import { getSecretsClient } from '../aws-clients.js';
 
 const log = createSystemLogger('nft-gate');
 
@@ -44,7 +45,7 @@ export function _resetNftGateForTesting(): void {
   heliusApiKeyRetryAfter = 0;
 }
 
-const secretsClient = new SecretsManagerClient({});
+const secretsClient = getSecretsClient();
 
 async function getHeliusApiKey(): Promise<string | null> {
   // If we already have it from env, use it

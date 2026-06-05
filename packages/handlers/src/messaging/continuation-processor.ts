@@ -13,8 +13,9 @@
 import type { SQSEvent, Context, SQSBatchResponse } from 'aws-lambda';
 import { sendSqsMessage } from '../services/sqs-send.js';
 import { randomUUID } from 'node:crypto';
-import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, UpdateCommand } from '@swarm/core';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { getSecretsClient } from '../services/aws-clients.js';
 import { logger, extractCorrelationIdFromSqsRecord } from '@swarm/core';
 import type {
   ContinuationMessage,
@@ -30,7 +31,7 @@ import { getDynamoClient } from '../services/dynamo-client.js';
 import { createStateService } from '@swarm/core/services';
 
 const dynamoClient = getDynamoClient();
-const secretsClient = new SecretsManagerClient({});
+const secretsClient = getSecretsClient();
 
 // Environment variables — ADMIN_TABLE is validated lazily via getAdminTable()
 const MESSAGE_QUEUE_URL = process.env.MESSAGE_QUEUE_URL;
