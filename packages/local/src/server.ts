@@ -121,17 +121,29 @@ async function startTgPolling(services: ReturnType<typeof createLocalServices>) 
       return;
     }
     console.log("[local] Telegram bot token found, starting polling...");
+
+    let cachedAvatarId: string | null = null;
     const stopPolling = startTelegramPolling({
       getToken: () => services.secrets.getSecret("telegram_bot_token").catch(() => null),
-      processMessage: async (text, chatId, _username) => {
-        const { processChat } = await import("../../admin-api/src/handlers/chat.js");
-        const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      getAvatarId: async () => {
+        if (cachedAvatarId) return cachedAvatarId;
         const { listAvatars } = await import("../../admin-api/src/services/avatars.js");
+        const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
         const avatars = await listAvatars(session);
-        const avatar = avatars[0];
-        if (!avatar) return "No avatar configured yet. Create one in the desktop app.";
-        const result = await processChat(text, [], session, { id: avatar.avatarId || (avatar as any).id });
-        return result.response;
+        if (avatars[0]) cachedAvatarId = avatars[0].avatarId || (avatars[0] as any).id;
+        return cachedAvatarId;
+      },
+      loadHistory: async (session, avatarId) => {
+        const { getChatHistory } = await import("../../admin-api/src/services/chat-history.js");
+        return getChatHistory(session, avatarId);
+      },
+      saveHistory: async (session, avatarId, history) => {
+        const { saveChatHistory } = await import("../../admin-api/src/services/chat-history.js");
+        await saveChatHistory(session, history, avatarId);
+      },
+      processMessage: async (text, history, session, avatarId) => {
+        const { processChat } = await import("../../admin-api/src/handlers/chat.js");
+        return processChat(text, history, session, { id: avatarId });
       },
     });
     process.on("SIGINT", stopPolling);
