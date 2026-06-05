@@ -9,8 +9,6 @@ struct ServerState {
     child: Mutex<Option<tauri_plugin_shell::process::CommandChild>>,
 }
 
-/// Kill any process already holding the server port (e.g. a zombie from a
-/// previous launch that Tauri didn't clean up).
 fn free_port(port: u16) {
     let port_str = port.to_string();
     if let Ok(out) = std::process::Command::new("lsof")
@@ -33,18 +31,15 @@ async fn start_server(
     state: tauri::State<'_, ServerState>,
     password: String,
 ) -> Result<String, String> {
-    // If we already know the URL, reuse it
     if let Some(url) = state.url.lock().unwrap().as_ref() {
         return Ok(url.clone());
     }
 
-    // Kill any previous child process to free the port
     if let Some(child) = state.child.lock().unwrap().take() {
         let _ = child.kill();
     }
     free_port(3000);
 
-    // Resolve the bundled admin UI path from app resources
     let resource_dir = app
         .path()
         .resource_dir()
@@ -139,6 +134,12 @@ fn get_server_url(state: tauri::State<'_, ServerState>) -> Option<String> {
     state.url.lock().unwrap().clone()
 }
 
+#[tauri::command]
+fn open_url(url: String) {
+    let _ = std::process::Command::new("open").arg(&url).spawn();
+}
+
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -149,7 +150,19 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![start_server, get_server_url])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let handle = window.app_handle().clone();
+                std::thread::spawn(move || {
+                    if let Some(state) = handle.try_state::<ServerState>() {
+                        if let Some(child) = state.child.lock().ok().and_then(|mut g| g.take()) {
+                            let _ = child.kill();
+                        }
+                    }
+                });
+            }
+        })
+        .invoke_handler(tauri::generate_handler![start_server, get_server_url, open_url])
         .run(tauri::generate_context!())
         .expect("error while running Swarm Desktop");
 }

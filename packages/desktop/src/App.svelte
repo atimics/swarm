@@ -6,6 +6,55 @@
   let confirm = $state("");
   let error = $state("");
   let serverUrl = $state("");
+  let iframeEl = $state<HTMLIFrameElement>();
+
+  // Intercept iframe navigation to /api/auth/openrouter
+  function handleIframeLoad() {
+    if (!iframeEl) return;
+    try {
+      const doc = iframeEl.contentDocument || iframeEl.contentWindow?.document;
+      if (!doc) return;
+      // Override links/buttons that target openrouter auth
+      doc.addEventListener("click", (e) => {
+        const target = e.target as HTMLElement;
+        const link = target.closest("[data-action='openrouter-connect']");
+        if (link) {
+          e.preventDefault();
+          e.stopPropagation();
+          startOpenRouterAuth();
+        }
+      });
+    } catch {
+      // cross-origin, can't access iframe content
+    }
+  }
+
+  async function startOpenRouterAuth() {
+    try {
+      // Request the PKCE URL from the server
+      const resp = await fetch(`${serverUrl}/api/auth/openrouter`, { redirect: "manual" });
+      const html = await resp.text();
+      // Extract the OpenRouter URL from the redirect script
+      const match = html.match(/window\.top\.location\.href = "(https:\/\/openrouter\.ai\/auth[^"]+)"/);
+      if (match) {
+        invoke("open_url", { url: match[1] });
+      }
+    } catch (e) {
+      console.error("Failed to start OpenRouter auth:", e);
+    }
+  }
+
+  // Listen for postMessage from admin UI iframe
+  $effect(() => {
+    if (state !== "running") return;
+    const handler = (event: MessageEvent) => {
+      if (event.data?.action === "openrouter-connect") {
+        startOpenRouterAuth();
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  });
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
@@ -60,7 +109,7 @@
     </div>
 
   {:else if state === "running" && serverUrl}
-    <iframe src={serverUrl} class="admin-frame" title="Swarm Admin"></iframe>
+    <iframe bind:this={iframeEl} src={serverUrl} class="admin-frame" title="Swarm Admin" onload={handleIframeLoad}></iframe>
 
   {:else if state === "error"}
     <div class="auth">

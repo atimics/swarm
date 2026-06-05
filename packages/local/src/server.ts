@@ -4,6 +4,7 @@
 import express from 'express';
 import cors from 'cors';
 import { createInterface } from 'readline';
+import { randomBytes, createHash } from "crypto";
 import { createLocalServices } from './factories.js';
 import { LocalS3Adapter } from './s3-adapter.js';
 import { LocalSQSAdapter } from './sqs-adapter.js';
@@ -20,6 +21,60 @@ export { LocalS3Adapter } from './s3-adapter.js';
 export { LocalSQSAdapter } from './sqs-adapter.js';
 export { LocalSecretsAdapter } from './secrets-adapter.js';
 export { LocalLambdaAdapter } from './lambda-adapter.js';
+
+// ── Log buffer (in-memory + on-disk) ────────────────────────────────
+import { appendFileSync, mkdirSync } from 'fs';
+
+interface LogEntry {
+  ts: string;
+  level: 'INFO' | 'WARN' | 'ERROR';
+  message: string;
+}
+
+const logBuffer: LogEntry[] = [];
+const MAX_LOG_ENTRIES = 500;
+let logFilePath = '';
+
+function initLogFile() {
+  const home = process.env.HOME ?? '/tmp';
+  const dir = `${home}/Library/Application Support/Swarm`;
+  mkdirSync(dir, { recursive: true });
+  logFilePath = `${dir}/swarm.log`;
+}
+
+function pushLog(level: LogEntry['level'], message: string) {
+  const entry = { ts: new Date().toISOString(), level, message };
+  logBuffer.push(entry);
+  if (logBuffer.length > MAX_LOG_ENTRIES) logBuffer.shift();
+
+  if (logFilePath) {
+    try {
+      appendFileSync(logFilePath, `[${entry.ts}] ${level} ${message}\n`);
+    } catch { /* disk full or permissions */ }
+  }
+}
+
+initLogFile();
+
+const origLog = console.log;
+const origWarn = console.warn;
+const origError = console.error;
+console.log = (...args: unknown[]) => { pushLog('INFO', args.map(String).join(' ')); origLog(...args); };
+console.warn = (...args: unknown[]) => { pushLog('WARN', args.map(String).join(' ')); origWarn(...args); };
+console.error = (...args: unknown[]) => { pushLog('ERROR', args.map(String).join(' ')); origError(...args); };
+
+process.on('uncaughtException', (err) => {
+  pushLog('ERROR', `Uncaught: ${err.message}\n${err.stack}`);
+  if (logFilePath) {
+    try { appendFileSync(logFilePath, err.stack + '\n'); } catch {}
+  }
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  pushLog('ERROR', `Unhandled rejection: ${String(reason)}`);
+});
+
 
 export interface ServerOptions {
   port?: number;
@@ -161,7 +216,22 @@ export async function startServer(options: ServerOptions = {}) {
       backend: 'local',
       db: dbPath,
       secrets: services.secrets.isUnlocked ? 'unlocked' : 'locked',
+      logFile: logFilePath,
     });
+  });
+  // Log viewer
+  app.get('/api/logs', (_req, res) => {
+    const limit = Math.min(parseInt(String(_req.query.limit)) || 50, MAX_LOG_ENTRIES);
+    const level = String(_req.query.level || '').toUpperCase();
+    const since = String(_req.query.since || '');
+    const query = String(_req.query.query || '').toLowerCase();
+
+    let entries = [...logBuffer];
+    if (level) entries = entries.filter(e => e.level === level);
+    if (query) entries = entries.filter(e => e.message.toLowerCase().includes(query));
+    entries = entries.slice(-limit);
+
+    res.json({ count: entries.length, total: logBuffer.length, entries });
   });
 
   // ── Auth routes (local mode: always authenticated as admin) ───────
@@ -196,9 +266,60 @@ export async function startServer(options: ServerOptions = {}) {
   app.get('/api/auth/me', localAuthMe);
 
   app.post('/auth/logout', (_req, res) => {
-  app.post("/api/auth/logout", (_req, res) => { res.json({ success: true }); });
     res.json({ success: true });
   });
+
+  // -- OpenRouter PKCE OAuth ----------------------------------------
+  const pendingPkce = new Map<string, { verifier: string; createdAt: number }>();
+
+  app.get("/api/auth/openrouter", (_req, res) => {
+    const verifier = randomBytes(32).toString("base64url");
+    const challenge = createHash("sha256").update(verifier).digest().toString("base64url");
+    const state = randomBytes(24).toString("base64url");
+    pendingPkce.set(state, { verifier, createdAt: Date.now() });
+
+    const authUrl = new URL("https://openrouter.ai/auth");
+    authUrl.searchParams.set("callback_url", `http://localhost:${port}/callback`);
+    authUrl.searchParams.set("code_challenge", challenge);
+    authUrl.searchParams.set("code_challenge_method", "S256");
+    authUrl.searchParams.set("state", state);
+
+    // Return HTML that breaks out of iframe and redirects top window
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script>window.top.location.href = "${authUrl.toString()}";</script></body></html>`);
+  });
+
+  app.get("/api/auth/openrouter/callback", (req, res) => {
+    return res.redirect(`/callback?${new URLSearchParams(req.query as any).toString()}`);
+  });
+
+  app.get("/callback", async (req, res) => {
+    const code = String(req.query.code || "");
+    const state = String(req.query.state || "");
+
+    const pending = pendingPkce.get(state);
+    if (!pending) { res.status(400).send("Unknown or expired auth state"); return; }
+    pendingPkce.delete(state);
+    if (Date.now() - pending.createdAt > 600_000) { res.status(400).send("Auth state expired"); return; }
+
+    try {
+      const r = await fetch("https://openrouter.ai/api/v1/auth/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, code_verifier: pending.verifier, code_challenge_method: "S256" }),
+      });
+      if (!r.ok) { res.status(502).send("Exchange failed (" + r.status + ")"); return; }
+      const body = await r.json() as { key?: string };
+      if (!body.key) { res.status(502).send("No key in response"); return; }
+
+      await services.secrets.setSecret("llm-api-key", body.key);
+      await services.secrets.flush();
+      res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:system-ui;text-align:center;padding-top:80px;background:#0d0d0d;color:#e0e0e0"><h1>Connected</h1><p>Your OpenRouter API key has been saved.</p><p>You may close this window.</p></body></html>`);
+    } catch (err) {
+      console.error("[local] PKCE error:", err);
+      res.status(502).send("Exchange failed");
+    }
+  });
+
 
   // -- Consent routes (local mode: always consented) ----------------
   app.get('/consent', (_req, res) => {
@@ -223,6 +344,8 @@ export async function startServer(options: ServerOptions = {}) {
   });
 
   app.post('/consent/revoke', (_req, res) => {
+    res.json({ success: true });
+  });
 
   app.get("/api/consent", (_req, res) => {
     res.json({ consented: true, consent: { policyVersion: "1.3", acceptedAt: Date.now(), status: "active" } });
@@ -233,8 +356,6 @@ export async function startServer(options: ServerOptions = {}) {
   });
 
   app.post("/api/consent/revoke", (_req, res) => {
-    res.json({ success: true });
-  });
     res.json({ success: true });
   });
 
@@ -305,7 +426,21 @@ export async function startServer(options: ServerOptions = {}) {
     mountStubRoutes(app);
   }
 
-  // ── Admin UI ───────────────────────────────────────────────────────
+  // ── Client-side error reporting (always available) ───────────
+  app.get("/api/log-client-error", (req, res) => {
+    const m = String(req.query.m || "");
+    const s = String(req.query.s || "");
+    if (m) pushLog("ERROR", `[UI] ${m}${s ? " | " + s : ""}`);
+    res.json({ ok: true });
+  });
+
+  app.post("/api/log-client-error", (req, res) => {
+    const { message, stack, url } = req.body as { message?: string; stack?: string; url?: string };
+    if (message) pushLog("ERROR", `[UI] ${message}${stack ? " | " + stack.split("\\n").slice(0, 2).join(" <- ") : ""} (at ${url || "unknown"})`);
+    res.json({ ok: true });
+  });
+
+  // ── Admin UI ─────────────────────────────────────────────────
   if (options.adminUiPath) {
     app.use(express.static(options.adminUiPath));
     app.get('*', (_req, res) => {
@@ -385,7 +520,7 @@ async function mountAdminRoutes(
       );
       const session = { email: 'local@swarm.dev', userId: 'local-user', isAdmin: true };
       const avatars = await listAvatars(session);
-      res.json({ avatars });
+      res.json(avatars);
     } catch (err) {
       console.error('[local] Avatars error:', err);
       res.status(500).json({ error: (err as Error).message });
@@ -401,7 +536,7 @@ async function mountAdminRoutes(
       const { name, description } = req.body as { name?: string; description?: string };
       if (!name) { res.status(400).json({ error: "name required" }); return; }
       const avatar = await createAvatar(name, session, description);
-      res.json({ avatar });
+      res.json(avatar);
     } catch (err) {
       console.error("[local] Create avatar error:", err);
       res.status(500).json({ error: (err as Error).message });
