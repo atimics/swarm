@@ -1,15 +1,10 @@
 /**
- * Shared DynamoDB Document Client (admin-api)
+ * Shared DynamoDB client (admin-api).
  *
- * The `_setDynamoClient` helper allows tests (or local-first backends)
- * to inject any send()-compatible client.
- *
- * In production, the real DynamoDBDocumentClient is created lazily.
- * In local mode, inject an adapter before any service imports.
+ * Injection is MANDATORY. Call `_setDynamoClient()` before any service
+ * imports. In local mode this is handled by the server entry point.
+ * In production this is handled by the Lambda bootstrap.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-
 export interface DynamoLikeClient {
   send(command: { constructor: { name: string }; input: unknown }): Promise<unknown>;
 }
@@ -18,9 +13,9 @@ let _client: DynamoLikeClient | null = null;
 
 export function getDynamoClient(): DynamoLikeClient {
   if (!_client) {
-    _client = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-      marshallOptions: { removeUndefinedValues: true },
-    }) as unknown as DynamoLikeClient;
+    throw new Error(
+      'DynamoDB client not injected. Call _setDynamoClient() before importing any services.',
+    );
   }
   return _client;
 }

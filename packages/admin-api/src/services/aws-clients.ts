@@ -1,97 +1,39 @@
 /**
- * Shared AWS clients with setters for local-first injection.
+ * Shared AWS clients with mandatory injection (admin-api).
  *
- * Every admin-api service that creates an AWS client should use
- * these getters instead of `new S3Client({})` at module scope.
- * In local mode, inject compatible adapters via the setters before
- * any services are loaded.
- *
- * Pattern matches the existing dynamo-client.ts.
+ * Injection is MANDATORY. Call the setters before any service imports.
  */
-
-import { S3Client } from '@aws-sdk/client-s3';
-import { SQSClient } from '@aws-sdk/client-sqs';
-import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { LambdaClient } from '@aws-sdk/client-lambda';
-
-// ── Type-shapes for injectable clients ───────────────────────────────────
-
-/** Minimal shape required for S3-compatible injection (PutObject / GetObject / DeleteObject). */
 export interface S3LikeClient {
   send(command: { constructor: { name: string }; input: Record<string, unknown> }): Promise<Record<string, unknown>>;
 }
-
-/** Minimal shape required for SQS-compatible injection (SendMessage etc.). */
 export interface SQSLikeClient {
   send(command: { constructor: { name: string }; input: Record<string, unknown> }): Promise<Record<string, unknown>>;
 }
-
-/** Minimal shape for SecretsManager-compatible injection. */
 export interface SecretsLikeClient {
   send(command: { constructor: { name: string }; input: Record<string, unknown> }): Promise<Record<string, unknown>>;
 }
-
-/** Minimal shape for Lambda-compatible injection. */
 export interface LambdaLikeClient {
   send(command: { constructor: { name: string }; input: Record<string, unknown> }): Promise<Record<string, unknown>>;
 }
 
-// ── S3 ───────────────────────────────────────────────────────────────────
+let _s3: S3LikeClient | null = null;
+let _sqs: SQSLikeClient | null = null;
+let _secrets: SecretsLikeClient | null = null;
+let _lambda: LambdaLikeClient | null = null;
 
-let _s3Client: S3LikeClient | null = null;
-
-export function getS3Client(): S3LikeClient {
-  if (!_s3Client) {
-    _s3Client = new S3Client({}) as unknown as S3LikeClient;
-  }
-  return _s3Client;
+function requireClient<T>(client: T | null, name: string): T {
+  if (!client) throw new Error(`${name} not injected. Call _set${name}() before importing services.`);
+  return client;
 }
 
-export function _setS3Client(client: S3LikeClient | null): void {
-  _s3Client = client;
-}
+export function getS3Client(): S3LikeClient { return requireClient(_s3, 'S3Client'); }
+export function _setS3Client(c: S3LikeClient | null): void { _s3 = c; }
 
-// ── SQS ──────────────────────────────────────────────────────────────────
+export function getSQSClient(): SQSLikeClient { return requireClient(_sqs, 'SQSClient'); }
+export function _setSQSClient(c: SQSLikeClient | null): void { _sqs = c; }
 
-let _sqsClient: SQSLikeClient | null = null;
+export function getSecretsClient(): SecretsLikeClient { return requireClient(_secrets, 'SecretsClient'); }
+export function _setSecretsClient(c: SecretsLikeClient | null): void { _secrets = c; }
 
-export function getSQSClient(): SQSLikeClient {
-  if (!_sqsClient) {
-    _sqsClient = new SQSClient({}) as unknown as SQSLikeClient;
-  }
-  return _sqsClient;
-}
-
-export function _setSQSClient(client: SQSLikeClient | null): void {
-  _sqsClient = client;
-}
-
-// ── Secrets Manager ──────────────────────────────────────────────────────
-
-let _secretsClient: SecretsLikeClient | null = null;
-
-export function getSecretsClient(): SecretsLikeClient {
-  if (!_secretsClient) {
-    _secretsClient = new SecretsManagerClient({}) as unknown as SecretsLikeClient;
-  }
-  return _secretsClient;
-}
-
-export function _setSecretsClient(client: SecretsLikeClient | null): void {
-  _secretsClient = client;
-}
-
-// ── Lambda ───────────────────────────────────────────────────────────────
-
-let _lambdaClient: LambdaLikeClient | null = null;
-
-export function getLambdaClient(): LambdaLikeClient {
-  if (!_lambdaClient) {
-    _lambdaClient = new LambdaClient({}) as unknown as LambdaLikeClient;
-  }
-  return _lambdaClient;
-}
-
-export function _setLambdaClient(client: LambdaLikeClient | null): void {
-  _lambdaClient = client;
-}
+export function getLambdaClient(): LambdaLikeClient { return requireClient(_lambda, 'LambdaClient'); }
+export function _setLambdaClient(c: LambdaLikeClient | null): void { _lambda = c; }
