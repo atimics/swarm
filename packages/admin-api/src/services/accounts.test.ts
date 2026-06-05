@@ -3,9 +3,7 @@ import {
   ensureIdentityLinkedToAccount,
   getAccountIdForIdentity,
   getAccountSummary,
-  getOrCreateAccountForPrivy,
   getOrCreateAccountForWallet,
-  linkPrivyIdentityToAccount,
   type AccountsServiceDeps,
 } from './accounts.js';
 
@@ -126,7 +124,6 @@ describe('accounts service', () => {
       },
     });
 
-    const accountResult = await getOrCreateAccountForPrivy({ privyUserId: 'privy-user-1', walletAddress: 'wallet-1' }, deps);
     expect(accountResult.success).toBe(true);
     if (accountResult.success) {
       expect(accountResult.accountId).toBe('acct-existing');
@@ -136,7 +133,6 @@ describe('accounts service', () => {
     expect(mapped).toBe('acct-existing');
   });
 
-  it('getOrCreateAccountForPrivy returns conflict if privy and wallet identities point to different accounts', async () => {
     // Seed profiles
     await (deps.dynamoClient.send as any)({
       input: {
@@ -154,21 +150,11 @@ describe('accounts service', () => {
     await ensureIdentityLinkedToAccount({ accountId: 'acct-wallet', type: 'wallet', providerId: 'wallet-1' }, deps);
     await ensureIdentityLinkedToAccount({ accountId: 'acct-privy', type: 'privy', providerId: 'privy-user-1' }, deps);
 
-    const accountResult = await getOrCreateAccountForPrivy({ privyUserId: 'privy-user-1', walletAddress: 'wallet-1' }, deps);
     expect(accountResult.success).toBe(false);
     if (!accountResult.success) {
       expect(accountResult.conflict.existingAccountId).toBe('acct-privy');
     }
   });
 
-  it('links Privy identity to an existing account (success path)', async () => {
-    const accountId = await getOrCreateAccountForWallet('wallet-1', deps);
-
-    const result = await linkPrivyIdentityToAccount({ accountId, privyUserId: 'privy-user-1' }, deps);
-    expect(result).toEqual({ success: true });
-
-    const mapped = await getAccountIdForIdentity('privy', 'privy-user-1', deps);
-    expect(mapped).toBe(accountId);
-  });
 
 });

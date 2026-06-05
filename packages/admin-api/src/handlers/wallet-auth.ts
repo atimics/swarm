@@ -36,7 +36,6 @@ import {
 } from '../services/billing/runtime-limits.js';
 import { getAvatar } from '../services/avatars.js';
 import { checkNFTGate } from '../services/web3/nft-gate.js';
-import { handlePrivyAuth } from './privy-auth.js';
 import {
   preflightAscend,
   verifyAscensionBurns,
@@ -913,11 +912,6 @@ export async function handleWalletAuth(
   // Handle preflight for all auth routes
   if (method === 'OPTIONS') {
     return { statusCode: 204, headers: cors };
-  }
-
-  // Route Privy auth to separate handler
-  if (path.startsWith('/auth/privy') || path.startsWith('/auth/link/privy')) {
-    return handlePrivyAuth(event);
   }
 
   // Route to appropriate handler

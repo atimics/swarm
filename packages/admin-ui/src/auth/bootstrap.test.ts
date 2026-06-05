@@ -123,7 +123,7 @@ describe('auth bootstrap reliability', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const request = fetchMock.mock.calls[0];
-    expect(request[0]).toContain('/auth/privy/verify');
+    expect(request[0]).toContain('/auth/me');
     expect(JSON.parse((request[1] as RequestInit).body as string).accessToken).toBe('fresh-token');
     expect((request[1] as RequestInit).credentials).toBe('include');
   });

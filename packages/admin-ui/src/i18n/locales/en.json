@@ -35,7 +35,7 @@
     "failedToLoad": "Failed to load"
   },
   "auth": {
-    "loginWithPrivy": "Login with Privy",
+    "loginWithPrivy": "Login",
     "creatingWallet": "Creating wallet...",
     "syncing": "Syncing...",
     "connecting": "Connecting...",
@@ -799,7 +799,7 @@
     "openrouterPurpose": "LLM inference for avatar responses",
     "replicateData": "Image/video generation prompts",
     "replicatePurpose": "Media generation",
-    "privyData": "Wallet address, email (for auth)",
+    "privyData": "Wallet address (for auth)",
     "privyPurpose": "Wallet authentication",
     "heliusData": "Your wallet address",
     "heliusPurpose": "Blockchain queries and NFT verification",

@@ -1,60 +1,52 @@
 /**
- * Swarm Desktop — macOS application entry point.
+ * Swarm Desktop — application entry point (Tauri sidecar).
  *
- * Starts the server with native osascript password dialogs (or
- * stdin prompts when running in a terminal). Opens the admin UI
- * in the default browser once the server is ready.
+ * Launched by the Tauri Rust backend. Accepts --password to skip
+ * interactive prompt. Prints "running at http://localhost:{port}"
+ * to stdout when ready (Tauri reads this to detect readiness).
  */
-import { execSync } from 'child_process';
 import { mkdirSync } from 'fs';
 import { startServer } from './server.js';
+
+const args = process.argv.slice(2);
+
+function parseArg(flag: string): string | undefined {
+  const eqFlag = args.find((a) => a.startsWith(`${flag}=`));
+  if (eqFlag) return eqFlag.split('=')[1];
+  const idx = args.findIndex((a) => a === flag);
+  if (idx !== -1) return args[idx + 1];
+  return undefined;
+}
+
+const password = parseArg('--password');
+const adminUiPath = parseArg('--admin-ui-path');
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const HOME = process.env.HOME ?? '/tmp';
 const DB_PATH = process.env.SWARM_DB_PATH ?? `${HOME}/Library/Application Support/Swarm/swarm.db`;
 const BLOB_DIR = process.env.SWARM_BLOB_DIR ?? `${HOME}/Library/Application Support/Swarm/blobs`;
 
-mkdirSync(DB_PATH.replace(/\/[^/]+$/, ''), { recursive: true });
-mkdirSync(BLOB_DIR, { recursive: true });
+async function startApp(): Promise<string> {
+  mkdirSync(DB_PATH.replace(/\/[^/]+$/, ''), { recursive: true });
+  mkdirSync(BLOB_DIR, { recursive: true });
 
-// ── Native dialog prompt ───────────────────────────────────────────────
-
-function nativePrompt(message: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    try {
-      const escaped = message.replace(/"/g, '\\"');
-      const result = execSync(
-        `osascript -e 'tell app "System Events" to display dialog "${escaped}" default answer "" with hidden answer with title "Swarm" buttons {"OK"} default button "OK" with icon note' -e 'text returned of result'`,
-        { encoding: 'utf8', timeout: 300_000 },
-      ).trim();
-      if (result) resolve(result);
-      else reject(new Error('No input'));
-    } catch (err) {
-      reject(err);
-    }
+  const { services } = await startServer({
+    port: PORT,
+    dbPath: DB_PATH,
+    blobDir: BLOB_DIR,
+    password,
+    adminUiPath,
   });
+
+  process.on('SIGINT', () => { services.shutdown(); process.exit(0); });
+  process.on('SIGTERM', () => { services.shutdown(); process.exit(0); });
+
+  return `http://localhost:${PORT}`;
 }
 
-// ── Main ───────────────────────────────────────────────────────────────
-
-console.log('🐝 Swarm Desktop starting...');
-
-const { app, services } = await startServer({
-  port: PORT,
-  dbPath: DB_PATH,
-  blobDir: BLOB_DIR,
-  promptFn: nativePrompt,
+startApp().then((url) => {
+  console.log(`Server running at ${url}`); // Tauri parses this line
+}).catch((err) => {
+  console.error('Fatal:', (err as Error).message);
+  process.exit(1);
 });
-
-const url = `http://localhost:${PORT}`;
-try {
-  execSync(`open "${url}"`);
-  console.log(`   Opened ${url}`);
-} catch {
-  console.log(`   Server running at ${url}`);
-}
-
-console.log('✅ Swarm Desktop is running.');
-
-process.on('SIGINT', () => { services.shutdown(); process.exit(0); });
-process.on('SIGTERM', () => { services.shutdown(); process.exit(0); });

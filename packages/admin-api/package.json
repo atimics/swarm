@@ -14,7 +14,6 @@
     "test:tools:verbose": "tsx src/test-tool-calling.ts --direct --aws --verbose"
   },
   "dependencies": {
-    "@privy-io/node": "^0.15.0",
     "@solana/spl-token": "^0.4.0",
     "@solana/web3.js": "^1.98.0",
     "@swarm/core": "workspace:*",

@@ -26,12 +26,15 @@ export interface ServerOptions {
   dbPath?: string;
   blobDir?: string;
   adminUiPath?: string;
-  password?: string; // if provided, skip prompt
+  password?: string;
+  /** Custom password prompt (e.g. native dialog for GUI apps). */
+  promptFn?: (message: string) => Promise<string>;
 }
 
 // ── Password prompt ──────────────────────────────────────────────────────
 
-async function promptPassword(prompt: string): Promise<string> {
+async function promptPassword(prompt: string, options: ServerOptions): Promise<string> {
+  if (options.promptFn) return options.promptFn(prompt);
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     rl.question(prompt, (answer) => {
@@ -41,7 +44,7 @@ async function promptPassword(prompt: string): Promise<string> {
   });
 }
 
-async function resolvePassword(options: ServerOptions): Promise<string> {
+async function resolvePassword(options: ServerOptions, allOptions: ServerOptions): Promise<string> {
   if (options.password) return options.password;
 
   const fromArg = process.argv.find((a) => a.startsWith('--password='));
@@ -60,6 +63,9 @@ export async function startServer(options: ServerOptions = {}) {
   const dataDir = options.blobDir ?? './data/blobs';
   const dbPath = options.dbPath ?? './data/swarm.db';
 
+  // Local mode defaults — use simple secret names instead of AWS ARNs
+  if (!process.env.LLM_API_KEY_SECRET_ARN) process.env.LLM_API_KEY_SECRET_ARN = "llm-api-key";
+
   // ── Create local backends ──────────────────────────────────────────
   const services = createLocalServices({
     dbPath,
@@ -73,28 +79,27 @@ export async function startServer(options: ServerOptions = {}) {
 
   if (isInitialized) {
     let unlocked = false;
-    while (!unlocked) {
-      try {
-        const pw = await resolvePassword(options);
-        await services.secrets.unlock(pw);
-        unlocked = true;
-        console.log('[local] Secrets unlocked');
-      } catch (err) {
-        console.error('[local]', (err as Error).message);
-        if (options.password) throw err; // don't loop if password was explicit
-      }
+    const pw = options.password ?? await resolvePassword(options, options);
+    try {
+      await services.secrets.unlock(pw);
+      console.log('[local] Secrets unlocked');
+    } catch (err) {
+      console.error('[local]', (err as Error).message);
+      throw err;
     }
   } else {
     console.log('[local] First run — no secrets store found.');
-    const pw = await promptPassword('Choose an admin password (min 8 chars): ');
+    const pw = options.password ?? await promptPassword('Choose an admin password (min 8 chars): ', options);
     if (pw.length < 8) {
       console.error('[local] Password must be at least 8 characters.');
       process.exit(1);
     }
-    const confirm = await promptPassword('Confirm password: ');
-    if (pw !== confirm) {
-      console.error('[local] Passwords do not match.');
-      process.exit(1);
+    if (!options.password) {
+      const confirm = await promptPassword('Confirm password: ', options);
+      if (pw !== confirm) {
+        console.error('[local] Passwords do not match.');
+        process.exit(1);
+      }
     }
     await services.secrets.initialize(pw);
     console.log('[local] Secrets store initialized and unlocked.');
@@ -159,8 +164,125 @@ export async function startServer(options: ServerOptions = {}) {
     });
   });
 
+  // ── Auth routes (local mode: always authenticated as admin) ───────
+  function localAuthMe(_req: express.Request, res: express.Response) {
+    res.json({
+      authenticated: true,
+      local: true,
+      user: {
+        walletAddress: 'local-admin',
+        displayName: 'Local Admin',
+        email: 'local@swarm.dev',
+      },
+      account: {
+        accountId: 'local-account',
+        role: 'admin',
+        identities: [{ type: 'wallet' as const, providerId: 'local-admin' }],
+      },
+      gateStatus: {
+        nftsHeld: 999,
+        avatarsCreated: 0,
+        availableSlots: 999,
+        canCreate: true,
+        canAbandon: true,
+        ownedNFTs: [],
+      },
+      gateWallet: null,
+      gateStatusByWallet: {},
+    });
+  }
+
+  app.get('/auth/me', localAuthMe);
+  app.get('/api/auth/me', localAuthMe);
+
+  app.post('/auth/logout', (_req, res) => {
+  app.post("/api/auth/logout", (_req, res) => { res.json({ success: true }); });
+    res.json({ success: true });
+  });
+
+  // -- Consent routes (local mode: always consented) ----------------
+  app.get('/consent', (_req, res) => {
+    res.json({
+      consented: true,
+      consent: {
+        policyVersion: '1.3',
+        acceptedAt: Date.now(),
+        status: 'active',
+      },
+    });
+  });
+
+  app.post('/consent', (_req, res) => {
+    res.json({
+      consent: {
+        policyVersion: '1.3',
+        acceptedAt: Date.now(),
+        status: 'active',
+      },
+    });
+  });
+
+  app.post('/consent/revoke', (_req, res) => {
+
+  app.get("/api/consent", (_req, res) => {
+    res.json({ consented: true, consent: { policyVersion: "1.3", acceptedAt: Date.now(), status: "active" } });
+  });
+
+  app.post("/api/consent", (_req, res) => {
+    res.json({ consent: { policyVersion: "1.3", acceptedAt: Date.now(), status: "active" } });
+  });
+
+  app.post("/api/consent/revoke", (_req, res) => {
+    res.json({ success: true });
+  });
+    res.json({ success: true });
+  });
+
+
+  // -- Secrets management (local mode) ------------------------------
+  app.get("/api/secrets", async (_req, res) => {
+    try {
+      const names = await services.secrets.listSecrets();
+      res.json({ secrets: names });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/secrets/:name", async (req, res) => {
+    try {
+      const value = await services.secrets.getSecret(req.params.name);
+      res.json({ name: req.params.name, value });
+    } catch (err) {
+      res.status(404).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post("/api/secrets/:name", async (req, res) => {
+    try {
+      const { value } = req.body as { value: string };
+      if (!value) { res.status(400).json({ error: "value required" }); return; }
+      await services.secrets.setSecret(req.params.name, value);
+      await services.secrets.flush();
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.delete("/api/secrets/:name", async (req, res) => {
+    try {
+      await services.secrets.deleteSecret(req.params.name);
+      await services.secrets.flush();
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // Blob storage
   app.get('/blobs/:key', (req, res) => {
+  // ── Auth routes (local mode: always authenticated as admin) ───────
     const key = req.params['key'] as string;
     const blob = services.blobs.get(key);
     if (!blob) { res.status(404).json({ error: 'Not found' }); return; }
@@ -271,6 +393,20 @@ async function mountAdminRoutes(
   });
 
   console.log('[local] Admin API routes mounted');
+
+  app.post("/api/avatars", async (req, res) => {
+    try {
+      const { createAvatar } = await import("../../admin-api/src/services/avatars.js");
+      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const { name, description } = req.body as { name?: string; description?: string };
+      if (!name) { res.status(400).json({ error: "name required" }); return; }
+      const avatar = await createAvatar(name, session, description);
+      res.json({ avatar });
+    } catch (err) {
+      console.error("[local] Create avatar error:", err);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
 }
 
 function mountStubRoutes(app: express.Express) {

@@ -79,3 +79,4 @@ migrations/
 issues/staging/
 issues/prod/
 dist/
+.bun-build

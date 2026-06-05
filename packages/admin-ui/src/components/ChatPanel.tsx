@@ -261,7 +261,8 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
           targetAvatar = await createAvatar();
         } catch (err) {
           console.error('Failed to create avatar:', err);
-          setError(t('chat.errors.failedToCreateAvatar'));
+          const msg = err instanceof Error ? err.message : String(err);
+          setError(msg || t('chat.errors.failedToCreateAvatar'));
           setIsCreatingAvatar(false);
           return;
         }
