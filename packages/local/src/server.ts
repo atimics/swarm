@@ -482,7 +482,6 @@ export async function startServer(options: ServerOptions = {}) {
 
   return new Promise<{ app: express.Express; services: typeof services }>(
     async (resolve, reject) => {
-      server.on("error", reject);
       const server = app.listen(port, () => {
         console.log(`[local] Swarm server running at http://localhost:${port}`);
         console.log(`[local]   Database: ${dbPath}`);
@@ -495,6 +494,7 @@ export async function startServer(options: ServerOptions = {}) {
 
         resolve({ app, services });
       });
+      server.on("error", reject);
     },
   );
 }
