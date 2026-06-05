@@ -3,26 +3,25 @@
  */
 import type { KeyValueStore, CompositeKey } from '@swarm/core';
 
-interface AwsKey { pk: string; sk: string; }
-
 export class LocalDynamoClientAdapter {
   constructor(private store: KeyValueStore) {}
 
-  async send(command: { constructor: { name: string }; input: Record<string, unknown> }): Promise<Record<string, unknown>> {
-    const cmdName = command.constructor?.name ?? 'Unknown';
-    const input = command.input;
-    switch (cmdName) {
-      case 'GetCommand': return this._get(input);
-      case 'PutCommand': return this._put(input);
-      case 'QueryCommand': return this._query(input);
-      case 'DeleteCommand': return this._del(input);
-      case 'UpdateCommand': return this._update(input);
-      case 'ScanCommand': return this._scan(input);
-      case 'BatchWriteCommand': return this._batchWrite(input);
-      case 'TransactWriteCommand':
-      case 'TransactWriteItemsCommand': return this._transactWrite(input);
-      default: throw new Error(`LocalDynamoClientAdapter: unsupported command "${cmdName}"`);
-    }
+  async send(command: unknown): Promise<Record<string, unknown>> {
+    const cmd = command as { input: Record<string, unknown>; constructor?: { name?: string } };
+    const name = cmd.constructor?.name ?? '';
+    const input = cmd.input;
+
+    // Match by name prefix — handles Bun-compiled name mangling (PutCommand3, etc.)
+    if (name.startsWith('GetCommand')) return this._get(input);
+    if (name.startsWith('PutCommand')) return this._put(input);
+    if (name.startsWith('QueryCommand')) return this._query(input);
+    if (name.startsWith('DeleteCommand')) return this._del(input);
+    if (name.startsWith('UpdateCommand')) return this._update(input);
+    if (name.startsWith('ScanCommand')) return this._scan(input);
+    if (name.startsWith('BatchWriteCommand')) return this._batchWrite(input);
+    if (name.startsWith('TransactWrite')) return this._transactWrite(input);
+
+    throw new Error(`LocalDynamoClientAdapter: unsupported command "${name}"`);
   }
 
   private async _get(input: Record<string, unknown>) {
@@ -61,22 +60,57 @@ export class LocalDynamoClientAdapter {
   private async _query(input: Record<string, unknown>) {
     const expr = input.KeyConditionExpression as string;
     const vals = (input.ExpressionAttributeValues ?? {}) as Record<string, unknown>;
-    const pkMatch = expr.match(/pk\s*=\s*(:\w+)/);
-    if (!pkMatch) throw new Error(`Unsupported KeyConditionExpression: "${expr}"`);
-    const pk: string = vals[pkMatch[1]] as string;
+
+    // Parse KeyConditionExpression — handles pk/sk in any order,
+    // with = or begins_with on either key.
+    let pk: string | undefined;
     let skCondition: { type: 'begins_with' | 'eq'; value: string } | undefined;
-    const skEq = expr.match(/sk\s*=\s*(:\w+)/);
-    if (skEq) skCondition = { type: 'eq', value: vals[skEq[1]] as string };
-    const skPrefix = expr.match(/begins_with\(\s*sk\s*,\s*(:\w+)\s*\)/);
-    if (skPrefix) skCondition = { type: 'begins_with', value: vals[skPrefix[1]] as string };
+
+    const eqMatches = expr.match(/(\w+)\s*=\s*(:\w+)/g);
+    const beginMatches = expr.match(/begins_with\(\s*(\w+)\s*,\s*(:\w+)\s*\)/g);
+
+    for (const m of (eqMatches || [])) {
+      const parts = m.match(/(\w+)\s*=\s*(:\w+)/);
+      if (!parts) continue;
+      if (parts[1] === 'pk') pk = vals[parts[2]] as string;
+      else skCondition = { type: 'eq', value: vals[parts[2]] as string };
+    }
+
+    let pkPrefix: string | undefined;
+    for (const m of (beginMatches || [])) {
+      const parts = m.match(/begins_with\(\s*(\w+)\s*,\s*(:\w+)\s*\)/);
+      if (!parts) continue;
+      if (parts[1] === 'pk') { pkPrefix = vals[parts[2]] as string; pk = pkPrefix; }
+      else skCondition = { type: 'begins_with', value: vals[parts[2]] as string };
+    }
+
+    if (!pk) throw new Error(`Unsupported KeyConditionExpression: "${expr}"`);
+
+    // Strip pk/sk values already consumed from the filter values map
+    // to avoid SQL parameter count mismatches.
+    const consumedKeys = new Set<string>();
+    for (const m of (eqMatches || [])) {
+      const parts = m.match(/(\w+)\s*=\s*(:\w+)/);
+      if (parts) consumedKeys.add(parts[2]);
+    }
+    for (const m of (beginMatches || [])) {
+      const parts = m.match(/begins_with\(\s*(\w+)\s*,\s*(:\w+)\s*\)/);
+      if (parts) consumedKeys.add(parts[2]);
+    }
+    const filterVals: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(vals)) {
+      if (!consumedKeys.has(k)) filterVals[k] = v;
+    }
+
     const result = await this.store.queryPage<Record<string, unknown>>(pk, {
       skCondition, limit: input.Limit as number | undefined,
       scanForward: input.ScanIndexForward as boolean | undefined,
       filterExpression: input.FilterExpression as string | undefined,
       expressionAttributeNames: input.ExpressionAttributeNames as Record<string, string> | undefined,
-      expressionAttributeValues: vals,
+      expressionAttributeValues: filterVals,
       projectionExpression: input.ProjectionExpression as string | undefined,
       indexName: input.IndexName as string | undefined,
+      pkPrefix,
     }, input.ExclusiveStartKey as Record<string, unknown> | undefined);
     return { Items: result.items, LastEvaluatedKey: result.lastEvaluatedKey, Count: result.items.length, $metadata: { httpStatusCode: 200 } };
   }

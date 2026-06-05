@@ -252,8 +252,16 @@ export class SqliteRepository implements KeyValueStore {
     exclusiveStartKey?: Record<string, unknown>,
   ): Promise<PaginatedResult<T>> {
     this._cleanupExpiredSoft();
-    const params: unknown[] = [pk];
-    let sql = `SELECT pk, sk, data FROM "${this.tableName}" WHERE pk = ?`;
+    const pkPrefix = (options as any)?.pkPrefix as string | undefined;
+    const params: unknown[] = [];
+    let sql = `SELECT pk, sk, data FROM "${this.tableName}" WHERE `;
+    if (pkPrefix) {
+      sql += 'pk LIKE ?';
+      params.push(`${pkPrefix}%`);
+    } else {
+      sql += 'pk = ?';
+      params.push(pk);
+    }
 
     if (options?.skCondition) {
       if (options.skCondition.type === 'begins_with') {
