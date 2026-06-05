@@ -120,6 +120,10 @@ export async function startServer(options: ServerOptions = {}) {
 
   // Local mode defaults — use simple secret names instead of AWS ARNs
   if (!process.env.LLM_API_KEY_SECRET_ARN) process.env.LLM_API_KEY_SECRET_ARN = "llm-api-key";
+  if (!process.env.ADMIN_TABLE) process.env.ADMIN_TABLE = "swarm-local-admin";
+  if (!process.env.STATE_TABLE) process.env.STATE_TABLE = "swarm-local-state";
+  if (!process.env.MESSAGE_QUEUE_URL) process.env.MESSAGE_QUEUE_URL = "https://localhost/queue";
+  if (!process.env.S3_BUCKET) process.env.S3_BUCKET = "swarm-local";
 
   // ── Create local backends ──────────────────────────────────────────
   const services = createLocalServices({
@@ -500,6 +504,25 @@ export async function mountAdminRoutes(
         session,
         avatar ? { id: avatar.id } : undefined,
       );
+
+      // Persist pending tool call so the tools resume endpoint can validate it
+      if ((result as any).pendingToolCall && avatar?.id) {
+        try {
+          const { savePendingTool } = await import(
+            "../../admin-api/src/services/pending-tools.js"
+          );
+          await savePendingTool({
+            email: session.email,
+            avatarId: avatar.id,
+            toolCallId: (result as any).pendingToolCall.id,
+            toolName: (result as any).pendingToolCall.name,
+            arguments: (result as any).pendingToolCall.arguments,
+          });
+          console.log(`[local] Persisted pending tool call ${(result as any).pendingToolCall.id}`);
+        } catch (e) {
+          console.error("[local] Failed to persist pending tool:", e);
+        }
+      }
 
       res.json({
         response: result.response,
