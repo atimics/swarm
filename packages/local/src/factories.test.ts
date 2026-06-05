@@ -1,5 +1,5 @@
 /**
- * Factory integration test — verifies createLocalServices wires everything correctly.
+ * Factory integration test.
  */
 import { describe, it, expect } from 'bun:test';
 import { createLocalServices } from './factories.js';
@@ -8,10 +8,22 @@ describe('createLocalServices', () => {
   it('returns all service components', () => {
     const services = createLocalServices({ dbPath: ':memory:' });
     expect(services.store).toBeDefined();
+    expect(services.dynamoAdapter).toBeDefined();
     expect(services.secrets).toBeDefined();
     expect(services.blobs).toBeDefined();
     expect(services.queue).toBeDefined();
     expect(typeof services.shutdown).toBe('function');
+  });
+
+  it('secrets is locked initially', () => {
+    const { secrets } = createLocalServices({ dbPath: ':memory:' });
+    expect(secrets.isUnlocked).toBe(false);
+  });
+
+  it('secrets can be initialized and unlocked', async () => {
+    const { secrets } = createLocalServices({ dbPath: ':memory:' });
+    await secrets.initialize('test-password');
+    expect(secrets.isUnlocked).toBe(true);
   });
 
   it('store can perform basic CRUD', async () => {
@@ -32,6 +44,5 @@ describe('createLocalServices', () => {
   it('shutdown closes the database', () => {
     const services = createLocalServices({ dbPath: ':memory:' });
     services.shutdown();
-    // Should not throw
   });
 });

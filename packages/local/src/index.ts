@@ -1,5 +1,6 @@
 export { SqliteRepository } from './sqlite-repository.js';
 export type { SqliteRepositoryOptions } from './sqlite-repository.js';
+export { EncryptedSecretsService } from './encrypted-secrets.js';
 export { FileSecretsService } from './secrets.js';
 export type { FileSecretsOptions } from './secrets.js';
 export { LocalBlobStore } from './blob-store.js';

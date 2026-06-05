@@ -1,12 +1,9 @@
 /**
  * Local HTTP server — runs the swarm admin API and serves the admin UI.
- *
- * Creates local-first backends, injects them into ALL AWS client getters
- * (DynamoDB, S3, SQS, SecretsManager, Lambda) before any service modules
- * are loaded, then starts an Express server with real chat/avatar routes.
  */
 import express from 'express';
 import cors from 'cors';
+import { createInterface } from 'readline';
 import { createLocalServices } from './factories.js';
 import { LocalS3Adapter } from './s3-adapter.js';
 import { LocalSQSAdapter } from './sqs-adapter.js';
@@ -17,7 +14,7 @@ export { createLocalServices } from './factories.js';
 export { SqliteRepository } from './sqlite-repository.js';
 export { LocalBlobStore } from './blob-store.js';
 export { InMemoryQueue } from './queue.js';
-export { FileSecretsService } from './secrets.js';
+export { EncryptedSecretsService } from './encrypted-secrets.js';
 export { LocalDynamoClientAdapter } from './dynamo-adapter.js';
 export { LocalS3Adapter } from './s3-adapter.js';
 export { LocalSQSAdapter } from './sqs-adapter.js';
@@ -27,10 +24,36 @@ export { LocalLambdaAdapter } from './lambda-adapter.js';
 export interface ServerOptions {
   port?: number;
   dbPath?: string;
-  envFilePath?: string;
   blobDir?: string;
   adminUiPath?: string;
+  password?: string; // if provided, skip prompt
 }
+
+// ── Password prompt ──────────────────────────────────────────────────────
+
+async function promptPassword(prompt: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(prompt, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+async function resolvePassword(options: ServerOptions): Promise<string> {
+  if (options.password) return options.password;
+
+  const fromArg = process.argv.find((a) => a.startsWith('--password='));
+  if (fromArg) return fromArg.split('=')[1];
+
+  const fromEnv = process.env.SWARM_ADMIN_PASSWORD;
+  if (fromEnv) return fromEnv;
+
+  return promptPassword('Admin password: ');
+}
+
+// ── Server ───────────────────────────────────────────────────────────────
 
 export async function startServer(options: ServerOptions = {}) {
   const port = options.port ?? 3000;
@@ -40,43 +63,68 @@ export async function startServer(options: ServerOptions = {}) {
   // ── Create local backends ──────────────────────────────────────────
   const services = createLocalServices({
     dbPath,
-    envFilePath: options.envFilePath ?? '.env',
     blobDir: dataDir,
     blobBaseUrl: `http://localhost:${port}/blobs`,
   });
 
-  // ── Inject into admin-api BEFORE any handlers are imported ─────────
-  // Order matters: adapters must be set before services call get*Client().
+  // ── Unlock secrets ─────────────────────────────────────────────────
+  const verify = await services.store.get({ pk: 'SYSTEM', sk: 'SECRETS_VERIFY' });
+  const isInitialized = verify !== null;
 
-  // DynamoDB
+  if (isInitialized) {
+    let unlocked = false;
+    while (!unlocked) {
+      try {
+        const pw = await resolvePassword(options);
+        await services.secrets.unlock(pw);
+        unlocked = true;
+        console.log('[local] Secrets unlocked');
+      } catch (err) {
+        console.error('[local]', (err as Error).message);
+        if (options.password) throw err; // don't loop if password was explicit
+      }
+    }
+  } else {
+    console.log('[local] First run — no secrets store found.');
+    const pw = await promptPassword('Choose an admin password (min 8 chars): ');
+    if (pw.length < 8) {
+      console.error('[local] Password must be at least 8 characters.');
+      process.exit(1);
+    }
+    const confirm = await promptPassword('Confirm password: ');
+    if (pw !== confirm) {
+      console.error('[local] Passwords do not match.');
+      process.exit(1);
+    }
+    await services.secrets.initialize(pw);
+    console.log('[local] Secrets store initialized and unlocked.');
+  }
+
+  // ── Inject into admin-api BEFORE any handlers are imported ─────────
   try {
     const { _setDynamoClient } = await import(
       '../../admin-api/src/services/dynamo-client.js'
     );
     _setDynamoClient(services.dynamoAdapter);
-    console.log('[local] DynamoDB adapter injected into admin-api');
   } catch (err) {
     console.warn('[local] DynamoDB injection failed:', (err as Error).message);
   }
 
-  // S3, SQS, Secrets, Lambda
   try {
-    const aws = await import(
-      '../../admin-api/src/services/aws-clients.js'
-    );
+    const aws = await import('../../admin-api/src/services/aws-clients.js');
     aws._setS3Client(new LocalS3Adapter(services.blobs));
     aws._setSQSClient(new LocalSQSAdapter(services.queue));
     aws._setSecretsClient(new LocalSecretsAdapter(services.secrets));
     aws._setLambdaClient(new LocalLambdaAdapter());
-    console.log('[local] S3/SQS/Secrets/Lambda adapters injected into admin-api');
+    console.log('[local] AWS adapters injected');
   } catch (err) {
     console.warn('[local] AWS clients injection failed:', (err as Error).message);
   }
 
-  // ── Inject into core service setters ───────────────────────────────
+  // ── Inject into core setters ───────────────────────────────────────
   try {
     const core = await import('@swarm/core');
-    const adapter = services.dynamoAdapter as unknown as Record<string, unknown>;
+    const adapter = services.dynamoAdapter;
     const setters = [
       '_setCanonicalDynamoClient',
       '_setTierDynamoClient',
@@ -92,44 +140,36 @@ export async function startServer(options: ServerOptions = {}) {
         injected++;
       }
     }
-    if (injected > 0) {
-      console.log(`[local] DynamoDB adapter injected into @swarm/core (${injected} setters)`);
-    }
-  } catch (err) {
-    console.warn('[local] Core injection failed:', (err as Error).message);
+    if (injected > 0) console.log(`[local] Core setters injected (${injected})`);
+  } catch {
+    // core may not be importable
   }
 
-  // ── Set up Express ─────────────────────────────────────────────────
+  // ── Express ────────────────────────────────────────────────────────
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
 
-  // Health check
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', backend: 'local', db: dbPath });
+    res.json({
+      status: 'ok',
+      backend: 'local',
+      db: dbPath,
+      secrets: services.secrets.isUnlocked ? 'unlocked' : 'locked',
+    });
   });
 
-  // Blob storage endpoint
+  // Blob storage
   app.get('/blobs/:key', (req, res) => {
     const key = req.params['key'] as string;
     const blob = services.blobs.get(key);
-    if (!blob) {
-      res.status(404).json({ error: 'Not found' });
-      return;
-    }
+    if (!blob) { res.status(404).json({ error: 'Not found' }); return; }
     const ext = key.split('.').pop()?.toLowerCase();
     const mimeTypes: Record<string, string> = {
-      png: 'image/png',
-      jpg: 'image/jpeg',
-      jpeg: 'image/jpeg',
-      gif: 'image/gif',
-      webp: 'image/webp',
-      mp3: 'audio/mpeg',
-      ogg: 'audio/ogg',
-      wav: 'audio/wav',
-      mp4: 'video/mp4',
-      webm: 'video/webm',
-      json: 'application/json',
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+      gif: 'image/gif', webp: 'image/webp',
+      mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav',
+      mp4: 'video/mp4', webm: 'video/webm', json: 'application/json',
     };
     res.type(mimeTypes[ext ?? ''] ?? 'application/octet-stream');
     res.send(blob);
@@ -137,13 +177,13 @@ export async function startServer(options: ServerOptions = {}) {
 
   // ── Admin API routes ───────────────────────────────────────────────
   try {
-    await mountAdminRoutes(app);
+    await mountAdminRoutes(app, services);
   } catch (err) {
-    console.warn('[local] Could not mount admin API routes:', (err as Error).message);
+    console.warn('[local] Admin API routes unavailable:', (err as Error).message);
     mountStubRoutes(app);
   }
 
-  // ── Admin UI (optional) ────────────────────────────────────────────
+  // ── Admin UI ───────────────────────────────────────────────────────
   if (options.adminUiPath) {
     app.use(express.static(options.adminUiPath));
     app.get('*', (_req, res) => {
@@ -151,7 +191,6 @@ export async function startServer(options: ServerOptions = {}) {
     });
   }
 
-  // ── Start ──────────────────────────────────────────────────────────
   return new Promise<{ app: express.Express; services: typeof services }>(
     (resolve, reject) => {
       const server = app.listen(port, () => {
@@ -165,14 +204,16 @@ export async function startServer(options: ServerOptions = {}) {
   );
 }
 
-// ── Route mounting ────────────────────────────────────────────────────────
+// ── Route mounting ──────────────────────────────────────────────────────
 
-async function mountAdminRoutes(app: express.Express) {
+async function mountAdminRoutes(
+  app: express.Express,
+  _services: ReturnType<typeof createLocalServices>,
+) {
   const { processChat } = await import(
     '../../admin-api/src/handlers/chat.js'
   );
 
-  // POST /api/chat
   app.post('/api/chat', async (req, res) => {
     try {
       const { message, history = [], avatar, session: sessionOverride } =
@@ -215,7 +256,6 @@ async function mountAdminRoutes(app: express.Express) {
     }
   });
 
-  // GET /api/avatars
   app.get('/api/avatars', async (_req, res) => {
     try {
       const { listAvatars } = await import(
@@ -241,17 +281,3 @@ function mountStubRoutes(app: express.Express) {
     res.json({ avatars: [] });
   });
 }
-
-// ── Run directly ───────────────────────────────────────────────────────────
-
-const port = parseInt(process.env.PORT ?? '3000', 10);
-startServer({
-  port,
-  dbPath: process.env.SWARM_DB_PATH ?? './data/swarm.db',
-  envFilePath: process.env.SWARM_ENV_FILE ?? '.env',
-  blobDir: process.env.SWARM_BLOB_DIR ?? './data/blobs',
-  adminUiPath: process.env.SWARM_ADMIN_UI_PATH,
-}).catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
