@@ -15,7 +15,7 @@
  */
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import { logger } from '@swarm/core';
-import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
 import { getSecretsClient } from '../services/aws-clients.js';
 import {
   getDreamJob,

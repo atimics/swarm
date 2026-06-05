@@ -16,7 +16,7 @@ import { getSecretsClient } from './aws-clients.js';
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
-} from '@aws-sdk/client-secrets-manager';
+} from '@swarm/core';
 
 let heliusApiKey: string | null = process.env.HELIUS_API_KEY || null;
 let heliusApiKeyFetched = false;

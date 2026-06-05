@@ -7,7 +7,7 @@ import {
   PutCommand,
   UpdateCommand,
 } from '@swarm/core';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { SecretsManagerClient, GetSecretValueCommand } from '@swarm/core';
 import { getSecretsClient } from './aws-clients.js';
 import { randomBytes } from 'crypto';
 import { logger } from '@swarm/core';

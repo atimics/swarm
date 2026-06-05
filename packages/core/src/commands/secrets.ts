@@ -1,5 +1,5 @@
 /**
- * Local Secrets Manager command classes — drop-in replacements for @aws-sdk/client-secrets-manager.
+ * Local Secrets Manager command classes.
  */
 export class GetSecretValueCommand {
   input: Record<string, unknown>;
@@ -14,6 +14,14 @@ export class DescribeSecretCommand {
   constructor(input: Record<string, unknown>) { this.input = input; }
 }
 export class UpdateSecretCommand {
+  input: Record<string, unknown>;
+  constructor(input: Record<string, unknown>) { this.input = input; }
+}
+export class DeleteSecretCommand {
+  input: Record<string, unknown>;
+  constructor(input: Record<string, unknown>) { this.input = input; }
+}
+export class RestoreSecretCommand {
   input: Record<string, unknown>;
   constructor(input: Record<string, unknown>) { this.input = input; }
 }

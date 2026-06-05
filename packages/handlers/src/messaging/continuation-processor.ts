@@ -14,7 +14,7 @@ import type { SQSEvent, Context, SQSBatchResponse } from 'aws-lambda';
 import { sendSqsMessage } from '../services/sqs-send.js';
 import { randomUUID } from 'node:crypto';
 import { GetCommand, UpdateCommand } from '@swarm/core';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { SecretsManagerClient, GetSecretValueCommand } from '@swarm/core';
 import { getSecretsClient } from '../services/aws-clients.js';
 import { logger, extractCorrelationIdFromSqsRecord } from '@swarm/core';
 import type {

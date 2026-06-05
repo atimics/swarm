@@ -4,7 +4,7 @@
  * Thin Stripe API wrapper used by billing endpoints and webhook handling.
  * Keeps payment provider concerns out of route handlers.
  */
-import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
 import { getSecretsClient } from '../aws-clients.js';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { EntitlementRecord, PlanType } from '../../types.js';

@@ -1,11 +1,11 @@
 /**
  * Shared DynamoDB Document Client (admin-api)
  *
- * Provides a singleton DynamoDBDocumentClient for reuse across all
- * admin-api services, avoiding redundant client instantiation per module.
- *
  * The `_setDynamoClient` helper allows tests (or local-first backends)
  * to inject any send()-compatible client.
+ *
+ * In production, the real DynamoDBDocumentClient is created lazily.
+ * In local mode, inject an adapter before any service imports.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
@@ -25,7 +25,6 @@ export function getDynamoClient(): DynamoLikeClient {
   return _client;
 }
 
-/** Inject a local adapter (or test mock). */
 export function _setDynamoClient(client: DynamoLikeClient | null): void {
   _client = client;
 }

@@ -3,7 +3,7 @@
  * Handles LLM API key management, direct API fallback, retry logic,
  * and OpenRouter client initialization for the admin chat handler.
  */
-import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
 import { getSecretsClient } from '../services/aws-clients.js';
 import {
   DEFAULT_LLM_MAX_TOKENS,

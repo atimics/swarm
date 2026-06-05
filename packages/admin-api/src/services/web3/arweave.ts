@@ -9,7 +9,7 @@
  * The Irys SDK is imported dynamically so the service degrades gracefully
  * if the optional dependency is not installed.
  */
-import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
 import { getSecretsClient } from '../aws-clients.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

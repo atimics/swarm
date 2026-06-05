@@ -3,7 +3,7 @@
  */
 import { randomUUID } from 'crypto';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@swarm/core';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { LambdaClient, InvokeCommand } from '@swarm/core';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { getLambdaClient, getS3Client } from './aws-clients.js';
 import { buildMediaUrl, canonicalizeMediaUrl, logger, buildVoiceCloneInput } from '@swarm/core';

@@ -21,7 +21,7 @@ export type { IntegrationType, AICapability };
 import { getAvatar } from '../avatars.js';
 import { _getSecretValueInternal, secretExists, storeSecret } from '../secrets.js';
 import { getDefaultModel, getModelsForCapability, type ModelInfo } from '../models-registry.js';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { SecretsManagerClient, GetSecretValueCommand } from '@swarm/core';
 import { getSecretsClient } from '../aws-clients.js';
 import { getDynamoClient } from '../dynamo-client.js';
 import { hasSystemOpenRouterApiKey } from '../openrouter-key.js';

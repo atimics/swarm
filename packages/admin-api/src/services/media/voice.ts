@@ -2,7 +2,7 @@
  * Voice Service
  * Handles transcription, voice profile creation, and TTS generation.
  */
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { LambdaClient, InvokeCommand } from '@swarm/core';
 import {
   GetCommand,
   PutCommand,

@@ -17,7 +17,7 @@ import {
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
-} from '@aws-sdk/client-secrets-manager';
+} from '@swarm/core';
 import * as secretsServiceDefault from '../secrets.js';
 import type { UserSession } from '../../types.js';
 import { getDynamoClient } from '../dynamo-client.js';

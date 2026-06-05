@@ -11,7 +11,7 @@ import {
   GetSecretValueCommand,
   RestoreSecretCommand,
   type CreateSecretCommandInput,
-} from '@aws-sdk/client-secrets-manager';
+} from '@swarm/core';
 import {
   PutCommand,
   GetCommand,

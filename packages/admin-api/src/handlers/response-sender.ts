@@ -9,7 +9,7 @@ import { GetCommand } from '@swarm/core';
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
-} from '@aws-sdk/client-secrets-manager';
+} from '@swarm/core';
 import { logger } from '@swarm/core';
 import { getDynamoClient } from '../services/dynamo-client.js';
 import { getSecretsClient } from '../services/aws-clients.js';
