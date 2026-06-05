@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import { createInterface } from 'readline';
 import { randomBytes, createHash } from "crypto";
+import { startTelegramPolling } from "./telegram-polling.js";
 import { createLocalServices } from './factories.js';
 import { LocalS3Adapter } from './s3-adapter.js';
 import { LocalSQSAdapter } from './sqs-adapter.js';
@@ -112,6 +113,33 @@ async function resolvePassword(options: ServerOptions, allOptions: ServerOptions
 }
 
 // ── Server ───────────────────────────────────────────────────────────────
+async function startTgPolling(services: ReturnType<typeof createLocalServices>) {
+  try {
+    const tgToken = await services.secrets.getSecret("telegram_bot_token").catch(() => null);
+    if (!tgToken) {
+      console.log("[local] No Telegram bot token configured, skipping polling.");
+      return;
+    }
+    console.log("[local] Telegram bot token found, starting polling...");
+    const stopPolling = startTelegramPolling({
+      getToken: () => services.secrets.getSecret("telegram_bot_token").catch(() => null),
+      processMessage: async (text, chatId, _username) => {
+        const { processChat } = await import("../../admin-api/src/handlers/chat.js");
+        const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+        const { listAvatars } = await import("../../admin-api/src/services/avatars.js");
+        const avatars = await listAvatars(session);
+        const avatar = avatars[0];
+        if (!avatar) return "No avatar configured yet. Create one in the desktop app.";
+        const result = await processChat(text, [], session, { id: avatar.avatarId || (avatar as any).id });
+        return result.response;
+      },
+    });
+    process.on("SIGINT", stopPolling);
+    process.on("SIGTERM", stopPolling);
+  } catch (err) {
+    console.warn("[local] Telegram polling setup failed:", (err as Error).message);
+  }
+}
 
 export async function startServer(options: ServerOptions = {}) {
   const port = options.port ?? 3000;
@@ -453,14 +481,20 @@ export async function startServer(options: ServerOptions = {}) {
   }
 
   return new Promise<{ app: express.Express; services: typeof services }>(
-    (resolve, reject) => {
+    async (resolve, reject) => {
+      server.on("error", reject);
       const server = app.listen(port, () => {
         console.log(`[local] Swarm server running at http://localhost:${port}`);
         console.log(`[local]   Database: ${dbPath}`);
         console.log(`[local]   Blobs:    ${dataDir}`);
+
+        // ── Telegram polling (local mode) ──────────────────────────
+        startTgPolling(services).catch(err =>
+          console.warn("[local] Telegram polling setup failed:", (err as Error).message)
+        );
+
         resolve({ app, services });
       });
-      server.on('error', reject);
     },
   );
 }
@@ -703,7 +737,7 @@ export async function mountAdminRoutes(
       const { result } = req.body as { result?: unknown };
       if (result === undefined) { res.status(400).json({ error: "result is required" }); return; }
       const { resumeChatAfterToolResult } = await import(
-        "../../admin-api/src/handlers/chat-tools/resume-chat.js"
+        "../../admin-api/src/handlers/chat.js"
       );
       const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
       const resumed = await resumeChatAfterToolResult({
