@@ -285,3 +285,17 @@ export type { CompositeKey, ConditionalPutOptions, QueryOptions, PaginatedResult
 
 // Local command classes (drop-in for @aws-sdk/*)
 export * from "../commands/index.js";
+
+// Agent Identity (Ed25519 keypair — Body 4)
+export {
+  generateAgentKeypair,
+  deriveAgentKeypair,
+  signMessage,
+  verifySignature,
+  toBase58,
+  toHex,
+  fromHex,
+  toBase64,
+  fromBase64,
+} from "./agent-identity.js";
+export type { AgentKeypair, AgentIdentity } from "./agent-identity.js";
