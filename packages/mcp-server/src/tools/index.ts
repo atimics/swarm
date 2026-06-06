@@ -208,6 +208,8 @@ export interface AllServices {
   designPartner?: import('./design-partner.js').DesignPartnerServices;
   // Blog posting
   blog?: import('./blog.js').BlogServices;
+  // Agent identity (Ed25519 keypair — Body 4)
+  agentIdentity?: import('./agent-identity.js').AgentIdentityServices;
   // Signal space mining station governance
   signalStation?: import('./signal-station.js').SignalStationServices;
 }
@@ -282,6 +284,9 @@ export function registerAllTools(
   }
   if (services.blog) {
     registry.registerAll(createBlogTools(services.blog));
+  }
+  if (services.agentIdentity) {
+    registry.registerAll(registerAgentIdentityTools(services.agentIdentity));
   } else {
     // Blog tools can run without a service (uses core publishBlogPost directly)
     registry.registerAll(createBlogTools({}));

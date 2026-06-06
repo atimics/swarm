@@ -46,7 +46,7 @@ export function createMCPServices(
   return {
     ...createMediaServices(_avatarId, session, svc),
     ...createPlatformServices(_avatarId, session, svc),
-    ...createIdentityServices(_avatarId, session, svc),
+    agentIdentity: createIdentityServices(_avatarId, session, svc),
     ...createAgentServices(_avatarId, session, svc),
     nft: createNFTServices(svc),
     property: createPropertyServices(_avatarId, session, svc),
@@ -72,7 +72,7 @@ function createReadOnlyMCPServices(
   const full: AllServices = {
     ...createMediaServices(_avatarId, session, svc),
     ...createPlatformServices(_avatarId, session, svc),
-    ...createIdentityServices(_avatarId, session, svc),
+    agentIdentity: createIdentityServices(_avatarId, session, svc),
     ...createAgentServices(_avatarId, session, svc),
     nft: createNFTServices(svc),
     property: createPropertyServices(_avatarId, session, svc),

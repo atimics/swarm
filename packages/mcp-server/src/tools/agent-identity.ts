@@ -13,6 +13,9 @@ export interface AgentIdentityServices {
   verifySignature: (message: string, signature: string, pubkey: string) => Promise<boolean>;
 }
 
+/** Alias for consumers that import via the shorter name. */
+export type IdentityServices = AgentIdentityServices;
+
 export function registerAgentIdentityTools(
   services: AgentIdentityServices,
 ): ToolEntry[] {
@@ -42,7 +45,7 @@ export function registerAgentIdentityTools(
     {
       name: "sign_message",
       description:
-        "Sign a message with your Ed25519 identity keypair. Returns the base58-encoded signature.",
+        "Sign a message with your Ed25519 identity keypair. Returns the base58-encoded signature and your public key.",
       category: "identity",
       inputSchema: z.object({
         message: z.string().describe("The message to sign"),
