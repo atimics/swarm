@@ -3,8 +3,8 @@
  * Transcribes audio files using OpenAI Whisper API
  */
 import type {
-  APIGatewayProxyEventV2,
-  APIGatewayProxyResultV2,
+  HttpRequest,
+  HttpResponse,
 } from "@swarm/core";
 import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
 import { getSecretsClient } from '../services/aws-clients.js';
@@ -52,8 +52,8 @@ async function getOpenAiApiKey(): Promise<string> {
   return cachedApiKey!;
 }
 export async function handler(
-  event: APIGatewayProxyEventV2
-): Promise<APIGatewayProxyResultV2> {
+  event: HttpRequest
+): Promise<HttpResponse> {
   const corsHeaders = getCorsHeaders(event);
 
   // Handle CORS preflight

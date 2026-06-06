@@ -39,7 +39,8 @@ export async function getFacts(
   // Use Query on pk + sk prefix instead of Scan to avoid scanning the entire table.
   // Sort key format: FACT#<about>#<factId>
   // When query matches an about category exactly, use a tighter sk prefix.
-  const lowerQuery = query.toLowerCase();
+  // keep original case for case-sensitive DynamoDB contains();  #1723
+  const searchQuery = query;
   const skPrefix = `FACT#${query}`;
 
   // First try an exact category match (e.g. query='posted_tweet' → sk prefix 'FACT#posted_tweet')
@@ -63,7 +64,7 @@ export async function getFacts(
       ExpressionAttributeValues: {
         ':pk': `AVATAR#${avatarId}`,
         ':factPrefix': 'FACT#',
-        ':query': lowerQuery,
+        ':query': searchQuery,
       },
       Limit: 50,
       ScanIndexForward: false,

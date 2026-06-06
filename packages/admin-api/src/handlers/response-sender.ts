@@ -4,7 +4,7 @@
  * 
  * Triggered by SQS messages from the Replicate webhook handler
  */
-import type { SQSEvent, Context, SQSBatchResponse, Handler } from "@swarm/core";
+import type { MessageBatch, ExecutionContext, MessageBatchResponse, Handler } from "@swarm/core";
 import { GetCommand } from '@swarm/core';
 import {
   SecretsManagerClient,
@@ -515,9 +515,9 @@ async function processMessage(message: ResponseMessage): Promise<void> {
 /**
  * Lambda handler for SQS-triggered response sending
  */
-export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
-  event: SQSEvent,
-  context: Context
+export const handler: Handler<MessageBatch, MessageBatchResponse> = async (
+  event: MessageBatch,
+  context: ExecutionContext
 ) => {
   logger.setContext({
     subsystem: 'response-sender',
@@ -525,7 +525,7 @@ export const handler: Handler<SQSEvent, SQSBatchResponse> = async (
   });
 
   logger.info('Response sender triggered', { recordCount: event.Records.length });
-  const batchItemFailures: SQSBatchResponse['batchItemFailures'] = [];
+  const batchItemFailures: MessageBatchResponse['batchItemFailures'] = [];
 
   for (const record of event.Records) {
     try {

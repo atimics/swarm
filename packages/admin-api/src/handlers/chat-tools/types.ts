@@ -63,7 +63,7 @@ export interface LlmAttemptState {
 /**
  * Services/context needed for tool execution.
  */
-export interface ToolExecutionContext {
+export interface ToolContext {
   avatarId: string | undefined;
   toolContext: ToolContext | null;
   mcpServices: unknown | null;

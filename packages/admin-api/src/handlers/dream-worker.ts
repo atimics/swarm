@@ -13,7 +13,7 @@
  * 5. Save dream state
  * 6. Update job status
  */
-import type { SQSEvent, SQSRecord } from "@swarm/core";
+import type { MessageBatch, MessageRecord } from "@swarm/core";
 import { logger } from '@swarm/core';
 import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
 import { getSecretsClient } from '../services/aws-clients.js';
@@ -78,7 +78,7 @@ async function getLlmApiKey(): Promise<string> {
   return cachedApiKey;
 }
 
-function parseRecord(record: SQSRecord): DreamJobMessage {
+function parseRecord(record: MessageRecord): DreamJobMessage {
   const parsed = JSON.parse(record.body) as Partial<DreamJobMessage>;
   if (!parsed.jobId || typeof parsed.jobId !== 'string') {
     throw new Error('Invalid SQS message: missing jobId');
@@ -89,7 +89,7 @@ function parseRecord(record: SQSRecord): DreamJobMessage {
   return { jobId: parsed.jobId, avatarId: parsed.avatarId };
 }
 
-export async function handler(event: SQSEvent): Promise<void> {
+export async function handler(event: MessageBatch): Promise<void> {
   for (const record of event.Records) {
     let jobId: string | undefined;
 

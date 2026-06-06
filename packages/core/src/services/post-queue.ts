@@ -39,7 +39,7 @@ export async function enqueuePost(
     MessageBody: JSON.stringify(message),
     // FIFO queue requires MessageGroupId and MessageDeduplicationId
     MessageGroupId: avatarId,
-    MessageDeduplicationId: `${postId}-${Date.now()}`,
+    MessageDeduplicationId: postId,
   }));
 }
 

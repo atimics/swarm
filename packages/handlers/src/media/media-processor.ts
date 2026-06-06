@@ -2,7 +2,7 @@
  * Media Processor Handler
  * Consumes media jobs from SQS and enqueues send_media actions back to response queue.
  */
-import type { SQSEvent, Context } from "@swarm/core";
+import type { MessageBatch, ExecutionContext } from "@swarm/core";
 import { PutCommand } from '@swarm/core';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -309,7 +309,7 @@ function getAvatarReferenceImageUrls(avatar: AvatarConfig): string[] {
   return url ? [url] : [];
 }
 
-export const handler = async (event: SQSEvent, context: Context): Promise<{ batchItemFailures: { itemIdentifier: string }[] } | void> => {
+export const handler = async (event: MessageBatch, context: ExecutionContext): Promise<{ batchItemFailures: { itemIdentifier: string }[] } | void> => {
   logger.setContext({
     requestId: context.awsRequestId,
   });

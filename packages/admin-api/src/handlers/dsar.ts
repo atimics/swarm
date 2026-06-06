@@ -11,8 +11,8 @@
  * (not the legacy userId/walletAddress) to correctly traverse the live schema.
  */
 import type {
-  APIGatewayProxyEventV2,
-  APIGatewayProxyResultV2,
+  HttpRequest,
+  HttpResponse,
 } from "@swarm/core";
 import { logger } from '@swarm/core';
 import { getCorsHeaders } from '../http/cors.js';
@@ -29,8 +29,8 @@ import {
  * Lambda handler for DSAR API
  */
 export async function handler(
-  event: APIGatewayProxyEventV2,
-): Promise<APIGatewayProxyResultV2> {
+  event: HttpRequest,
+): Promise<HttpResponse> {
   const corsHeaders = getCorsHeaders(event);
   const method = event.requestContext.http.method;
   const rawPath = event.rawPath;

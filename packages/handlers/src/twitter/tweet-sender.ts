@@ -11,7 +11,7 @@
  * 4. 429? -> record, re-queue with backoff
  * 5. Success? -> update content store, record success
  */
-import type { SQSHandler, SQSBatchResponse } from "@swarm/core";
+import type { MessageBatchHandler, MessageBatchResponse } from "@swarm/core";
 import { SQSClient, SendMessageCommand } from '@swarm/core';
 import {
   TwitterAdapter,
@@ -275,7 +275,7 @@ async function processMessage(message: PostQueueMessage): Promise<{ success: boo
 /**
  * SQS Handler for POST_QUEUE
  */
-export const handler: SQSHandler = async (event): Promise<SQSBatchResponse> => {
+export const handler: MessageBatchHandler = async (event): Promise<MessageBatchResponse> => {
   if (!ENABLE_DECOUPLED_POSTING) {
     logger.warn('Decoupled posting not enabled; keeping messages in queue');
     return {

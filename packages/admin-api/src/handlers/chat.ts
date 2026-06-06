@@ -6,8 +6,8 @@
  * in dedicated modules; this file wires them together.
  */
 import type {
-  APIGatewayProxyEventV2,
-  APIGatewayProxyResultV2,
+  HttpRequest,
+  HttpResponse,
 } from "@swarm/core";
 import { SendMessageCommand, SQSClient } from '@swarm/core';
 import {
@@ -99,7 +99,7 @@ export type { AvatarContext, ProcessChatOptions, ProcessChatResult };
 const CHAT_QUEUE_URL = process.env.CHAT_QUEUE_URL;
 const sqsClient = CHAT_QUEUE_URL ? getSQSClient() : null;
 
-function prefersAsyncResponse(event: APIGatewayProxyEventV2): boolean {
+function prefersAsyncResponse(event: HttpRequest): boolean {
   const prefer = event.headers['prefer'] || event.headers['Prefer'] || '';
   return typeof prefer === 'string' && prefer.toLowerCase().includes('respond-async');
 }
@@ -127,7 +127,7 @@ async function handlePendingModelSelectionText(params: {
   message: string;
   history: AdminChatMessage[];
   corsHeaders: Record<string, string>;
-}): Promise<APIGatewayProxyResultV2 | null> {
+}): Promise<HttpResponse | null> {
   const { session, avatarRecord, avatarId, message, history, corsHeaders } = params;
   if (!session.email || !avatarId) return null;
 
@@ -350,7 +350,7 @@ export async function processChat(
 /**
  * Lambda handler for chat API.
  */
-export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+export async function handler(event: HttpRequest): Promise<HttpResponse> {
   // Validate critical runtime config on cold start (no-op on warm invocations)
   ensureRuntimeConfig();
 
@@ -405,11 +405,11 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     const { message, history, avatar, systemPrompt: customSystemPrompt, attachments, model, activeTask } = parseResult.data;
 
     if (idempotencyKey) {
-      const cached = await chatIdempotencyStore.get(idempotencyKey) as APIGatewayProxyResultV2 | null;
+      const cached = await chatIdempotencyStore.get(idempotencyKey) as HttpResponse | null;
       if (cached) return cached;
       const claimed = await chatIdempotencyStore.set(idempotencyKey, null);
       if (!claimed) {
-        const recheck = await chatIdempotencyStore.get(idempotencyKey) as APIGatewayProxyResultV2 | null;
+        const recheck = await chatIdempotencyStore.get(idempotencyKey) as HttpResponse | null;
         if (recheck) return recheck;
         return { statusCode: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Duplicate request is already being processed' }) };
       }

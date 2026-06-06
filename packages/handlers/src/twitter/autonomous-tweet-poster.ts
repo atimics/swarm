@@ -11,7 +11,7 @@
  * - Community posting support (when available)
  * - Content store integration for simulation mode and post review
  */
-import type { ScheduledHandler, Context } from "@swarm/core";
+import type { TimerHandler, ExecutionContext } from "@swarm/core";
 import {
   TwitterAdapter,
   createStateService,
@@ -568,7 +568,7 @@ async function processAvatar(
   return { posted: true, tweetId, postId };
 }
 
-export const handler: ScheduledHandler = async (_event, context: Context) => {
+export const handler: TimerHandler = async (_event, context: ExecutionContext) => {
   const startTime = Date.now();
   logger.setContext({
     requestId: context.awsRequestId,

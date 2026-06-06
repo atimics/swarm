@@ -3,8 +3,8 @@
  * Handles async media generation (image/video) completion callbacks from Replicate
  */
 import type {
-  APIGatewayProxyEventV2,
-  APIGatewayProxyResultV2,
+  HttpRequest,
+  HttpResponse,
 } from "@swarm/core";
 import { S3Client, PutObjectCommand } from '@swarm/core';
 import { SQSClient, SendMessageCommand } from '@swarm/core';
@@ -88,8 +88,8 @@ function getMediaTypeInfo(jobType: MediaJob['type']): { extension: string; conte
  * Lambda handler for Replicate webhook callbacks
  */
 export async function handler(
-  event: APIGatewayProxyEventV2
-): Promise<APIGatewayProxyResultV2> {
+  event: HttpRequest
+): Promise<HttpResponse> {
   logger.setContext({ subsystem: 'replicate' });
   logger.info('Replicate webhook received', { body: event.body });
 

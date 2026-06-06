@@ -13,8 +13,8 @@
  * - error:    Error events
  */
 import type {
-  APIGatewayProxyEventV2,
-  APIGatewayProxyResultV2,
+  HttpRequest,
+  HttpResponse,
 } from "@swarm/core";
 import {
   logger,
@@ -268,8 +268,8 @@ async function buildSystemPrompt(avatar?: {
  * endpoint for tool-based interactions.
  */
 export async function handler(
-  event: APIGatewayProxyEventV2
-): Promise<APIGatewayProxyResultV2> {
+  event: HttpRequest
+): Promise<HttpResponse> {
   const corsHeaders = getCorsHeaders(event);
 
   // Handle preflight

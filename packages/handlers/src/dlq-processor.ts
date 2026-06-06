@@ -14,7 +14,7 @@
  * This handler is triggered on a schedule (not directly from SQS) so it can
  * control batch sizes and avoid consuming messages that shouldn't be retried.
  */
-import type { ScheduledEvent, Context } from "@swarm/core";
+import type { TimerEvent, ExecutionContext } from "@swarm/core";
 import {
   SQSClient,
   ReceiveMessageCommand,
@@ -511,8 +511,8 @@ async function publishMetrics(result: DlqProcessorResult, categoryCounts: Record
 // ---------------------------------------------------------------------------
 
 export async function handler(
-  _event: ScheduledEvent,
-  context: Context
+  _event: TimerEvent,
+  context: ExecutionContext
 ): Promise<DlqProcessorResult> {
   logger.setContext({
     subsystem: 'dlq-processor',

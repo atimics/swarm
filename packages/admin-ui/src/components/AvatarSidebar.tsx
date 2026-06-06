@@ -534,7 +534,7 @@ export function AvatarSidebar({ className, onClose, onSelectAvatar }: AvatarSide
     if (aCreatedByMe && !bCreatedByMe) return -1;
     if (bCreatedByMe && !aCreatedByMe) return 1;
     // Then by name
-    return a.name.localeCompare(b.name);
+    return (a.name || "").localeCompare(b.name || "");
   });
 
   const handleCreateAvatar = async () => {

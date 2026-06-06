@@ -61,7 +61,7 @@ export interface SwarmEnvelope {
   // Content
   content: MessageContent;
   
-  // Context
+  // ExecutionContext
   replyTo?: string; // Message ID being replied to
   mentions: Mention[];
   
@@ -1186,20 +1186,20 @@ export type {
 
 // Lambda-compatible types (local-first, no aws-lambda dependency)
 export type {
-  APIGatewayProxyEventV2,
-  APIGatewayProxyResultV2,
-  APIGatewayProxyResult,
-  APIGatewayProxyHandler,
-  SQSEvent,
-  SQSRecord,
-  SQSMessageAttribute,
-  SQSBatchResponse,
-  Context,
-  ScheduledEvent,
-  DynamoDBStreamEvent,
-  DynamoDBRecord,
-  AttributeValue,
+  HttpRequest,
+  HttpResponse,
+  HttpResponse,
+  HttpHandler,
+  MessageBatch,
+  MessageRecord,
+  MessageAttribute,
+  MessageBatchResponse,
+  ExecutionContext,
+  TimerEvent,
+  DataChangeEvent,
+  DataChangeRecord,
+  DynamoValue,
   Handler,
-  SQSHandler,
-  ScheduledHandler,
+  MessageBatchHandler,
+  TimerHandler,
 } from "./lambda.js";

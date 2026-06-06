@@ -5,7 +5,7 @@
  * Files are stored under a configurable root directory with the same
  * key-based path structure used by S3.
  */
-import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, createReadStream } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, createReadStream, readdirSync, statSync } from 'fs';
 import { resolve, dirname } from 'path';
 
 export interface LocalBlobStoreOptions {
@@ -61,5 +61,23 @@ export class LocalBlobStore {
   /** Get the public URL for a blob. */
   getUrl(key: string): string {
     return `${this.baseUrl}/${key}`;
+  }
+
+  /** List keys with optional prefix. */
+  list(prefix?: string): string[] {
+    const results: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = resolve(dir, entry);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+        } else {
+          const relative = full.slice(this.rootDir.length + 1);
+          if (!prefix || relative.startsWith(prefix)) results.push(relative);
+        }
+      }
+    };
+    walk(this.rootDir);
+    return results;
   }
 }

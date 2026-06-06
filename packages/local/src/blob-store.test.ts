@@ -67,4 +67,52 @@ describe('LocalBlobStore', () => {
     store.put('deep/nested/path/file.bin', Buffer.from('data'), 'application/octet-stream');
     expect(store.exists('deep/nested/path/file.bin')).toBe(true);
   });
+
+
+  describe("createReadStream", () => {
+    it("returns a readable stream for existing blob", () => {
+      const store = new LocalBlobStore({ rootDir: TEST_DIR });
+      store.put("stream-test.txt", Buffer.from("streaming data"), "text/plain");
+      const stream = store.createReadStream("stream-test.txt");
+      expect(stream).not.toBeNull();
+      const chunks: Buffer[] = [];
+      stream!.on("data", (chunk: Buffer) => chunks.push(chunk));
+      stream!.on("end", () => {
+        expect(Buffer.concat(chunks).toString()).toBe("streaming data");
+      });
+    });
+
+    it("returns null for missing blob", () => {
+      const store = new LocalBlobStore({ rootDir: TEST_DIR });
+      expect(store.createReadStream("nonexistent")).toBeNull();
+    });
+  });
+
+  describe('list', () => {
+    it('lists all keys with no prefix', () => {
+      const store = new LocalBlobStore({ rootDir: TEST_DIR });
+      store.put('a.txt', Buffer.from('a'), 'text/plain');
+      store.put('sub/b.txt', Buffer.from('b'), 'text/plain');
+      const keys = store.list().sort();
+      expect(keys).toEqual(['a.txt', 'sub/b.txt']);
+    });
+
+    it('filters by prefix', () => {
+      const store = new LocalBlobStore({ rootDir: TEST_DIR });
+      store.put('a.txt', Buffer.from('a'), 'text/plain');
+      store.put('sub/b.txt', Buffer.from('b'), 'text/plain');
+      expect(store.list('sub/')).toEqual(['sub/b.txt']);
+    });
+
+    it('returns empty array when no keys match', () => {
+      const store = new LocalBlobStore({ rootDir: TEST_DIR });
+      expect(store.list()).toEqual([]);
+    });
+
+    it('returns empty array for prefix with no matches', () => {
+      const store = new LocalBlobStore({ rootDir: TEST_DIR });
+      store.put('a.txt', Buffer.from('a'), 'text/plain');
+      expect(store.list('nonexistent/')).toEqual([]);
+    });
+  });
 });

@@ -18,10 +18,10 @@
  * - GITHUB_ISSUE_LABEL_PREFIX: Label prefix for auto-created issues (default: "auto-issue")
  * - ENVIRONMENT: Deployment environment name
  */
-import type { DynamoDBStreamEvent, DynamoDBRecord, Context } from "@swarm/core";
+import type { DataChangeEvent, DataChangeRecord, ExecutionContext } from "@swarm/core";
 import { UpdateCommand, GetCommand } from '@swarm/core';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
-import type { AttributeValue } from '@aws-sdk/client-dynamodb';
+import type { DynamoValue } from '@aws-sdk/client-dynamodb';
 import { logger, GitHubAppTokenProvider, type GitHubTokenProvider } from '@swarm/core';
 import { getDynamoClient } from '../services/dynamo-client.js';
 
@@ -267,7 +267,7 @@ async function isAlreadySynced(
 /**
  * Determine if a DynamoDB stream record is a new ISSUE#/META insert
  */
-export function isNewIssueRecord(record: DynamoDBRecord): boolean {
+export function isNewIssueRecord(record: DataChangeRecord): boolean {
   if (record.eventName !== 'INSERT') {
     return false;
   }
@@ -288,8 +288,8 @@ export function isNewIssueRecord(record: DynamoDBRecord): boolean {
 // ---------------------------------------------------------------------------
 
 export async function handler(
-  event: DynamoDBStreamEvent,
-  context: Context,
+  event: DataChangeEvent,
+  context: ExecutionContext,
 ): Promise<void> {
   const tableName = process.env.ADMIN_TABLE;
   if (!tableName) {
@@ -346,7 +346,7 @@ export async function handler(
 
     // Unmarshall the DynamoDB record
     const issue = unmarshall(
-      newImage as Record<string, AttributeValue>
+      newImage as Record<string, DynamoValue>
     ) as AutoIssueRecord;
 
     try {

@@ -5,7 +5,7 @@
  * - POST /avatars/{id}/gallery/upload-url
  * - POST /avatars/{id}/gallery/save
  */
-import type { APIGatewayProxyResultV2 } from "@swarm/core";
+import type { HttpResponse } from "@swarm/core";
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
 import { parseJsonBody } from '../../http/request-body.js';
@@ -15,7 +15,7 @@ import * as mediaService from '../../services/media.js';
 
 export async function handleGalleryRoutes(
   ctx: RouteContext,
-): Promise<APIGatewayProxyResultV2 | null> {
+): Promise<HttpResponse | null> {
   const { method, path, corsHeaders } = ctx;
 
   // ── GET /avatars/{id}/gallery ───────────────────────────────────────────

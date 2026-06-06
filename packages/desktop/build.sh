@@ -8,6 +8,8 @@ mkdir -p src-tauri/binaries
 bun build --compile --target=bun-darwin-arm64 ../local/src/app.ts --outfile src-tauri/binaries/swarm-server-aarch64-apple-darwin
 echo "   Sidecar: $(ls -lh src-tauri/binaries/swarm-server-aarch64-apple-darwin | awk '{print $5}')"
 
+echo "==> Building admin UI..."
+(cd ../admin-ui && pnpm build) || { echo "ERROR: admin-ui build failed"; exit 1; }
 echo "==> Copying admin UI dist..."
 rm -rf src-tauri/admin-ui
 cp -r ../admin-ui/dist src-tauri/admin-ui

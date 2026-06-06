@@ -11,7 +11,7 @@
  * - fetchActivity(avatarId, secrets) -- get recent feed/activity
  * - executeAction(action, avatarId, secrets) -- upvote, comment, etc.
  */
-import type { ScheduledHandler, Context } from "@swarm/core";
+import type { TimerHandler, ExecutionContext } from "@swarm/core";
 import type { DynamoDBDocumentClient } from '@swarm/core';
 import { ScanCommand } from '@swarm/core';
 import {
@@ -359,7 +359,7 @@ async function processAvatarPlatform(
 // Lambda handler
 // ============================================================================
 
-export const handler: ScheduledHandler = async (_event, context: Context) => {
+export const handler: TimerHandler = async (_event, context: ExecutionContext) => {
   const startTime = Date.now();
   logger.setContext({
     requestId: context.awsRequestId,

@@ -12,7 +12,7 @@
  * See docs/patterns/autonomous-agent-runner.md for the anatomy, checklist, and
  * guidance on building the next runner.
  */
-import type { ScheduledHandler, Context } from "@swarm/core";
+import type { TimerHandler, ExecutionContext } from "@swarm/core";
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@swarm/core';
 import {
@@ -583,7 +583,7 @@ async function processStationAvatar(
   return { acted: actionNames.length > 0, actions: actionNames };
 }
 
-export const handler: ScheduledHandler = async (_event, context: Context) => {
+export const handler: TimerHandler = async (_event, context: ExecutionContext) => {
   const startTime = Date.now();
   logger.setContext({
     requestId: context.awsRequestId,

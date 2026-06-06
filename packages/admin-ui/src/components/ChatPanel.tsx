@@ -27,6 +27,7 @@ const ActivationChecklist = lazy(() => import('./ActivationChecklist').then(m =>
 const TaskWorkspace = lazy(() => import('./TaskWorkspace').then(m => ({ default: m.TaskWorkspace })));
 
 import { LanguageSelector } from './LanguageSelector';
+import { ApiKeySetup } from "./ApiKeySetup";
 
 // Track active polling jobs to avoid duplicate polling
 const activePollers = new Map<string, { controller: AbortController; avatarId: string }>();
@@ -1146,6 +1147,8 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
             </p>
           </div>
         </div>
+
+        <ApiKeySetup />
 
         {/* Input area */}
         <div className="chat-input-container border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm px-3 lg:px-6 py-3 lg:py-4">

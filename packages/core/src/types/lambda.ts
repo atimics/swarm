@@ -13,7 +13,7 @@
 
 // ── API Gateway (HTTP API / v2 payload format) ──────────────────────────
 
-export interface APIGatewayProxyEventV2 {
+export interface HttpRequest {
   body?: string | null;
   headers: Record<string, string | undefined>;
   queryStringParameters?: Record<string, string | undefined>;
@@ -32,43 +32,43 @@ export interface APIGatewayProxyEventV2 {
   isBase64Encoded: boolean;
 }
 
-export interface APIGatewayProxyResultV2 {
+export interface HttpResponse {
   statusCode: number;
   headers?: Record<string, string>;
   body?: string;
   isBase64Encoded?: boolean;
 }
 
-export interface APIGatewayProxyResult {
+export interface HttpResponse {
   statusCode: number;
   headers?: Record<string, string>;
   body: string;
   isBase64Encoded?: boolean;
 }
 
-export type APIGatewayProxyHandler = (
-  event: APIGatewayProxyEventV2,
-  context: Context,
-) => Promise<APIGatewayProxyResult>;
+export type HttpHandler = (
+  event: HttpRequest,
+  context: ExecutionContext,
+) => Promise<HttpResponse>;
 
 // ── SQS ─────────────────────────────────────────────────────────────────
 
-export interface SQSEvent {
-  Records: SQSRecord[];
+export interface MessageBatch {
+  Records: MessageRecord[];
 }
 
-export interface SQSRecord {
+export interface MessageRecord {
   messageId: string;
   receiptHandle: string;
   body: string;
   attributes: Record<string, string>;
-  messageAttributes: Record<string, SQSMessageAttribute>;
+  messageAttributes: Record<string, MessageAttribute>;
   eventSource: string;
   eventSourceARN: string;
   awsRegion: string;
 }
 
-export interface SQSMessageAttribute {
+export interface MessageAttribute {
   stringValue?: string;
   binaryValue?: string;
   stringListValues?: string[];
@@ -76,13 +76,13 @@ export interface SQSMessageAttribute {
   dataType: string;
 }
 
-export interface SQSBatchResponse {
+export interface MessageBatchResponse {
   batchItemFailures: Array<{ itemIdentifier: string }>;
 }
 
-// ── Lambda Context ──────────────────────────────────────────────────────
+// ── Lambda ExecutionContext ──────────────────────────────────────────────────────
 
-export interface Context {
+export interface ExecutionContext {
   awsRequestId: string;
   functionName: string;
   functionVersion: string;
@@ -95,7 +95,7 @@ export interface Context {
 
 // ── Scheduled Events (CloudWatch Events / EventBridge) ──────────────────
 
-export interface ScheduledEvent {
+export interface TimerEvent {
   version: string;
   id: string;
   "detail-type": string;
@@ -109,34 +109,34 @@ export interface ScheduledEvent {
 
 // ── DynamoDB Streams ────────────────────────────────────────────────────
 
-export interface DynamoDBStreamEvent {
-  Records: DynamoDBRecord[];
+export interface DataChangeEvent {
+  Records: DataChangeRecord[];
 }
 
-export interface DynamoDBRecord {
+export interface DataChangeRecord {
   eventID: string;
   eventName: "INSERT" | "MODIFY" | "REMOVE";
   eventSource: string;
   eventSourceARN: string;
   dynamodb?: {
-    Keys?: Record<string, AttributeValue>;
-    NewImage?: Record<string, AttributeValue>;
-    OldImage?: Record<string, AttributeValue>;
+    Keys?: Record<string, DynamoValue>;
+    NewImage?: Record<string, DynamoValue>;
+    OldImage?: Record<string, DynamoValue>;
     SequenceNumber?: string;
     SizeBytes?: number;
     StreamViewType?: string;
   };
 }
 
-export interface AttributeValue {
+export interface DynamoValue {
   S?: string;
   N?: string;
   B?: string;
   SS?: string[];
   NS?: string[];
   BS?: string[];
-  M?: Record<string, AttributeValue>;
-  L?: AttributeValue[];
+  M?: Record<string, DynamoValue>;
+  L?: DynamoValue[];
   NULL?: boolean;
   BOOL?: boolean;
 }
@@ -145,9 +145,9 @@ export interface AttributeValue {
 
 export type Handler<TEvent = unknown, TResult = unknown> = (
   event: TEvent,
-  context: Context,
+  context: ExecutionContext,
 ) => Promise<TResult>;
 
-export type SQSHandler = Handler<SQSEvent, SQSBatchResponse | void>;
+export type MessageBatchHandler = Handler<MessageBatch, MessageBatchResponse | void>;
 
-export type ScheduledHandler = Handler<ScheduledEvent, void>;
+export type TimerHandler = Handler<TimerEvent, void>;

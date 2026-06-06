@@ -6,7 +6,7 @@
  * - GET /integrations/models/search
  */
 import type { RouteContext } from './types.js';
-import type { APIGatewayProxyResultV2 } from "@swarm/core";
+import type { HttpResponse } from "@swarm/core";
 import { SecretsManagerClient, GetSecretValueCommand } from '@swarm/core';
 import { getSecretsClient } from '../../services/aws-clients.js';
 import { jsonResponse, parseSinceQueryParam } from './shared.js';
@@ -64,7 +64,7 @@ async function resolveReplicateApiKey(): Promise<string | null> {
 
 export async function handleSystemRoutes(
   ctx: RouteContext,
-): Promise<APIGatewayProxyResultV2 | null> {
+): Promise<HttpResponse | null> {
   const { method, path, corsHeaders, event, effectiveIsAdmin } = ctx;
 
   // GET /system/status — Admin-only system overview
