@@ -111,6 +111,15 @@ export async function handler(event: HttpRequest): Promise<HttpResponse> {
     return error(400, 'Missing required envelope fields');
   }
 
+  // Warn if sender has no pubkey — all agents should carry identity
+  if (!envelope.from.pubkey) {
+    logger.warn('Raticross envelope missing sender pubkey', {
+      event: 'raticross_missing_pubkey',
+      subsystem: 'raticross-inbound',
+      fromAgent: envelope.from.agentId,
+    });
+  }
+
   initialize();
 
   // The target agentId maps to an avatarId in aws-swarm
