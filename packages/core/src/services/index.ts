@@ -307,3 +307,10 @@ export type { AgentWalletAddresses } from "./agent-identity.js";
 // Arweave identity publishing (Phase 0)
 export { buildIdentityRecord, publishIdentityRecord, fetchIdentityRecord } from "./arweave-identity.js";
 export type { ArweaveIdentityRecord, ArweavePublishResult } from "./arweave-identity.js";
+
+// RATi bridge (Phase 1)
+export { simulateMining, signBridgeAttestation, verifyBridgeAttestation, submitBridgeAttestation } from "./rati-bridge.js";
+export type { MiningOutput, BridgeAttestation, BridgeResult } from "./rati-bridge.js";
+
+export { deriveStationPosition, exportKeypairForSignal } from "./agent-identity.js";
+export type { StationPosition } from "./agent-identity.js";

@@ -93,6 +93,46 @@ export function verifySignature(pubkey: Uint8Array, message: Uint8Array, signatu
 }
 
 
+
+// ---------------------------------------------------------------------------
+// Signal station binding (Phase 1)
+// ---------------------------------------------------------------------------
+
+export interface StationPosition {
+  /** X coordinate in Signal world space */
+  x: number;
+  /** Y coordinate in Signal world space */
+  y: number;
+}
+
+/**
+ * Derive a Signal station position from the agent's pubkey.
+ * Uses SHA256(pubkey || "station") to produce deterministic coordinates.
+ * Same approach as Signal's asteroid belt seeding — cryptographic scattering.
+ */
+export function deriveStationPosition(pubkey: Uint8Array): StationPosition {
+  const hash = require("crypto").createHash("sha256")
+    .update(pubkey)
+    .update("station")
+    .digest();
+  
+  // Map hash bytes to coordinates in a reasonable Signal world range
+  // Signal world is typically [-10000, 10000] in both axes
+  const x = ((hash[0] << 24 | hash[1] << 16 | hash[2] << 8 | hash[3]) >>> 0) % 20000 - 10000;
+  const y = ((hash[4] << 24 | hash[5] << 16 | hash[6] << 8 | hash[7]) >>> 0) % 20000 - 10000;
+  
+  return { x, y };
+}
+
+/**
+ * Export the keypair in NaCl format (64 bytes: seed || pubkey) for Signal.
+ * The caller must handle secure key material — this function returns the raw
+ * secret key bytes which should never be persisted unencrypted.
+ */
+export function exportKeypairForSignal(keypair: AgentKeypair): Uint8Array {
+  return keypair.secretKey;
+}
+
 // ---------------------------------------------------------------------------
 // Derived wallet addresses (Phase 0 — cross-chain identity)
 // ---------------------------------------------------------------------------

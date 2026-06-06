@@ -13,6 +13,9 @@ export interface AgentIdentityServices {
   verifySignature: (message: string, signature: string, pubkey: string) => Promise<boolean>;
   getWalletAddresses?: () => Promise<{ solana: string; evm: string }>;
   publishIdentityRecord?: () => Promise<{ txId: string; url: string }>;
+  getStationPosition?: () => Promise<{ x: number; y: number }>;
+  mineRati?: () => Promise<{ stationCurrency: number; ratiAmount: number; epoch: number }>;
+  bridgeRatiToSolana?: (amount?: number) => Promise<{ attestation: any; solanaTxSig?: string; status: string }>;
 }
 
 /** Alias for consumers that import via the shorter name. */
@@ -86,6 +89,57 @@ export function registerAgentIdentityTools(
       inputSchema: z.object({}),
       execute: async () => {
         const result = await services.publishIdentityRecord!();
+        return { success: true, ...result };
+      },
+    });
+  }
+
+  // Phase 1: Station position
+  if (services.getStationPosition) {
+    tools.push({
+      name: "get_station_position",
+      description:
+        "Get your Signal station position derived from your identity keypair. " +
+        "Each avatar gets a unique, deterministic position in Signal space.",
+      category: "identity",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const pos = await services.getStationPosition!();
+        return { success: true, ...pos };
+      },
+    });
+  }
+
+  // Phase 1: Mine RATi (simulated from agent activity)
+  if (services.mineRati) {
+    tools.push({
+      name: "mine_rati",
+      description:
+        "Mine RATi based on your station productivity. In local mode, productivity " +
+        "is derived from your message and tool call activity. In production, " +
+        "it reads verified chain log events from your Signal station.",
+      category: "identity",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const result = await services.mineRati!();
+        return { success: true, ...result };
+      },
+    });
+  }
+
+  // Phase 1: Bridge RATi to Solana
+  if (services.bridgeRatiToSolana) {
+    tools.push({
+      name: "bridge_rati_to_solana",
+      description:
+        "Bridge mined RATi to Solana devnet. Signs a bridge attestation with your " +
+        "identity keypair and submits it to the bridge contract.",
+      category: "identity",
+      inputSchema: z.object({
+        amount: z.number().optional().describe("Amount of RATi to bridge (default: all mined RATi)"),
+      }),
+      execute: async (args) => {
+        const result = await services.bridgeRatiToSolana!(args.amount);
         return { success: true, ...result };
       },
     });
