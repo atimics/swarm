@@ -237,21 +237,19 @@ export async function injectLocalAdapters(
   aws._setSecretsClient(new LocalSecretsAdapter(services.secrets));
   aws._setLambdaClient(new LocalLambdaAdapter());
 
-  try {
-    const core = await import('@swarm/core');
-    const adapter = services.dynamoAdapter;
-    const setters = [
-      '_setCanonicalDynamoClient', '_setTierDynamoClient',
-      '_setSharedRoomDynamoClient', '_setLongFormDynamoClient',
-      '_setIdentityLinkDynamoClient',
-    ];
-    let injected = 0;
-    for (const setter of setters) {
-      const fn = (core as Record<string, unknown>)[setter];
-      if (typeof fn === 'function') { fn(adapter); injected++; }
-    }
-    if (injected > 0) console.log(`[local] Core setters injected (${injected})`);
-  } catch { /* core may not be importable */ }
+  const core = await import('@swarm/core');
+  const adapter = services.dynamoAdapter;
+  const setters = [
+    '_setCanonicalDynamoClient', '_setTierDynamoClient',
+    '_setSharedRoomDynamoClient', '_setLongFormDynamoClient',
+    '_setIdentityLinkDynamoClient',
+  ];
+  let injected = 0;
+  for (const setter of setters) {
+    const fn = (core as Record<string, unknown>)[setter];
+    if (typeof fn === 'function') { fn(adapter); injected++; }
+  }
+  if (injected > 0) console.log(`[local] Core setters injected (${injected})`);
 }
 
 
