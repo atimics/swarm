@@ -15,6 +15,8 @@ export interface TelegramPollingDeps {
   saveHistory: (session: UserSession, avatarId: string, history: Array<{role:string;content:string}>) => Promise<void>;
 }
 
+const HISTORY_CACHE_MAX_ENTRIES = 200;
+
 export function startTelegramPolling(deps: TelegramPollingDeps): () => void {
   let bot: Bot | null = null;
   let running = true;
@@ -27,7 +29,7 @@ export function startTelegramPolling(deps: TelegramPollingDeps): () => void {
 
   async function getHistory(chatId: string, avatarId: string) {
     if (historyCache.has(chatId)) return historyCache.get(chatId)!;
-    try { const h = await deps.loadHistory(sessionFor(chatId), avatarId); historyCache.set(chatId, h); return h; }
+    try { const h = await deps.loadHistory(sessionFor(chatId), avatarId); historyCache.set(chatId, h); if (historyCache.size > HISTORY_CACHE_MAX_ENTRIES) { const oldest = historyCache.keys().next().value; if (oldest) historyCache.delete(oldest); } return h; }
     catch { return []; }
   }
 
@@ -51,6 +53,7 @@ export function startTelegramPolling(deps: TelegramPollingDeps): () => void {
             const history = await getHistory(chatId, avatarId);
             const result = await deps.processMessage(msg.text, history, session, avatarId);
             historyCache.set(chatId, result.history);
+            if (historyCache.size > HISTORY_CACHE_MAX_ENTRIES) { const oldest = historyCache.keys().next().value; if (oldest) historyCache.delete(oldest); }
             deps.saveHistory(session, avatarId, result.history).catch(() => {});
             if (result.response) await bot.api.sendMessage(chatId, result.response.slice(0, 4096));
           } catch (err) {

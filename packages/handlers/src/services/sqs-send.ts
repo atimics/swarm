@@ -111,8 +111,14 @@ export async function parseSqsRecordBody(rawBody: string): Promise<{
   }
 
   // No offloader - parse directly
+  let payload: unknown;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch (err) {
+    throw new Error("Failed to parse SQS record body as JSON: " + (err instanceof Error ? err.message : String(err)));
+  }
   return {
-    payload: JSON.parse(rawBody),
+    payload,
     rawBody,
     wasOffloaded: false,
   };

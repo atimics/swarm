@@ -1,56 +1,44 @@
-/**
- * LocalS3Adapter — routes S3 commands (PutObject, GetObject, DeleteObject)
- * through the filesystem-backed LocalBlobStore.
- */
-import { LocalBlobStore } from './blob-store.js';
+import { LocalAdapter } from './adapter-base.js';
+import type { LocalBlobStore } from './blob-store.js';
 
-export class LocalS3Adapter {
-  constructor(private blobs: LocalBlobStore) {}
+export class LocalS3Adapter extends LocalAdapter {
+  constructor(private blobs: LocalBlobStore) { super(); }
 
-  async send(command: {
-    constructor: { name: string };
-    input: Record<string, unknown>;
-  }): Promise<Record<string, unknown>> {
-    const cmdName = command.constructor.name;
-    const input = command.input;
-
-    switch (cmdName) {
-      case 'PutObjectCommand': {
-        const key = input.Key as string;
-        const body = input.Body as Buffer | Uint8Array | string;
-        const contentType = (input.ContentType as string) ?? 'application/octet-stream';
-        const buf = typeof body === 'string'
-          ? Buffer.from(body, 'utf-8')
-          : Buffer.from(body);
-        const url = this.blobs.put(key, buf, contentType);
-        return { $metadata: { httpStatusCode: 200 }, url };
-      }
-
-      case 'GetObjectCommand': {
-        const key = input.Key as string;
-        const data = this.blobs.get(key);
-        if (!data) {
-          const err = new Error('NoSuchKey') as Error & { $metadata: Record<string, unknown>; Code: string };
-          err.$metadata = { httpStatusCode: 404 };
-          err.Code = 'NoSuchKey';
-          throw err;
-        }
-        return {
-          $metadata: { httpStatusCode: 200 },
-          Body: data,
-          ContentType: 'application/octet-stream',
-          ContentLength: data.length,
-        };
-      }
-
-      case 'DeleteObjectCommand': {
-        const key = input.Key as string;
-        this.blobs.delete(key);
-        return { $metadata: { httpStatusCode: 204 } };
-      }
-
-      default:
-        throw new Error(`LocalS3Adapter: unsupported command "${cmdName}"`);
+  protected async dispatch(name: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (name.startsWith('PutObjectCommand')) {
+      const key = input.Key as string;
+      const body = input.Body as Buffer | string;
+      const contentType = (input.ContentType as string) || 'application/octet-stream';
+      this.blobs.put(key, Buffer.isBuffer(body) ? body : Buffer.from(body), contentType);
+      return { $metadata: { httpStatusCode: 200 } };
     }
+    if (name.startsWith('GetObjectCommand')) {
+      const key = input.Key as string;
+      const blob = this.blobs.get(key);
+      if (!blob) {
+        const err = new Error('NoSuchKey') as Error & { $metadata: Record<string, unknown>; name: string };
+        err.$metadata = { httpStatusCode: 404 };
+        err.name = 'NoSuchKey';
+        throw err;
+      }
+      return {
+        Body: blob,
+        ContentType: 'application/octet-stream',
+        ContentLength: blob.length,
+        $metadata: { httpStatusCode: 200 },
+      };
+    }
+    if (name.startsWith('DeleteObjectCommand')) {
+      this.blobs.delete(input.Key as string);
+      return { $metadata: { httpStatusCode: 200 } };
+    }
+    if (name.startsWith('ListObjectsV2Command')) {
+      const prefix = (input.Prefix as string) ?? '';
+      return {
+        Contents: this.blobs.list(prefix).map((k) => ({ Key: k })),
+        $metadata: { httpStatusCode: 200 },
+      };
+    }
+    throw new Error(`LocalS3Adapter: unsupported command "${name}"`);
   }
 }

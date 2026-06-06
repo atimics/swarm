@@ -153,17 +153,114 @@ async function startTgPolling(services: ReturnType<typeof createLocalServices>) 
   }
 }
 
-export async function startServer(options: ServerOptions = {}) {
-  const port = options.port ?? 3000;
-  const dataDir = options.blobDir ?? './data/blobs';
-  const dbPath = options.dbPath ?? './data/swarm.db';
+// ── Extracted helpers (testable independently) ──────────────────────────
 
-  // Local mode defaults — use simple secret names instead of AWS ARNs
+/** Set local-mode env vars so admin-api services don't crash on missing config. */
+export function setupLocalEnv(): void {
   if (!process.env.LLM_API_KEY_SECRET_ARN) process.env.LLM_API_KEY_SECRET_ARN = "llm-api-key";
   if (!process.env.ADMIN_TABLE) process.env.ADMIN_TABLE = "swarm-local-admin";
   if (!process.env.STATE_TABLE) process.env.STATE_TABLE = "swarm-local-state";
   if (!process.env.MESSAGE_QUEUE_URL) process.env.MESSAGE_QUEUE_URL = "https://localhost/queue";
   if (!process.env.S3_BUCKET) process.env.S3_BUCKET = "swarm-local";
+}
+
+export interface InitSecretsOptions {
+  password?: string;
+  /** Called when a password is needed interactively. Only used in TTY mode. */
+  onPasswordNeeded?: (prompt: string) => Promise<string>;
+}
+
+export interface InitSecretsResult {
+  outcome: 'unlocked' | 'initialized' | 'needs_password';
+  error?: string;
+}
+
+/**
+ * Initialize or unlock the secrets store.
+ *
+ * In test/CI environments, pass `password` directly.
+ * In interactive mode, provide `onPasswordNeeded` for prompting.
+ * Does NOT call process.exit() — callers handle errors.
+ */
+export async function initSecrets(
+  services: ReturnType<typeof createLocalServices>,
+  options: InitSecretsOptions = {},
+): Promise<InitSecretsResult> {
+  const verify = await services.store.get({ pk: 'SYSTEM', sk: 'SECRETS_VERIFY' });
+  const isInitialized = verify !== null;
+
+  // Fall back to SWARM_ADMIN_PASSWORD env var if no password provided
+  const resolvedPassword = options.password || process.env.SWARM_ADMIN_PASSWORD;
+
+  if (isInitialized) {
+    const pw = resolvedPassword ?? (options.onPasswordNeeded
+      ? await options.onPasswordNeeded('Enter admin password: ')
+      : undefined);
+    if (!pw) return { outcome: 'needs_password', error: 'No password provided for existing secrets store.' };
+    try {
+      await services.secrets.unlock(pw);
+      return { outcome: 'unlocked' };
+    } catch (err) {
+      return { outcome: 'needs_password', error: (err as Error).message };
+    }
+  }
+
+  // First run — initialize
+  const pw = resolvedPassword ?? (options.onPasswordNeeded
+    ? await options.onPasswordNeeded('Choose an admin password (min 8 chars): ')
+    : undefined);
+  if (!pw) return { outcome: 'needs_password', error: 'No password provided for first-run initialization.' };
+  if (pw.length < 8) return { outcome: 'needs_password', error: 'Password must be at least 8 characters.' };
+
+  if (!resolvedPassword && options.onPasswordNeeded) {
+    const confirm = await options.onPasswordNeeded('Confirm password: ');
+    if (pw !== confirm) return { outcome: 'needs_password', error: 'Passwords do not match.' };
+  }
+
+  await services.secrets.initialize(pw);
+  return { outcome: 'initialized' };
+}
+
+/**
+ * Inject local adapters into admin-api + core modules.
+ * Must be called BEFORE any admin-api handlers are imported.
+ */
+export async function injectLocalAdapters(
+  services: ReturnType<typeof createLocalServices>,
+): Promise<void> {
+  const { _setDynamoClient } = await import('../../admin-api/src/services/dynamo-client.js');
+  _setDynamoClient(services.dynamoAdapter);
+
+  const aws = await import('../../admin-api/src/services/aws-clients.js');
+  aws._setS3Client(new LocalS3Adapter(services.blobs));
+  aws._setSQSClient(new LocalSQSAdapter(services.queue));
+  aws._setSecretsClient(new LocalSecretsAdapter(services.secrets));
+  aws._setLambdaClient(new LocalLambdaAdapter());
+
+  try {
+    const core = await import('@swarm/core');
+    const adapter = services.dynamoAdapter;
+    const setters = [
+      '_setCanonicalDynamoClient', '_setTierDynamoClient',
+      '_setSharedRoomDynamoClient', '_setLongFormDynamoClient',
+      '_setIdentityLinkDynamoClient',
+    ];
+    let injected = 0;
+    for (const setter of setters) {
+      const fn = (core as Record<string, unknown>)[setter];
+      if (typeof fn === 'function') { fn(adapter); injected++; }
+    }
+    if (injected > 0) console.log(`[local] Core setters injected (${injected})`);
+  } catch { /* core may not be importable */ }
+}
+
+
+export async function startServer(options: ServerOptions = {}) {
+  const port = options.port ?? 3000;
+  const dataDir = options.blobDir ?? './data/blobs';
+  const dbPath = options.dbPath ?? './data/swarm.db';
+
+  setupLocalEnv();
 
   // ── Create local backends ──────────────────────────────────────────
   const services = createLocalServices({
@@ -173,81 +270,25 @@ export async function startServer(options: ServerOptions = {}) {
   });
 
   // ── Unlock secrets ─────────────────────────────────────────────────
-  const verify = await services.store.get({ pk: 'SYSTEM', sk: 'SECRETS_VERIFY' });
-  const isInitialized = verify !== null;
+  const secretsResult = await initSecrets(services, {
+    password: options.password,
+    onPasswordNeeded: options.password
+      ? undefined
+      : async (prompt: string) => {
+          // Interactive password prompt (TTY only)
+          if (process.stdin.isTTY) return promptPassword(prompt, options);
+          throw new Error('No password provided and stdin is not a TTY.');
+        },
+  });
 
-  if (isInitialized) {
-    let unlocked = false;
-    const pw = options.password ?? await resolvePassword(options, options);
-    try {
-      await services.secrets.unlock(pw);
-      console.log('[local] Secrets unlocked');
-    } catch (err) {
-      console.error('[local]', (err as Error).message);
-      throw err;
-    }
-  } else {
-    console.log('[local] First run — no secrets store found.');
-    const pw = options.password ?? await promptPassword('Choose an admin password (min 8 chars): ', options);
-    if (pw.length < 8) {
-      console.error('[local] Password must be at least 8 characters.');
-      process.exit(1);
-    }
-    if (!options.password) {
-      const confirm = await promptPassword('Confirm password: ', options);
-      if (pw !== confirm) {
-        console.error('[local] Passwords do not match.');
-        process.exit(1);
-      }
-    }
-    await services.secrets.initialize(pw);
-    console.log('[local] Secrets store initialized and unlocked.');
+  if (secretsResult.outcome === 'needs_password') {
+    console.error('[local]', secretsResult.error);
+    if (!options.password) process.exit(1);
+    throw new Error(secretsResult.error!);
   }
+  console.log(`[local] Secrets ${secretsResult.outcome}`);
 
-  // ── Inject into admin-api BEFORE any handlers are imported ─────────
-  try {
-    const { _setDynamoClient } = await import(
-      '../../admin-api/src/services/dynamo-client.js'
-    );
-    _setDynamoClient(services.dynamoAdapter);
-  } catch (err) {
-    console.warn('[local] DynamoDB injection failed:', (err as Error).message);
-  }
-
-  try {
-    const aws = await import('../../admin-api/src/services/aws-clients.js');
-    aws._setS3Client(new LocalS3Adapter(services.blobs));
-    aws._setSQSClient(new LocalSQSAdapter(services.queue));
-    aws._setSecretsClient(new LocalSecretsAdapter(services.secrets));
-    aws._setLambdaClient(new LocalLambdaAdapter());
-    console.log('[local] AWS adapters injected');
-  } catch (err) {
-    console.warn('[local] AWS clients injection failed:', (err as Error).message);
-  }
-
-  // ── Inject into core setters ───────────────────────────────────────
-  try {
-    const core = await import('@swarm/core');
-    const adapter = services.dynamoAdapter;
-    const setters = [
-      '_setCanonicalDynamoClient',
-      '_setTierDynamoClient',
-      '_setSharedRoomDynamoClient',
-      '_setLongFormDynamoClient',
-      '_setIdentityLinkDynamoClient',
-    ];
-    let injected = 0;
-    for (const setter of setters) {
-      const fn = (core as Record<string, unknown>)[setter];
-      if (typeof fn === 'function') {
-        fn(adapter);
-        injected++;
-      }
-    }
-    if (injected > 0) console.log(`[local] Core setters injected (${injected})`);
-  } catch {
-    // core may not be importable
-  }
+  await injectLocalAdapters(services);
 
   // ── Express ────────────────────────────────────────────────────────
   const app = express();

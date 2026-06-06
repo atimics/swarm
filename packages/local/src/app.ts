@@ -12,9 +12,14 @@ const args = process.argv.slice(2);
 
 function parseArg(flag: string): string | undefined {
   const eqFlag = args.find((a) => a.startsWith(`${flag}=`));
-  if (eqFlag) return eqFlag.split('=')[1];
+  if (eqFlag) return eqFlag.slice(eqFlag.indexOf('=') + 1);
   const idx = args.findIndex((a) => a === flag);
-  if (idx !== -1) return args[idx + 1];
+  if (idx !== -1) {
+    const next = args[idx + 1];
+    // If the next arg looks like another flag, someone forgot the value
+    if (!next || next.startsWith("-")) return undefined;
+    return next;
+  }
   return undefined;
 }
 
