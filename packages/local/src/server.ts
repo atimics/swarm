@@ -6,6 +6,7 @@ import cors from 'cors';
 import { createInterface } from 'readline';
 import { randomBytes, createHash } from "crypto";
 import { startTelegramPolling } from "./telegram-polling.js";
+import { isOllamaAvailable, getOllamaModel, getOllamaEndpoint } from "./llm-ollama.js";
 import { createLocalServices } from './factories.js';
 import { LocalS3Adapter } from './s3-adapter.js';
 import { LocalSQSAdapter } from './sqs-adapter.js';
@@ -259,6 +260,18 @@ export async function startServer(options: ServerOptions = {}) {
   const dbPath = options.dbPath ?? './data/swarm.db';
 
   setupLocalEnv();
+
+  // ── Ollama fallback (detect before any LLM imports) ──────────
+  const ollamaAvailable = await isOllamaAvailable();
+  if (ollamaAvailable && !process.env.LLM_API_KEY && !process.env.OPENROUTER_API_KEY) {
+    const ollamaModel = await getOllamaModel();
+    if (ollamaModel) {
+      process.env.LLM_ENDPOINT = getOllamaEndpoint();
+      process.env.LLM_API_KEY = "ollama";
+      process.env.LLM_MODEL = ollamaModel;
+      console.log(`[local] Ollama detected — using model "${ollamaModel}" at ${process.env.LLM_ENDPOINT}`);
+    }
+  }
 
   // ── Create local backends ──────────────────────────────────────────
   const services = createLocalServices({

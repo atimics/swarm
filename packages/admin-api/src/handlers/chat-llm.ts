@@ -46,6 +46,7 @@ export const LLM_MAX_STEPS = clampIntMinMax(parseIntEnv('LLM_MAX_STEPS', isProdL
 export const LLM_TOOL_MAX_TOKENS = clampIntMinMax(parseIntEnv('LLM_TOOL_MAX_TOKENS', isProdLike ? 1200 : 2048), 256, 8192);
 const LLM_RETRY_BASE_DELAY_MS = 250;
 const LLM_RETRY_MAX_DELAY_MS = 2_000;
+const LLM_ENDPOINT = process.env.LLM_ENDPOINT || "https://openrouter.ai/api/v1";
 
 export type LlmUsage = {
   promptTokens?: number;
@@ -163,8 +164,20 @@ export function isRetryableLlmError(error: unknown): boolean {
 // Cache the API key after first fetch
 let cachedApiKey: string | null = null;
 
+/** Reset the cached API key — used by tests to clear state between runs. */
+export function _resetApiKeyCache(): void {
+  cachedApiKey = null;
+}
+
 export async function getLlmApiKey(): Promise<string> {
   if (cachedApiKey) return cachedApiKey;
+
+  // Check env vars first (allows local Ollama / custom provider overrides)
+  const envKey = process.env.LLM_API_KEY || process.env.OPENROUTER_API_KEY;
+  if (envKey) {
+    cachedApiKey = envKey.trim();
+    return cachedApiKey;
+  }
 
   if (!LLM_API_KEY_SECRET_ARN) {
     throw new Error('LLM_API_KEY_SECRET_ARN not configured');
@@ -180,21 +193,24 @@ export async function getLlmApiKey(): Promise<string> {
   }
 
   // Parse JSON secret (handles {"api_key": "..."} format)
+  let parsed: Record<string, unknown> | null = null;
   try {
-    const parsed = JSON.parse(response.SecretString);
-    cachedApiKey = parsed.api_key || parsed.apiKey || parsed.API_KEY;
-    if (!cachedApiKey) {
-      logger.error('LLM API key not found in parsed secret', undefined, { keysAvailable: Object.keys(parsed) });
-      throw new Error('api_key not found in secret');
-    }
-  } catch (e) {
-    // Plain string secret - check if it looks like an API key
-    if (response.SecretString.startsWith('sk-')) {
-      cachedApiKey = response.SecretString;
-    } else {
-      logger.error('Failed to parse LLM secret', e);
-      throw new Error('Invalid LLM API key format');
-    }
+    parsed = JSON.parse(response.SecretString);
+    cachedApiKey = (parsed.api_key || parsed.apiKey || parsed.API_KEY) as string | undefined;
+    if (!cachedApiKey) cachedApiKey = (parsed.value || parsed.key || parsed.secret) as string | undefined;
+  } catch {
+    // Plain string secret — not valid JSON, fall through to raw string below
+  }
+
+  if (cachedApiKey) {
+    // Key extracted from JSON
+  } else if (parsed) {
+    // Valid JSON but no recognized key field
+    logger.error('LLM API key not found in parsed secret', undefined, { keysAvailable: Object.keys(parsed) });
+    throw new Error('api_key not found in secret');
+  } else {
+    // Not valid JSON — use the raw string as the API key
+    cachedApiKey = response.SecretString.trim();
   }
 
   logger.info('LLM API key loaded', { keyPrefix: cachedApiKey.substring(0, 10) });
@@ -508,7 +524,7 @@ export async function callLlmDirectFallback(
 
     for (let attempt = 0; attempt <= LLM_MAX_RETRIES; attempt++) {
       try {
-        response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        response = await fetch(LLM_ENDPOINT + "/chat/completions", {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiKey}`,
@@ -556,7 +572,7 @@ export async function callLlmDirectFallback(
             });
 
             const retryBody = { ...body, max_tokens: reducedTokens };
-            const retryResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            const retryResponse = await fetch(LLM_ENDPOINT + "/chat/completions", {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${apiKey}`,
@@ -634,7 +650,7 @@ export async function callLlmDirectFallback(
   });
   const response = fallbackResult.result;
 
-  const data = await response.json() as {
+  let data: {
     model?: string;
     choices?: Array<{
       message?: {
@@ -653,14 +669,38 @@ export async function callLlmDirectFallback(
       output_tokens?: number;
     };
   };
+  try {
+    data = await response.json() as typeof data;
+  } catch (err) {
+    logger.error('Failed to parse OpenRouter response as JSON', err, {
+      event: 'provider_json_parse_error',
+      subsystem: 'llm',
+      model: fallbackResult.model,
+      statusCode: response.status,
+    });
+    throw err;
+  }
 
   const choice = data.choices?.[0]?.message;
   const content = choice?.content || '';
-  const toolCalls = (choice?.tool_calls || []).map(tc => ({
-    id: tc.id,
-    name: tc.function.name,
-    arguments: JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>,
-  }));
+  const toolCalls = (choice?.tool_calls || [])
+    .filter(tc => tc.function && typeof tc.function.name === 'string')
+    .map(tc => {
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>;
+      } catch {
+        logger.warn('Failed to parse tool call arguments from LLM', {
+          event: 'tool_args_parse_error',
+          subsystem: 'llm',
+          toolName: tc.function.name,
+          rawArgs: typeof tc.function.arguments === 'string'
+            ? tc.function.arguments.slice(0, 200)
+            : String(tc.function.arguments).slice(0, 200),
+        });
+      }
+      return { id: tc.id, name: tc.function.name, arguments: args };
+    });
 
   const selectedModel = data.model || fallbackResult.model;
   return {

@@ -137,6 +137,16 @@ export async function resolveOpenRouterChatModelPlan(
 ): Promise<OpenRouterChatModelPlan> {
   const requireTools = options.requireTools ?? false;
   const fallbackCount = options.fallbackCount ?? 2;
+
+  // When using a custom LLM endpoint (Ollama, local proxy), skip the
+  // OpenRouter catalog fetch and use the configured model directly.
+  if (process.env.LLM_ENDPOINT) {
+    const model = options.requestModel || options.avatarModel || options.defaultModel;
+    if (model) {
+      return { primaryModel: model, fallbackModels: [], source: "custom_endpoint" };
+    }
+  }
+
   const models = await listOpenRouterChatModels(options.apiKey);
   const ranked = rankedModels(models, requireTools);
   const byId = new Map(models.map((model) => [model.id, model]));
