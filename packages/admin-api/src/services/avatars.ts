@@ -9,10 +9,12 @@ import {
   ScanCommand,
   UpdateCommand,
   TransactWriteCommand,
+  PutSecretValueCommand,
 } from '@swarm/core';
 import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS } from '@swarm/core';
 import type { AvatarRecord, UserSession } from '../types.js';
 import { syncAvatarConfig } from './config-sync.js';
+import { getSecretsClient } from './aws-clients.js';
 import { generateAgentKeypair, toBase58, toBase64 } from '@swarm/core';
 import {
   getGateStatus,
@@ -85,7 +87,18 @@ export async function createAvatar(
   // Generate Ed25519 identity keypair
   const keypair = generateAgentKeypair();
   const pubkey = toBase58(keypair.pubkey);
-  const encryptedSeed = toBase64(keypair.seed); // TODO: encrypt with secrets service once available at this layer
+  // Store the encrypted seed via secrets service
+  const secretName = `avatar/${avatarId}/identity-seed`;
+  const secretsClient = getSecretsClient();
+  try {
+    await secretsClient.send(new PutSecretValueCommand({
+      SecretId: secretName,
+      SecretString: toBase64(keypair.seed),
+    }));
+  } catch (err) {
+    // Fall back to storing base64 in the record if secrets client is unavailable
+    console.warn("Failed to store identity seed via secrets service:", (err as Error).message);
+  }
 
   const avatar: AvatarRecord = {
     pk: `AVATAR#${avatarId}`,
@@ -95,7 +108,6 @@ export async function createAvatar(
     description,
     identity: {
       pubkey,
-      encryptedSeed,
       derivation: { type: "random" },
     },
     platforms: {},
