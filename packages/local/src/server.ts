@@ -14,6 +14,9 @@ import { LocalSecretsAdapter } from './secrets-adapter.js';
 import { LocalLambdaAdapter } from './lambda-adapter.js';
 
 export { createLocalServices } from './factories.js';
+
+// Module-level state for cross-route communication
+const _signalState: { latestAvatarId: string | null; latestPubkey: string | null; latestIdentity: any } = { latestAvatarId: null, latestPubkey: null, latestIdentity: null };
 export { SqliteRepository } from './sqlite-repository.js';
 export { LocalBlobStore } from './blob-store.js';
 export { InMemoryQueue } from './queue.js';
@@ -260,6 +263,7 @@ export async function startServer(options: ServerOptions = {}) {
   const dbPath = options.dbPath ?? './data/swarm.db';
 
   setupLocalEnv();
+
 
   // ── Ollama fallback (detect before any LLM imports) ──────────
   const ollamaAvailable = await isOllamaAvailable();
@@ -540,40 +544,43 @@ export async function startServer(options: ServerOptions = {}) {
   // ── Signal integration: export avatar keypair ──────────────────────
   app.get("/api/signal/keypair", async (_req, res) => {
     try {
-      const { listAvatars } = await import("../../admin-api/src/services/avatars.js");
-      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
-      const avatars = await listAvatars(session);
-      const avatar = avatars[0];
-      if (!avatar || !avatar.avatarId) {
+      // Use stored identity from avatar creation
+      if (!_signalState.latestAvatarId || !_signalState.latestIdentity) {
         res.status(404).json({ error: "No avatar found. Create one first." });
         return;
       }
+      const avatarId = _signalState.latestAvatarId;
+      const identity = _signalState.latestIdentity;
 
-      const { GetSecretValueCommand } = await import("@swarm/core");
-      const { getSecretsClient } = await import("../../admin-api/src/services/aws-clients.js");
-      const secretsClient = getSecretsClient();
-      
+      // Try to read the seed from secrets service
       let seedB64: string | undefined;
       try {
+        const { GetSecretValueCommand } = await import("@swarm/core");
+        const { getSecretsClient } = await import("../../admin-api/src/services/aws-clients.js");
+        const secretsClient = getSecretsClient();
         const response = await secretsClient.send(new GetSecretValueCommand({
-          SecretId: `avatar/${avatar.avatarId}/identity-seed`
+          SecretId: `avatar/${avatarId}/identity-seed`
         }));
-        seedB64 = response.SecretString as string;
+        if (response.SecretString) {
+          seedB64 = response.SecretString as string;
+        }
       } catch {
-        // Try legacy path
-        const full = await import("../../admin-api/src/services/avatars.js");
-        const record = await full.getAvatar(avatar.avatarId);
-        seedB64 = record?.identity?.encryptedSeed;
+        // Fall through to legacy path
+      }
+
+      // Legacy: use encryptedSeed from the identity record
+      if (!seedB64 && identity.encryptedSeed) {
+        seedB64 = identity.encryptedSeed;
       }
 
       if (!seedB64) {
-        res.status(404).json({ error: "No identity keypair found" });
+        res.status(404).json({ error: "No identity keypair found. Create an avatar first." });
         return;
       }
 
       res.json({
-        avatarId: avatar.avatarId,
-        pubkey: avatar.identity?.pubkey,
+        avatarId,
+        pubkey: identity.pubkey || _signalState.latestPubkey,
         seedBase64: seedB64,
       });
     } catch (err) {
@@ -710,6 +717,9 @@ export async function mountAdminRoutes(
       const { name, description } = req.body as { name?: string; description?: string };
       if (!name) { res.status(400).json({ error: "name required" }); return; }
       const avatar = await createAvatar(name, session, description);
+      _signalState.latestAvatarId = avatar.avatarId;
+      _signalState.latestPubkey = avatar.identity?.pubkey || null;
+      _signalState.latestIdentity = avatar.identity || null;
       res.json(avatar);
     } catch (err) {
       console.error("[local] Create avatar error:", err);
