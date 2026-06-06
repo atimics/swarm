@@ -115,9 +115,10 @@ export function registerAgentIdentityTools(
     tools.push({
       name: "mine_rati",
       description:
-        "Mine RATi based on your station productivity. In local mode, productivity " +
-        "is derived from your message and tool call activity. In production, " +
-        "it reads verified chain log events from your Signal station.",
+        "Process RATi-grade fragments mined at your Signal station. " +
+        "Signal has RATi-grade ore (0.14% chance, 10x payout) — when processed " +
+        "at your station, it produces RATi claims that can be bridged to Solana/Base. " +
+        "In dev mode without Signal, uses simulated activity-based mining.",
       category: "identity",
       inputSchema: z.object({}),
       execute: async () => {

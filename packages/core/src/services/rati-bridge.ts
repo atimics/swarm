@@ -4,8 +4,13 @@
  * Mines RATi from Signal station productivity, signs bridge attestations,
  * and submits them to the Solana bridge program.
  *
- * In local/simulation mode, mining produces simulated RATi based on a
- * productivity metric derived from the agent's activity.
+ * Signal already has RATi-grade fragments (MINING_GRADE_RATI, 0.14% chance)
+ * that grant a 10x payout multiplier at the refinery. When processed at a
+ * station signed by the avatar keypair, these become chain log events. This
+ * module reads those events and produces bridge attestations.
+ *
+ * In local/dev mode without a running Signal instance, mining produces
+ * simulated output based on agent activity.
  */
 import nacl from "tweetnacl";
 import { toBase58, toBase64 } from "./agent-identity.js";
@@ -65,8 +70,9 @@ export interface BridgeResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Simulate mining productivity based on agent activity and station position.
- * In production, this would read verified chain log events from Signal.
+ * Read mining output from Signal chain log events or simulate in dev mode.
+ * In production with a running Signal instance, reads verified chain log
+ * events signed by the station keypair.
  */
 export function simulateMining(params: {
   pubkey: Uint8Array;
