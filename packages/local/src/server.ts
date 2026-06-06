@@ -536,6 +536,52 @@ export async function startServer(options: ServerOptions = {}) {
     res.json({ ok: true });
   });
 
+
+  // ── Signal integration: export avatar keypair ──────────────────────
+  app.get("/api/signal/keypair", async (_req, res) => {
+    try {
+      const { listAvatars } = await import("../../admin-api/src/services/avatars.js");
+      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const avatars = await listAvatars(session);
+      const avatar = avatars[0];
+      if (!avatar || !avatar.avatarId) {
+        res.status(404).json({ error: "No avatar found. Create one first." });
+        return;
+      }
+
+      const { GetSecretValueCommand } = await import("@swarm/core");
+      const { getSecretsClient } = await import("../../admin-api/src/services/aws-clients.js");
+      const secretsClient = getSecretsClient();
+      
+      let seedB64: string | undefined;
+      try {
+        const response = await secretsClient.send(new GetSecretValueCommand({
+          SecretId: `avatar/${avatar.avatarId}/identity-seed`
+        }));
+        seedB64 = response.SecretString as string;
+      } catch {
+        // Try legacy path
+        const full = await import("../../admin-api/src/services/avatars.js");
+        const record = await full.getAvatar(avatar.avatarId);
+        seedB64 = record?.identity?.encryptedSeed;
+      }
+
+      if (!seedB64) {
+        res.status(404).json({ error: "No identity keypair found" });
+        return;
+      }
+
+      res.json({
+        avatarId: avatar.avatarId,
+        pubkey: avatar.identity?.pubkey,
+        seedBase64: seedB64,
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+
   // ── Admin UI ─────────────────────────────────────────────────
   if (options.adminUiPath) {
     app.use(express.static(options.adminUiPath));
