@@ -11,6 +11,8 @@ export interface AgentIdentityServices {
   getHexPubkey: () => Promise<string>;
   signMessage: (message: string) => Promise<{ signature: string; pubkey: string }>;
   verifySignature: (message: string, signature: string, pubkey: string) => Promise<boolean>;
+  getWalletAddresses?: () => Promise<{ solana: string; evm: string }>;
+  publishIdentityRecord?: () => Promise<{ txId: string; url: string }>;
 }
 
 /** Alias for consumers that import via the shorter name. */
@@ -19,7 +21,7 @@ export type IdentityServices = AgentIdentityServices;
 export function registerAgentIdentityTools(
   services: AgentIdentityServices,
 ): ToolEntry[] {
-  return [
+  const tools: ToolEntry[] = [
     {
       name: "get_agent_pubkey",
       description:
@@ -56,4 +58,38 @@ export function registerAgentIdentityTools(
       },
     },
   ];
+
+  // Optional: wallet address derivation (Phase 0)
+  if (services.getWalletAddresses) {
+    tools.push({
+      name: "get_wallet_addresses",
+      description:
+        "Get your derived wallet addresses for Solana and EVM chains. " +
+        "These are deterministic — the same keypair always produces the same addresses.",
+      category: "identity",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const addrs = await services.getWalletAddresses!();
+        return { success: true, ...addrs };
+      },
+    });
+  }
+
+  // Optional: Arweave identity publishing (Phase 0)
+  if (services.publishIdentityRecord) {
+    tools.push({
+      name: "publish_identity",
+      description:
+        "Publish your identity record to Arweave for permanent, cross-chain verification. " +
+        "This creates a content-addressed proof that your public key owns this avatar.",
+      category: "identity",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const result = await services.publishIdentityRecord!();
+        return { success: true, ...result };
+      },
+    });
+  }
+
+  return tools;
 }

@@ -10,6 +10,7 @@
  */
 import nacl from "tweetnacl";
 import { randomBytes } from "crypto";
+import { keccak256 } from "js-sha3";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,6 +90,32 @@ export function signMessage(keypair: AgentKeypair, message: Uint8Array): Uint8Ar
  */
 export function verifySignature(pubkey: Uint8Array, message: Uint8Array, signature: Uint8Array): boolean {
   return nacl.sign.detached.verify(message, signature, pubkey);
+}
+
+
+// ---------------------------------------------------------------------------
+// Derived wallet addresses (Phase 0 — cross-chain identity)
+// ---------------------------------------------------------------------------
+
+export interface AgentWalletAddresses {
+  /** base58-encoded Solana address (same as the agent pubkey) */
+  solana: string;
+  /** 0x-prefixed hex EVM address (keccak256 of pubkey, last 20 bytes) */
+  evm: string;
+}
+
+/**
+ * Derive cross-chain wallet addresses from the agent's public key.
+ * Solana: the raw Ed25519 pubkey IS the Solana wallet address.
+ * EVM: keccak256(pubkey) → last 20 bytes → 0x-prefixed hex.
+ */
+export function deriveWalletAddresses(pubkey: Uint8Array): AgentWalletAddresses {
+  const solana = toBase58(pubkey);
+  const hash = keccak256.create();
+  hash.update(pubkey);
+  const evmBytes = new Uint8Array(hash.arrayBuffer()).slice(12, 32); // last 20 bytes
+  const evm = "0x" + toHex(evmBytes);
+  return { solana, evm };
 }
 
 // ---------------------------------------------------------------------------

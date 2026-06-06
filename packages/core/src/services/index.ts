@@ -299,3 +299,11 @@ export {
   fromBase64,
 } from "./agent-identity.js";
 export type { AgentKeypair, AgentIdentity } from "./agent-identity.js";
+
+// Derived wallet addresses (Phase 0)
+export { deriveWalletAddresses } from "./agent-identity.js";
+export type { AgentWalletAddresses } from "./agent-identity.js";
+
+// Arweave identity publishing (Phase 0)
+export { buildIdentityRecord, publishIdentityRecord, fetchIdentityRecord } from "./arweave-identity.js";
+export type { ArweaveIdentityRecord, ArweavePublishResult } from "./arweave-identity.js";
