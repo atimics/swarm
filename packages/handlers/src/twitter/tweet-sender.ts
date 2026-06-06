@@ -11,7 +11,7 @@
  * 4. 429? -> record, re-queue with backoff
  * 5. Success? -> update content store, record success
  */
-import type { SQSHandler, SQSBatchResponse } from 'aws-lambda';
+import type { SQSHandler, SQSBatchResponse } from "@swarm/core";
 import { SQSClient, SendMessageCommand } from '@swarm/core';
 import {
   TwitterAdapter,
@@ -89,7 +89,7 @@ async function requeue(
       attempts: message.attempts + 1,
     }),
     MessageGroupId: message.avatarId,
-    MessageDeduplicationId: `${message.postId}-${message.attempts + 1}-${Date.now()}`,
+    MessageDeduplicationId: `${message.postId}-${message.attempts + 1}`,
     DelaySeconds: effectiveDelay,
   }));
 

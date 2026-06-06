@@ -13,7 +13,7 @@
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
-} from 'aws-lambda';
+} from "@swarm/core";
 import { logger } from '@swarm/core';
 import { getCorsHeaders } from '../http/cors.js';
 import { parseJsonBody } from '../http/request-body.js';

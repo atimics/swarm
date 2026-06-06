@@ -2,7 +2,7 @@
  * Wallet Authentication Handler
  * Endpoints for Solana wallet sign-in (SIWS)
  */
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "@swarm/core";
 import { hasValidInternalTestKey, logger } from '@swarm/core';
 import { z } from 'zod';
 import {

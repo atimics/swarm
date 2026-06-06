@@ -4,7 +4,7 @@
  * 
  * Triggered by SQS messages from the Replicate webhook handler
  */
-import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
+import type { SQSEvent, Context, SQSBatchResponse, Handler } from "@swarm/core";
 import { GetCommand } from '@swarm/core';
 import {
   SecretsManagerClient,

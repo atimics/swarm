@@ -1183,3 +1183,23 @@ export type {
   TransitionLedger,
   AppendResult,
 } from './constitution.js';
+
+// Lambda-compatible types (local-first, no aws-lambda dependency)
+export type {
+  APIGatewayProxyEventV2,
+  APIGatewayProxyResultV2,
+  APIGatewayProxyResult,
+  APIGatewayProxyHandler,
+  SQSEvent,
+  SQSRecord,
+  SQSMessageAttribute,
+  SQSBatchResponse,
+  Context,
+  ScheduledEvent,
+  DynamoDBStreamEvent,
+  DynamoDBRecord,
+  AttributeValue,
+  Handler,
+  SQSHandler,
+  ScheduledHandler,
+} from "./lambda.js";

@@ -11,7 +11,7 @@
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
-} from 'aws-lambda';
+} from "@swarm/core";
 import { z } from 'zod';
 import { authenticateRequest } from '../auth/request-auth.js';
 import { getCorsHeaders } from '../http/cors.js';

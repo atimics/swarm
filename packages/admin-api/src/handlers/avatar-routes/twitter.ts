@@ -7,7 +7,7 @@
  * - DELETE  /avatars/{id}/twitter/posts/{postId}
  * - PUT    /avatars/{id}/twitter/moderation
  */
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
 import { parseJsonBody } from '../../http/request-body.js';

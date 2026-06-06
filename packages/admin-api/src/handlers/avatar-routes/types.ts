@@ -1,7 +1,7 @@
 /**
  * Shared types for decomposed avatar route handlers.
  */
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "@swarm/core";
 import type { UserSession } from '../../types.js';
 
 export type AvatarOwnershipAuthorizer = (

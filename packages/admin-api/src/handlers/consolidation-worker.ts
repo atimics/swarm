@@ -11,7 +11,7 @@
  *
  * @see memory-consolidation.ts for business logic
  */
-import type { ScheduledEvent, Context } from 'aws-lambda';
+import type { ScheduledEvent, Context } from "@swarm/core";
 import { logger } from '@swarm/core';
 import { consolidateAllAvatars, type BatchConsolidationResult } from '../services/memory-consolidation.js';
 

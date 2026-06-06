@@ -12,7 +12,7 @@
  * - DELETE /avatars/{id}/telegram/allowed-chats/:cid (#1474)
  * - DELETE /avatars/{id}/telegram/allowed-dmers/:uid (#1474)
  */
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
 import { parseJsonBody } from '../../http/request-body.js';

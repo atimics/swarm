@@ -4,7 +4,7 @@
  * Provides a factory for RouteContext objects and common mock patterns.
  * Import this in each domain test file.
  */
-import type { APIGatewayProxyEventV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2 } from "@swarm/core";
 import type { RouteContext } from './types.js';
 
 export const DEFAULT_SESSION = {

@@ -4,7 +4,7 @@
  * Receives raticross Envelope messages from peer systems (e.g., Kyro)
  * and enqueues them to the shared FIFO message queue as SwarmEnvelopes.
  */
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "@swarm/core";
 import { randomUUID } from 'crypto';
 import { sendSqsMessage } from '../services/sqs-send.js';
 import {

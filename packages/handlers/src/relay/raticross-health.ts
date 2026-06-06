@@ -4,7 +4,7 @@
  * Responds to health probes from peer bridge systems.
  * Also supports GET for simple liveness checks.
  */
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "@swarm/core";
 import {
   RATICROSS_PROTOCOL_VERSION,
   logger,

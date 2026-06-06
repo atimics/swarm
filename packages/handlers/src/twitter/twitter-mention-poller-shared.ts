@@ -13,7 +13,7 @@
  * - Only NEW unique tweets cost API credits
  * - Budget tracking ensures we stay within tier limits
  */
-import type { ScheduledHandler, Context } from 'aws-lambda';
+import type { ScheduledHandler, Context } from "@swarm/core";
 import { sendSqsMessage } from '../services/sqs-send.js';
 import { randomUUID } from 'node:crypto';
 import {

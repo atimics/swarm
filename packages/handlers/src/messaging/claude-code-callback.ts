@@ -4,7 +4,7 @@
  * Processes callbacks from the Claude Code worker and sends responses to users.
  * This is a shared handler that routes responses to the appropriate avatar.
  */
-import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
+import type { SQSEvent, Context, SQSBatchResponse, Handler } from "@swarm/core";
 import { GetCommand } from '@swarm/core';
 import {
   TelegramAdapter,

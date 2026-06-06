@@ -10,7 +10,7 @@
  * - Summarizing research results
  * - Responding to code task completions
  */
-import type { SQSEvent, Context, SQSBatchResponse } from 'aws-lambda';
+import type { SQSEvent, Context, SQSBatchResponse } from "@swarm/core";
 import { sendSqsMessage } from '../services/sqs-send.js';
 import { randomUUID } from 'node:crypto';
 import { GetCommand, UpdateCommand } from '@swarm/core';

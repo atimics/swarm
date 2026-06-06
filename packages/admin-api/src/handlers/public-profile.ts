@@ -6,7 +6,7 @@
  *
  * GET /api/profile/{avatarId}
  */
-import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
+import type { APIGatewayProxyHandler, APIGatewayProxyResult } from "@swarm/core";
 import { getAvatar } from '../services/avatars.js';
 import {
   getBurnStatsWithProgress,

@@ -8,7 +8,7 @@
  * uploads it to Arweave, and records the new URI. On-chain URI update
  * is deferred until Metaplex Umi SDK integration is complete.
  */
-import type { ScheduledEvent } from 'aws-lambda';
+import type { ScheduledEvent } from "@swarm/core";
 import { evolveAllAscensionMetadata } from '../services/web3/ascension-metadata-evolution.js';
 import type { ArweaveServiceConfig } from '../services/web3/arweave.js';
 import { createSystemLogger } from '../services/structured-logger.js';

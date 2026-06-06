@@ -1,4 +1,4 @@
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import type { UserSession, AvatarRecord } from '../types.js';
 import { AvatarOwnershipError } from './avatars.js';
 

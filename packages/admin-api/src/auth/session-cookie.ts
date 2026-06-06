@@ -1,4 +1,4 @@
-import type { APIGatewayProxyEventV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2 } from "@swarm/core";
 
 const DEFAULT_COOKIE_NAME = 'swarm_session';
 

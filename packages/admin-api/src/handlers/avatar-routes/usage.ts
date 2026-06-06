@@ -4,7 +4,7 @@
  * - GET /avatars/{id}/usage          — today's usage vs limits
  * - GET /avatars/{id}/usage/history  — historical daily usage (last N days)
  */
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
 import * as avatarService from '../../services/avatars.js';

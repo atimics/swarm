@@ -11,7 +11,7 @@
  * - Community posting support (when available)
  * - Content store integration for simulation mode and post review
  */
-import type { ScheduledHandler, Context } from 'aws-lambda';
+import type { ScheduledHandler, Context } from "@swarm/core";
 import {
   TwitterAdapter,
   createStateService,
@@ -109,7 +109,7 @@ export function shouldPostNow(
   const minIntervalMs = minIntervalHours * 60 * 60 * 1000;
   const maxIntervalMs = maxIntervalHours * 60 * 60 * 1000;
 
-  // Calculate a randomized interval for this check
+  // Calculate a deterministic posting interval — the same lastPostTime always yields the same threshold so intermediate handler runs (e.g. hourly polls) won't keep rolling new random values that could delay posting indefinitely
   // Using a deterministic random based on lastPostTime for consistency
   const seed = lastPostTime || now;
   const randomFactor = (seed % 1000) / 1000; // 0-1 based on seed

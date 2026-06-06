@@ -14,7 +14,7 @@
  * This handler is triggered on a schedule (not directly from SQS) so it can
  * control batch sizes and avoid consuming messages that shouldn't be retried.
  */
-import type { ScheduledEvent, Context } from 'aws-lambda';
+import type { ScheduledEvent, Context } from "@swarm/core";
 import {
   SQSClient,
   ReceiveMessageCommand,

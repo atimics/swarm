@@ -6,7 +6,7 @@ import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
   APIGatewayProxyStructuredResultV2,
-} from 'aws-lambda';
+} from "@swarm/core";
 import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 import { isAuthError } from '../auth/errors.js';
 import * as mediaJobs from '../services/media-jobs.js';

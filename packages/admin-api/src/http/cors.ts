@@ -1,4 +1,4 @@
-import type { APIGatewayProxyEventV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2 } from "@swarm/core";
 
 function getHeader(event: APIGatewayProxyEventV2, name: string): string | undefined {
   const direct = event.headers?.[name];

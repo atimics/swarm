@@ -205,19 +205,35 @@ export class EncryptedSecretsService implements SecretsService {
     return [...this.cache.keys()];
   }
 
+  private _flushLock: Promise<void> | null = null;
+
   /** Persist the in-memory cache to the encrypted store. */
   async flush(): Promise<void> {
     this.requireUnlocked();
     if (!this.dirty) return;
 
-    const json = JSON.stringify(Object.fromEntries(this.cache));
-    const encrypted = encrypt(json, this.key!);
-    await this.store.put({
-      pk: SECRETS_PK,
-      sk: SECRETS_SK,
-      ...encrypted,
-    });
-    this.dirty = false;
+    // Serialize flushes so concurrent calls don't race
+    if (this._flushLock) {
+      await this._flushLock;
+      if (!this.dirty) return;
+    }
+
+    this._flushLock = (async () => {
+      // Snapshot the cache before encrypting so concurrent setSecret
+      // calls are captured in a subsequent flush, not lost mid-flight.
+      const snapshot = new Map(this.cache);
+      const json = JSON.stringify(Object.fromEntries(snapshot));
+      const encrypted = encrypt(json, this.key!);
+      await this.store.put({
+        pk: SECRETS_PK,
+        sk: SECRETS_SK,
+        ...encrypted,
+      });
+      this.dirty = false;
+    })();
+
+    await this._flushLock;
+    this._flushLock = null;
   }
 
   // ── Internal ───────────────────────────────────────────────────────────

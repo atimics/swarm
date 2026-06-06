@@ -8,7 +8,7 @@
  * - GET   /avatars/{id}/events/counts
  * - PATCH /avatars/{id}/events/{eventId}
  */
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import type { RouteContext } from './types.js';
 import { jsonResponse, parseSinceParam, parseSinceQueryParam, requireOwnerOrAdmin } from './shared.js';
 import { parseJsonBody } from '../../http/request-body.js';

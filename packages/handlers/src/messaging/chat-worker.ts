@@ -7,7 +7,7 @@
  *
  * Flow: Message Processor → Chat Worker Queue → this handler → Response Queue
  */
-import type { SQSEvent, Context } from 'aws-lambda';
+import type { SQSEvent, Context } from "@swarm/core";
 import { DEFAULT_AVATAR_CONFIG } from '@swarm/core';
 import {
   createStateService,

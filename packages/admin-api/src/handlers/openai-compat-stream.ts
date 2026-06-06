@@ -8,7 +8,7 @@
  * the buffered processChat() call with a direct OpenRouter streaming fetch,
  * writing SSE chunks to the response stream as they arrive.
  */
-import type { APIGatewayProxyEventV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2 } from "@swarm/core";
 import { z } from 'zod';
 import { logger } from '@swarm/core';
 import {

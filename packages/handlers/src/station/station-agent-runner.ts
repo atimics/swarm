@@ -12,7 +12,7 @@
  * See docs/patterns/autonomous-agent-runner.md for the anatomy, checklist, and
  * guidance on building the next runner.
  */
-import type { ScheduledHandler, Context } from 'aws-lambda';
+import type { ScheduledHandler, Context } from "@swarm/core";
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@swarm/core';
 import {

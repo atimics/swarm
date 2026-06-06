@@ -7,7 +7,7 @@
  * - Wallet-based authentication (SIWS)
  * - Per-channel message history
  */
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "@swarm/core";
 import { z } from 'zod';
 import { logger } from '@swarm/core';
 import { getSessionWithUser } from '../services/wallet-auth.js';

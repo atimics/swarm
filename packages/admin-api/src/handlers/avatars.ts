@@ -10,7 +10,7 @@
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
-} from 'aws-lambda';
+} from "@swarm/core";
 import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 import { logger } from '@swarm/core';
 import { recordError } from '../services/auto-issues.js';

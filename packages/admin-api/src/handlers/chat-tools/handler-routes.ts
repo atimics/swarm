@@ -7,7 +7,7 @@
  * - DELETE /chat?avatarId=xxx   -- clear chat history
  * - POST /chat/message          -- append a system message
  */
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "@swarm/core";
 import { logger, extractThinking } from '@swarm/core';
 import { parseJsonBody } from '../../http/request-body.js';
 import * as chatHistory from '../../services/chat-history.js';

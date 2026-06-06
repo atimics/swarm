@@ -4,7 +4,7 @@
  * Pure functions with NO service-module imports so domain-handler test files
  * never need to mock anything on behalf of this module.
  */
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import type { RouteContext } from './types.js';
 
 // ── Admin wallets ──────────────────────────────────────────────────────────

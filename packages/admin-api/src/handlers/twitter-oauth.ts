@@ -12,7 +12,7 @@
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyStructuredResultV2,
-} from 'aws-lambda';
+} from "@swarm/core";
 import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 import { getSessionFromCookie } from '../auth/session-cookie.js';
 import { getSessionWithUser } from '../services/wallet-auth.js';

@@ -3,7 +3,7 @@
  *
  * - GET /avatars/health — paginated health summary for all avatars
  */
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import type { RouteContext } from './types.js';
 import { jsonResponse } from './shared.js';
 import { getAvatarHealthSummaries } from '../../services/avatar-health.js';

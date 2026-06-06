@@ -13,7 +13,7 @@
  * 5. Save dream state
  * 6. Update job status
  */
-import type { SQSEvent, SQSRecord } from 'aws-lambda';
+import type { SQSEvent, SQSRecord } from "@swarm/core";
 import { logger } from '@swarm/core';
 import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
 import { getSecretsClient } from '../services/aws-clients.js';

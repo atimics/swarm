@@ -13,7 +13,7 @@
  * Chat-first philosophy: the redeem endpoint is called via the admin AI chat
  * when a user says something like "I have an invite code: DP-XXXX-XXXX".
  */
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import type { RouteContext } from './types.js';
 import { jsonResponse } from './shared.js';
 import { parseJsonBody } from '../../http/request-body.js';

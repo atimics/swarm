@@ -159,27 +159,49 @@ export class LocalDynamoClientAdapter {
 
   private async _transactWrite(input: Record<string, unknown>) {
     const items = input.TransactItems as Array<Record<string, unknown>>;
+    // Phase 1: validate and collect all operations, check conditions first
+    for (const item of items) {
+      if (item.ConditionCheck) {
+        const cc = item.ConditionCheck as Record<string, unknown>;
+        const expr = (cc.ConditionExpression as string) || '';
+        const key = cc.Key as CompositeKey;
+        const existing = await this.store.get(key);
+        if (expr.includes('attribute_not_exists')) {
+          if (existing) throw new Error('TransactionCanceledException');
+        } else if (expr.includes('attribute_exists')) {
+          if (!existing) throw new Error('TransactionCanceledException');
+        } else if (expr.includes('=') || expr.includes('<>') || expr.includes('<') || expr.includes('>') || expr.includes('BETWEEN') || expr.includes('BEGINS_WITH') || expr.includes(' IN ')) {
+          // Supported: comparison, BETWEEN, BEGINS_WITH, IN — these pass through in local mode.
+          // For full fidelity these would need expression evaluation, but for local dev this is acceptable.
+        } else if (expr.trim()) {
+          throw new Error(`TransactionCanceledException: unsupported ConditionExpression in local mode: "${expr.slice(0, 80)}"`);
+        }
+      }
+    }
+
+    // Phase 2: execute all writes (local mode best-effort, not true ACID)
     const ops: Array<{ type: 'put'; item: Record<string, unknown> & CompositeKey } | { type: 'delete'; key: CompositeKey }> = [];
     for (const item of items) {
-      if (item.Put) ops.push({ type: 'put', item: (item.Put as Record<string, unknown>).Item as Record<string, unknown> & CompositeKey });
-      else if (item.Delete) ops.push({ type: 'delete', key: (item.Delete as Record<string, unknown>).Key as CompositeKey });
-      else if (item.Update) {
+      if (item.Put) {
+        ops.push({ type: 'put', item: (item.Put as Record<string, unknown>).Item as Record<string, unknown> & CompositeKey });
+      } else if (item.Delete) {
+        ops.push({ type: 'delete', key: (item.Delete as Record<string, unknown>).Key as CompositeKey });
+      } else if (item.Update) {
         const u = item.Update as Record<string, unknown>;
-        await this.store.update((u as Record<string, unknown>).Key as CompositeKey, {
+        await this.store.update(u.Key as CompositeKey, {
           updateExpression: u.UpdateExpression as string,
           conditionExpression: u.ConditionExpression as string | undefined,
           expressionAttributeNames: u.ExpressionAttributeNames as Record<string, string> | undefined,
           expressionAttributeValues: u.ExpressionAttributeValues as Record<string, unknown> | undefined,
           returnValues: 'NONE',
         });
-      } else if (item.ConditionCheck) {
-        const cc = item.ConditionCheck as Record<string, unknown>;
-        const existing = await this.store.get((cc as Record<string, unknown>).Key as CompositeKey);
-        if ((cc.ConditionExpression as string).includes('attribute_not_exists') && existing) throw new Error('TransactionCanceledException');
-        if ((cc.ConditionExpression as string).includes('attribute_exists') && !existing) throw new Error('TransactionCanceledException');
       }
     }
-    if (ops.length > 0) for (let i = 0; i < ops.length; i += 25) await this.store.batchWrite(ops.slice(i, i + 25));
+    if (ops.length > 0) {
+      for (let i = 0; i < ops.length; i += 25) {
+        await this.store.batchWrite(ops.slice(i, i + 25));
+      }
+    }
     return { $metadata: { httpStatusCode: 200 } };
   }
 }

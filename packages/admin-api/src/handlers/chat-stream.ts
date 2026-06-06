@@ -15,7 +15,7 @@
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
-} from 'aws-lambda';
+} from "@swarm/core";
 import {
   logger,
   resolveSystemPrompt,

@@ -2,7 +2,7 @@
  * Chat Worker
  * Processes async admin chat jobs from SQS and writes results back to DynamoDB.
  */
-import type { SQSEvent, SQSRecord } from 'aws-lambda';
+import type { SQSEvent, SQSRecord } from "@swarm/core";
 import { logger } from '@swarm/core';
 import * as chatHistory from '../services/chat-history.js';
 import { getChatJob, updateChatJobStatus } from '../services/chat-jobs.js';

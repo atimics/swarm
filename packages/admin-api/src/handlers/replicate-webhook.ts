@@ -5,7 +5,7 @@
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
-} from 'aws-lambda';
+} from "@swarm/core";
 import { S3Client, PutObjectCommand } from '@swarm/core';
 import { SQSClient, SendMessageCommand } from '@swarm/core';
 import { createHmac, timingSafeEqual } from 'crypto';

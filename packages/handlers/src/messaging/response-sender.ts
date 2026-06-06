@@ -2,7 +2,7 @@
  * Response Sender Handler
  * Sends generated responses to platforms
  */
-import type { SQSEvent, Context, SQSBatchResponse, Handler } from 'aws-lambda';
+import type { SQSEvent, Context, SQSBatchResponse, Handler } from "@swarm/core";
 import { GetCommand, PutCommand, DeleteCommand } from '@swarm/core';
 import { randomUUID } from 'crypto';
 import {
@@ -146,7 +146,7 @@ function getCachedOutboundRuntime(avatarId: string): AvatarOutboundRuntime | nul
     return null;
   }
 
-  // Touch for LRU behavior.
+  // Touch for FIFO-with-promotion behavior.
   outboundCache.delete(avatarId);
   outboundCache.set(avatarId, cached);
   outboundCacheMetrics.hits++;

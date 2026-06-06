@@ -8,7 +8,7 @@
  * - Evaluates whether to respond
  * - Enqueues the message to the shared FIFO message queue
  */
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "@swarm/core";
 import { sendSqsMessage } from '../services/sqs-send.js';
 import { processSharedRoomMessage, isSharedRoom, buildRoomKey } from '../services/room-ingress.js';
 import { randomUUID } from 'crypto';

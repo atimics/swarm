@@ -11,7 +11,7 @@
  * - fetchActivity(avatarId, secrets) -- get recent feed/activity
  * - executeAction(action, avatarId, secrets) -- upvote, comment, etc.
  */
-import type { ScheduledHandler, Context } from 'aws-lambda';
+import type { ScheduledHandler, Context } from "@swarm/core";
 import type { DynamoDBDocumentClient } from '@swarm/core';
 import { ScanCommand } from '@swarm/core';
 import {

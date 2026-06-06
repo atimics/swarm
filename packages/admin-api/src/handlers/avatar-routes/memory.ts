@@ -5,7 +5,7 @@
  * - DELETE /avatars/{id}/memories/{memId}  - Delete a specific memory
  * - GET    /avatars/{id}/memories/export   - Export all memories as JSON
  */
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
 import { logger } from '@swarm/core';

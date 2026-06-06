@@ -8,7 +8,7 @@
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
-} from 'aws-lambda';
+} from "@swarm/core";
 import { SendMessageCommand, SQSClient } from '@swarm/core';
 import {
   DEFAULT_LLM_MAX_TOKENS,
@@ -110,12 +110,14 @@ function clampInt(value: number, min: number, max: number): number {
 }
 
 function extractModelIdFromMessage(message: string): string | undefined {
-  const matches = message.match(/[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*/gi) || [];
-  for (const candidate of matches) {
-    const model = getValidModelId(candidate);
-    if (model) return model;
-  }
-  return undefined;
+  // Only extract model IDs from the start of the message to avoid
+  // accidentally consuming prose that happens to mention a model name
+  // while the model-selection tool is pending.  #1723.
+  const trimmed = message.trim();
+  const matches = trimmed.match(/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*/i);
+  if (!matches) return undefined;
+  const model = getValidModelId(matches[0]);
+  return model || undefined;
 }
 
 async function handlePendingModelSelectionText(params: {
@@ -274,6 +276,7 @@ export async function processChat(
   let toolResults: { tool_call_id: string; role: 'tool'; content: string }[] = [];
 
   if (toolCalls.length > 0 && usedFallback) {
+    logger.info("Entering fallback tool loop", { toolCount: toolCalls.length, toolNames: toolCalls.map(tc => String(tc.name)), hasMcpServices: !!mcpServices, avatarId });
     const fallbackResult = await executeFallbackToolLoop({
       toolCalls, adminToolCalls, fallbackResponse, tools,
       effectiveModel, effectiveMaxOutputTokens, systemPrompt,

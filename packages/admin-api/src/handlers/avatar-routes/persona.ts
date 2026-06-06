@@ -6,7 +6,7 @@
  * - PATCH /avatars/{id}/persona — Update persona, record audit event
  * - GET /avatars/{id}/persona/history — List persona edit history
  */
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import { createHash } from 'crypto';
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';

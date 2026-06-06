@@ -2,7 +2,7 @@
  * Media Processor Handler
  * Consumes media jobs from SQS and enqueues send_media actions back to response queue.
  */
-import type { SQSEvent, Context } from 'aws-lambda';
+import type { SQSEvent, Context } from "@swarm/core";
 import { PutCommand } from '@swarm/core';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -175,7 +175,7 @@ function getCachedAvatarRuntime(avatarId: string): AvatarMediaRuntime | null {
     return null;
   }
 
-  // Touch for LRU behavior.
+  // Touch for FIFO-with-promotion behavior.
   avatarRuntimeCache.delete(avatarId);
   avatarRuntimeCache.set(avatarId, cached);
   mediaRuntimeCacheMetrics.hits++;

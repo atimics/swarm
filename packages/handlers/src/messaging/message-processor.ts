@@ -12,7 +12,7 @@
  * - Supports iterative tool execution (multi-step reasoning)
  * - Memory tools wired to state service
  */
-import type { SQSEvent, Context } from 'aws-lambda';
+import type { SQSEvent, Context } from "@swarm/core";
 import { randomUUID } from 'crypto';
 import { DEFAULT_AVATAR_CONFIG } from '@swarm/core';
 import {
@@ -455,7 +455,7 @@ function getCachedAvatarRuntime(avatarId: string): AvatarRuntime | null {
     return null;
   }
 
-  // Touch for LRU behavior.
+  // Touch for FIFO-with-promotion behavior.
   avatarRuntimeCache.delete(avatarId);
   avatarRuntimeCache.set(avatarId, cached);
   avatarRuntimeCacheMetrics.hits++;

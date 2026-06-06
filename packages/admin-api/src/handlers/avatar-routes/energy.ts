@@ -7,7 +7,7 @@
  * - POST /avatars/{id}/energy/add
  * - GET  /avatars/{id}/energy/history
  */
-import type { APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyResultV2 } from "@swarm/core";
 import type { RouteContext } from './types.js';
 import { jsonResponse, requireOwnerOrAdmin } from './shared.js';
 import { syncRuntimeContractForAvatar } from './runtime-sync.js';

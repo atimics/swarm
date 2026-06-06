@@ -5,7 +5,7 @@
  * - `swarm_session` cookie, or
  * - Bearer session token
  */
-import type { APIGatewayProxyEventV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2 } from "@swarm/core";
 import { getHeaderValue, hasValidInternalTestKey, logger } from '@swarm/core';
 import type { UserSession } from '../types.js';
 import { getSessionFromCookie } from './session-cookie.js';

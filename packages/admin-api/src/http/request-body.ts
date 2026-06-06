@@ -1,4 +1,4 @@
-import type { APIGatewayProxyEventV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2 } from "@swarm/core";
 import { RequestValidationError } from '../middleware/validate.js';
 
 interface ParseJsonBodyOptions {

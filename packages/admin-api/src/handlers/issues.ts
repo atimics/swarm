@@ -14,7 +14,7 @@
 import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
-} from 'aws-lambda';
+} from "@swarm/core";
 import { hasValidInternalTestKey, logger } from '@swarm/core';
 import { z } from 'zod';
 import * as autoIssues from '../services/auto-issues.js';
