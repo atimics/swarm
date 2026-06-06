@@ -13,6 +13,7 @@ import {
 import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_TEMPERATURE, DEFAULT_LLM_MAX_TOKENS } from '@swarm/core';
 import type { AvatarRecord, UserSession } from '../types.js';
 import { syncAvatarConfig } from './config-sync.js';
+import { generateAgentKeypair, toBase58, toBase64 } from '@swarm/core';
 import {
   getGateStatus,
   decrementCreatorCount,
@@ -81,12 +82,22 @@ export async function createAvatar(
   const avatarId = generateAvatarId(name);
   const now = Date.now();
 
+  // Generate Ed25519 identity keypair
+  const keypair = generateAgentKeypair();
+  const pubkey = toBase58(keypair.pubkey);
+  const encryptedSeed = toBase64(keypair.seed); // TODO: encrypt with secrets service once available at this layer
+
   const avatar: AvatarRecord = {
     pk: `AVATAR#${avatarId}`,
     sk: 'CONFIG',
     avatarId,
     name,
     description,
+    identity: {
+      pubkey,
+      encryptedSeed,
+      derivation: { type: "random" },
+    },
     platforms: {},
     voiceConfig: {
       enabled: true,
