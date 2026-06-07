@@ -30,12 +30,25 @@ export interface AutoBridgeState {
   walletBalance: number;
 }
 
+export interface TreasuryConfig {
+  /** Share of bridged RATi that goes to miners as relay bounty. Default 0.10 (10%). */
+  minerShare: number;
+  /** Share of bridged RATi locked in station treasury. Default 0.90 (90%). */
+  treasuryShare: number;
+  /** Solana LP pool address for auto-depositing treasury RATi (optional). */
+  lpPoolAddress?: string;
+}
+
+export const DEFAULT_TREASURY: TreasuryConfig = {
+  minerShare: 0.10,
+  treasuryShare: 0.90,
+};
+
 export interface AutoBridgeDeps {
   getAvatarPubkey: () => string | null;
-  /** Relay bounty in RATi base units. Default 0.1 RATi. Station pays submitters from its own balance. */
-  relayBounty?: number;
-  onMine?: (amount: number) => void;
-  onRelay?: (amount: number, to: string) => void;
+  /** Treasury config for split: minerShare to relayers, treasuryShare locked. */
+  treasury?: TreasuryConfig;
+  onMine?: (amount: number, minerAmount: number, treasuryAmount: number) => void;
 }
 
 /**
@@ -100,13 +113,10 @@ export function startAutoBridge(deps: AutoBridgeDeps): {
     state.totalMined = +(state.totalMined + mined).toFixed(6);
     state.lastMineTime = Date.now();
 
-    deps.onMine?.(mined);
-
-    // Relay bounty: station pays relayers from its own balance
-    const bounty = deps.relayBounty ?? 100_000_000; // 0.1 RATi default
-    if (bounty > 0 && pubkey) {
-      deps.onRelay?.(bounty, pubkey);
-    }
+    const treasury = deps.treasury ?? DEFAULT_TREASURY;
+    const minerAmount = mined * treasury.minerShare;
+    const treasuryAmount = mined * treasury.treasuryShare;
+    deps.onMine?.(mined, minerAmount, treasuryAmount);
   }
 
   const interval = setInterval(tick, 30_000);
