@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Mining — Permissionless RATi Agent Mining</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #141420;
+    --border: #2a2a3a;
+    --gold: #d4a82e;
+    --gold-dim: #8a6518;
+    --text: #d0d0d8;
+    --text-dim: #706878;
+    --green: #4a9a4a;
+    --red: #a04040;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1.6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .container {
+    max-width: 680px;
+    width: 100%;
+    padding: 40px 24px;
+  }
+  h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--gold), #f0c040);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 1rem;
+    margin-bottom: 32px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--gold);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  input {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-family: 'JetBrains Mono', monospace;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus { border-color: var(--gold); }
+  .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .stat {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+  }
+  .stat-label {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .stat-value {
+    font-size: 1.3rem;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    margin-top: 4px;
+  }
+  .stat-value.gold { color: var(--gold); }
+  .flow {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    gap: 8px;
+    align-items: center;
+    text-align: center;
+    margin: 16px 0;
+  }
+  .flow-step {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 8px;
+    font-size: 0.85rem;
+  }
+  .flow-arrow { color: var(--gold); font-size: 1.2rem; }
+  .links { margin-top: 16px; }
+  .links a {
+    display: block;
+    padding: 8px 0;
+    color: var(--gold);
+    text-decoration: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+  }
+  .links a:hover { color: #f0c040; }
+  .address {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    word-break: break-all;
+  }
+  .error { color: var(--red); font-size: 0.85rem; margin-top: 8px; }
+  button {
+    width: 100%;
+    padding: 12px;
+    background: var(--gold);
+    color: var(--bg);
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 12px;
+    transition: background 0.2s;
+  }
+  button:hover { background: #e0b830; }
+  button:disabled { background: var(--gold-dim); cursor: not-allowed; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Signal Mining</h1>
+  <p class="subtitle">Permissionless RATi mining for any agent. Paste a pubkey, play Signal, mine RATi — it goes directly to the agent's wallet. No signup, no custody, no operator.</p>
+
+  <div class="card">
+    <h2>Agent</h2>
+    <input type="text" id="pubkey" placeholder="Paste agent pubkey (base58)..." autocomplete="off">
+    <div class="stats" id="stats" style="display:none">
+      <div class="stat">
+        <div class="stat-label">RATi Balance</div>
+        <div class="stat-value gold" id="rati-balance">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">SOL Balance</div>
+        <div class="stat-value" id="sol-balance">—</div>
+      </div>
+    </div>
+    <div class="error" id="error"></div>
+  </div>
+
+  <div class="flow">
+    <div class="flow-step">Play Signal<br><small>mine asteroids</small></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">Find RATi<br><small>0.14% chance</small></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">Bridge mints<br><small>to agent wallet</small></div>
+  </div>
+
+  <div class="card">
+    <h2>On-Chain</h2>
+    <div class="links">
+      <a href="https://explorer.solana.com/address/8ZscSWe5ZSFbGYg4JzA3eqpf6iCnwT72i8TZvVni2yMY?cluster=devnet" target="_blank">RATi Token → 8ZscSWe5ZSFbGYg4JzA3eqpf6iCnwT72i8TZvVni2yMY</a>
+      <a href="https://explorer.solana.com/address/2BvA4UGYEFAXUDd1TRzy6fiLXmMYiKzz4DcupDCYL1M5?cluster=devnet" target="_blank">Bridge Program → 2BvA4UGYEFAXUDd1TRzy6fiLXmMYiKzz4DcupDCYL1M5</a>
+      <a href="https://explorer.solana.com/address/GZUwz6Y46y6XutkQoBPrTTCYqnVdjjAHrQsywdwXMc45?cluster=devnet" target="_blank">Bridge PDA (mint authority) → GZUwz6Y46y6XutkQoBPrTTCYqnVdjjAHrQsywdwXMc45</a>
+    </div>
+    <p style="margin-top:12px;font-size:0.8rem;color:var(--text-dim)">
+      Mint authority is the bridge PDA — no human key can mint RATi.
+      Bridge v6: chain log proof verification, replay protection, content hash anchoring.
+      Fee: 0.1% (min 1 RATi), burned.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>How It Works</h2>
+    <p style="font-size:0.9rem;color:var(--text-dim)">
+      1. Download and launch <strong>Signal</strong> — a space mining game.<br>
+      2. Import the agent's pubkey as your station identity.<br>
+      3. Mine asteroids. RATi-grade fragments appear with a "RATi" callsign (0.14% chance, 10x payout).<br>
+      4. Process them at your station. The station signs a chain log event.<br>
+      5. Submit the chain log bytes to the bridge program on Solana.<br>
+      6. RATi is minted directly to the agent's wallet. No one can redirect it.<br>
+      7. The content hash is stored on-chain — permanent proof of every mint.<br><br>
+      <strong>Anyone</strong> can mine for <strong>any agent</strong>. The RATi always goes to the agent whose pubkey signed the event. You don't need the agent's private key — you just need the pubkey to configure your station.
+    </p>
+  </div>
+</div>
+
+<script>
+const RPC = "https://api.devnet.solana.com";
+const RATI_MINT = "8ZscSWe5ZSFbGYg4JzA3eqpf6iCnwT72i8TZvVni2yMY";
+
+async function rpc(method, params) {
+  const res = await fetch(RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.result;
+}
+
+async function lookup(pubkey) {
+  const [sol, tokens] = await Promise.all([
+    rpc("getBalance", [pubkey]).catch(() => ({ value: 0 })),
+    rpc("getTokenAccountsByOwner", [pubkey, { mint: RATI_MINT }, { encoding: "jsonParsed" }]).catch(() => ({ value: [] })),
+  ]);
+  const rati = tokens.value?.[0]?.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0;
+  return { sol: (sol.value || 0) / 1e9, rati };
+}
+
+const input = document.getElementById("pubkey");
+const stats = document.getElementById("stats");
+const error = document.getElementById("error");
+const ratiEl = document.getElementById("rati-balance");
+const solEl = document.getElementById("sol-balance");
+
+let timer;
+input.addEventListener("input", () => {
+  clearTimeout(timer);
+  const pk = input.value.trim();
+  if (pk.length < 32) { stats.style.display = "none"; error.textContent = ""; return; }
+  timer = setTimeout(async () => {
+    try {
+      const b = await lookup(pk);
+      ratiEl.textContent = b.rati.toFixed(6) + " RATi";
+      solEl.textContent = b.sol.toFixed(6) + " SOL";
+      stats.style.display = "grid";
+      error.textContent = "";
+    } catch(e) {
+      error.textContent = "Could not look up wallet. Check the pubkey.";
+      stats.style.display = "none";
+    }
+  }, 500);
+});
+
+// Auto-lookup from URL hash
+if (location.hash) {
+  input.value = location.hash.slice(1);
+  input.dispatchEvent(new Event("input"));
+}
+</script>
+</body>
+</html>
