@@ -7,6 +7,7 @@ import { createInterface } from 'readline';
 import { randomBytes, createHash } from "crypto";
 import { startTelegramPolling } from "./telegram-polling.js";
 import { isOllamaAvailable, getOllamaModel, getOllamaEndpoint } from "./llm-ollama.js";
+import { getRatiBalance, getSolBalance } from "./rati-auto-bridge.js";
 import { createLocalServices } from './factories.js';
 import { LocalS3Adapter } from './s3-adapter.js';
 import { LocalSQSAdapter } from './sqs-adapter.js';
@@ -518,6 +519,28 @@ export async function startServer(options: ServerOptions = {}) {
     res.send(blob);
   });
 
+  // ── RATi wallet balance ─────────────────────────────────────────
+  app.get("/api/rati/balance", async (_req, res) => {
+    try {
+      if (!_signalState.latestPubkey) {
+        res.json({ balance: 0, message: "No avatar yet. Create one first." });
+        return;
+      }
+      const [ratiBalance, solBalance] = await Promise.all([
+        getRatiBalance(_signalState.latestPubkey),
+        getSolBalance(_signalState.latestPubkey),
+      ]);
+      res.json({
+        pubkey: _signalState.latestPubkey,
+        ratiBalance,
+        solBalance,
+        ratiMint: "8ZscSWe5ZSFbGYg4JzA3eqpf6iCnwT72i8TZvVni2yMY",
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // ── Admin API routes ───────────────────────────────────────────────
   try {
     await mountAdminRoutes(app, services);
@@ -587,6 +610,9 @@ export async function startServer(options: ServerOptions = {}) {
       res.status(500).json({ error: (err as Error).message });
     }
   });
+
+
+
 
 
   // ── Admin UI ─────────────────────────────────────────────────
@@ -709,6 +735,8 @@ export async function mountAdminRoutes(
   });
 
   console.log('[local] Admin API routes mounted');
+
+
 
   app.post("/api/avatars", async (req, res) => {
     try {

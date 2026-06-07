@@ -15,7 +15,7 @@ export interface AgentIdentityServices {
   publishIdentityRecord?: () => Promise<{ txId: string; url: string }>;
   getStationPosition?: () => Promise<{ x: number; y: number }>;
   mineRati?: () => Promise<{ stationCurrency: number; ratiAmount: number; epoch: number }>;
-  bridgeRatiToSolana?: (amount?: number) => Promise<{ attestation: any; solanaTxSig?: string; status: string }>;
+  bridgeRatiToSolana?: (amount?: number, recipient?: string) => Promise<{ attestation: any; solanaTxSig?: string; status: string }>;
 }
 
 /** Alias for consumers that import via the shorter name. */
@@ -138,9 +138,10 @@ export function registerAgentIdentityTools(
       category: "identity",
       inputSchema: z.object({
         amount: z.number().optional().describe("Amount of RATi to bridge (default: all mined RATi)"),
+        recipient: z.string().optional().describe("Solana wallet address to receive RATi (default: your derived wallet)"),
       }),
       execute: async (args) => {
-        const result = await services.bridgeRatiToSolana!(args.amount);
+        const result = await services.bridgeRatiToSolana!(args.amount, args.recipient);
         return { success: true, ...result };
       },
     });
