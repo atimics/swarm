@@ -32,7 +32,10 @@ export interface AutoBridgeState {
 
 export interface AutoBridgeDeps {
   getAvatarPubkey: () => string | null;
+  /** Relay bounty in RATi base units. Default 0.1 RATi. Station pays submitters from its own balance. */
+  relayBounty?: number;
   onMine?: (amount: number) => void;
+  onRelay?: (amount: number, to: string) => void;
 }
 
 /**
@@ -98,6 +101,12 @@ export function startAutoBridge(deps: AutoBridgeDeps): {
     state.lastMineTime = Date.now();
 
     deps.onMine?.(mined);
+
+    // Relay bounty: station pays relayers from its own balance
+    const bounty = deps.relayBounty ?? 100_000_000; // 0.1 RATi default
+    if (bounty > 0 && pubkey) {
+      deps.onRelay?.(bounty, pubkey);
+    }
   }
 
   const interval = setInterval(tick, 30_000);

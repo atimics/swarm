@@ -17,7 +17,7 @@ import { LocalLambdaAdapter } from './lambda-adapter.js';
 export { createLocalServices } from './factories.js';
 
 // Module-level state for cross-route communication
-const _signalState: { latestAvatarId: string | null; latestPubkey: string | null; latestIdentity: any } = { latestAvatarId: null, latestPubkey: null, latestIdentity: null };
+const _signalState: { latestAvatarId: string | null; latestPubkey: string | null; latestIdentity: any; relayBounty: number } = { latestAvatarId: null, latestPubkey: null, latestIdentity: null, relayBounty: 100_000_000 };
 export { SqliteRepository } from './sqlite-repository.js';
 export { LocalBlobStore } from './blob-store.js';
 export { InMemoryQueue } from './queue.js';
@@ -520,6 +520,14 @@ export async function startServer(options: ServerOptions = {}) {
   });
 
   // ── RATi wallet balance ─────────────────────────────────────────
+  app.get("/api/rati/relay-bounty", (_req, res) => {
+    res.json({
+      relayBounty: _signalState.relayBounty,
+      relayBountyRati: (_signalState.relayBounty / 1_000_000_000).toFixed(2),
+      description: "Relay bounty in RATi base units (9 decimals). Station pays submitters from its own balance.",
+    });
+  });
+
   app.get("/api/rati/balance", async (_req, res) => {
     try {
       if (!_signalState.latestPubkey) {
