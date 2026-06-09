@@ -36,6 +36,30 @@ describe('LocalDynamoClientAdapter', () => {
   let adapter: LocalDynamoClientAdapter;
   let store: SqliteRepository;
 
+  async function getViaAdapter(pk: string, sk: string): Promise<Record<string, unknown> | undefined> {
+    const result = await adapter.send(new GetCommand({
+      TableName: 'test',
+      Key: { pk, sk },
+    }) as any) as { Item?: Record<string, unknown> };
+    return result.Item;
+  }
+
+  async function putViaAdapter(item: Record<string, unknown>): Promise<void> {
+    await adapter.send(new PutCommand({
+      TableName: 'test',
+      Item: item,
+    }) as any);
+  }
+
+  async function queryViaAdapter(pk: string): Promise<Record<string, unknown>[]> {
+    const result = await adapter.send(new QueryCommand({
+      TableName: 'test',
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: { ':pk': pk },
+    }) as any) as { Items?: Record<string, unknown>[] };
+    return result.Items ?? [];
+  }
+
   beforeEach(() => {
     store = new SqliteRepository({ dbPath: ':memory:', tableName: 'adapter_test' });
     adapter = new LocalDynamoClientAdapter(store);
@@ -71,7 +95,7 @@ describe('LocalDynamoClientAdapter', () => {
     const result = await adapter.send(cmd as any) as { $metadata: { httpStatusCode: number } };
     expect(result.$metadata.httpStatusCode).toBe(200);
 
-    const item = await store.get({ pk: 'U#1', sk: 'META' });
+    const item = await getViaAdapter('U#1', 'META');
     expect(item!.name).toBe('Bob');
   });
 
@@ -115,8 +139,32 @@ describe('LocalDynamoClientAdapter', () => {
     expect(result.Items![0].sk).toBe('A');
   });
 
+  it('isolates items by logical DynamoDB table', async () => {
+    await adapter.send(new PutCommand({
+      TableName: 'admin-table',
+      Item: { pk: 'AVATAR#a1', sk: 'CONFIG', avatarId: 'a1', name: 'Admin Avatar' },
+    }) as any);
+    await adapter.send(new PutCommand({
+      TableName: 'state-table',
+      Item: { pk: 'AVATAR#a1', sk: 'CONFIG', config: { id: 'a1', name: 'Runtime Avatar' } },
+    }) as any);
+
+    const adminResult = await adapter.send(new GetCommand({
+      TableName: 'admin-table',
+      Key: { pk: 'AVATAR#a1', sk: 'CONFIG' },
+    }) as any) as { Item?: Record<string, unknown> };
+    const stateResult = await adapter.send(new GetCommand({
+      TableName: 'state-table',
+      Key: { pk: 'AVATAR#a1', sk: 'CONFIG' },
+    }) as any) as { Item?: Record<string, unknown> };
+
+    expect(adminResult.Item?.name).toBe('Admin Avatar');
+    expect(adminResult.Item?.config).toBeUndefined();
+    expect((stateResult.Item?.config as { name?: string } | undefined)?.name).toBe('Runtime Avatar');
+  });
+
   it('handles DeleteCommand', async () => {
-    await store.put({ pk: 'U#1', sk: 'META' });
+    await putViaAdapter({ pk: 'U#1', sk: 'META' });
 
     const cmd = new DeleteCommand({
       TableName: 'test',
@@ -124,12 +172,12 @@ describe('LocalDynamoClientAdapter', () => {
     });
     await adapter.send(cmd as any);
 
-    const item = await store.get({ pk: 'U#1', sk: 'META' });
-    expect(item).toBeNull();
+    const item = await getViaAdapter('U#1', 'META');
+    expect(item).toBeUndefined();
   });
 
   it('handles UpdateCommand', async () => {
-    await store.put({ pk: 'U#1', sk: 'META', count: 0 });
+    await putViaAdapter({ pk: 'U#1', sk: 'META', count: 0 });
 
     const cmd = new UpdateCommand({
       TableName: 'test',
@@ -140,7 +188,7 @@ describe('LocalDynamoClientAdapter', () => {
     });
     await adapter.send(cmd as any);
 
-    const item = await store.get<Record<string, unknown>>({ pk: 'U#1', sk: 'META' });
+    const item = await getViaAdapter('U#1', 'META');
     expect(item!.count).toBe(5);
   });
 
@@ -160,8 +208,8 @@ describe('LocalDynamoClientAdapter', () => {
   });
 
   it('handles ScanCommand with filter', async () => {
-    await store.put({ pk: 'S#1', sk: 'A', type: 'image' });
-    await store.put({ pk: 'S#1', sk: 'B', type: 'video' });
+    await putViaAdapter({ pk: 'S#1', sk: 'A', type: 'image' });
+    await putViaAdapter({ pk: 'S#1', sk: 'B', type: 'video' });
 
     const cmd = new ScanCommand({
       TableName: 'test',
@@ -185,13 +233,13 @@ describe('LocalDynamoClientAdapter', () => {
     });
     await adapter.send(cmd as any);
 
-    const items = await store.query('B#1');
+    const items = await queryViaAdapter('B#1');
     expect(items).toHaveLength(2);
   });
 
   it('handles BatchWriteCommand with mixed put/delete', async () => {
-    await store.put({ pk: 'B#1', sk: 'A' });
-    await store.put({ pk: 'B#1', sk: 'B' });
+    await putViaAdapter({ pk: 'B#1', sk: 'A' });
+    await putViaAdapter({ pk: 'B#1', sk: 'B' });
 
     const cmd = new BatchWriteCommand({
       RequestItems: {
@@ -203,7 +251,7 @@ describe('LocalDynamoClientAdapter', () => {
     });
     await adapter.send(cmd as any);
 
-    const items = await store.query('B#1');
+    const items = await queryViaAdapter('B#1');
     const sks = items.map((i: any) => i.sk).sort();
     expect(sks).toEqual(['B', 'C']);
   });
@@ -218,7 +266,7 @@ describe('LocalDynamoClientAdapter', () => {
     const result = await adapter.send(cmd as any) as { $metadata: { httpStatusCode: number } };
     expect(result.$metadata.httpStatusCode).toBe(200);
 
-    const items = await store.query('T#1');
+    const items = await queryViaAdapter('T#1');
     expect(items).toHaveLength(2);
   });
 

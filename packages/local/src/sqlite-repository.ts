@@ -81,15 +81,15 @@ function translateUpdateExpression(
     if (trimmed.startsWith('SET')) {
       const body = trimmed.slice(3).trim();
       for (const assignment of splitTopLevelCommas(body)) {
-        // Simple: #name = :value
-        const simpleMatch = assignment.match(/^(#\w+)\s*=\s*(:\w+)$/);
+        // Simple: bare-column or #name = :value
+        const simpleMatch = assignment.match(/^(#\w+|\w+)\s*=\s*(:\w+)$/);
         if (simpleMatch) {
           results.push({ kind: 'set', column: resolveName(simpleMatch[1]), value: resolveValue(simpleMatch[2]) });
           continue;
         }
-        // Coalesce-increment: #name = if_not_exists(#name, :def) + :incr
+        // Coalesce-increment: (bare-column or #name) = if_not_exists(...) + :incr
         const ifnMatch = assignment.match(
-          /^(#\w+)\s*=\s*if_not_exists\s*\(\s*(#\w+)\s*,\s*(:\w+)\s*\)\s*\+\s*(:\w+)$/,
+          /^(#\w+|\w+)\s*=\s*if_not_exists\s*\(\s*(#\w+|\w+)\s*,\s*(:\w+)\s*\)\s*\+\s*(:\w+)$/,
         );
         if (ifnMatch) {
           results.push({

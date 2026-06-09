@@ -24,17 +24,164 @@ export class LocalDynamoClientAdapter {
     throw new Error(`LocalDynamoClientAdapter: unsupported command "${name}"`);
   }
 
+  private tableName(input: Record<string, unknown>): string {
+    return String(input.TableName ?? 'default');
+  }
+
+  private tablePrefix(tableName: string): string {
+    return `TABLE#${encodeURIComponent(tableName)}#`;
+  }
+
+  private toStoredKey(tableName: string, key: CompositeKey): CompositeKey {
+    return {
+      pk: `${this.tablePrefix(tableName)}${key.pk}`,
+      sk: key.sk,
+    };
+  }
+
+  private toStoredItem<T extends Record<string, unknown> & CompositeKey>(
+    tableName: string,
+    item: T,
+  ): T {
+    return {
+      ...item,
+      pk: `${this.tablePrefix(tableName)}${item.pk}`,
+    };
+  }
+
+  private fromStoredItem<T extends Record<string, unknown>>(
+    tableName: string,
+    item: T | null | undefined,
+  ): T | null {
+    if (!item) return null;
+    const prefix = this.tablePrefix(tableName);
+    const pk = typeof item.pk === 'string' && item.pk.startsWith(prefix)
+      ? item.pk.slice(prefix.length)
+      : item.pk;
+    return this.normalizeLegacyItem(tableName, { ...item, pk } as T);
+  }
+
+  private isAdminTable(tableName: string): boolean {
+    return tableName === process.env.ADMIN_TABLE || /admin/i.test(tableName);
+  }
+
+  private normalizeLegacyItem<T extends Record<string, unknown>>(tableName: string, item: T): T {
+    if (!this.isAdminTable(tableName)) return item;
+    if (typeof item.pk !== 'string' || !item.pk.startsWith('AVATAR#') || item.sk !== 'CONFIG') return item;
+    if (!item.config || typeof item.config !== 'object' || item.avatarId) return item;
+
+    const config = item.config as Record<string, unknown>;
+    const llm = (config.llm && typeof config.llm === 'object')
+      ? config.llm as Record<string, unknown>
+      : {};
+    const voice = (config.voice && typeof config.voice === 'object')
+      ? config.voice as Record<string, unknown>
+      : {};
+    const media = (config.media && typeof config.media === 'object')
+      ? config.media as Record<string, unknown>
+      : {};
+    const image = (media.image && typeof media.image === 'object')
+      ? media.image as Record<string, unknown>
+      : undefined;
+    const video = (media.video && typeof media.video === 'object')
+      ? media.video as Record<string, unknown>
+      : undefined;
+    const now = typeof item.syncedAt === 'number' ? item.syncedAt : Date.now();
+    const id = typeof config.id === 'string' ? config.id : item.pk.slice('AVATAR#'.length);
+
+    return {
+      pk: item.pk,
+      sk: item.sk,
+      avatarId: id,
+      name: typeof config.name === 'string' ? config.name : id,
+      persona: typeof config.persona === 'string' ? config.persona : undefined,
+      systemPromptOverride: config.systemPromptOverride,
+      profileImage: config.profileImage,
+      characterReference: config.characterReference,
+      platforms: (config.platforms && typeof config.platforms === 'object') ? config.platforms : {},
+      llmConfig: {
+        provider: typeof llm.provider === 'string' ? llm.provider : 'openrouter',
+        model: typeof llm.model === 'string' ? llm.model : '',
+        fastModel: typeof llm.fastModel === 'string' ? llm.fastModel : undefined,
+        thinkingModel: typeof llm.thinkingModel === 'string' ? llm.thinkingModel : undefined,
+        temperature: typeof llm.temperature === 'number' ? llm.temperature : 0.8,
+        maxTokens: typeof llm.maxTokens === 'number' ? llm.maxTokens : 1024,
+        useGlobalKey: true,
+      },
+      mediaConfig: image ? {
+        image: {
+          provider: typeof image.provider === 'string' ? image.provider : 'openrouter',
+          model: typeof image.model === 'string' ? image.model : '',
+        },
+        ...(video ? {
+          video: {
+            provider: typeof video.provider === 'string' ? video.provider : 'openrouter',
+            model: typeof video.model === 'string' ? video.model : '',
+          },
+        } : {}),
+        useProfileAsReference: true,
+      } : undefined,
+      voiceConfig: {
+        enabled: typeof voice.enabled === 'boolean' ? voice.enabled : true,
+        ttsProvider: typeof voice.ttsProvider === 'string' ? voice.ttsProvider : 'voice-clone',
+        format: typeof voice.format === 'string' ? voice.format : 'ogg',
+      },
+      status: typeof item.status === 'string' ? item.status : 'draft',
+      createdAt: now,
+      createdBy: 'local@swarm.dev',
+      updatedAt: now,
+      updatedBy: 'local@swarm.dev',
+    } as T;
+  }
+
+  private fromStoredItems<T extends Record<string, unknown>>(
+    tableName: string,
+    items: T[] | undefined,
+  ): T[] {
+    return (items ?? []).map((item) => this.fromStoredItem(tableName, item) as T);
+  }
+
+  private fromStoredLastEvaluatedKey(
+    tableName: string,
+    key: Record<string, unknown> | undefined,
+  ): Record<string, unknown> | undefined {
+    if (!key) return undefined;
+    return this.fromStoredItem(tableName, key) ?? undefined;
+  }
+
+  private toStoredLastEvaluatedKey(
+    tableName: string,
+    key: Record<string, unknown> | undefined,
+  ): Record<string, unknown> | undefined {
+    if (!key) return undefined;
+    const pk = typeof key.pk === 'string' ? `${this.tablePrefix(tableName)}${key.pk}` : key.pk;
+    return { ...key, pk };
+  }
+
   private async _get(input: Record<string, unknown>) {
-    const key = input.Key as CompositeKey;
+    const tableName = this.tableName(input);
+    const key = this.toStoredKey(tableName, input.Key as CompositeKey);
     const item = await this.store.get<Record<string, unknown>>(key, {
       projectionExpression: input.ProjectionExpression as string | undefined,
       expressionAttributeNames: input.ExpressionAttributeNames as Record<string, string> | undefined,
     });
-    return { Item: item ?? undefined, $metadata: { httpStatusCode: 200 } };
+    if (item) {
+      return { Item: this.fromStoredItem(tableName, item) ?? undefined, $metadata: { httpStatusCode: 200 } };
+    }
+
+    // Backward compatibility for local DBs written before the adapter namespaced
+    // logical DynamoDB tables. Once the item is updated it will be written under
+    // the table-prefixed key and this fallback stops being used.
+    const legacyItem = await this.store.get<Record<string, unknown>>(input.Key as CompositeKey, {
+      projectionExpression: input.ProjectionExpression as string | undefined,
+      expressionAttributeNames: input.ExpressionAttributeNames as Record<string, string> | undefined,
+    });
+    return { Item: this.fromStoredItem(tableName, legacyItem) ?? undefined, $metadata: { httpStatusCode: 200 } };
   }
 
   private async _put(input: Record<string, unknown>) {
-    const item = input.Item as Record<string, unknown> & CompositeKey;
+    const tableName = this.tableName(input);
+    const item = this.toStoredItem(tableName, input.Item as Record<string, unknown> & CompositeKey);
     const { pk, sk, ...rest } = item;
     const hasCond = input.ConditionExpression || input.ExpressionAttributeNames;
     let oldItem: Record<string, unknown> | null = null;
@@ -52,12 +199,13 @@ export class LocalDynamoClientAdapter {
       newItem = await this.store.get<Record<string, unknown>>({ pk, sk });
     }
     const resp: Record<string, unknown> = { $metadata: { httpStatusCode: 200 } };
-    if (rv === 'ALL_OLD' || rv === 'UPDATED_OLD') resp.Attributes = oldItem ?? undefined;
-    else if (rv === 'ALL_NEW' || rv === 'UPDATED_NEW') resp.Attributes = newItem ?? undefined;
+    if (rv === 'ALL_OLD' || rv === 'UPDATED_OLD') resp.Attributes = this.fromStoredItem(tableName, oldItem) ?? undefined;
+    else if (rv === 'ALL_NEW' || rv === 'UPDATED_NEW') resp.Attributes = this.fromStoredItem(tableName, newItem) ?? undefined;
     return resp;
   }
 
   private async _query(input: Record<string, unknown>) {
+    const tableName = this.tableName(input);
     const expr = input.KeyConditionExpression as string;
     const vals = (input.ExpressionAttributeValues ?? {}) as Record<string, unknown>;
 
@@ -102,7 +250,9 @@ export class LocalDynamoClientAdapter {
       if (!consumedKeys.has(k)) filterVals[k] = v;
     }
 
-    const result = await this.store.queryPage<Record<string, unknown>>(pk, {
+    const result = await this.store.queryPage<Record<string, unknown>>(
+      `${this.tablePrefix(tableName)}${pk}`,
+      {
       skCondition, limit: input.Limit as number | undefined,
       scanForward: input.ScanIndexForward as boolean | undefined,
       filterExpression: input.FilterExpression as string | undefined,
@@ -110,19 +260,55 @@ export class LocalDynamoClientAdapter {
       expressionAttributeValues: filterVals,
       projectionExpression: input.ProjectionExpression as string | undefined,
       indexName: input.IndexName as string | undefined,
-      pkPrefix,
-    }, input.ExclusiveStartKey as Record<string, unknown> | undefined);
-    return { Items: result.items, LastEvaluatedKey: result.lastEvaluatedKey, Count: result.items.length, $metadata: { httpStatusCode: 200 } };
+      pkPrefix: pkPrefix ? `${this.tablePrefix(tableName)}${pkPrefix}` : undefined,
+    },
+      this.toStoredLastEvaluatedKey(tableName, input.ExclusiveStartKey as Record<string, unknown> | undefined),
+    );
+
+    let items = this.fromStoredItems(tableName, result.items);
+    let lastEvaluatedKey = this.fromStoredLastEvaluatedKey(tableName, result.lastEvaluatedKey);
+
+    if (!input.ExclusiveStartKey) {
+      const legacyResult = await this.store.queryPage<Record<string, unknown>>(pk, {
+        skCondition,
+        limit: input.Limit as number | undefined,
+        scanForward: input.ScanIndexForward as boolean | undefined,
+        filterExpression: input.FilterExpression as string | undefined,
+        expressionAttributeNames: input.ExpressionAttributeNames as Record<string, string> | undefined,
+        expressionAttributeValues: filterVals,
+        projectionExpression: input.ProjectionExpression as string | undefined,
+        indexName: input.IndexName as string | undefined,
+        pkPrefix,
+      });
+      const deduped = new Map<string, Record<string, unknown>>();
+      for (const item of this.fromStoredItems(tableName, legacyResult.items)) {
+        deduped.set(`${item.pk}\u0000${item.sk}`, item);
+      }
+      for (const item of items) {
+        // Prefer table-prefixed writes over legacy unprefixed rows.
+        deduped.set(`${item.pk}\u0000${item.sk}`, item);
+      }
+      items = Array.from(deduped.values());
+      lastEvaluatedKey = lastEvaluatedKey ?? this.fromStoredLastEvaluatedKey(tableName, legacyResult.lastEvaluatedKey);
+    }
+
+    return {
+      Items: items,
+      LastEvaluatedKey: lastEvaluatedKey,
+      Count: items.length,
+      $metadata: { httpStatusCode: 200 },
+    };
   }
 
   private async _del(input: Record<string, unknown>) {
-    const key = input.Key as CompositeKey;
+    const key = this.toStoredKey(this.tableName(input), input.Key as CompositeKey);
     await this.store.delete(key);
     return { $metadata: { httpStatusCode: 200 } };
   }
 
   private async _update(input: Record<string, unknown>) {
-    const key = input.Key as CompositeKey;
+    const tableName = this.tableName(input);
+    const key = this.toStoredKey(tableName, input.Key as CompositeKey);
     const result = await this.store.update<Record<string, unknown>>(key, {
       updateExpression: input.UpdateExpression as string,
       conditionExpression: input.ConditionExpression as string | undefined,
@@ -130,10 +316,12 @@ export class LocalDynamoClientAdapter {
       expressionAttributeValues: input.ExpressionAttributeValues as Record<string, unknown> | undefined,
       returnValues: (input.ReturnValues as string | undefined) ?? 'NONE',
     });
-    return { Attributes: result ?? undefined, $metadata: { httpStatusCode: 200 } };
+    return { Attributes: this.fromStoredItem(tableName, result) ?? undefined, $metadata: { httpStatusCode: 200 } };
   }
 
   private async _scan(input: Record<string, unknown>) {
+    const tableName = this.tableName(input);
+    const prefix = this.tablePrefix(tableName);
     const items = await this.store.scan<Record<string, unknown>>({
       filterExpression: (input.FilterExpression as string) ?? '',
       expressionAttributeValues: (input.ExpressionAttributeValues as Record<string, unknown>) ?? {},
@@ -141,16 +329,25 @@ export class LocalDynamoClientAdapter {
       projectionExpression: input.ProjectionExpression as string | undefined,
       limit: input.Limit as number | undefined,
     });
-    return { Items: items, Count: items.length, $metadata: { httpStatusCode: 200 } };
+    const tableItems = this.fromStoredItems(
+      tableName,
+      items.filter((item) => typeof item.pk === 'string' && item.pk.startsWith(prefix)),
+    );
+    return { Items: tableItems, Count: tableItems.length, $metadata: { httpStatusCode: 200 } };
   }
 
   private async _batchWrite(input: Record<string, unknown>) {
+    const tableName = this.tableName(input);
     const reqItems = input.RequestItems as Record<string, Array<{ PutRequest?: { Item: Record<string, unknown> }; DeleteRequest?: { Key: CompositeKey } }>>;
     const ops: Array<{ type: 'put'; item: Record<string, unknown> & CompositeKey } | { type: 'delete'; key: CompositeKey }> = [];
-    for (const requests of Object.values(reqItems)) {
+    for (const [requestTableName, requests] of Object.entries(reqItems)) {
+      const operationTableName = requestTableName || tableName;
       for (const req of requests) {
-        if (req.PutRequest) ops.push({ type: 'put', item: req.PutRequest.Item as Record<string, unknown> & CompositeKey });
-        else if (req.DeleteRequest) ops.push({ type: 'delete', key: req.DeleteRequest.Key });
+        if (req.PutRequest) {
+          ops.push({ type: 'put', item: this.toStoredItem(operationTableName, req.PutRequest.Item as Record<string, unknown> & CompositeKey) });
+        } else if (req.DeleteRequest) {
+          ops.push({ type: 'delete', key: this.toStoredKey(operationTableName, req.DeleteRequest.Key) });
+        }
       }
     }
     for (let i = 0; i < ops.length; i += 25) await this.store.batchWrite(ops.slice(i, i + 25));
@@ -163,8 +360,9 @@ export class LocalDynamoClientAdapter {
     for (const item of items) {
       if (item.ConditionCheck) {
         const cc = item.ConditionCheck as Record<string, unknown>;
+        const tableName = String(cc.TableName ?? this.tableName(input));
         const expr = (cc.ConditionExpression as string) || '';
-        const key = cc.Key as CompositeKey;
+        const key = this.toStoredKey(tableName, cc.Key as CompositeKey);
         const existing = await this.store.get(key);
         if (expr.includes('attribute_not_exists')) {
           if (existing) throw new Error('TransactionCanceledException');
@@ -183,12 +381,14 @@ export class LocalDynamoClientAdapter {
     const ops: Array<{ type: 'put'; item: Record<string, unknown> & CompositeKey } | { type: 'delete'; key: CompositeKey }> = [];
     for (const item of items) {
       if (item.Put) {
-        ops.push({ type: 'put', item: (item.Put as Record<string, unknown>).Item as Record<string, unknown> & CompositeKey });
+        const put = item.Put as Record<string, unknown>;
+        ops.push({ type: 'put', item: this.toStoredItem(String(put.TableName ?? this.tableName(input)), put.Item as Record<string, unknown> & CompositeKey) });
       } else if (item.Delete) {
-        ops.push({ type: 'delete', key: (item.Delete as Record<string, unknown>).Key as CompositeKey });
+        const del = item.Delete as Record<string, unknown>;
+        ops.push({ type: 'delete', key: this.toStoredKey(String(del.TableName ?? this.tableName(input)), del.Key as CompositeKey) });
       } else if (item.Update) {
         const u = item.Update as Record<string, unknown>;
-        await this.store.update(u.Key as CompositeKey, {
+        await this.store.update(this.toStoredKey(String(u.TableName ?? this.tableName(input)), u.Key as CompositeKey), {
           updateExpression: u.UpdateExpression as string,
           conditionExpression: u.ConditionExpression as string | undefined,
           expressionAttributeNames: u.ExpressionAttributeNames as Record<string, string> | undefined,

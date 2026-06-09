@@ -166,7 +166,11 @@ export function setupLocalEnv(): void {
   if (!process.env.ADMIN_TABLE) process.env.ADMIN_TABLE = "swarm-local-admin";
   if (!process.env.STATE_TABLE) process.env.STATE_TABLE = "swarm-local-state";
   if (!process.env.MESSAGE_QUEUE_URL) process.env.MESSAGE_QUEUE_URL = "https://localhost/queue";
-  if (!process.env.S3_BUCKET) process.env.S3_BUCKET = "swarm-local";
+  if (!process.env.S3_BUCKET) process.env.S3_BUCKET = "swarm-local-blobs";
+
+  const port = parseInt(process.env.PORT || '3000', 10);
+  if (!process.env.CDN_URL) process.env.CDN_URL = `http://localhost:${port}/blobs`;
+  if (!process.env.MEDIA_BUCKET) process.env.MEDIA_BUCKET = "swarm-local-blobs";
 }
 
 export interface InitSecretsOptions {

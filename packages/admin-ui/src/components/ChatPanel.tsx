@@ -71,7 +71,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
   const taskCards = useTaskCardStore((s) => s.cards);
   // Extract action functions directly — they're stable references and don't
   // need reactive subscriptions, avoiding full-store re-renders.
-  const { addMessage, updateMessage, removeMessage, updateAvatar, setLoading, setError, createAvatar } = useAvatarStore.getState();
+  const { addMessage, updateMessage, removeMessage, updateAvatar, applyAvatarUpdates, setLoading, setError, createAvatar } = useAvatarStore.getState();
   const { user: user, isAuthenticated, gateStatus, account } = useAuth();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -337,15 +337,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
           persona: targetAvatar.persona,
         }, sender, activeTaskMeta);
 
-        // Update avatar avatar if profile image was changed
-        if (response.avatarUpdates?.profileImageUrl) {
-          updateAvatar(targetAvatar.id, { avatar: response.avatarUpdates.profileImageUrl });
-        }
-        
-        // Update avatar name if it was changed
-        if (response.avatarUpdates?.name) {
-          updateAvatar(targetAvatar.id, { name: response.avatarUpdates.name });
-        }
+        applyAvatarUpdates(targetAvatar.id, response.avatarUpdates);
 
         // Update the loading message with the response
         const currentMessages = useAvatarStore.getState().chats[targetAvatar.id] || [];
@@ -702,7 +694,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
         setLoading(false);
       }
     },
-    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isAuthenticated, user, updateAvatar, formatUserFacingError, extractPendingJobsFromText, t]
+    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isAuthenticated, user, updateAvatar, applyAvatarUpdates, formatUserFacingError, extractPendingJobsFromText, t]
   );
 
   // Handle audio message - transcribe and send as text
@@ -811,12 +803,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
 
           updateToolCallStatus();
 
-          if (resumed.avatarUpdates?.profileImageUrl) {
-            updateAvatar(activeAvatar.id, { avatar: resumed.avatarUpdates.profileImageUrl });
-          }
-          if (resumed.avatarUpdates?.name) {
-            updateAvatar(activeAvatar.id, { name: resumed.avatarUpdates.name });
-          }
+          applyAvatarUpdates(activeAvatar.id, resumed.avatarUpdates);
 
           addMessage(activeAvatar.id, {
             role: 'assistant',
@@ -902,12 +889,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
               description: resultObj.description,
             });
 
-            if (resumed.avatarUpdates?.profileImageUrl) {
-              updateAvatar(activeAvatar.id, { avatar: resumed.avatarUpdates.profileImageUrl });
-            }
-            if (resumed.avatarUpdates?.name) {
-              updateAvatar(activeAvatar.id, { name: resumed.avatarUpdates.name });
-            }
+            applyAvatarUpdates(activeAvatar.id, resumed.avatarUpdates);
 
             addMessage(activeAvatar.id, {
               role: 'assistant',
@@ -1023,12 +1005,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
           const resumed = await submitToolResult(activeAvatar.id, toolCallId, resultObj);
           updateToolCallStatus();
 
-          if (resumed.avatarUpdates?.profileImageUrl) {
-            updateAvatar(activeAvatar.id, { avatar: resumed.avatarUpdates.profileImageUrl });
-          }
-          if (resumed.avatarUpdates?.name) {
-            updateAvatar(activeAvatar.id, { name: resumed.avatarUpdates.name });
-          }
+          applyAvatarUpdates(activeAvatar.id, resumed.avatarUpdates);
 
           addMessage(activeAvatar.id, {
             role: 'assistant',
@@ -1060,12 +1037,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
           const resumed = await submitToolResult(activeAvatar.id, toolCallId, resultObj);
           updateToolCallStatus();
 
-          if (resumed.avatarUpdates?.profileImageUrl) {
-            updateAvatar(activeAvatar.id, { avatar: resumed.avatarUpdates.profileImageUrl });
-          }
-          if (resumed.avatarUpdates?.name) {
-            updateAvatar(activeAvatar.id, { name: resumed.avatarUpdates.name });
-          }
+          applyAvatarUpdates(activeAvatar.id, resumed.avatarUpdates);
 
           addMessage(activeAvatar.id, {
             role: 'assistant',
@@ -1095,7 +1067,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
       updateToolCallStatus();
       return { ok: true };
     },
-    [activeAvatar, updateMessage, setError, addMessage, updateAvatar, t]
+    [activeAvatar, updateMessage, setError, addMessage, updateAvatar, applyAvatarUpdates, t]
   );
 
   if (!activeAvatar) {
