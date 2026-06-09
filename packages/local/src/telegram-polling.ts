@@ -58,7 +58,9 @@ export function startTelegramPolling(deps: TelegramPollingDeps): () => void {
             if (result.response) await bot.api.sendMessage(chatId, result.response.slice(0, 4096));
           } catch (err) {
             console.error("[local] Telegram msg error:", err);
-            try { await bot.api.sendMessage(chatId, "Sorry, something went wrong."); } catch {}
+            try { await bot.api.sendMessage(chatId, "Sorry, something went wrong."); } catch {
+              // Ignore secondary notification failures while polling continues.
+            }
           }
         }
       } catch (err) {

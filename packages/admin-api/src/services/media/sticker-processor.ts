@@ -8,7 +8,7 @@
  *
  * Ported from solanafirehorse with adaptations for aws-swarm architecture.
  */
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@swarm/core';
+import { PutObjectCommand, GetObjectCommand } from '@swarm/core';
 import { randomUUID } from 'crypto';
 import { buildMediaUrl } from '../../utils/media-url.js';
 import { createSystemLogger } from '../structured-logger.js';

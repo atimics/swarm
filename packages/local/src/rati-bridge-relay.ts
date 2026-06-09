@@ -8,12 +8,7 @@
  * The station pays from its own RATi balance — no protocol-level
  * minting for relayers. Each station sets its own bounty.
  */
-import nacl from "tweetnacl";
 import { toBase58 } from "@swarm/core";
-
-const DEVNET_RPC = "https://api.devnet.solana.com";
-const RATI_MINT = "8ZscSWe5ZSFbGYg4JzA3eqpf6iCnwT72i8TZvVni2yMY";
-const BRIDGE_PROGRAM = "2BvA4UGYEFAXUDd1TRzy6fiLXmMYiKzz4DcupDCYL1M5";
 
 /** Default relay bounty in RATi base units (0.1 RATi = 100,000,000) */
 const DEFAULT_RELAY_BOUNTY = 100_000_000;
@@ -25,17 +20,6 @@ export interface RelayConfig {
   stationPubkey: string;
   /** Station secret key for signing transfers (64 bytes NaCl format) */
   stationSecretKey?: Uint8Array;
-}
-
-async function rpcCall(method: string, params: any[]): Promise<any> {
-  const res = await fetch(DEVNET_RPC, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  const data = await res.json() as any;
-  if (data.error) throw new Error(data.error.message);
-  return data.result;
 }
 
 /**

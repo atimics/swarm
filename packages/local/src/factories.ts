@@ -1,7 +1,7 @@
 /**
  * Local service factories — wire up the local-first backends.
  */
-import type { KeyValueStore, SecretsService } from '@swarm/core';
+import type { KeyValueStore } from '@swarm/core';
 import { SqliteRepository } from './sqlite-repository.js';
 import { LocalBlobStore } from './blob-store.js';
 import { InMemoryQueue } from './queue.js';

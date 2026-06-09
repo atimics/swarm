@@ -2,7 +2,7 @@
  * Media Conversion Handler
  * Converts audio/video using ffmpeg and stores result in S3.
  */
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@swarm/core';
+import { PutObjectCommand, GetObjectCommand } from '@swarm/core';
 import { randomUUID } from 'crypto';
 import { createWriteStream, promises as fs } from 'fs';
 import { pipeline } from 'stream/promises';

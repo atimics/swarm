@@ -3,7 +3,6 @@
  * Write-only secrets management with Secrets Manager
  */
 import {
-  SecretsManagerClient,
   CreateSecretCommand,
   UpdateSecretCommand,
   DeleteSecretCommand,

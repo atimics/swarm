@@ -12,14 +12,20 @@
 const DEVNET_RPC = "https://api.devnet.solana.com";
 const RATI_MINT = "8ZscSWe5ZSFbGYg4JzA3eqpf6iCnwT72i8TZvVni2yMY";
 
-async function rpcCall(method: string, params: any[]): Promise<any> {
+interface RpcResponse<T> {
+  result?: T;
+  error?: { message?: string };
+}
+
+async function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
   const res = await fetch(DEVNET_RPC, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
-  const data = await res.json() as any;
+  const data = await res.json() as RpcResponse<T>;
   if (data.error) throw new Error(data.error.message);
+  if (data.result === undefined) throw new Error("Solana RPC response missing result");
   return data.result;
 }
 
@@ -57,13 +63,28 @@ export interface AutoBridgeDeps {
  */
 export async function getRatiBalance(pubkey: string): Promise<number> {
   try {
-    const result = await rpcCall("getTokenAccountsByOwner", [
+    const result = await rpcCall<{
+      value: Array<{
+        account: {
+          data: {
+            parsed: {
+              info: {
+                tokenAmount: {
+                  uiAmount?: number | string | null;
+                };
+              };
+            };
+          };
+        };
+      }>;
+    }>("getTokenAccountsByOwner", [
       pubkey,
       { mint: RATI_MINT },
       { encoding: "jsonParsed" },
     ]);
-    if (result.value?.length > 0) {
-      const info = result.value[0].account.data.parsed.info.tokenAmount;
+    const tokenAccount = result.value[0];
+    if (tokenAccount) {
+      const info = tokenAccount.account.data.parsed.info.tokenAmount;
       return Number(info.uiAmount || 0);
     }
   } catch {
@@ -77,7 +98,7 @@ export async function getRatiBalance(pubkey: string): Promise<number> {
  */
 export async function getSolBalance(pubkey: string): Promise<number> {
   try {
-    const result = await rpcCall("getBalance", [pubkey]);
+    const result = await rpcCall<{ value: number }>("getBalance", [pubkey]);
     return result.value / 1_000_000_000; // lamports → SOL
   } catch {
     return 0;
@@ -106,7 +127,9 @@ export function startAutoBridge(deps: AutoBridgeDeps): {
     // Check live balance
     try {
       state.walletBalance = await getRatiBalance(pubkey);
-    } catch {}
+    } catch {
+      // Ignore transient RPC errors; the next tick refreshes the balance.
+    }
 
     // Simulate mining: 0.25 RATi per cycle (~every 30s)
     const mined = 0.25;

@@ -13,7 +13,8 @@
  * simulated output based on agent activity.
  */
 import nacl from "tweetnacl";
-import { toBase58, toBase64 } from "./agent-identity.js";
+import { createHash } from "node:crypto";
+import { fromBase58, toBase58 } from "./agent-identity.js";
 
 const SOLANA_DEVNET_RPC = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const RATI_BRIDGE_PROGRAM_ID = process.env.RATI_BRIDGE_PROGRAM_ID || "";
@@ -112,8 +113,6 @@ export function signBridgeAttestation(params: {
   secretKey: Uint8Array;
 }): BridgeAttestation {
   const { output, targetChain, targetAddress, secretKey } = params;
-  const { createHash } = require("crypto");
-  
   const timestamp = Date.now();
   
   // Build the pre-image hash
@@ -165,12 +164,10 @@ export function verifyBridgeAttestation(
     attestation.timestamp.toString(),
   ].join(":");
   
-  const { createHash } = require("crypto");
   const hash = createHash("sha256").update(hashInput).digest("hex");
   
   if (hash !== attestation.hash) return false;
   
-  const { fromBase58 } = require("./agent-identity.js");
   const sigBytes = fromBase58(attestation.signature);
   return nacl.sign.detached.verify(Buffer.from(hash, "hex"), sigBytes, pubkey);
 }

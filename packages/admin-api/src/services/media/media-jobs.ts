@@ -10,7 +10,7 @@ import {
   ScanCommand,
   TransactWriteCommand,
 } from '@swarm/core';
-import { S3Client, PutObjectCommand } from '@swarm/core';
+import { PutObjectCommand } from '@swarm/core';
 import type { MediaJob } from '../../types.js';
 import * as gallery from './gallery.js';
 import { getDynamoClient } from '../dynamo-client.js';

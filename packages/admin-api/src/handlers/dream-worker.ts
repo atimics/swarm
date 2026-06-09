@@ -15,7 +15,7 @@
  */
 import type { MessageBatch, MessageRecord } from "@swarm/core";
 import { logger } from '@swarm/core';
-import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
+import { GetSecretValueCommand } from '@swarm/core';
 import { getSecretsClient } from '../services/aws-clients.js';
 import {
   getDreamJob,

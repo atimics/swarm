@@ -187,6 +187,7 @@ describe('telegram-webhook-shared shared-room queue groups', () => {
       avatarId: 'phantom',
       conversationId: '-1001',
       metadata: { receivedAt: 0, priority: 'normal', idempotencyKey: 'k' },
+    });
 
     expect(groupId).toBe('telegram:-1001');
   });
@@ -198,6 +199,7 @@ describe('telegram-webhook-shared shared-room queue groups', () => {
       avatarId: 'eliza',
       conversationId: '-1001',
       metadata: { receivedAt: 0, priority: 'high', idempotencyKey: 'k', isMention: true },
+    });
 
     expect(groupId).toBe('eliza#-1001');
   });
@@ -209,6 +211,7 @@ describe('telegram-webhook-shared shared-room queue groups', () => {
       avatarId: 'phantom',
       conversationId: '-1001',
       metadata: { receivedAt: 0, priority: 'high', idempotencyKey: 'k', isReplyToBot: true },
+    });
 
     expect(groupId).toBe('phantom#-1001');
   });
@@ -246,6 +249,7 @@ describe('telegram-webhook-shared home channel bootstrap', () => {
               botUsername: 'DevilRATiBot',
             },
           },
+        },
         envelope: {
           conversationId: '-1001',
           metadata: {
@@ -278,6 +282,7 @@ describe('telegram-webhook-shared home channel bootstrap', () => {
               botUsername: 'DevilRATiBot',
             },
           },
+        },
         envelope: {
           conversationId: '123',
           metadata: {
@@ -317,6 +322,7 @@ describe('telegram-webhook-shared home channel bootstrap', () => {
               homeChannelId: '-9999',
             },
           },
+        },
         envelope: {
           conversationId: '-1001',
           metadata: {
@@ -496,6 +502,7 @@ describe('webhook-security invalidateAvatarConfigCache', () => {
       getAvatarConfigWithStatus: async () => {
         throw new Error('DDB unavailable');
       },
+    });
 
     await expect(getAvatarStatus('error-avatar')).rejects.toThrow('DDB unavailable');
     expect(avatarConfigCache.has('error-avatar')).toBe(false);

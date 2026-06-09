@@ -4,10 +4,10 @@
  *
  * Uses core media resolvers for model/API key resolution to avoid duplication.
  */
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@swarm/core';
+import { PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@swarm/core';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { getS3Client, getSQSClient } from '../aws-clients.js';
-import { SQSClient, SendMessageCommand } from '@swarm/core';
+import { SendMessageCommand } from '@swarm/core';
 import { PutCommand, QueryCommand, DeleteCommand, UpdateCommand, GetCommand } from '@swarm/core';
 import { createHmac } from 'crypto';
 import { v4 as uuid } from 'uuid';

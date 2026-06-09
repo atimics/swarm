@@ -2,12 +2,12 @@
  * Voice Service
  * Handles transcription, voice profile creation, and TTS generation.
  */
-import { LambdaClient, InvokeCommand } from '@swarm/core';
+import { InvokeCommand } from '@swarm/core';
 import {
   GetCommand,
   PutCommand,
 } from '@swarm/core';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@swarm/core';
+import { PutObjectCommand, GetObjectCommand } from '@swarm/core';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { getLambdaClient, getS3Client } from '../aws-clients.js';
 import { v4 as uuid } from 'uuid';

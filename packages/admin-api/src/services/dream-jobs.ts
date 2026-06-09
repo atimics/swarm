@@ -16,7 +16,7 @@ import {
   UpdateCommand,
   TransactWriteCommand,
 } from '@swarm/core';
-import { SQSClient, SendMessageCommand } from '@swarm/core';
+import { SendMessageCommand } from '@swarm/core';
 import { v4 as uuid } from 'uuid';
 import type { DreamJob, DailyCounter } from '../types.js';
 import { getDynamoClient } from './dynamo-client.js';

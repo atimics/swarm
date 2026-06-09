@@ -16,7 +16,6 @@
  */
 import type { TimerEvent, ExecutionContext } from "@swarm/core";
 import {
-  SQSClient,
   ReceiveMessageCommand,
   DeleteMessageCommand,
   SendMessageCommand,

@@ -17,8 +17,8 @@
 import WebSocket from 'ws';
 import { sendSqsMessage } from '../services/sqs-send.js';
 import { processSharedRoomMessage, buildRoomKey, isSharedRoom, registerChannelAvatarResolver } from '../services/room-ingress.js';
-import { SQSClient, GetQueueAttributesCommand } from '@swarm/core';
-import { SecretsManagerClient, GetSecretValueCommand } from '@swarm/core';
+import { GetQueueAttributesCommand } from '@swarm/core';
+import { GetSecretValueCommand } from '@swarm/core';
 import { getSQSClient, getSecretsClient } from '../services/aws-clients.js';
 import { randomUUID } from 'node:crypto';
 import {

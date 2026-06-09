@@ -2,7 +2,6 @@
  * Chat error mapping tests.
  */
 import { describe, expect, it, beforeAll } from 'bun:test';
-import { injectTestClients } from './__test-helpers__/inject-clients.js';
 let parseOpenRouterStatusFromError: typeof import('./chat-error-mapping.js').parseOpenRouterStatusFromError;
 let isTimeoutLikeError: typeof import('./chat-error-mapping.js').isTimeoutLikeError;
 let mapAdminChatHandlerError: typeof import('./chat-error-mapping.js').mapAdminChatHandlerError;

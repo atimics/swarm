@@ -17,7 +17,7 @@
  *
  * @see docs/COORDINATION-OWNERSHIP.md for the full ownership model.
  */
-import { SQSClient, SendMessageCommand } from '@swarm/core';
+import { SendMessageCommand } from '@swarm/core';
 import { createSystemLogger } from './structured-logger.js';
 import { getSQSClient } from './aws-clients.js';
 

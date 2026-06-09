@@ -6,7 +6,7 @@ import type {
   HttpRequest,
   HttpResponse,
 } from "@swarm/core";
-import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
+import { GetSecretValueCommand } from '@swarm/core';
 import { getSecretsClient } from '../services/aws-clients.js';
 import { authenticateRequest, requireAdmin } from '../auth/request-auth.js';
 import { logger } from '@swarm/core';

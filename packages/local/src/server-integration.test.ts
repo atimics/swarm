@@ -6,7 +6,7 @@ import express from 'express';
 import { mkdirSync, rmSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { createLocalServices } from './factories.js';
-import { initSecrets, injectLocalAdapters, setupLocalEnv } from './server.js';
+import { initSecrets, injectLocalAdapters } from './server.js';
 import { LocalS3Adapter } from './s3-adapter.js';
 import { LocalSQSAdapter } from './sqs-adapter.js';
 import { LocalSecretsAdapter } from './secrets-adapter.js';
@@ -352,7 +352,7 @@ describe('server integration', () => {
       const svc = createLocalServices({ dbPath: INIT_DB + '-mismatch' });
       let calls = 0;
       const result = await initSecrets(svc, {
-        onPasswordNeeded: async (prompt: string) => {
+        onPasswordNeeded: async (_prompt: string) => {
           calls++;
           return calls === 1 ? 'good-password' : 'different-password';
         },
@@ -403,7 +403,9 @@ describe('server integration', () => {
       try {
         const { _resetApiKeyCache } = await import('../../admin-api/src/handlers/chat-llm.js');
         _resetApiKeyCache();
-      } catch {}
+      } catch {
+        // Optional cache reset is unavailable in some test builds.
+      }
 
       chatApp = express();
       chatApp.use(express.json());
@@ -412,7 +414,7 @@ describe('server integration', () => {
 
       // Mock chat: first call returns a pause tool, second call returns final response
       let callCount = 0;
-      await mountAdminRoutes(chatApp, services, async (message: string, history: any[], _session: any, avatar: any) => {
+      await mountAdminRoutes(chatApp, services, async (_message: string | null, history: any[], _session: any, avatar: any) => {
         callCount++;
         if (callCount === 1) {
           // First call: LLM wants to configure an integration
@@ -508,7 +510,9 @@ describe('server integration', () => {
       try {
         const { _resetApiKeyCache } = await import('../../admin-api/src/handlers/chat-llm.js');
         _resetApiKeyCache();
-      } catch {}
+      } catch {
+        // Optional cache reset is unavailable in some test builds.
+      }
 
       toolApp = express();
       toolApp.use(express.json());
@@ -524,7 +528,7 @@ describe('server integration', () => {
 
     it('chat route returns without crashing (LLM unreachable in sandbox)', async () => {
       // In the sandbox, OpenRouter is unreachable. The route should handle this gracefully.
-      const { status, body } = await hitRoute(toolApp, 'POST', '/api/chat', {
+      const { status } = await hitRoute(toolApp, 'POST', '/api/chat', {
         message: 'Search for cats',
         history: [],
       });
@@ -581,7 +585,9 @@ describe('server integration', () => {
       await services.secrets.setSecret('llm-api-key', 'sk-mock-llm');
       await services.secrets.flush();
 
-      try { const { _resetApiKeyCache } = await import('../../admin-api/src/handlers/chat-llm.js'); _resetApiKeyCache(); } catch {}
+      try { const { _resetApiKeyCache } = await import('../../admin-api/src/handlers/chat-llm.js'); _resetApiKeyCache(); } catch {
+        // Optional cache reset is unavailable in some test builds.
+      }
 
       // Mock fetch: intercept OpenRouter API calls
       (globalThis as any).fetch = async (url: string, init: any) => {
@@ -708,7 +714,7 @@ describe('server integration', () => {
     });
 
     it('configure_integration trigger returns without crashing', async () => {
-      const { status, body } = await hitRoute(mockApp, 'POST', '/api/chat', {
+      const { status } = await hitRoute(mockApp, 'POST', '/api/chat', {
         message: 'configure telegram',
         history: [],
         avatar: { id: 'mock-avatar' },
@@ -738,7 +744,7 @@ describe('server integration', () => {
     });
 
     it('chat with avatar returns without crashing', async () => {
-      const { status, body } = await hitRoute(mockApp, 'POST', '/api/chat', {
+      const { status } = await hitRoute(mockApp, 'POST', '/api/chat', {
         message: 'Hello!',
         history: [],
         avatar: { id: 'test-avatar-1' },
@@ -775,7 +781,9 @@ describe('server integration', () => {
       await services.secrets.setSecret('llm-api-key', 'sk-loop');
       await services.secrets.flush();
 
-      try { const { _resetApiKeyCache } = await import('../../admin-api/src/handlers/chat-llm.js'); _resetApiKeyCache(); } catch {}
+      try { const { _resetApiKeyCache } = await import('../../admin-api/src/handlers/chat-llm.js'); _resetApiKeyCache(); } catch {
+        // Optional cache reset is unavailable in some test builds.
+      }
 
       // Stateful mock: tracks call count to simulate multi-step conversations
       let callCount = 0;
@@ -879,7 +887,7 @@ describe('server integration', () => {
 
     it('empty tool call response ends loop immediately', async () => {
       // The mock for this tests the "no more tool calls → final response" path
-      const { status, body } = await hitRoute(loopApp, 'POST', '/api/chat', {
+      const { status } = await hitRoute(loopApp, 'POST', '/api/chat', {
         message: 'hello just say hi',
         history: [],
       });

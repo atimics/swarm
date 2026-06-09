@@ -97,7 +97,7 @@ export async function createAvatar(
     }));
   } catch (err) {
     // Fall back to storing base64 in the record if secrets client is unavailable
-    console.warn("Failed to store identity seed via secrets service:", (err as Error).message);
+    log.warn('Failed to store identity seed via secrets service', { error: (err as Error).message });
   }
 
   const avatar: AvatarRecord = {

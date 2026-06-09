@@ -115,7 +115,7 @@ describe('accounts service', () => {
     expect(wallets).toEqual(['wallet-1', 'wallet-2']);
   });
 
-  it('merges Privy identity into an existing wallet-owned account when walletAddress is provided', async () => {
+  it('links a Privy identity into an existing wallet-owned account', async () => {
     await ensureIdentityLinkedToAccount({ accountId: 'acct-existing', type: 'wallet', providerId: 'wallet-1' }, deps);
     await (deps.dynamoClient.send as any)({
       input: {
@@ -124,15 +124,19 @@ describe('accounts service', () => {
       },
     });
 
-    expect(accountResult.success).toBe(true);
-    if (accountResult.success) {
-      expect(accountResult.accountId).toBe('acct-existing');
-    }
+    const linkResult = await ensureIdentityLinkedToAccount({
+      accountId: 'acct-existing',
+      type: 'privy',
+      providerId: 'privy-user-1',
+    }, deps);
+
+    expect(linkResult).toEqual({ linked: true, conflict: false });
 
     const mapped = await getAccountIdForIdentity('privy', 'privy-user-1', deps);
     expect(mapped).toBe('acct-existing');
   });
 
+  it('reports a conflict when a Privy identity is already linked elsewhere', async () => {
     // Seed profiles
     await (deps.dynamoClient.send as any)({
       input: {
@@ -150,11 +154,12 @@ describe('accounts service', () => {
     await ensureIdentityLinkedToAccount({ accountId: 'acct-wallet', type: 'wallet', providerId: 'wallet-1' }, deps);
     await ensureIdentityLinkedToAccount({ accountId: 'acct-privy', type: 'privy', providerId: 'privy-user-1' }, deps);
 
-    expect(accountResult.success).toBe(false);
-    if (!accountResult.success) {
-      expect(accountResult.conflict.existingAccountId).toBe('acct-privy');
-    }
+    const linkResult = await ensureIdentityLinkedToAccount({
+      accountId: 'acct-wallet',
+      type: 'privy',
+      providerId: 'privy-user-1',
+    }, deps);
+
+    expect(linkResult).toEqual({ linked: false, conflict: true, existingAccountId: 'acct-privy' });
   });
-
-
 });

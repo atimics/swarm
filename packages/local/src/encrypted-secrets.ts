@@ -23,7 +23,6 @@ import { createHash, createCipheriv, createDecipheriv, randomBytes, pbkdf2Sync }
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32; // 256 bits
 const IV_LENGTH = 12; // 96 bits for GCM
-const AUTH_TAG_LENGTH = 16; // 128 bits
 const SALT_LENGTH = 32;
 const PBKDF2_ITERATIONS = 600_000;
 const PBKDF2_DIGEST = 'sha512';
@@ -155,7 +154,7 @@ export class EncryptedSecretsService implements SecretsService {
     const encrypted = await this.store.get<Record<string, string>>({ pk: SECRETS_PK, sk: SECRETS_SK });
     if (encrypted) {
       try {
-        const { iv, ciphertext, tag, ...rest } = encrypted;
+        const { iv, ciphertext, tag } = encrypted;
         const json = decrypt(
           { iv: iv as string, ciphertext: ciphertext as string, tag: tag as string },
           key,

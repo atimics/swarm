@@ -9,7 +9,7 @@
  * The seed never touches disk unencrypted.
  */
 import nacl from "tweetnacl";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { keccak256 } from "js-sha3";
 
 // ---------------------------------------------------------------------------
@@ -62,7 +62,6 @@ export function generateAgentKeypair(): AgentKeypair {
  * Matches Signal's station key derivation pattern.
  */
 export function deriveAgentKeypair(seedPhrase: string, provenance: string): AgentKeypair {
-  const { createHash } = require("crypto");
   const hash = createHash("sha512")
     .update(seedPhrase)
     .update(":")
@@ -111,7 +110,7 @@ export interface StationPosition {
  * Same approach as Signal's asteroid belt seeding — cryptographic scattering.
  */
 export function deriveStationPosition(pubkey: Uint8Array): StationPosition {
-  const hash = require("crypto").createHash("sha256")
+  const hash = createHash("sha256")
     .update(pubkey)
     .update("station")
     .digest();
@@ -184,6 +183,28 @@ export function toBase58(buf: Uint8Array): string {
     digits.push(0);
   }
   return digits.reverse().map(d => BASE58_ALPHABET[d]).join("");
+}
+
+export function fromBase58(value: string): Uint8Array {
+  const bytes = [0];
+  for (const char of value) {
+    const digit = BASE58_ALPHABET.indexOf(char);
+    if (digit < 0) throw new Error(`Invalid base58 character: ${char}`);
+    let carry = digit;
+    for (let i = 0; i < bytes.length; i++) {
+      carry += bytes[i] * 58;
+      bytes[i] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+  for (let i = 0; i < value.length && value[i] === BASE58_ALPHABET[0]; i++) {
+    bytes.push(0);
+  }
+  return new Uint8Array(bytes.reverse());
 }
 
 export function toHex(buf: Uint8Array): string {

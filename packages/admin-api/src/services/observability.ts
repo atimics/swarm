@@ -3,7 +3,7 @@
  *
  * Aggregates system status and per-avatar activity for admin tools and APIs.
  */
-import { GetQueueAttributesCommand, SQSClient } from '@swarm/core';
+import { GetQueueAttributesCommand } from '@swarm/core';
 import * as avatarLogs from './avatar-observability.js';
 import * as autoIssues from './auto-issues.js';
 import * as avatarEvents from './avatar-observability.js';

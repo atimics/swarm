@@ -6,6 +6,8 @@
  * root of trust: any chain can verify "this pubkey owns this avatar" by
  * checking the Arweave record.
  */
+import { createHash } from "node:crypto";
+
 const ARWEAVE_GATEWAY = "https://arweave.net";
 
 export interface ArweaveIdentityRecord {
@@ -57,7 +59,7 @@ export async function publishIdentityRecord(
   if (!arweaveWallet) {
     // Offline mode: return the record without publishing.
     // The caller can publish later with a wallet.
-    const hash = require("crypto").createHash("sha256").update(body).digest("hex");
+    const hash = createHash("sha256").update(body).digest("hex");
     return {
       txId: "offline-" + hash.slice(0, 16),
       url: "(offline — provide Arweave JWK to publish)",

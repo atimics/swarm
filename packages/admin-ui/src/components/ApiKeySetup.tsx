@@ -16,7 +16,9 @@ export function ApiKeySetup() {
       try {
         const res = await fetch('/api/secrets/llm-api-key');
         if (res.ok) setSaved(true);
-      } catch {}
+      } catch {
+        // OAuth completion is polled; transient fetch failures are retried.
+      }
     };
     const interval = setInterval(check, 2000);
     check();

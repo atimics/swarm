@@ -9,7 +9,7 @@ import type {
   HttpRequest,
   HttpResponse,
 } from "@swarm/core";
-import { SendMessageCommand, SQSClient } from '@swarm/core';
+import { SendMessageCommand } from '@swarm/core';
 import {
   DEFAULT_LLM_MAX_TOKENS,
   DEFAULT_LLM_MODEL,

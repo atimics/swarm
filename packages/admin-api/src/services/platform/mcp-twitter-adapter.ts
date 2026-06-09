@@ -4,7 +4,7 @@
  * Provides Twitter service methods for the MCP adapter, including media
  * download/upload helpers. Extracted from mcp-adapter.ts for maintainability.
  */
-import { GetObjectCommand, S3Client } from '@swarm/core';
+import { GetObjectCommand } from '@swarm/core';
 import { Readable } from 'stream';
 import {
   ensureTwitterImageWithinLimit,

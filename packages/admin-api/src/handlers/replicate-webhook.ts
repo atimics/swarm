@@ -6,8 +6,8 @@ import type {
   HttpRequest,
   HttpResponse,
 } from "@swarm/core";
-import { S3Client, PutObjectCommand } from '@swarm/core';
-import { SQSClient, SendMessageCommand } from '@swarm/core';
+import { PutObjectCommand } from '@swarm/core';
+import { SendMessageCommand } from '@swarm/core';
 import { createHmac, timingSafeEqual } from 'crypto';
 import * as mediaJobs from '../services/media-jobs.js';
 import * as gallery from '../services/gallery.js';

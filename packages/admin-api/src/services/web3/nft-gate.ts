@@ -7,10 +7,7 @@
  * 2. BURNING = Permission to abandon an inhabited avatar
  */
 import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@swarm/core';
-import {
-  SecretsManagerClient,
-  GetSecretValueCommand,
-} from '@swarm/core';
+import { GetSecretValueCommand } from '@swarm/core';
 import { getDynamoClient } from '../dynamo-client.js';
 import { createSystemLogger } from '../structured-logger.js';
 import { fetchAllAssetsByOwner } from './helius-pagination.js';

@@ -14,10 +14,7 @@ import {
   GetCommand,
   DeleteCommand,
 } from '@swarm/core';
-import {
-  SecretsManagerClient,
-  GetSecretValueCommand,
-} from '@swarm/core';
+import { GetSecretValueCommand } from '@swarm/core';
 import * as secretsServiceDefault from '../secrets.js';
 import type { UserSession } from '../../types.js';
 import { getDynamoClient } from '../dynamo-client.js';

@@ -17,7 +17,22 @@ import { LocalLambdaAdapter } from './lambda-adapter.js';
 export { createLocalServices } from './factories.js';
 
 // Module-level state for cross-route communication
-const _signalState: { latestAvatarId: string | null; latestPubkey: string | null; latestIdentity: any; treasuryConfig: { minerShare: number; treasuryShare: number; lpPoolAddress?: string } } = { latestAvatarId: null, latestPubkey: null, latestIdentity: null, treasuryConfig: { minerShare: 0.10, treasuryShare: 0.90 } };
+interface SignalIdentity {
+  pubkey?: string;
+  encryptedSeed?: string;
+}
+
+const _signalState: {
+  latestAvatarId: string | null;
+  latestPubkey: string | null;
+  latestIdentity: SignalIdentity | null;
+  treasuryConfig: { minerShare: number; treasuryShare: number; lpPoolAddress?: string };
+} = {
+  latestAvatarId: null,
+  latestPubkey: null,
+  latestIdentity: null,
+  treasuryConfig: { minerShare: 0.10, treasuryShare: 0.90 },
+};
 export { SqliteRepository } from './sqlite-repository.js';
 export { LocalBlobStore } from './blob-store.js';
 export { InMemoryQueue } from './queue.js';
@@ -72,7 +87,9 @@ console.error = (...args: unknown[]) => { pushLog('ERROR', args.map(String).join
 process.on('uncaughtException', (err) => {
   pushLog('ERROR', `Uncaught: ${err.message}\n${err.stack}`);
   if (logFilePath) {
-    try { appendFileSync(logFilePath, err.stack + '\n'); } catch {}
+    try { appendFileSync(logFilePath, err.stack + '\n'); } catch {
+      // Best-effort crash logging only.
+    }
   }
   process.exit(1);
 });
@@ -105,18 +122,6 @@ async function promptPassword(prompt: string, options: ServerOptions): Promise<s
   });
 }
 
-async function resolvePassword(options: ServerOptions, allOptions: ServerOptions): Promise<string> {
-  if (options.password) return options.password;
-
-  const fromArg = process.argv.find((a) => a.startsWith('--password='));
-  if (fromArg) return fromArg.split('=')[1];
-
-  const fromEnv = process.env.SWARM_ADMIN_PASSWORD;
-  if (fromEnv) return fromEnv;
-
-  return promptPassword('Admin password: ');
-}
-
 // ── Server ───────────────────────────────────────────────────────────────
 async function startTgPolling(services: ReturnType<typeof createLocalServices>) {
   try {
@@ -135,7 +140,8 @@ async function startTgPolling(services: ReturnType<typeof createLocalServices>) 
         const { listAvatars } = await import("../../admin-api/src/services/avatars.js");
         const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
         const avatars = await listAvatars(session);
-        if (avatars[0]) cachedAvatarId = avatars[0].avatarId || (avatars[0] as any).id;
+        const first = avatars[0] as { avatarId?: string; id?: string } | undefined;
+        if (first) cachedAvatarId = first.avatarId || first.id || null;
         return cachedAvatarId;
       },
       loadHistory: async (session, avatarId) => {
@@ -328,7 +334,6 @@ export async function startServer(options: ServerOptions = {}) {
   app.get('/api/logs', (_req, res) => {
     const limit = Math.min(parseInt(String(_req.query.limit)) || 50, MAX_LOG_ENTRIES);
     const level = String(_req.query.level || '').toUpperCase();
-    const since = String(_req.query.since || '');
     const query = String(_req.query.query || '').toLowerCase();
 
     let entries = [...logBuffer];
@@ -394,7 +399,15 @@ export async function startServer(options: ServerOptions = {}) {
   });
 
   app.get("/api/auth/openrouter/callback", (req, res) => {
-    return res.redirect(`/callback?${new URLSearchParams(req.query as any).toString()}`);
+    const query = new URLSearchParams(
+      Object.entries(req.query).flatMap(([key, value]) => {
+        if (Array.isArray(value)) {
+          return value.map((item) => [key, String(item)] as [string, string]);
+        }
+        return [[key, String(value)] as [string, string]];
+      }),
+    );
+    return res.redirect(`/callback?${query.toString()}`);
   });
 
   app.get("/callback", async (req, res) => {
@@ -637,7 +650,7 @@ export async function startServer(options: ServerOptions = {}) {
   }
 
   return new Promise<{ app: express.Express; services: typeof services }>(
-    async (resolve, reject) => {
+    (resolve, reject) => {
       const server = app.listen(port, () => {
         console.log(`[local] Swarm server running at http://localhost:${port}`);
         console.log(`[local]   Database: ${dbPath}`);
@@ -657,15 +670,35 @@ export async function startServer(options: ServerOptions = {}) {
 
 // ── Route mounting ──────────────────────────────────────────────────────
 
+type ChatHistoryMessage = { role: string; content: string; [key: string]: unknown };
+type LocalSession = { email: string; userId: string; isAdmin: boolean };
+type PendingToolCall = { id: string; name: string; arguments: Record<string, unknown> };
+type ChatRouteResult = {
+  response?: string;
+  history?: ChatHistoryMessage[];
+  avatar?: unknown;
+  pendingToolCall?: PendingToolCall;
+  taskActions?: unknown;
+  media?: unknown;
+  pendingJobs?: unknown;
+  avatarUpdates?: unknown;
+};
+type ChatProcessor = (
+  message: string | null,
+  history: ChatHistoryMessage[],
+  session: LocalSession,
+  avatar?: { id: string },
+) => Promise<ChatRouteResult>;
+
 export async function mountAdminRoutes(
   app: express.Express,
   _services: ReturnType<typeof createLocalServices>,
-  processChatOverride?: (...args: any[]) => Promise<any>,
+  processChatOverride?: ChatProcessor,
 ) {
   const { processChat } = await import(
     '../../admin-api/src/handlers/chat.js'
   );
-  const chat = processChatOverride ?? processChat;
+  const chat = processChatOverride ?? (processChat as unknown as ChatProcessor);
 
   app.post('/api/chat', async (req, res) => {
     try {
@@ -690,13 +723,14 @@ export async function mountAdminRoutes(
 
       const result = await chat(
         message ?? null,
-        history as Array<{ role: string; content: string }>,
+        history,
         session,
         avatar ? { id: avatar.id } : undefined,
       );
 
       // Persist pending tool call so the tools resume endpoint can validate it
-      if ((result as any).pendingToolCall && avatar?.id) {
+      const pendingToolCall = result.pendingToolCall;
+      if (pendingToolCall && avatar?.id) {
         try {
           const { savePendingTool } = await import(
             "../../admin-api/src/services/pending-tools.js"
@@ -704,11 +738,11 @@ export async function mountAdminRoutes(
           await savePendingTool({
             email: session.email,
             avatarId: avatar.id,
-            toolCallId: (result as any).pendingToolCall.id,
-            toolName: (result as any).pendingToolCall.name,
-            arguments: (result as any).pendingToolCall.arguments,
+            toolCallId: pendingToolCall.id,
+            toolName: pendingToolCall.name,
+            arguments: pendingToolCall.arguments,
           });
-          console.log(`[local] Persisted pending tool call ${(result as any).pendingToolCall.id}`);
+          console.log(`[local] Persisted pending tool call ${pendingToolCall.id}`);
         } catch (e) {
           console.error("[local] Failed to persist pending tool:", e);
         }
@@ -718,11 +752,11 @@ export async function mountAdminRoutes(
         response: result.response,
         history: result.history,
         avatar: result.avatar,
-        pendingToolCall: (result as any).pendingToolCall,
-        taskActions: (result as any).taskActions,
-        media: (result as any).media,
-        pendingJobs: (result as any).pendingJobs,
-        avatarUpdates: (result as any).avatarUpdates,
+        pendingToolCall,
+        taskActions: result.taskActions,
+        media: result.media,
+        pendingJobs: result.pendingJobs,
+        avatarUpdates: result.avatarUpdates,
       });
     } catch (err) {
       console.error('[local] Chat error:', err);
@@ -810,7 +844,7 @@ export async function mountAdminRoutes(
     }
   });
 
-  app.post("/api/avatars/:id/validate-ai-key", async (req, res) => {
+  app.post("/api/avatars/:id/validate-ai-key", async (_req, res) => {
     res.json({ valid: true });  // local mode always accepts keys
   });
 

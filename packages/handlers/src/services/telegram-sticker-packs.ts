@@ -1,4 +1,4 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@swarm/core';
+import { GetObjectCommand, PutObjectCommand } from '@swarm/core';
 import { GetCommand, PutCommand, QueryCommand } from '@swarm/core';
 import { buildMediaUrl, logger, type AvatarConfig, type MediaService } from '@swarm/core';
 import type {

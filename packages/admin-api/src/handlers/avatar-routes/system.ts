@@ -7,7 +7,7 @@
  */
 import type { RouteContext } from './types.js';
 import type { HttpResponse } from "@swarm/core";
-import { SecretsManagerClient, GetSecretValueCommand } from '@swarm/core';
+import { GetSecretValueCommand } from '@swarm/core';
 import { getSecretsClient } from '../../services/aws-clients.js';
 import { jsonResponse, parseSinceQueryParam } from './shared.js';
 import * as observabilityService from '../../services/observability.js';

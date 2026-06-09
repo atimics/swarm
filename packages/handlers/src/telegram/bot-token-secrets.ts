@@ -1,4 +1,4 @@
-import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
+import { GetSecretValueCommand } from '@swarm/core';
 import { getSecretsClient } from '../services/aws-clients.js';
 
 const secretsClient = getSecretsClient();

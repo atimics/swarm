@@ -11,7 +11,7 @@
  * acts on behalf of any avatar; the per-avatar token model used by the
  * scheduled `station-agent-runner` is intentionally separate.
  */
-import { GetSecretValueCommand, SecretsManagerClient } from '@swarm/core';
+import { GetSecretValueCommand } from '@swarm/core';
 import { getSecretsClient } from '../aws-clients.js';
 import type { SignalStationServices, StationState, CommandResult } from '@swarm/mcp-server';
 
