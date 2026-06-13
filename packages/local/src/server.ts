@@ -13,8 +13,11 @@ import { LocalS3Adapter } from './s3-adapter.js';
 import { LocalSQSAdapter } from './sqs-adapter.js';
 import { LocalSecretsAdapter } from './secrets-adapter.js';
 import { LocalLambdaAdapter } from './lambda-adapter.js';
+import type { UserSession } from '@swarm/admin-api';
 
 export { createLocalServices } from './factories.js';
+
+type LocalServices = ReturnType<typeof createLocalServices>;
 
 // Module-level state for cross-route communication
 interface SignalIdentity {
@@ -109,6 +112,15 @@ export interface ServerOptions {
   promptFn?: (message: string) => Promise<string>;
 }
 
+function localAdminSession(): UserSession {
+  return {
+    email: 'local@swarm.dev',
+    userId: 'local-user',
+    isAdmin: true,
+    accessToken: 'local-admin',
+  };
+}
+
 // ── Password prompt ──────────────────────────────────────────────────────
 
 async function promptPassword(prompt: string, options: ServerOptions): Promise<string> {
@@ -138,8 +150,7 @@ async function startTgPolling(services: ReturnType<typeof createLocalServices>) 
       getAvatarId: async () => {
         if (cachedAvatarId) return cachedAvatarId;
         const { listAvatars } = await import("../../admin-api/src/services/avatars.js");
-        const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
-        const avatars = await listAvatars(session);
+        const avatars = await listAvatars();
         const first = avatars[0] as { avatarId?: string; id?: string } | undefined;
         if (first) cachedAvatarId = first.avatarId || first.id || null;
         return cachedAvatarId;
@@ -330,6 +341,16 @@ export async function startServer(options: ServerOptions = {}) {
       logFile: logFilePath,
     });
   });
+
+  app.get('/api/health', (_req, res) => {
+    res.json({
+      status: 'ok',
+      backend: 'local',
+      db: dbPath,
+      secrets: services.secrets.isUnlocked ? 'unlocked' : 'locked',
+      logFile: logFilePath,
+    });
+  });
   // Log viewer
   app.get('/api/logs', (_req, res) => {
     const limit = Math.min(parseInt(String(_req.query.limit)) || 50, MAX_LOG_ENTRIES);
@@ -375,9 +396,33 @@ export async function startServer(options: ServerOptions = {}) {
   app.get('/auth/me', localAuthMe);
   app.get('/api/auth/me', localAuthMe);
 
-  app.post('/auth/logout', (_req, res) => {
-    res.json({ success: true });
-  });
+  async function localLogout(_req: express.Request, res: express.Response) {
+    await services.secrets.deleteSecret('llm-provider').catch(() => undefined);
+    await services.secrets.deleteSecret('llm-api-key').catch(() => undefined);
+    await services.secrets.flush();
+    try {
+      const { clearChatHistory } = await import('../../admin-api/src/services/chat-history.js');
+      const { listAvatars } = await import('../../admin-api/src/services/avatars.js');
+      const session = {
+        email: 'local@swarm.dev',
+        userId: 'local-user',
+        isAdmin: true,
+        accessToken: 'local',
+      };
+      await clearChatHistory(session, undefined);
+      const avatars = await listAvatars();
+      await Promise.all(avatars.map((avatar) => clearChatHistory(
+        session,
+        (avatar as { avatarId?: string; id?: string }).avatarId || (avatar as { id?: string }).id,
+      )));
+    } catch (err) {
+      console.warn('[local] Failed to clear chat history on logout:', err);
+    }
+    res.json({ success: true, aiDisconnected: true });
+  }
+
+  app.post('/auth/logout', localLogout);
+  app.post('/api/auth/logout', localLogout);
 
   // -- OpenRouter PKCE OAuth ----------------------------------------
   const pendingPkce = new Map<string, { verifier: string; createdAt: number }>();
@@ -430,6 +475,7 @@ export async function startServer(options: ServerOptions = {}) {
       if (!body.key) { res.status(502).send("No key in response"); return; }
 
       await services.secrets.setSecret("llm-api-key", body.key);
+      await services.secrets.setSecret("llm-provider", "openrouter");
       await services.secrets.flush();
       res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:system-ui;text-align:center;padding-top:80px;background:#0d0d0d;color:#e0e0e0"><h1>Connected</h1><p>Your OpenRouter API key has been saved.</p><p>You may close this window.</p></body></html>`);
     } catch (err) {
@@ -491,9 +537,9 @@ export async function startServer(options: ServerOptions = {}) {
   app.get("/api/secrets/:name", async (req, res) => {
     try {
       const value = await services.secrets.getSecret(req.params.name);
-      res.json({ name: req.params.name, value });
-    } catch (err) {
-      res.status(404).json({ error: (err as Error).message });
+      res.json({ name: req.params.name, exists: true, value });
+    } catch {
+      res.json({ name: req.params.name, exists: false });
     }
   });
 
@@ -502,6 +548,9 @@ export async function startServer(options: ServerOptions = {}) {
       const { value } = req.body as { value: string };
       if (!value) { res.status(400).json({ error: "value required" }); return; }
       await services.secrets.setSecret(req.params.name, value);
+      if (req.params.name === 'llm-api-key') {
+        await services.secrets.setSecret('llm-provider', 'openrouter');
+      }
       await services.secrets.flush();
       res.json({ success: true });
     } catch (err) {
@@ -671,7 +720,7 @@ export async function startServer(options: ServerOptions = {}) {
 // ── Route mounting ──────────────────────────────────────────────────────
 
 type ChatHistoryMessage = { role: string; content: string; [key: string]: unknown };
-type LocalSession = { email: string; userId: string; isAdmin: boolean };
+type LocalSession = { email: string; userId: string; isAdmin: boolean; accessToken: string };
 type PendingToolCall = { id: string; name: string; arguments: Record<string, unknown> };
 type ChatRouteResult = {
   response?: string;
@@ -690,15 +739,79 @@ type ChatProcessor = (
   avatar?: { id: string },
 ) => Promise<ChatRouteResult>;
 
+async function getLocalLlmStatus(services: LocalServices): Promise<{
+  configured: boolean;
+  provider: 'openrouter' | 'ollama' | null;
+  selectedProvider: 'openrouter' | 'ollama' | null;
+  openrouter: { configured: boolean };
+  ollama: { available: boolean; model?: string; endpoint: string };
+}> {
+  let selectedProvider: 'openrouter' | 'ollama' | null = null;
+  try {
+    const rawProvider = await services.secrets.getSecret('llm-provider');
+    if (rawProvider === 'openrouter' || rawProvider === 'ollama') {
+      selectedProvider = rawProvider;
+    }
+  } catch {
+    selectedProvider = null;
+  }
+
+  const envLlmKey = process.env.LLM_API_KEY;
+  let hasOpenRouterKey = Boolean(
+    process.env.OPENROUTER_API_KEY ||
+    (envLlmKey && envLlmKey !== 'ollama')
+  );
+  if (!hasOpenRouterKey) {
+    try {
+      const key = await services.secrets.getSecret('llm-api-key');
+      hasOpenRouterKey = Boolean(key?.trim());
+    } catch {
+      hasOpenRouterKey = false;
+    }
+  }
+
+  if (hasOpenRouterKey) {
+    return {
+      configured: true,
+      provider: 'openrouter',
+      selectedProvider: 'openrouter',
+      openrouter: { configured: true },
+      ollama: { available: false, endpoint: getOllamaEndpoint() },
+    };
+  }
+
+  const model = await getOllamaModel();
+  const ollamaAvailable = Boolean(model) || await isOllamaAvailable();
+  if (model) {
+    process.env.LLM_ENDPOINT = getOllamaEndpoint();
+    process.env.LLM_API_KEY = 'ollama';
+    process.env.LLM_MODEL = model;
+  }
+
+  return {
+    configured: selectedProvider === 'ollama' && Boolean(model),
+    provider: selectedProvider === 'ollama' && model ? 'ollama' : null,
+    selectedProvider,
+    openrouter: { configured: false },
+    ollama: { available: ollamaAvailable, model, endpoint: getOllamaEndpoint() },
+  };
+}
+
 export async function mountAdminRoutes(
   app: express.Express,
-  _services: ReturnType<typeof createLocalServices>,
+  services: LocalServices,
   processChatOverride?: ChatProcessor,
 ) {
   const { processChat } = await import(
     '../../admin-api/src/handlers/chat.js'
   );
   const chat = processChatOverride ?? (processChat as unknown as ChatProcessor);
+  const makeLocalSession = (sessionOverride?: { email?: string; userId?: string; isAdmin?: boolean }): LocalSession => ({
+    email: sessionOverride?.email ?? 'local@swarm.dev',
+    userId: sessionOverride?.userId ?? 'local-user',
+    isAdmin: sessionOverride?.isAdmin ?? true,
+    accessToken: 'local',
+  });
 
   app.post('/api/chat', async (req, res) => {
     try {
@@ -715,11 +828,18 @@ export async function mountAdminRoutes(
         return;
       }
 
-      const session = {
-        email: sessionOverride?.email ?? 'local@swarm.dev',
-        userId: sessionOverride?.userId ?? 'local-user',
-        isAdmin: sessionOverride?.isAdmin ?? true,
-      };
+      const llmStatus = await getLocalLlmStatus(services);
+      if (!llmStatus.configured) {
+        res.status(409).json({
+          error: 'AI provider setup required',
+          code: 'AI_PROVIDER_REQUIRED',
+          message: 'Connect OpenRouter or start Ollama before chatting.',
+          providerStatus: llmStatus,
+        });
+        return;
+      }
+
+      const session = makeLocalSession(sessionOverride);
 
       const result = await chat(
         message ?? null,
@@ -767,13 +887,81 @@ export async function mountAdminRoutes(
     }
   });
 
+  app.get('/api/chat', async (req, res) => {
+    try {
+      const { getChatHistory } = await import('../../admin-api/src/services/chat-history.js');
+      const avatarId = typeof req.query.avatarId === 'string' ? req.query.avatarId : undefined;
+      const history = await getChatHistory(makeLocalSession(), avatarId);
+      res.json({ history });
+    } catch (err) {
+      console.error('[local] Chat history load error:', err);
+      res.status(500).json({ error: 'Failed to load chat history' });
+    }
+  });
+
+  app.delete('/api/chat', async (req, res) => {
+    try {
+      const { clearChatHistory } = await import('../../admin-api/src/services/chat-history.js');
+      const avatarId = typeof req.query.avatarId === 'string' ? req.query.avatarId : undefined;
+      await clearChatHistory(makeLocalSession(), avatarId);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[local] Chat history clear error:', err);
+      res.status(500).json({ error: 'Failed to clear chat history' });
+    }
+  });
+
+  app.post('/api/chat/message', async (req, res) => {
+    try {
+      const { appendSystemMessage } = await import('../../admin-api/src/services/chat-history.js');
+      const { avatarId, message } = req.body as {
+        avatarId?: string;
+        message?: { role?: 'assistant' | 'user'; content?: string };
+      };
+      if (!avatarId || !message?.role || !message.content) {
+        res.status(400).json({ error: 'avatarId and message required' });
+        return;
+      }
+      const history = await appendSystemMessage(makeLocalSession(), avatarId, {
+        role: message.role,
+        content: message.content,
+      });
+      res.json({ history });
+    } catch (err) {
+      console.error('[local] Chat history append error:', err);
+      res.status(500).json({ error: 'Failed to append chat message' });
+    }
+  });
+
+  app.get('/api/llm/status', async (_req, res) => {
+    res.json(await getLocalLlmStatus(services));
+  });
+
+  app.post('/api/llm/provider', async (req, res) => {
+    const { provider } = req.body as { provider?: string };
+    if (provider !== 'openrouter' && provider !== 'ollama') {
+      res.status(400).json({ error: 'provider must be openrouter or ollama' });
+      return;
+    }
+
+    await services.secrets.setSecret('llm-provider', provider);
+    await services.secrets.flush();
+    res.json(await getLocalLlmStatus(services));
+  });
+
+  app.delete('/api/llm/provider', async (_req, res) => {
+    await services.secrets.deleteSecret('llm-provider').catch(() => undefined);
+    await services.secrets.deleteSecret('llm-api-key').catch(() => undefined);
+    await services.secrets.flush();
+    res.json(await getLocalLlmStatus(services));
+  });
+
   app.get('/api/avatars', async (_req, res) => {
     try {
       const { listAvatars } = await import(
         '../../admin-api/src/services/avatars.js'
       );
-      const session = { email: 'local@swarm.dev', userId: 'local-user', isAdmin: true };
-      const avatars = await listAvatars(session);
+      const avatars = await listAvatars();
       res.json(avatars);
     } catch (err) {
       console.error('[local] Avatars error:', err);
@@ -788,7 +976,7 @@ export async function mountAdminRoutes(
   app.post("/api/avatars", async (req, res) => {
     try {
       const { createAvatar } = await import("../../admin-api/src/services/avatars.js");
-      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const session = localAdminSession();
       const { name, description } = req.body as { name?: string; description?: string };
       if (!name) { res.status(400).json({ error: "name required" }); return; }
       const avatar = await createAvatar(name, session, description);
@@ -808,8 +996,8 @@ export async function mountAdminRoutes(
       if (!key || !value) { res.status(400).json({ error: "key and value required" }); return; }
       const secretName = key.includes("_") ? key : `${key}_api_key`;
       console.log(`[local] Saving secret ${secretName} for avatar ${req.params.id}`);
-      await _services.secrets.setSecret(secretName, value);
-      await _services.secrets.flush();
+      await services.secrets.setSecret(secretName, value);
+      await services.secrets.flush();
       console.log(`[local] Secret ${secretName} saved successfully`);
       res.json({ success: true, message: `${key} stored securely` });
     } catch (err) {
@@ -820,7 +1008,7 @@ export async function mountAdminRoutes(
 
   app.get("/api/avatars/:id/secrets", async (_req, res) => {
     try {
-      const names = await _services.secrets.listSecrets();
+      const names = await services.secrets.listSecrets();
       res.json(names);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -859,7 +1047,7 @@ export async function mountAdminRoutes(
   app.put("/api/avatars/:id", async (req, res) => {
     try {
       const { updateAvatar } = await import("../../admin-api/src/services/avatars.js");
-      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const session = localAdminSession();
       console.log(`[local] Updating avatar ${req.params.id}:`, JSON.stringify(req.body).slice(0, 200));
       const result = await updateAvatar(req.params.id, req.body, session);
       res.json(result);
@@ -872,7 +1060,7 @@ export async function mountAdminRoutes(
   app.patch("/api/avatars/:id", async (req, res) => {
     try {
       const { updateAvatar } = await import("../../admin-api/src/services/avatars.js");
-      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const session = localAdminSession();
       const result = await updateAvatar(req.params.id, req.body, session);
       res.json(result);
     } catch (err) {
@@ -887,7 +1075,7 @@ export async function mountAdminRoutes(
   app.post("/api/avatars/:id/integrations", async (req, res) => {
     try {
       const { updateAvatar } = await import("../../admin-api/src/services/avatars.js");
-      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const session = localAdminSession();
       const result = await updateAvatar(req.params.id, req.body, session);
       res.json(result);
     } catch (err) {
@@ -918,8 +1106,7 @@ export async function mountAdminRoutes(
   app.get("/api/avatars/:id", async (req, res) => {
     try {
       const { getAvatar } = await import("../../admin-api/src/services/avatars.js");
-      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
-      const avatar = await getAvatar(req.params.id, session);
+      const avatar = await getAvatar(req.params.id);
       res.json(avatar);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -934,7 +1121,7 @@ export async function mountAdminRoutes(
       const { resumeChatAfterToolResult } = await import(
         "../../admin-api/src/handlers/chat.js"
       );
-      const session = { email: "local@swarm.dev", userId: "local-user", isAdmin: true };
+      const session = localAdminSession();
       const resumed = await resumeChatAfterToolResult({
         avatarId: req.params.id,
         toolCallId: req.params.toolCallId,

@@ -7,6 +7,7 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../store/auth';
+import { useAvatarStore } from '../store/avatars';
 
 interface LoginButtonProps {
   className?: string;
@@ -20,6 +21,7 @@ export function PrivyLoginButton({ className = '', label, showIcon = true }: Log
 
   const handleLogout = useCallback(async () => {
     await logout();
+    useAvatarStore.getState().resetChatState();
     window.location.reload();
   }, [logout]);
 

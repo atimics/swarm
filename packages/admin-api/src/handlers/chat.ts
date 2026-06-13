@@ -57,6 +57,7 @@ import {
 import {
   buildOpenRouterTools,
   type MediaItem,
+  type Tool,
 } from './chat-tool-helpers.js';
 import {
   checkPublicRateLimit,
@@ -107,6 +108,58 @@ function prefersAsyncResponse(event: HttpRequest): boolean {
 function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function buildLocalToolDiscoveryTools(enabledCategories?: string[]): Tool[] {
+  const categories = enabledCategories?.length
+    ? enabledCategories
+    : ['profile', 'secrets', 'media', 'gallery', 'wallets', 'diagnostics'];
+
+  const descriptions: Record<string, string> = {
+    profile: 'Set persona, description, profile image, character reference, and avatar status.',
+    secrets: 'Request or store API keys and platform credentials with user confirmation.',
+    media: 'Generate images, videos, stickers, and voice assets when a cloud media provider is configured.',
+    gallery: 'List, search, upload, and reuse avatar media.',
+    wallets: 'Inspect linked wallets and balances.',
+    diagnostics: 'Report issues and inspect system status.',
+    telegram: 'Configure Telegram and send messages to allowed chats.',
+    twitter: 'Connect X/Twitter and manage posts, replies, likes, and timeline reads.',
+    discord: 'Configure Discord and send messages or media to channels.',
+    memory: 'Remember, recall, and maintain long-term avatar memory.',
+    voice: 'Create and send voice messages.',
+    property: 'Research property records and manage research jobs.',
+    nft: 'Claim eligible NFTs as avatars and inspect lineage.',
+    'signal-station': 'Manage Signal Station identity and messages.',
+  };
+
+  return [{
+    type: 'function',
+    function: {
+      name: 'show_tools',
+      description: 'Show available tool categories without loading the full tool catalog. Use this before asking the user which capability to configure.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: {
+            type: 'string',
+            description: 'Optional category to inspect in more detail.',
+          },
+        },
+        additionalProperties: false,
+      },
+      execute: async (params: Record<string, unknown>) => {
+        const requested = typeof params.category === 'string' ? params.category.trim().toLowerCase() : '';
+        const visible = requested ? categories.filter((category) => category === requested) : categories;
+        return {
+          categories: visible.map((category) => ({
+            id: category,
+            description: descriptions[category] || 'Additional avatar capability.',
+          })),
+          note: 'This local model is running in compact tool-discovery mode. Ask the user which category to configure next; cloud providers can load the full executable catalog.',
+        };
+      },
+    },
+  }];
 }
 
 function extractModelIdFromMessage(message: string): string | undefined {
@@ -181,9 +234,12 @@ export async function processChat(
   const chatMetrics = createRuntimeMetricsLogger('AdminChat');
   const chatStartTime = Date.now();
   const avatarId = avatar?.id;
+  const customLlmEndpoint = Boolean(process.env.LLM_ENDPOINT);
+  const customLlmToolsEnabled = process.env.CUSTOM_LLM_ENABLE_TOOLS === 'true';
+  const shouldBuildTools = !customLlmEndpoint || customLlmToolsEnabled;
 
   // --- Tool setup ---
-  const mcpServices = avatarId ? createMCPServices(avatarId, session) : null;
+  const mcpServices = avatarId && shouldBuildTools ? createMCPServices(avatarId, session) : null;
   const toolRegistry = avatarId && mcpServices ? new ToolRegistry() : null;
   if (toolRegistry && mcpServices) registerAllTools(toolRegistry, mcpServices);
   const toolContext: ToolContext | null = avatarId ? {
@@ -192,10 +248,13 @@ export async function processChat(
   } : null;
   const tools = toolRegistry && toolContext
     ? await buildOpenRouterTools(toolRegistry, toolContext, { enabledCategories: avatar?.enabledCategories })
-    : [];
+    : customLlmEndpoint && !customLlmToolsEnabled
+      ? buildLocalToolDiscoveryTools(avatar?.enabledCategories)
+      : [];
 
   logger.info('Tools created', {
     event: 'tools_created', avatarId, toolCount: tools.length,
+    disabledForCustomEndpoint: customLlmEndpoint && !customLlmToolsEnabled,
     toolNames: tools.map((t: { function?: { name?: string }; name?: string }) => t.function?.name ?? t.name),
   });
 
@@ -206,7 +265,10 @@ export async function processChat(
   ];
 
   const allMedia: MediaItem[] = [];
-  const systemPrompt = await buildEnrichedSystemPrompt(avatar, userMessage, options);
+  const baseSystemPrompt = await buildEnrichedSystemPrompt(avatar, userMessage, options);
+  const systemPrompt = customLlmEndpoint && !customLlmToolsEnabled
+    ? `${baseSystemPrompt}\n\nLocal compact context mode: the full executable tool catalog is not loaded. Use the show_tools tool to inspect available capability categories, then ask the user which category or action to configure next.`
+    : baseSystemPrompt;
 
   let transcribedText = '';
   if (userMessage !== null && avatarId && options?.attachments) {

@@ -54,6 +54,7 @@ interface AvatarState {
   clearChat: (avatarId: string) => void;
   syncChatHistory: (avatarId: string) => Promise<void>;
   setChat: (avatarId: string, messages: ChatMessage[]) => void;
+  resetChatState: () => void;
 
   // UI state
   setLoading: (loading: boolean) => void;
@@ -374,6 +375,14 @@ export const useAvatarStore = create<AvatarState>()(
             [avatarId]: messages,
           },
         }));
+      },
+
+      resetChatState: () => {
+        const taskStore = useTaskCardStore.getState();
+        for (const avatar of get().avatars) {
+          taskStore.clearForAvatar(avatar.id);
+        }
+        set({ chats: {}, error: null, isLoading: false });
       },
 
       setLoading: (loading) => set({ isLoading: loading }),

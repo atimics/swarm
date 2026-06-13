@@ -77,6 +77,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
   const [showHint, setShowHint] = useState(true);
+  const [isLlmReady, setIsLlmReady] = useState(false);
   const settingsOpen = useWorkspaceStore((s) => s.isOpen && s.activeTab === 'settings');
   const pendingIntegrationCard = useMemo(
     () => findPendingIntegrationCard(taskCards, activeAvatar?.id),
@@ -233,6 +234,11 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
+  const handleLlmReadyChange = useCallback((ready: boolean) => {
+    setIsLlmReady(ready);
+    if (ready) setError(null);
+  }, [setError]);
+
   // Cancel pollers when switching avatars or unmounting
   useEffect(() => {
     const currentAvatarId = activeAvatar?.id;
@@ -252,6 +258,11 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
     async (content: string) => {
       // Hide the hint when user starts chatting
       setShowHint(false);
+
+      if (!isLlmReady) {
+        setError('Choose OpenRouter or start Ollama before chatting.');
+        return;
+      }
       
       // If no avatar exists, create one first
       let targetAvatar = activeAvatar;
@@ -694,7 +705,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
         setLoading(false);
       }
     },
-    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isAuthenticated, user, updateAvatar, applyAvatarUpdates, formatUserFacingError, extractPendingJobsFromText, t]
+    [activeAvatar, messages, addMessage, updateMessage, removeMessage, setLoading, setError, createAvatar, isCreatingAvatar, accessMode, isAuthenticated, user, updateAvatar, applyAvatarUpdates, formatUserFacingError, extractPendingJobsFromText, t, isLlmReady]
   );
 
   // Handle audio message - transcribe and send as text
@@ -1120,7 +1131,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
           </div>
         </div>
 
-        <ApiKeySetup />
+        <ApiKeySetup onReadyChange={handleLlmReadyChange} />
 
         {/* Input area */}
         <div className="chat-input-container border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm px-3 lg:px-6 py-3 lg:py-4">
@@ -1128,8 +1139,14 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
             <ChatInput
               onSend={handleSendMessage}
               onSendAudio={handleSendAudio}
-              disabled={isCreatingAvatar}
-              placeholder={isCreatingAvatar ? t('chat.panel.creatingAvatar') : t('chat.panel.sayHelloToCreateAvatar')}
+              disabled={isCreatingAvatar || !isLlmReady}
+              placeholder={
+                !isLlmReady
+                  ? 'Choose OpenRouter or start Ollama to chat'
+                  : isCreatingAvatar
+                    ? t('chat.panel.creatingAvatar')
+                    : t('chat.panel.sayHelloToCreateAvatar')
+              }
             />
           </div>
         </div>
@@ -1233,6 +1250,9 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 lg:px-6 py-4">
         <div className="max-w-3xl mx-auto space-y-4 w-full">
           {/* Activation checklist for admin users with newly created avatars */}
+          {!isLlmReady && (
+            <ApiKeySetup onReadyChange={handleLlmReadyChange} />
+          )}
           {accessMode === 'admin' && activeAvatar && (
             <Suspense fallback={null}><ActivationChecklist
               avatar={activeAvatar}
@@ -1302,8 +1322,8 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
             <ChatInput
               onSend={handleSendMessage}
               onSendAudio={handleSendAudio}
-              disabled={Boolean(pendingIntegrationCard)}
-              placeholder={pendingIntegrationMessage}
+              disabled={!isLlmReady || Boolean(pendingIntegrationCard)}
+              placeholder={!isLlmReady ? 'Choose OpenRouter or start Ollama to chat' : pendingIntegrationMessage}
             />
             <div className="flex items-center justify-center gap-2 text-xs text-amber-400">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1319,8 +1339,8 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
             <ChatInput
               onSend={handleSendMessage}
               onSendAudio={handleSendAudio}
-              disabled={Boolean(pendingIntegrationCard)}
-              placeholder={pendingIntegrationMessage}
+              disabled={!isLlmReady || Boolean(pendingIntegrationCard)}
+              placeholder={!isLlmReady ? 'Choose OpenRouter or start Ollama to chat' : pendingIntegrationMessage}
             />
           </div>
         </div>

@@ -94,7 +94,13 @@ describe("admin-api import resolution", () => {
 // ── Route surface + integration tests ─────────────────────────────────
 const AID = "test-1";
 const stubSvc = {
-  secrets: { setSecret: async () => {}, flush: async () => {}, listSecrets: async () => [] as string[], getSecret: async () => "", deleteSecret: async () => {} },
+  secrets: {
+    setSecret: async () => {},
+    flush: async () => {},
+    listSecrets: async () => [] as string[],
+    getSecret: async (name: string) => name === "llm-api-key" ? "sk-test" : "",
+    deleteSecret: async () => {},
+  },
 };
 
 describe("mountAdminRoutes integration", () => {
@@ -108,6 +114,9 @@ describe("mountAdminRoutes integration", () => {
     await mountAdminRoutes(app, stubSvc as any, async () => ({ response: "hi", history: [], avatar: { id: AID } }) as any);
     const routes: Array<[string, string, unknown?]> = [
       ["POST", "/api/chat", { message: "hi" }],
+      ["GET", `/api/chat?avatarId=${AID}`],
+      ["DELETE", `/api/chat?avatarId=${AID}`],
+      ["POST", "/api/chat/message", { avatarId: AID, message: { role: "assistant", content: "status" } }],
       ["GET", "/api/avatars"], ["POST", "/api/avatars", { name: "t" }],
       ["GET", `/api/avatars/${AID}`], ["PUT", `/api/avatars/${AID}`, { name: "x" }],
       ["PATCH", `/api/avatars/${AID}`, { name: "x" }],
@@ -174,4 +183,3 @@ describe("mountAdminRoutes integration", () => {
     expect(status).not.toBe(404);
   });
 });
-
