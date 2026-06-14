@@ -1,12 +1,18 @@
 /**
  * Tests for local server route handlers.
  */
-import { describe, expect, it, beforeAll } from "bun:test";
+import { describe, expect, it, beforeAll, afterEach } from "bun:test";
 import { injectTestClients } from "../../admin-api/src/handlers/__test-helpers__/inject-clients.js";
 import express from "express";
 
 // ── Request simulator ─────────────────────────────────────────────────
-function hitRoute(app: express.Express, method: string, path: string, body?: unknown) {
+function hitRoute(
+  app: express.Express,
+  method: string,
+  path: string,
+  body?: unknown,
+  headers: Record<string, string> = {},
+) {
   return new Promise<{ status: number; body: unknown }>((resolve) => {
     const parsed = new URL(path, "http://localhost");
     const query = Object.fromEntries(parsed.searchParams.entries());
@@ -26,8 +32,8 @@ function hitRoute(app: express.Express, method: string, path: string, body?: unk
     const m = path.match(/^\/api\/avatars\/([^/]+)/);
     const req: any = {
       method: method.toUpperCase(), url: path, path: parsed.pathname, baseUrl: "",
-      body, params: m ? { id: m[1] } : {}, query, headers: {},
-      get() { return undefined; }, app, res,
+      body, params: m ? { id: m[1] } : {}, query, headers,
+      get(name: string) { return headers[name.toLowerCase()] ?? headers[name] ?? undefined; }, app, res,
       _parsedUrl: { pathname: parsed.pathname, search: parsed.search, query },
     };
     (app as any).handle(req, res, () => done(404, { error: "not found" }));
@@ -95,6 +101,7 @@ describe("admin-api import resolution", () => {
 
 // ── Route surface + integration tests ─────────────────────────────────
 const AID = "test-1";
+const originalFetch = globalThis.fetch;
 const stubSvc = {
   secrets: {
     setSecret: async () => {},
@@ -104,6 +111,12 @@ const stubSvc = {
     deleteSecret: async () => {},
   },
 };
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  delete process.env.SWARM_LOCAL_API_TOKEN;
+  delete process.env.SWARM_LOCAL_ALLOW_CUSTOM_RUNTIME_COMMANDS;
+});
 
 describe("mountAdminRoutes integration", () => {
   beforeAll(async () => {
@@ -174,6 +187,119 @@ describe("mountAdminRoutes integration", () => {
     expect((body as any).error).toBe("Chat processing failed");
   });
 
+  it("routes chat to the selected external agent backend", async () => {
+    const store = new Map<string, string>([
+      ["agent:global:agent-backend", "custom"],
+      ["agent:global:agent-backend-endpoint", "http://runtime.test/chat"],
+      ["agent:global:agent-backend-api-key", "secret"],
+    ]);
+    const services = {
+      secrets: {
+        setSecret: async (name: string, value: string) => { store.set(name, value); },
+        flush: async () => {},
+        listSecrets: async () => [] as string[],
+        getSecret: async (name: string) => {
+          if (!store.has(name)) throw new Error("missing secret");
+          return store.get(name);
+        },
+        deleteSecret: async (name: string) => { store.delete(name); },
+      },
+    };
+    let calledUrl = "";
+    let calledBody: any = null;
+    let calledAuth = "";
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calledUrl = String(url);
+      calledBody = JSON.parse(String(init?.body));
+      calledAuth = String((init?.headers as Record<string, string>)?.Authorization ?? "");
+      return new Response(JSON.stringify({
+        response: "external ok",
+        history: [{ role: "assistant", content: "external ok" }],
+        avatar: { id: AID },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+
+    const { mountAdminRoutes } = await import("./server.js");
+    const app = express();
+    await mountAdminRoutes(app, services as any, async () => { throw new Error("native chat should not run"); });
+
+    const { status, body } = await hitRoute(app, "POST", "/api/chat", {
+      message: "hello",
+      history: [{ role: "user", content: "hello" }],
+    });
+
+    expect(status).toBe(200);
+    expect((body as any).response).toBe("external ok");
+    expect(calledUrl).toBe("http://runtime.test/chat");
+    expect(calledAuth).toBe("Bearer secret");
+    expect(calledBody.backend).toBe("custom");
+    expect(calledBody.message).toBe("hello");
+  });
+
+  it("blocks native chat when no AI provider is configured", async () => {
+    const services = {
+      secrets: {
+        setSecret: async () => {},
+        flush: async () => {},
+        listSecrets: async () => [] as string[],
+        getSecret: async () => { throw new Error("missing secret"); },
+        deleteSecret: async () => {},
+      },
+    };
+    const { mountAdminRoutes } = await import("./server.js");
+    const app = express();
+    await mountAdminRoutes(app, services as any, async () => ({ response: "x", history: [], avatar: null }) as any);
+    const { status, body } = await hitRoute(app, "POST", "/api/chat", { message: "hi" });
+    expect(status).toBe(409);
+    expect((body as any).code).toBe("AI_PROVIDER_REQUIRED");
+  });
+
+  it("allows only local origins for mutating local API requests", async () => {
+    const { isAllowedLocalOrigin } = await import("./server.js");
+    expect(isAllowedLocalOrigin(undefined, 3001)).toBe(true);
+    expect(isAllowedLocalOrigin("http://localhost:3001", 3001)).toBe(true);
+    expect(isAllowedLocalOrigin("http://127.0.0.1:3001", 3001)).toBe(true);
+    expect(isAllowedLocalOrigin("https://evil.example", 3001)).toBe(false);
+  });
+
+  it("rejects arbitrary runtime launch commands", async () => {
+    const { mountAdminRoutes } = await import("./server.js");
+    const app = express();
+    await mountAdminRoutes(app, stubSvc as any);
+    const { status, body } = await hitRoute(app, "POST", "/api/runtime/start", {
+      backend: "custom",
+      command: "touch /tmp/swarm-pwned",
+    });
+    expect(status).toBe(400);
+    expect((body as any).error).toMatch(/known runtime template/);
+  });
+
+  it("reads legacy global backend secrets during upgrade", async () => {
+    const store = new Map<string, string>([
+      ["agent-backend", "custom"],
+      ["agent-backend-endpoint", "http://legacy-runtime.test/chat"],
+    ]);
+    const services = {
+      secrets: {
+        setSecret: async (name: string, value: string) => { store.set(name, value); },
+        flush: async () => {},
+        listSecrets: async () => [] as string[],
+        getSecret: async (name: string) => {
+          if (!store.has(name)) throw new Error("missing secret");
+          return store.get(name);
+        },
+        deleteSecret: async (name: string) => { store.delete(name); },
+      },
+    };
+    const { mountAdminRoutes } = await import("./server.js");
+    const app = express();
+    await mountAdminRoutes(app, services as any);
+    const { status, body } = await hitRoute(app, "GET", "/api/agent-backends");
+    expect(status).toBe(200);
+    expect((body as any).selected).toBe("custom");
+    expect((body as any).endpoint).toBe("http://legacy-runtime.test/chat");
+  });
+
   it("secret save works", async () => {
     const { mountAdminRoutes } = await import("./server.js");
     const app = express();
@@ -236,13 +362,13 @@ describe("mountAdminRoutes integration", () => {
     expect((selected.body as any).selected).toBe("openclaw");
     expect((selected.body as any).endpoint).toBe("http://localhost:7331");
     expect((selected.body as any).hasApiKey).toBe(true);
-    expect(store.get("agent-backend-api-key")).toBe("secret");
+    expect(store.get("agent:global:agent-backend-api-key")).toBe("secret");
 
     const codex = await hitRoute(app, "POST", "/api/agent-backends/select", { backend: "codex" });
     expect(codex.status).toBe(200);
     expect((codex.body as any).selected).toBe("codex");
     expect((codex.body as any).hasApiKey).toBe(false);
-    expect(store.has("agent-backend-api-key")).toBe(false);
+    expect(store.has("agent:global:agent-backend-api-key")).toBe(false);
 
     const scoped = await hitRoute(app, "POST", "/api/agent-backends/select", {
       avatarId: "avatar-one",
@@ -253,7 +379,7 @@ describe("mountAdminRoutes integration", () => {
     expect((scoped.body as any).selected).toBe("cosyworld");
     expect((scoped.body as any).endpoint).toBe("http://localhost:3101");
     expect(store.get("agent:avatar-one:agent-backend")).toBe("cosyworld");
-    expect(store.get("agent-backend")).toBe("codex");
+    expect(store.get("agent:global:agent-backend")).toBe("codex");
 
     const fly = await hitRoute(app, "POST", "/api/agent-backends/select", {
       avatarId: "avatar-one",

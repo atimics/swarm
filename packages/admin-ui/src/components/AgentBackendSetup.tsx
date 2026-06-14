@@ -149,6 +149,13 @@ export function AgentBackendSetup({ avatarId, avatarName }: AgentBackendSetupPro
     if (!status) return;
     setLaunchDirty(false);
     setRuntimeError('');
+    if (selected === 'swarm-native') {
+      setLaunchCommand('');
+      setLaunchEndpoint('');
+      setRuntime(null);
+      setLogs([]);
+      return;
+    }
     let cancelled = false;
     fetch(`/api/runtime/status?${runtimeQuery}`)
       .then((r) => (r.ok ? r.json() : null))
@@ -165,9 +172,10 @@ export function AgentBackendSetup({ avatarId, avatarName }: AgentBackendSetupPro
 
   // Poll live runtime status + logs for the selected backend.
   useEffect(() => {
-    if (!status) return;
+    if (!status || selected === 'swarm-native') return;
     let cancelled = false;
     const refresh = async () => {
+      if (document.hidden) return;
       try {
         const [sRes, lRes] = await Promise.all([
           fetch(`/api/runtime/status?${runtimeQuery}`),

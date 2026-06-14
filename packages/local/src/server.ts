@@ -3,6 +3,7 @@
  */
 import express from 'express';
 import cors from 'cors';
+import type { CorsOptions } from 'cors';
 import { createInterface } from 'readline';
 import { randomBytes, createHash } from "crypto";
 import { execFile } from 'node:child_process';
@@ -331,7 +332,8 @@ export async function startServer(options: ServerOptions = {}) {
 
   // ── Express ────────────────────────────────────────────────────────
   const app = express();
-  app.use(cors());
+  app.use(cors(localCorsOptions(port)));
+  installLocalRequestGuard(app, port);
   app.use(express.json({ limit: '10mb' }));
 
   app.get('/health', (_req, res) => {
@@ -705,8 +707,8 @@ export async function startServer(options: ServerOptions = {}) {
 
   return new Promise<{ app: express.Express; services: typeof services }>(
     (resolve, reject) => {
-      const server = app.listen(port, () => {
-        console.log(`[local] Swarm server running at http://localhost:${port}`);
+      const server = app.listen(port, '127.0.0.1', () => {
+        console.log(`[local] Swarm server running at http://127.0.0.1:${port}`);
         console.log(`[local]   Database: ${dbPath}`);
         console.log(`[local]   Blobs:    ${dataDir}`);
 
@@ -743,6 +745,14 @@ type ChatProcessor = (
   session: LocalSession,
   avatar?: { id: string },
 ) => Promise<ChatRouteResult>;
+
+type ExternalBackendPayload = {
+  message: string | null;
+  history: ChatHistoryMessage[];
+  avatar?: { id: string };
+  session: LocalSession;
+  backend: AgentBackendId;
+};
 
 type AgentBackendId =
   | 'swarm-native'
@@ -1110,15 +1120,159 @@ function normalizeAvatarScope(value: unknown): string | undefined {
 }
 
 function agentRuntimeSecretKey(name: string, avatarId?: string): string {
-  return avatarId ? `agent:${avatarId}:${name}` : name;
+  return avatarId ? `agent:${avatarId}:${name}` : `agent:global:${name}`;
+}
+
+function legacyAgentRuntimeSecretKey(name: string, avatarId?: string): string {
+  return avatarId ? agentRuntimeSecretKey(name, avatarId) : name;
 }
 
 function runtimeSecretKey(name: string, backend: AgentBackendId, avatarId?: string): string {
-  return avatarId ? `runtime:${avatarId}:${backend}:${name}` : `runtime-${name}:${backend}`;
+  return avatarId ? `runtime:${avatarId}:${backend}:${name}` : `runtime:global:${backend}:${name}`;
+}
+
+function legacyRuntimeSecretKey(name: string, backend: AgentBackendId, avatarId?: string): string {
+  return avatarId ? runtimeSecretKey(name, backend, avatarId) : `runtime-${name}:${backend}`;
 }
 
 function runtimeSupervisorKey(backend: AgentBackendId, avatarId?: string): string {
   return avatarId ? `${avatarId}:${backend}` : backend;
+}
+
+async function readFirstSecretOrNull(services: LocalServices, names: string[]): Promise<string | null> {
+  for (const name of names) {
+    try {
+      const value = (await services.secrets.getSecret(name))?.trim();
+      if (value) return value;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return null;
+}
+
+function localAppOrigins(port: number): Set<string> {
+  return new Set([
+    `http://localhost:${port}`,
+    `http://127.0.0.1:${port}`,
+  ]);
+}
+
+export function isAllowedLocalOrigin(origin: string | undefined, port: number): boolean {
+  if (!origin) return true;
+  return localAppOrigins(port).has(origin);
+}
+
+function localCorsOptions(port: number): CorsOptions {
+  return {
+    credentials: true,
+    origin(origin, callback) {
+      callback(null, isAllowedLocalOrigin(origin, port));
+    },
+  };
+}
+
+function installLocalRequestGuard(app: express.Express, port: number): void {
+  const token = process.env.SWARM_LOCAL_API_TOKEN?.trim();
+  const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+  app.use((req, res, next) => {
+    if (!unsafeMethods.has(req.method.toUpperCase())) {
+      next();
+      return;
+    }
+
+    if (token && req.get('x-swarm-local-token') === token) {
+      next();
+      return;
+    }
+
+    const origin = req.get('origin');
+    if (isAllowedLocalOrigin(origin, port)) {
+      next();
+      return;
+    }
+
+    res.status(403).json({ error: 'Cross-origin local API write blocked' });
+  });
+}
+
+function isAllowedRuntimeLaunchCommand(backend: AgentBackendId, command: string): boolean {
+  const definition = getAgentBackendDefinition(backend);
+  const allowed = new Set<string>();
+  if (definition.launch?.command) allowed.add(definition.launch.command);
+  if (definition.launch?.docker?.command) allowed.add(definition.launch.docker.command);
+  return allowed.has(command);
+}
+
+function isAuthorizedCustomRuntimeCommand(req: express.Request): boolean {
+  const token = process.env.SWARM_LOCAL_API_TOKEN?.trim();
+  return Boolean(
+    token &&
+    process.env.SWARM_LOCAL_ALLOW_CUSTOM_RUNTIME_COMMANDS === '1' &&
+    req.get('x-swarm-local-token') === token,
+  );
+}
+
+async function dispatchExternalAgentBackend(params: {
+  status: AgentBackendStatus;
+  apiKey: string | null;
+  payload: ExternalBackendPayload;
+}): Promise<ChatRouteResult> {
+  const endpoint = params.status.endpoint?.trim();
+  if (!endpoint) {
+    throw new Error(`${params.status.selectedBackend.name} needs an endpoint before chat can route to it.`);
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(params.apiKey ? { Authorization: `Bearer ${params.apiKey}` } : {}),
+    },
+    body: JSON.stringify(params.payload),
+  });
+
+  const text = await response.text();
+  let body: unknown = text;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+  }
+
+  if (!response.ok) {
+    const message = typeof body === 'object' && body && 'error' in body
+      ? String((body as { error?: unknown }).error)
+      : text || `HTTP ${response.status}`;
+    throw new Error(`${params.status.selectedBackend.name} chat failed: ${message}`);
+  }
+
+  if (typeof body === 'string') {
+    return {
+      response: body,
+      history: params.payload.history,
+      avatar: params.payload.avatar ?? null,
+    };
+  }
+
+  const result = (body ?? {}) as Partial<ChatRouteResult> & {
+    message?: string;
+    content?: string;
+  };
+
+  return {
+    response: result.response ?? result.message ?? result.content ?? '',
+    history: result.history ?? params.payload.history,
+    avatar: result.avatar ?? params.payload.avatar ?? null,
+    pendingToolCall: result.pendingToolCall,
+    taskActions: result.taskActions,
+    media: result.media,
+    pendingJobs: result.pendingJobs,
+    avatarUpdates: result.avatarUpdates,
+  };
 }
 
 async function getLocalAgentBackendStatus(
@@ -1126,34 +1280,30 @@ async function getLocalAgentBackendStatus(
   avatarId?: string,
 ): Promise<AgentBackendStatus> {
   let selected: AgentBackendId = 'swarm-native';
-  try {
-    const stored = await services.secrets.getSecret(agentRuntimeSecretKey('agent-backend', avatarId));
-    if (isAgentBackendId(stored)) {
-      selected = stored;
-    }
-  } catch {
-    selected = 'swarm-native';
+  const stored = await readFirstSecretOrNull(services, [
+    agentRuntimeSecretKey('agent-backend', avatarId),
+    legacyAgentRuntimeSecretKey('agent-backend', avatarId),
+  ]);
+  if (isAgentBackendId(stored)) {
+    selected = stored;
   }
 
   let endpoint: string | undefined;
   let hasApiKey = false;
   let deploymentTarget: AgentRuntimeDeploymentTarget = 'local';
-  try {
-    endpoint = (await services.secrets.getSecret(agentRuntimeSecretKey('agent-backend-endpoint', avatarId)))?.trim() || undefined;
-  } catch {
-    endpoint = undefined;
-  }
-  try {
-    hasApiKey = Boolean((await services.secrets.getSecret(agentRuntimeSecretKey('agent-backend-api-key', avatarId)))?.trim());
-  } catch {
-    hasApiKey = false;
-  }
-  try {
-    const storedTarget = await services.secrets.getSecret(agentRuntimeSecretKey('agent-backend-deployment-target', avatarId));
-    if (isAgentRuntimeDeploymentTarget(storedTarget)) deploymentTarget = storedTarget;
-  } catch {
-    deploymentTarget = 'local';
-  }
+  endpoint = (await readFirstSecretOrNull(services, [
+    agentRuntimeSecretKey('agent-backend-endpoint', avatarId),
+    legacyAgentRuntimeSecretKey('agent-backend-endpoint', avatarId),
+  ])) ?? undefined;
+  hasApiKey = Boolean(await readFirstSecretOrNull(services, [
+    agentRuntimeSecretKey('agent-backend-api-key', avatarId),
+    legacyAgentRuntimeSecretKey('agent-backend-api-key', avatarId),
+  ]));
+  const storedTarget = await readFirstSecretOrNull(services, [
+    agentRuntimeSecretKey('agent-backend-deployment-target', avatarId),
+    legacyAgentRuntimeSecretKey('agent-backend-deployment-target', avatarId),
+  ]);
+  if (isAgentRuntimeDeploymentTarget(storedTarget)) deploymentTarget = storedTarget;
 
   const selectedBackend = getAgentBackendDefinition(selected);
   endpoint = endpoint || (deploymentTarget === 'local' ? getDefaultAgentBackendEndpoint(selectedBackend) : undefined);
@@ -1273,25 +1423,57 @@ export async function mountAdminRoutes(
         return;
       }
 
-      const llmStatus = await getLocalLlmStatus(services);
-      if (!llmStatus.configured) {
-        res.status(409).json({
-          error: 'AI provider setup required',
-          code: 'AI_PROVIDER_REQUIRED',
-          message: 'Connect OpenRouter or start Ollama before chatting.',
-          providerStatus: llmStatus,
-        });
-        return;
-      }
-
       const session = makeLocalSession(sessionOverride);
+      const avatarScope = normalizeAvatarScope(avatar?.id);
+      const backendStatus = await getLocalAgentBackendStatus(services, avatarScope);
 
-      const result = await chat(
-        message ?? null,
-        history,
-        session,
-        avatar ? { id: avatar.id } : undefined,
-      );
+      const result = backendStatus.selected === 'swarm-native'
+        ? await (async () => {
+            const llmStatus = await getLocalLlmStatus(services);
+            if (!llmStatus.configured) {
+              res.status(409).json({
+                error: 'AI provider setup required',
+                code: 'AI_PROVIDER_REQUIRED',
+                message: 'Connect OpenRouter or start Ollama before chatting.',
+                providerStatus: llmStatus,
+              });
+              return null;
+            }
+            return chat(
+              message ?? null,
+              history,
+              session,
+              avatar ? { id: avatar.id } : undefined,
+            );
+          })()
+        : await (async () => {
+            if (!backendStatus.configured || !backendStatus.endpoint) {
+              res.status(409).json({
+                error: 'Agent backend setup required',
+                code: 'AGENT_BACKEND_REQUIRED',
+                message: `Configure or launch ${backendStatus.selectedBackend.name} before chatting.`,
+                backendStatus,
+              });
+              return null;
+            }
+            const apiKey = await readFirstSecretOrNull(services, [
+              agentRuntimeSecretKey('agent-backend-api-key', avatarScope),
+              legacyAgentRuntimeSecretKey('agent-backend-api-key', avatarScope),
+            ]);
+            return dispatchExternalAgentBackend({
+              status: backendStatus,
+              apiKey,
+              payload: {
+                message: message ?? null,
+                history,
+                session,
+                avatar: avatar ? { id: avatar.id } : undefined,
+                backend: backendStatus.selected,
+              },
+            });
+          })();
+
+      if (!result) return;
 
       // Persist pending tool call so the tools resume endpoint can validate it
       const pendingToolCall = result.pendingToolCall;
@@ -1468,26 +1650,24 @@ export async function mountAdminRoutes(
   });
 
   // ── Runtime supervisor: launch/stop external agent backends ─────────
-  const readSecretOrNull = async (name: string): Promise<string | null> => {
-    try {
-      return (await services.secrets.getSecret(name))?.trim() || null;
-    } catch {
-      return null;
-    }
-  };
-
   const runtimeStatePayload = async (backend: AgentBackendId, avatarId?: string) => {
     const definition = getAgentBackendDefinition(backend);
     const runtimeKey = runtimeSupervisorKey(backend, avatarId);
     const live = supervisor.status(runtimeKey);
     const command =
       live.command ??
-      (await readSecretOrNull(runtimeSecretKey('launch', backend, avatarId))) ??
+      (await readFirstSecretOrNull(services, [
+        runtimeSecretKey('launch', backend, avatarId),
+        legacyRuntimeSecretKey('launch', backend, avatarId),
+      ])) ??
       definition.launch?.command ??
       '';
     const endpoint =
       live.endpoint ??
-      (await readSecretOrNull(runtimeSecretKey('endpoint', backend, avatarId))) ??
+      (await readFirstSecretOrNull(services, [
+        runtimeSecretKey('endpoint', backend, avatarId),
+        legacyRuntimeSecretKey('endpoint', backend, avatarId),
+      ])) ??
       definition.launch?.endpoint ??
       '';
     return { ...live, backend, command, endpoint, supported: process.platform !== 'win32' };
@@ -1530,6 +1710,10 @@ export async function mountAdminRoutes(
         res.status(400).json({ error: 'launch command required' });
         return;
       }
+      if (!isAllowedRuntimeLaunchCommand(backend, cmd) && !isAuthorizedCustomRuntimeCommand(req)) {
+        res.status(400).json({ error: 'Launch command must match a known runtime template' });
+        return;
+      }
       const ep = typeof endpoint === 'string' ? endpoint.trim() : '';
       const scopedAvatarId = normalizeAvatarScope(avatarId);
       await services.secrets.setSecret(runtimeSecretKey('launch', backend, scopedAvatarId), cmd);
@@ -1550,7 +1734,7 @@ export async function mountAdminRoutes(
       return;
     }
     const scopedAvatarId = normalizeAvatarScope(avatarId);
-    supervisor.stop(runtimeSupervisorKey(backend, scopedAvatarId));
+    await supervisor.stopAndWait(runtimeSupervisorKey(backend, scopedAvatarId));
     res.json(await runtimeStatePayload(backend, scopedAvatarId));
   });
 
@@ -1568,10 +1752,14 @@ export async function mountAdminRoutes(
       }
       const scopedAvatarId = normalizeAvatarScope(avatarId);
       const current = await runtimeStatePayload(backend, scopedAvatarId);
-      supervisor.stop(runtimeSupervisorKey(backend, scopedAvatarId));
+      await supervisor.stopAndWait(runtimeSupervisorKey(backend, scopedAvatarId));
       const cmd = (typeof command === 'string' && command.trim()) || current.command;
       const ep = (typeof endpoint === 'string' && endpoint.trim()) || current.endpoint;
       if (cmd) {
+        if (!isAllowedRuntimeLaunchCommand(backend, cmd) && !isAuthorizedCustomRuntimeCommand(req)) {
+          res.status(400).json({ error: 'Launch command must match a known runtime template' });
+          return;
+        }
         await services.secrets.setSecret(runtimeSecretKey('launch', backend, scopedAvatarId), cmd);
         if (ep) await services.secrets.setSecret(runtimeSecretKey('endpoint', backend, scopedAvatarId), ep);
         await services.secrets.flush();

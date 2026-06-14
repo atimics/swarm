@@ -7,7 +7,7 @@
  * (detached) so we can signal the whole tree on stop, and stopAll() runs on
  * sidecar shutdown so we never orphan a runtime.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 
 const MAX_LOG_LINES = 200;
 
@@ -57,6 +57,33 @@ export class RuntimeSupervisor {
 
   logs(backend: string): string[] {
     return this.entries.get(backend)?.logs ?? [];
+  }
+
+  private signal(entry: Entry, signal: NodeJS.Signals): void {
+    if (!this.isRunning(entry) || entry.pid == null) return;
+    const pid = entry.pid;
+    try {
+      // Negative pid -> signal the whole detached process group.
+      process.kill(-pid, signal);
+    } catch {
+      try {
+        entry.child!.kill(signal);
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+
+  private stopNamedDockerContainer(entry: Entry | undefined): void {
+    const command = entry?.command ?? '';
+    if (!/\bdocker\s+run\b/.test(command)) return;
+    const named = command.match(/--name[=\s]+([A-Za-z0-9._-]+)/);
+    if (!named) return;
+    try {
+      execFileSync('docker', ['stop', named[1]], { stdio: 'ignore', timeout: 5000 });
+    } catch {
+      /* docker not installed or container already gone */
+    }
   }
 
   start(backend: string, command: string, endpoint: string | null): RuntimeState {
@@ -123,34 +150,42 @@ export class RuntimeSupervisor {
 
   stop(backend: string, signal: NodeJS.Signals = 'SIGTERM'): RuntimeState {
     const entry = this.entries.get(backend);
-    if (this.isRunning(entry) && entry!.pid != null) {
-      const pid = entry!.pid;
-      try {
-        // Negative pid → signal the whole detached process group.
-        process.kill(-pid, signal);
-      } catch {
-        try {
-          entry!.child!.kill(signal);
-        } catch {
-          /* already gone */
-        }
-      }
-    }
+    if (entry) this.signal(entry, signal);
     // Best-effort: if this was a named `docker run`, stop the container directly
     // too — covers detached (`-d`) containers the signal above can't reach.
-    const command = entry?.command ?? '';
-    if (/\bdocker\s+run\b/.test(command)) {
-      const named = command.match(/--name[=\s]+([A-Za-z0-9._-]+)/);
-      if (named) {
-        try {
-          const p = spawn('docker', ['stop', named[1]], { stdio: 'ignore', detached: true });
-          p.on('error', () => {});
-          p.unref();
-        } catch {
-          /* docker not installed */
-        }
-      }
+    this.stopNamedDockerContainer(entry);
+    return this.status(backend);
+  }
+
+  async stopAndWait(
+    backend: string,
+    signal: NodeJS.Signals = 'SIGTERM',
+    timeoutMs = 5000,
+  ): Promise<RuntimeState> {
+    const entry = this.entries.get(backend);
+    if (!this.isRunning(entry)) {
+      this.stopNamedDockerContainer(entry);
+      return this.status(backend);
     }
+
+    const child = entry.child!;
+    const exited = new Promise<void>((resolve) => {
+      child.once('exit', () => resolve());
+    });
+    this.signal(entry, signal);
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      exited,
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(() => {
+          if (this.isRunning(entry)) this.signal(entry, 'SIGKILL');
+          resolve();
+        }, timeoutMs);
+      }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+    this.stopNamedDockerContainer(entry);
     return this.status(backend);
   }
 
