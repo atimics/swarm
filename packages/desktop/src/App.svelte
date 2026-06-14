@@ -6,6 +6,7 @@
   let confirm = $state("");
   let error = $state("");
   let serverUrl = $state("");
+  let localToken = $state("");
   let iframeEl = $state<HTMLIFrameElement>();
 
   // Intercept iframe navigation to /api/auth/openrouter
@@ -32,7 +33,10 @@
   async function startOpenRouterAuth() {
     try {
       // Request the PKCE URL from the server
-      const resp = await fetch(`${serverUrl}/api/auth/openrouter`, { redirect: "manual" });
+      const resp = await fetch(`${serverUrl}/api/auth/openrouter`, {
+        redirect: "manual",
+        headers: localToken ? { "x-swarm-local-token": localToken } : {},
+      });
       const html = await resp.text();
       // Extract the OpenRouter URL from the redirect script
       const match = html.match(/window\.top\.location\.href = "(https:\/\/openrouter\.ai\/auth[^"]+)"/);
@@ -69,8 +73,9 @@
     error = "";
 
     try {
-      const url = await invoke<string>("start_server", { password });
-      serverUrl = url;
+      const result = await invoke<{ url: string; token: string }>("start_server", { password });
+      serverUrl = result.url;
+      localToken = result.token;
       state = "running";
     } catch (e: any) {
       error = typeof e === "string" ? e : e?.message ?? "Failed to start server";
@@ -109,7 +114,13 @@
     </div>
 
   {:else if state === "running" && serverUrl}
-    <iframe bind:this={iframeEl} src={serverUrl} class="admin-frame" title="Swarm Admin" onload={handleIframeLoad}></iframe>
+    <iframe
+      bind:this={iframeEl}
+      src={`${serverUrl}?swarmLocalToken=${encodeURIComponent(localToken)}`}
+      class="admin-frame"
+      title="Swarm Admin"
+      onload={handleIframeLoad}
+    ></iframe>
 
   {:else if state === "error"}
     <div class="auth">

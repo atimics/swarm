@@ -1,12 +1,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use serde::Serialize;
+use std::io::Read;
 use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 
 struct ServerState {
     url: Mutex<Option<String>>,
+    token: Mutex<Option<String>>,
     child: Mutex<Option<tauri_plugin_shell::process::CommandChild>>,
+}
+
+#[derive(Serialize)]
+struct StartServerResult {
+    url: String,
+    token: String,
 }
 
 fn free_port(port: u16) {
@@ -25,14 +34,48 @@ fn free_port(port: u16) {
     }
 }
 
+fn random_token() -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .map_err(|e| format!("Failed to open random source: {}", e))?
+        .read_exact(&mut bytes)
+        .map_err(|e| format!("Failed to read random token: {}", e))?;
+    Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
+fn parse_port_from_server_log(text: &str) -> Option<u16> {
+    for line in text.lines() {
+        let lower = line.to_ascii_lowercase();
+        if !lower.contains("server running at") {
+            continue;
+        }
+        if let Some(rest) = lower
+            .split("localhost:")
+            .nth(1)
+            .or_else(|| lower.split("127.0.0.1:").nth(1))
+        {
+            if let Ok(port) = rest
+                .split(|c: char| !c.is_ascii_digit())
+                .next()
+                .unwrap_or("")
+                .parse()
+            {
+                return Some(port);
+            }
+        }
+    }
+    None
+}
+
 #[tauri::command]
 async fn start_server(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServerState>,
     password: String,
-) -> Result<String, String> {
+) -> Result<StartServerResult, String> {
     if let Some(url) = state.url.lock().unwrap().as_ref() {
-        return Ok(url.clone());
+        let token = state.token.lock().unwrap().as_ref().cloned().unwrap_or_default();
+        return Ok(StartServerResult { url: url.clone(), token });
     }
 
     if let Some(child) = state.child.lock().unwrap().take() {
@@ -47,6 +90,7 @@ async fn start_server(
     let admin_ui_path = resource_dir.join("admin-ui");
 
     let shell = app.shell();
+    let token = random_token()?;
 
     let sidecar = shell
         .sidecar("swarm-server")
@@ -54,7 +98,8 @@ async fn start_server(
         .args([
             &format!("--password={}", password),
             &format!("--admin-ui-path={}", admin_ui_path.display()),
-        ]);
+        ])
+        .env("SWARM_LOCAL_API_TOKEN", &token);
 
     let (mut rx, child) = sidecar
         .spawn()
@@ -71,36 +116,16 @@ async fn start_server(
             tauri_plugin_shell::process::CommandEvent::Stdout(line) => {
                 let text = String::from_utf8_lossy(&line);
                 stdout_buf.push_str(&text);
-                if let Some(url_line) = stdout_buf
-                    .lines()
-                    .find(|l| l.contains("Server running at"))
-                {
-                    if let Some(rest) = url_line.split("localhost:").nth(1) {
-                        port = rest
-                            .split_whitespace()
-                            .next()
-                            .unwrap_or("3000")
-                            .parse()
-                            .unwrap_or(3000);
-                    }
+                if let Some(parsed_port) = parse_port_from_server_log(&stdout_buf) {
+                    port = parsed_port;
                     break;
                 }
             }
             tauri_plugin_shell::process::CommandEvent::Stderr(line) => {
                 let text = String::from_utf8_lossy(&line);
                 stderr_buf.push_str(&text);
-                if let Some(url_line) = stderr_buf
-                    .lines()
-                    .find(|l| l.contains("Server running at"))
-                {
-                    if let Some(rest) = url_line.split("localhost:").nth(1) {
-                        port = rest
-                            .split_whitespace()
-                            .next()
-                            .unwrap_or("3000")
-                            .parse()
-                            .unwrap_or(3000);
-                    }
+                if let Some(parsed_port) = parse_port_from_server_log(&stderr_buf) {
+                    port = parsed_port;
                     break;
                 }
             }
@@ -126,7 +151,8 @@ async fn start_server(
 
     let url = format!("http://localhost:{}", port);
     *state.url.lock().unwrap() = Some(url.clone());
-    Ok(url)
+    *state.token.lock().unwrap() = Some(token.clone());
+    Ok(StartServerResult { url, token })
 }
 
 #[tauri::command]
@@ -146,6 +172,7 @@ fn main() {
         .setup(|app| {
             app.manage(ServerState {
                 url: Mutex::new(None),
+                token: Mutex::new(None),
                 child: Mutex::new(None),
             });
             Ok(())

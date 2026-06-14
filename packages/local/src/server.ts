@@ -3,12 +3,15 @@
  */
 import express from 'express';
 import cors from 'cors';
+import type { CorsOptions } from 'cors';
 import { createInterface } from 'readline';
 import { randomBytes, createHash } from "crypto";
+import { execFile } from 'node:child_process';
 import { startTelegramPolling } from "./telegram-polling.js";
 import { isOllamaAvailable, getOllamaModel, getOllamaEndpoint } from "./llm-ollama.js";
 import { getRatiBalance, getSolBalance } from "./rati-auto-bridge.js";
 import { createLocalServices } from './factories.js';
+import { RuntimeSupervisor } from './runtime-supervisor.js';
 import { LocalS3Adapter } from './s3-adapter.js';
 import { LocalSQSAdapter } from './sqs-adapter.js';
 import { LocalSecretsAdapter } from './secrets-adapter.js';
@@ -104,6 +107,7 @@ process.on('unhandledRejection', (reason) => {
 
 export interface ServerOptions {
   port?: number;
+  host?: string;
   dbPath?: string;
   blobDir?: string;
   adminUiPath?: string;
@@ -281,6 +285,7 @@ export async function injectLocalAdapters(
 
 export async function startServer(options: ServerOptions = {}) {
   const port = options.port ?? 3000;
+  const host = options.host ?? '127.0.0.1';
   const dataDir = options.blobDir ?? './data/blobs';
   const dbPath = options.dbPath ?? './data/swarm.db';
 
@@ -329,7 +334,8 @@ export async function startServer(options: ServerOptions = {}) {
 
   // ── Express ────────────────────────────────────────────────────────
   const app = express();
-  app.use(cors());
+  app.use(cors(localCorsOptions(port)));
+  installLocalRequestGuard(app, port);
   app.use(express.json({ limit: '10mb' }));
 
   app.get('/health', (_req, res) => {
@@ -399,6 +405,9 @@ export async function startServer(options: ServerOptions = {}) {
   async function localLogout(_req: express.Request, res: express.Response) {
     await services.secrets.deleteSecret('llm-provider').catch(() => undefined);
     await services.secrets.deleteSecret('llm-api-key').catch(() => undefined);
+    await services.secrets.deleteSecret('agent-backend').catch(() => undefined);
+    await services.secrets.deleteSecret('agent-backend-endpoint').catch(() => undefined);
+    await services.secrets.deleteSecret('agent-backend-api-key').catch(() => undefined);
     await services.secrets.flush();
     try {
       const { clearChatHistory } = await import('../../admin-api/src/services/chat-history.js');
@@ -700,8 +709,8 @@ export async function startServer(options: ServerOptions = {}) {
 
   return new Promise<{ app: express.Express; services: typeof services }>(
     (resolve, reject) => {
-      const server = app.listen(port, () => {
-        console.log(`[local] Swarm server running at http://localhost:${port}`);
+      const server = app.listen(port, host, () => {
+        console.log(`[local] Swarm server running at http://${host}:${port}`);
         console.log(`[local]   Database: ${dbPath}`);
         console.log(`[local]   Blobs:    ${dataDir}`);
 
@@ -738,6 +747,600 @@ type ChatProcessor = (
   session: LocalSession,
   avatar?: { id: string },
 ) => Promise<ChatRouteResult>;
+
+type ExternalBackendPayload = {
+  message: string | null;
+  history: ChatHistoryMessage[];
+  avatar?: { id: string };
+  session: LocalSession;
+  backend: AgentBackendId;
+};
+
+type AgentBackendId =
+  | 'swarm-native'
+  | 'hermes'
+  | 'elizaos'
+  | 'milady'
+  | 'claude-code'
+  | 'codex'
+  | 'openclaw'
+  | 'cosyworld'
+  | 'custom';
+type AgentBackendAuthMode = 'none' | 'api-key' | 'oauth' | 'local-process';
+type AgentRuntimeDeploymentTarget = 'local' | 'fly';
+type AgentBackendCapabilities = {
+  chat: boolean;
+  tools: boolean;
+  memory: boolean;
+  autonomousLoop: boolean;
+  codeExecution: boolean;
+  multimodal: boolean;
+};
+type AgentBackendDefinition = {
+  id: AgentBackendId;
+  name: string;
+  description: string;
+  authMode: AgentBackendAuthMode;
+  requiresEndpoint: boolean;
+  contextWindow: number;
+  install: {
+    summary: string;
+    commands: string[];
+    docsUrl?: string;
+    endpointHint?: string;
+  };
+  /** Best-guess default for launching this runtime locally; editable in the UI. */
+  launch?: {
+    command: string;
+    endpoint?: string;
+    /** Containerized launch template (image is a placeholder to fill in). */
+    docker?: { command: string; endpoint?: string };
+  };
+  cloud?: {
+    fly?: {
+      command?: string;
+      endpointHint: string;
+    };
+  };
+  capabilities: AgentBackendCapabilities;
+};
+type AgentBackendStatus = {
+  selected: AgentBackendId;
+  selectedBackend: AgentBackendDefinition;
+  configured: boolean;
+  endpoint?: string;
+  hasApiKey: boolean;
+  deploymentTarget: AgentRuntimeDeploymentTarget;
+  scope: {
+    avatarId?: string;
+    label: string;
+  };
+  backends: AgentBackendDefinition[];
+};
+
+const AGENT_BACKENDS: AgentBackendDefinition[] = [
+  {
+    id: 'swarm-native',
+    name: 'Swarm Native',
+    description: 'Built-in Swarm chat loop, MCP tools, avatar state, and local context management.',
+    authMode: 'none',
+    requiresEndpoint: false,
+    contextWindow: 4096,
+    install: {
+      summary: 'Built in. No separate runtime install is required.',
+      commands: [],
+    },
+    capabilities: {
+      chat: true,
+      tools: true,
+      memory: true,
+      autonomousLoop: true,
+      codeExecution: false,
+      multimodal: true,
+    },
+  },
+  {
+    id: 'hermes',
+    name: 'Hermes',
+    description: 'External Hermes-compatible agent runtime reached through a configured HTTP endpoint.',
+    authMode: 'api-key',
+    requiresEndpoint: true,
+    contextWindow: 4096,
+    install: {
+      summary: 'Install Hermes Agent, complete portal setup, then start the local proxy. Swarm will use the default proxy endpoint automatically.',
+      commands: [
+        'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | sh',
+        'hermes setup --portal',
+      ],
+      docsUrl: 'https://hermes-agent.nousresearch.com/docs/',
+      endpointHint: 'Swarm uses the default local Hermes endpoint automatically.',
+    },
+    launch: {
+      command: 'hermes proxy start --port 8645',
+      endpoint: 'http://localhost:8645',
+      docker: {
+        command: 'docker run --rm --name swarm-rt-hermes -p 8645:8645 your-hermes-image proxy start --host 0.0.0.0 --port 8645',
+        endpoint: 'http://localhost:8645',
+      },
+    },
+    cloud: {
+      fly: {
+        command: 'fly launch --name swarm-hermes-runtime && fly secrets set HERMES_TOKEN=...',
+        endpointHint: 'Deploy a Hermes proxy to Fly.io, then paste the https://*.fly.dev endpoint.',
+      },
+    },
+    capabilities: {
+      chat: true,
+      tools: true,
+      memory: true,
+      autonomousLoop: true,
+      codeExecution: false,
+      multimodal: false,
+    },
+  },
+  {
+    id: 'elizaos',
+    name: 'elizaOS',
+    description: 'TypeScript agent framework backend for personalities, plugins, and autonomous actions.',
+    authMode: 'api-key',
+    requiresEndpoint: true,
+    contextWindow: 4096,
+    install: {
+      summary: 'Install the elizaOS CLI, create or open an agent project, start it, then paste the local server endpoint.',
+      commands: [
+        'bun i -g @elizaos/cli',
+        'elizaos create',
+        'elizaos start',
+      ],
+      docsUrl: 'https://docs.elizaos.ai/',
+      endpointHint: 'Swarm uses the default local elizaOS endpoint automatically.',
+    },
+    launch: {
+      command: 'elizaos start',
+      endpoint: 'http://localhost:3000',
+      docker: {
+        command: 'docker run --rm --name swarm-rt-elizaos -p 3000:3000 your-elizaos-image start',
+        endpoint: 'http://localhost:3000',
+      },
+    },
+    cloud: {
+      fly: {
+        command: 'fly launch --name swarm-elizaos-runtime',
+        endpointHint: 'Deploy the elizaOS service to Fly.io, then paste the app endpoint.',
+      },
+    },
+    capabilities: {
+      chat: true,
+      tools: true,
+      memory: true,
+      autonomousLoop: true,
+      codeExecution: false,
+      multimodal: true,
+    },
+  },
+  {
+    id: 'milady',
+    name: 'milady.ai',
+    description: 'External milady.ai agent backend for hosted avatar runtime experiments.',
+    authMode: 'api-key',
+    requiresEndpoint: true,
+    contextWindow: 4096,
+    install: {
+      summary: 'Connect a hosted or self-managed milady.ai-compatible agent endpoint.',
+      commands: [],
+      endpointHint: 'Paste the milady.ai agent endpoint and API key from your runtime.',
+    },
+    capabilities: {
+      chat: true,
+      tools: true,
+      memory: true,
+      autonomousLoop: true,
+      codeExecution: false,
+      multimodal: true,
+    },
+  },
+  {
+    id: 'claude-code',
+    name: 'Claude Code',
+    description: 'Local Claude Code or Agent SDK runtime for code-aware agent work.',
+    authMode: 'local-process',
+    requiresEndpoint: false,
+    contextWindow: 4096,
+    install: {
+      summary: 'Install Claude Code locally and sign in. Swarm can then use the local process adapter once execution wiring is enabled.',
+      commands: [
+        'npm install -g @anthropic-ai/claude-code',
+        'claude',
+      ],
+      docsUrl: 'https://code.claude.com/docs/en/quickstart',
+    },
+    capabilities: {
+      chat: true,
+      tools: true,
+      memory: false,
+      autonomousLoop: true,
+      codeExecution: true,
+      multimodal: false,
+    },
+  },
+  {
+    id: 'codex',
+    name: 'Codex',
+    description: 'Local Codex CLI runtime for code-aware agent work and repository operations.',
+    authMode: 'local-process',
+    requiresEndpoint: false,
+    contextWindow: 4096,
+    install: {
+      summary: 'Install Codex CLI locally and sign in with ChatGPT or an API key.',
+      commands: [
+        'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
+        'codex',
+      ],
+      docsUrl: 'https://developers.openai.com/codex/cli',
+    },
+    capabilities: {
+      chat: true,
+      tools: true,
+      memory: false,
+      autonomousLoop: true,
+      codeExecution: true,
+      multimodal: false,
+    },
+  },
+  {
+    id: 'openclaw',
+    name: 'OpenClaw',
+    description: 'External OpenClaw personal-agent backend for messaging, scheduling, and workflow actions.',
+    authMode: 'api-key',
+    requiresEndpoint: true,
+    contextWindow: 4096,
+    install: {
+      summary: 'Install OpenClaw, run onboarding, then paste the gateway endpoint.',
+      commands: [
+        'npm install -g openclaw@latest',
+        'openclaw onboard --install-daemon',
+        'openclaw setup',
+      ],
+      docsUrl: 'https://docs.openclaw.ai/install',
+      endpointHint: 'Swarm uses the default local OpenClaw gateway endpoint automatically.',
+    },
+    launch: {
+      command: 'openclaw gateway',
+      endpoint: 'http://localhost:8787',
+      docker: {
+        command: 'docker run --rm --name swarm-rt-openclaw -p 8787:8787 your-openclaw-image gateway',
+        endpoint: 'http://localhost:8787',
+      },
+    },
+    capabilities: {
+      chat: true,
+      tools: true,
+      memory: true,
+      autonomousLoop: true,
+      codeExecution: false,
+      multimodal: true,
+    },
+  },
+  {
+    id: 'cosyworld',
+    name: 'CosyWorld',
+    description: 'Sibling ../cosyworld runtime for world, avatar, Discord, memory, and story systems.',
+    authMode: 'api-key',
+    requiresEndpoint: true,
+    contextWindow: 4096,
+    install: {
+      summary: 'Use the sibling ../cosyworld checkout. Install dependencies once, then launch it on a Swarm-safe port.',
+      commands: [
+        'cd ../cosyworld && npm install',
+        'cd ../cosyworld && WEB_PORT=3101 npm run dev',
+      ],
+      endpointHint: 'Swarm uses the default local CosyWorld endpoint automatically.',
+    },
+    launch: {
+      command: 'cd ../cosyworld && WEB_PORT=3101 npm run dev',
+      endpoint: 'http://localhost:3101',
+      docker: {
+        command: 'docker run --rm --name swarm-rt-cosyworld -p 3101:3000 your-cosyworld-image',
+        endpoint: 'http://localhost:3101',
+      },
+    },
+    cloud: {
+      fly: {
+        command: 'cd ../cosyworld && fly launch --name swarm-cosyworld-runtime',
+        endpointHint: 'Deploy ../cosyworld to Fly.io, then paste the Fly app endpoint.',
+      },
+    },
+    capabilities: {
+      chat: true,
+      tools: true,
+      memory: true,
+      autonomousLoop: true,
+      codeExecution: false,
+      multimodal: true,
+    },
+  },
+  {
+    id: 'custom',
+    name: 'Custom',
+    description: 'Bring your own agent backend through an HTTP endpoint.',
+    authMode: 'api-key',
+    requiresEndpoint: true,
+    contextWindow: 4096,
+    install: {
+      summary: 'Run any OpenAI-compatible or custom agent service, then paste its HTTP endpoint.',
+      commands: [],
+      endpointHint: 'Paste the custom agent backend endpoint.',
+    },
+    capabilities: {
+      chat: true,
+      tools: true,
+      memory: false,
+      autonomousLoop: false,
+      codeExecution: false,
+      multimodal: false,
+    },
+  },
+];
+
+function isAgentBackendId(value: unknown): value is AgentBackendId {
+  return typeof value === 'string' && AGENT_BACKENDS.some((backend) => backend.id === value);
+}
+
+function getAgentBackendDefinition(id: AgentBackendId): AgentBackendDefinition {
+  return AGENT_BACKENDS.find((backend) => backend.id === id) ?? AGENT_BACKENDS[0];
+}
+
+function getDefaultAgentBackendEndpoint(definition: AgentBackendDefinition): string | undefined {
+  return definition.launch?.endpoint;
+}
+
+function isAgentRuntimeDeploymentTarget(value: unknown): value is AgentRuntimeDeploymentTarget {
+  return value === 'local' || value === 'fly';
+}
+
+function normalizeAvatarScope(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 80) || undefined;
+}
+
+function agentRuntimeSecretKey(name: string, avatarId?: string): string {
+  return avatarId ? `agent:${avatarId}:${name}` : `agent:global:${name}`;
+}
+
+function legacyAgentRuntimeSecretKey(name: string, avatarId?: string): string {
+  return avatarId ? agentRuntimeSecretKey(name, avatarId) : name;
+}
+
+function runtimeSecretKey(name: string, backend: AgentBackendId, avatarId?: string): string {
+  return avatarId ? `runtime:${avatarId}:${backend}:${name}` : `runtime:global:${backend}:${name}`;
+}
+
+function legacyRuntimeSecretKey(name: string, backend: AgentBackendId, avatarId?: string): string {
+  return avatarId ? runtimeSecretKey(name, backend, avatarId) : `runtime-${name}:${backend}`;
+}
+
+function runtimeSupervisorKey(backend: AgentBackendId, avatarId?: string): string {
+  return avatarId ? `${avatarId}:${backend}` : backend;
+}
+
+async function readFirstSecretOrNull(services: LocalServices, names: string[]): Promise<string | null> {
+  for (const name of names) {
+    try {
+      const value = (await services.secrets.getSecret(name))?.trim();
+      if (value) return value;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return null;
+}
+
+function localAppOrigins(port: number): Set<string> {
+  const configuredOrigins = (process.env.SWARM_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return new Set([
+    `http://localhost:${port}`,
+    `http://127.0.0.1:${port}`,
+    ...configuredOrigins,
+  ]);
+}
+
+export function isAllowedLocalOrigin(origin: string | undefined, port: number): boolean {
+  if (!origin) return true;
+  return localAppOrigins(port).has(origin);
+}
+
+function localCorsOptions(port: number): CorsOptions {
+  return {
+    credentials: true,
+    origin(origin, callback) {
+      callback(null, isAllowedLocalOrigin(origin, port));
+    },
+  };
+}
+
+export function isLocalApiWriteAllowed(params: {
+  method: string;
+  origin?: string;
+  providedToken?: string;
+  expectedToken?: string;
+  port: number;
+}): boolean {
+  const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+  if (!unsafeMethods.has(params.method.toUpperCase())) return true;
+  if (params.expectedToken) return params.providedToken === params.expectedToken;
+  return isAllowedLocalOrigin(params.origin, params.port);
+}
+
+function installLocalRequestGuard(app: express.Express, port: number): void {
+  const expectedToken = process.env.SWARM_LOCAL_API_TOKEN?.trim();
+
+  app.use((req, res, next) => {
+    if (isLocalApiWriteAllowed({
+      method: req.method,
+      origin: req.get('origin'),
+      providedToken: req.get('x-swarm-local-token'),
+      expectedToken,
+      port,
+    })) {
+      next();
+      return;
+    }
+
+    res.status(403).json({ error: 'Local API token required' });
+  });
+}
+
+function isAllowedRuntimeLaunchCommand(backend: AgentBackendId, command: string): boolean {
+  const definition = getAgentBackendDefinition(backend);
+  const allowed = new Set<string>();
+  if (definition.launch?.command) allowed.add(definition.launch.command);
+  if (definition.launch?.docker?.command) allowed.add(definition.launch.docker.command);
+  return allowed.has(command);
+}
+
+function isAuthorizedCustomRuntimeCommand(req: express.Request): boolean {
+  const token = process.env.SWARM_LOCAL_API_TOKEN?.trim();
+  return Boolean(
+    token &&
+    process.env.SWARM_LOCAL_ALLOW_CUSTOM_RUNTIME_COMMANDS === '1' &&
+    req.get('x-swarm-local-token') === token,
+  );
+}
+
+function hasConfiguredLocalApiToken(req: express.Request): boolean {
+  const token = process.env.SWARM_LOCAL_API_TOKEN?.trim();
+  return !token || req.get('x-swarm-local-token') === token;
+}
+
+async function dispatchExternalAgentBackend(params: {
+  status: AgentBackendStatus;
+  apiKey: string | null;
+  payload: ExternalBackendPayload;
+}): Promise<ChatRouteResult> {
+  const endpoint = params.status.endpoint?.trim();
+  if (!endpoint) {
+    throw new Error(`${params.status.selectedBackend.name} needs an endpoint before chat can route to it.`);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(params.apiKey ? { Authorization: `Bearer ${params.apiKey}` } : {}),
+      },
+      body: JSON.stringify(params.payload),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`${params.status.selectedBackend.name} chat timed out after 15s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const text = await response.text();
+  let body: unknown = text;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+  }
+
+  if (!response.ok) {
+    const message = typeof body === 'object' && body && 'error' in body
+      ? String((body as { error?: unknown }).error)
+      : text || `HTTP ${response.status}`;
+    throw new Error(`${params.status.selectedBackend.name} chat failed: ${message}`);
+  }
+
+  if (typeof body === 'string') {
+    return {
+      response: body,
+      history: params.payload.history,
+      avatar: params.payload.avatar ?? null,
+    };
+  }
+
+  const result = (body ?? {}) as Partial<ChatRouteResult> & {
+    message?: string;
+    content?: string;
+  };
+
+  return {
+    response: result.response ?? result.message ?? result.content ?? '',
+    history: result.history ?? params.payload.history,
+    avatar: result.avatar ?? params.payload.avatar ?? null,
+    pendingToolCall: result.pendingToolCall,
+    taskActions: result.taskActions,
+    media: result.media,
+    pendingJobs: result.pendingJobs,
+    avatarUpdates: result.avatarUpdates,
+  };
+}
+
+async function getLocalAgentBackendStatus(
+  services: LocalServices,
+  avatarId?: string,
+): Promise<AgentBackendStatus> {
+  let selected: AgentBackendId = 'swarm-native';
+  const stored = await readFirstSecretOrNull(services, [
+    agentRuntimeSecretKey('agent-backend', avatarId),
+    legacyAgentRuntimeSecretKey('agent-backend', avatarId),
+  ]);
+  if (isAgentBackendId(stored)) {
+    selected = stored;
+  }
+
+  let endpoint: string | undefined;
+  let hasApiKey = false;
+  let deploymentTarget: AgentRuntimeDeploymentTarget = 'local';
+  endpoint = (await readFirstSecretOrNull(services, [
+    agentRuntimeSecretKey('agent-backend-endpoint', avatarId),
+    legacyAgentRuntimeSecretKey('agent-backend-endpoint', avatarId),
+  ])) ?? undefined;
+  hasApiKey = Boolean(await readFirstSecretOrNull(services, [
+    agentRuntimeSecretKey('agent-backend-api-key', avatarId),
+    legacyAgentRuntimeSecretKey('agent-backend-api-key', avatarId),
+  ]));
+  const storedTarget = await readFirstSecretOrNull(services, [
+    agentRuntimeSecretKey('agent-backend-deployment-target', avatarId),
+    legacyAgentRuntimeSecretKey('agent-backend-deployment-target', avatarId),
+  ]);
+  if (isAgentRuntimeDeploymentTarget(storedTarget)) deploymentTarget = storedTarget;
+
+  const selectedBackend = getAgentBackendDefinition(selected);
+  endpoint = endpoint || (deploymentTarget === 'local' ? getDefaultAgentBackendEndpoint(selectedBackend) : undefined);
+  const configured = selectedBackend.id === 'swarm-native' ||
+    selectedBackend.authMode === 'local-process' ||
+    (!selectedBackend.requiresEndpoint || Boolean(endpoint));
+
+  return {
+    selected,
+    selectedBackend,
+    configured,
+    endpoint,
+    hasApiKey,
+    deploymentTarget,
+    scope: {
+      ...(avatarId ? { avatarId } : {}),
+      label: avatarId ? `Avatar ${avatarId}` : 'New agents',
+    },
+    backends: AGENT_BACKENDS,
+  };
+}
 
 async function getLocalLlmStatus(services: LocalServices): Promise<{
   configured: boolean;
@@ -806,6 +1409,14 @@ export async function mountAdminRoutes(
     '../../admin-api/src/handlers/chat.js'
   );
   const chat = processChatOverride ?? (processChat as unknown as ChatProcessor);
+
+  // ── Runtime supervisor (launch/stop external agent backends) ────────
+  const supervisor = new RuntimeSupervisor();
+  const stopSupervised = () => supervisor.stopAll();
+  process.once('exit', stopSupervised);
+  process.once('SIGINT', stopSupervised);
+  process.once('SIGTERM', stopSupervised);
+
   const makeLocalSession = (sessionOverride?: { email?: string; userId?: string; isAdmin?: boolean }): LocalSession => ({
     email: sessionOverride?.email ?? 'local@swarm.dev',
     userId: sessionOverride?.userId ?? 'local-user',
@@ -828,25 +1439,57 @@ export async function mountAdminRoutes(
         return;
       }
 
-      const llmStatus = await getLocalLlmStatus(services);
-      if (!llmStatus.configured) {
-        res.status(409).json({
-          error: 'AI provider setup required',
-          code: 'AI_PROVIDER_REQUIRED',
-          message: 'Connect OpenRouter or start Ollama before chatting.',
-          providerStatus: llmStatus,
-        });
-        return;
-      }
-
       const session = makeLocalSession(sessionOverride);
+      const avatarScope = normalizeAvatarScope(avatar?.id);
+      const backendStatus = await getLocalAgentBackendStatus(services, avatarScope);
 
-      const result = await chat(
-        message ?? null,
-        history,
-        session,
-        avatar ? { id: avatar.id } : undefined,
-      );
+      const result = backendStatus.selected === 'swarm-native'
+        ? await (async () => {
+            const llmStatus = await getLocalLlmStatus(services);
+            if (!llmStatus.configured) {
+              res.status(409).json({
+                error: 'AI provider setup required',
+                code: 'AI_PROVIDER_REQUIRED',
+                message: 'Connect OpenRouter or start Ollama before chatting.',
+                providerStatus: llmStatus,
+              });
+              return null;
+            }
+            return chat(
+              message ?? null,
+              history,
+              session,
+              avatar ? { id: avatar.id } : undefined,
+            );
+          })()
+        : await (async () => {
+            if (!backendStatus.configured || !backendStatus.endpoint) {
+              res.status(409).json({
+                error: 'Agent backend setup required',
+                code: 'AGENT_BACKEND_REQUIRED',
+                message: `Configure or launch ${backendStatus.selectedBackend.name} before chatting.`,
+                backendStatus,
+              });
+              return null;
+            }
+            const apiKey = await readFirstSecretOrNull(services, [
+              agentRuntimeSecretKey('agent-backend-api-key', avatarScope),
+              legacyAgentRuntimeSecretKey('agent-backend-api-key', avatarScope),
+            ]);
+            return dispatchExternalAgentBackend({
+              status: backendStatus,
+              apiKey,
+              payload: {
+                message: message ?? null,
+                history,
+                session,
+                avatar: avatar ? { id: avatar.id } : undefined,
+                backend: backendStatus.selected,
+              },
+            });
+          })();
+
+      if (!result) return;
 
       // Persist pending tool call so the tools resume endpoint can validate it
       const pendingToolCall = result.pendingToolCall;
@@ -954,6 +1597,237 @@ export async function mountAdminRoutes(
     await services.secrets.deleteSecret('llm-api-key').catch(() => undefined);
     await services.secrets.flush();
     res.json(await getLocalLlmStatus(services));
+  });
+
+  app.get('/api/agent-backends', async (req, res) => {
+    const avatarId = normalizeAvatarScope(req.query.avatarId);
+    res.json(await getLocalAgentBackendStatus(services, avatarId));
+  });
+
+  app.post('/api/agent-backends/select', async (req, res) => {
+    const { backend, endpoint, apiKey, avatarId, deploymentTarget } = req.body as {
+      backend?: unknown;
+      endpoint?: unknown;
+      apiKey?: unknown;
+      avatarId?: unknown;
+      deploymentTarget?: unknown;
+    };
+
+    if (!isAgentBackendId(backend)) {
+      res.status(400).json({ error: 'backend must be a supported agent backend id' });
+      return;
+    }
+    if (deploymentTarget !== undefined && !isAgentRuntimeDeploymentTarget(deploymentTarget)) {
+      res.status(400).json({ error: 'deploymentTarget must be local or fly' });
+      return;
+    }
+
+    const definition = getAgentBackendDefinition(backend);
+    const target = deploymentTarget ?? 'local';
+    const scopedAvatarId = normalizeAvatarScope(avatarId);
+    const defaultEndpoint = target === 'local' ? getDefaultAgentBackendEndpoint(definition) ?? '' : '';
+    const providedEndpoint = typeof endpoint === 'string' ? endpoint.trim() : '';
+    const trimmedEndpoint = providedEndpoint || defaultEndpoint;
+    const trimmedApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+
+    if (definition.requiresEndpoint && !trimmedEndpoint) {
+      res.status(400).json({ error: `${definition.name} requires an endpoint` });
+      return;
+    }
+
+    await services.secrets.setSecret(agentRuntimeSecretKey('agent-backend', scopedAvatarId), backend);
+    await services.secrets.setSecret(agentRuntimeSecretKey('agent-backend-deployment-target', scopedAvatarId), target);
+    if (trimmedEndpoint) {
+      await services.secrets.setSecret(agentRuntimeSecretKey('agent-backend-endpoint', scopedAvatarId), trimmedEndpoint);
+    } else {
+      await services.secrets.deleteSecret(agentRuntimeSecretKey('agent-backend-endpoint', scopedAvatarId)).catch(() => undefined);
+    }
+    if (definition.authMode !== 'api-key' && definition.authMode !== 'oauth') {
+      await services.secrets.deleteSecret(agentRuntimeSecretKey('agent-backend-api-key', scopedAvatarId)).catch(() => undefined);
+    } else if (trimmedApiKey) {
+      await services.secrets.setSecret(agentRuntimeSecretKey('agent-backend-api-key', scopedAvatarId), trimmedApiKey);
+    }
+    await services.secrets.flush();
+    res.json(await getLocalAgentBackendStatus(services, scopedAvatarId));
+  });
+
+  app.delete('/api/agent-backends/select', async (req, res) => {
+    const avatarId = normalizeAvatarScope(req.query.avatarId);
+    await services.secrets.deleteSecret(agentRuntimeSecretKey('agent-backend', avatarId)).catch(() => undefined);
+    await services.secrets.deleteSecret(agentRuntimeSecretKey('agent-backend-endpoint', avatarId)).catch(() => undefined);
+    await services.secrets.deleteSecret(agentRuntimeSecretKey('agent-backend-api-key', avatarId)).catch(() => undefined);
+    await services.secrets.deleteSecret(agentRuntimeSecretKey('agent-backend-deployment-target', avatarId)).catch(() => undefined);
+    await services.secrets.flush();
+    res.json(await getLocalAgentBackendStatus(services, avatarId));
+  });
+
+  // ── Runtime supervisor: launch/stop external agent backends ─────────
+  const runtimeStatePayload = async (backend: AgentBackendId, avatarId?: string) => {
+    const definition = getAgentBackendDefinition(backend);
+    const runtimeKey = runtimeSupervisorKey(backend, avatarId);
+    const live = supervisor.status(runtimeKey);
+    const command =
+      live.command ??
+      (await readFirstSecretOrNull(services, [
+        runtimeSecretKey('launch', backend, avatarId),
+        legacyRuntimeSecretKey('launch', backend, avatarId),
+      ])) ??
+      definition.launch?.command ??
+      '';
+    const endpoint =
+      live.endpoint ??
+      (await readFirstSecretOrNull(services, [
+        runtimeSecretKey('endpoint', backend, avatarId),
+        legacyRuntimeSecretKey('endpoint', backend, avatarId),
+      ])) ??
+      definition.launch?.endpoint ??
+      '';
+    return { ...live, backend, command, endpoint, supported: process.platform !== 'win32' };
+  };
+
+  app.get('/api/runtime/status', async (req, res) => {
+    const backend = req.query.backend;
+    const avatarId = normalizeAvatarScope(req.query.avatarId);
+    if (!isAgentBackendId(backend)) {
+      res.status(400).json({ error: 'backend query param required' });
+      return;
+    }
+    res.json(await runtimeStatePayload(backend, avatarId));
+  });
+
+  app.get('/api/runtime/logs', (req, res) => {
+    if (!hasConfiguredLocalApiToken(req)) {
+      res.status(403).json({ error: 'Local API token required' });
+      return;
+    }
+    const backend = req.query.backend;
+    const avatarId = normalizeAvatarScope(req.query.avatarId);
+    if (!isAgentBackendId(backend)) {
+      res.status(400).json({ error: 'backend query param required' });
+      return;
+    }
+    res.json({ logs: supervisor.logs(runtimeSupervisorKey(backend, avatarId)) });
+  });
+
+  app.post('/api/runtime/start', async (req, res) => {
+    try {
+      const { backend, command, endpoint, avatarId } = req.body as {
+        backend?: unknown;
+        command?: unknown;
+        endpoint?: unknown;
+        avatarId?: unknown;
+      };
+      if (!isAgentBackendId(backend)) {
+        res.status(400).json({ error: 'backend must be a supported agent backend id' });
+        return;
+      }
+      const cmd = typeof command === 'string' ? command.trim() : '';
+      if (!cmd) {
+        res.status(400).json({ error: 'launch command required' });
+        return;
+      }
+      if (!isAllowedRuntimeLaunchCommand(backend, cmd) && !isAuthorizedCustomRuntimeCommand(req)) {
+        res.status(400).json({ error: 'Launch command must match a known runtime template' });
+        return;
+      }
+      const ep = typeof endpoint === 'string' ? endpoint.trim() : '';
+      const scopedAvatarId = normalizeAvatarScope(avatarId);
+      await services.secrets.setSecret(runtimeSecretKey('launch', backend, scopedAvatarId), cmd);
+      if (ep) await services.secrets.setSecret(runtimeSecretKey('endpoint', backend, scopedAvatarId), ep);
+      await services.secrets.flush();
+      supervisor.start(runtimeSupervisorKey(backend, scopedAvatarId), cmd, ep || null);
+      res.json(await runtimeStatePayload(backend, scopedAvatarId));
+    } catch (err) {
+      console.error('[local] runtime start error:', err);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/runtime/stop', async (req, res) => {
+    const { backend, avatarId } = req.body as { backend?: unknown; avatarId?: unknown };
+    if (!isAgentBackendId(backend)) {
+      res.status(400).json({ error: 'backend must be a supported agent backend id' });
+      return;
+    }
+    const scopedAvatarId = normalizeAvatarScope(avatarId);
+    await supervisor.stopAndWait(runtimeSupervisorKey(backend, scopedAvatarId));
+    res.json(await runtimeStatePayload(backend, scopedAvatarId));
+  });
+
+  app.post('/api/runtime/restart', async (req, res) => {
+    try {
+      const { backend, command, endpoint, avatarId } = req.body as {
+        backend?: unknown;
+        command?: unknown;
+        endpoint?: unknown;
+        avatarId?: unknown;
+      };
+      if (!isAgentBackendId(backend)) {
+        res.status(400).json({ error: 'backend must be a supported agent backend id' });
+        return;
+      }
+      const scopedAvatarId = normalizeAvatarScope(avatarId);
+      const current = await runtimeStatePayload(backend, scopedAvatarId);
+      await supervisor.stopAndWait(runtimeSupervisorKey(backend, scopedAvatarId));
+      const cmd = (typeof command === 'string' && command.trim()) || current.command;
+      const ep = (typeof endpoint === 'string' && endpoint.trim()) || current.endpoint;
+      if (cmd) {
+        if (!isAllowedRuntimeLaunchCommand(backend, cmd) && !isAuthorizedCustomRuntimeCommand(req)) {
+          res.status(400).json({ error: 'Launch command must match a known runtime template' });
+          return;
+        }
+        await services.secrets.setSecret(runtimeSecretKey('launch', backend, scopedAvatarId), cmd);
+        if (ep) await services.secrets.setSecret(runtimeSecretKey('endpoint', backend, scopedAvatarId), ep);
+        await services.secrets.flush();
+        supervisor.start(runtimeSupervisorKey(backend, scopedAvatarId), cmd, ep || null);
+      }
+      res.json(await runtimeStatePayload(backend, scopedAvatarId));
+    } catch (err) {
+      console.error('[local] runtime restart error:', err);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Reset a backend's launch command/endpoint back to the built-in default.
+  app.delete('/api/runtime/launch', async (req, res) => {
+    const backend = req.query.backend;
+    const avatarId = normalizeAvatarScope(req.query.avatarId);
+    if (!isAgentBackendId(backend)) {
+      res.status(400).json({ error: 'backend query param required' });
+      return;
+    }
+    await services.secrets.deleteSecret(runtimeSecretKey('launch', backend, avatarId)).catch(() => undefined);
+    await services.secrets.deleteSecret(runtimeSecretKey('endpoint', backend, avatarId)).catch(() => undefined);
+    await services.secrets.flush();
+    res.json(await runtimeStatePayload(backend, avatarId));
+  });
+
+  // Open the user's terminal to run a known install command (visible, allows sudo prompts).
+  app.post('/api/runtime/open-terminal', (req, res) => {
+    const { command } = req.body as { command?: unknown };
+    if (typeof command !== 'string' || !command.trim()) {
+      res.status(400).json({ error: 'command required' });
+      return;
+    }
+    const known = new Set(AGENT_BACKENDS.flatMap((b) => b.install.commands));
+    if (!known.has(command)) {
+      res.status(400).json({ error: 'Unrecognized install command' });
+      return;
+    }
+    if (process.platform !== 'darwin') {
+      res.status(501).json({ error: `Run-in-terminal is only supported on macOS right now (platform: ${process.platform}).` });
+      return;
+    }
+    const escaped = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const script = `tell application "Terminal"\n  activate\n  do script "${escaped}"\nend tell`;
+    execFile('osascript', ['-e', script], (err) => {
+      if (err) {
+        console.error('[local] open-terminal error:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ success: true });
+    });
   });
 
   app.get('/api/avatars', async (_req, res) => {
@@ -1064,6 +1938,40 @@ export async function mountAdminRoutes(
       const result = await updateAvatar(req.params.id, req.body, session);
       res.json(result);
     } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post("/api/avatars/:id/activate", async (req, res) => {
+    try {
+      const { activateAvatar } = await import("../../admin-api/src/services/avatars.js");
+      const session = localAdminSession();
+      const result = await activateAvatar(req.params.id, session.userId);
+      if (!result.success) {
+        res.status(400).json({ error: result.error ?? "Failed to activate avatar" });
+        return;
+      }
+      console.log(`[local] Activated avatar ${req.params.id}`);
+      res.json({ success: true, status: "active" });
+    } catch (err) {
+      console.error(`[local] Activate error for ${req.params.id}:`, err);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post("/api/avatars/:id/deactivate", async (req, res) => {
+    try {
+      const { deactivateAvatar } = await import("../../admin-api/src/services/avatars.js");
+      const session = localAdminSession();
+      const result = await deactivateAvatar(req.params.id, session.userId);
+      if (!result.success) {
+        res.status(400).json({ error: result.error ?? "Failed to deactivate avatar" });
+        return;
+      }
+      console.log(`[local] Deactivated avatar ${req.params.id}`);
+      res.json({ success: true, status: "paused" });
+    } catch (err) {
+      console.error(`[local] Deactivate error for ${req.params.id}:`, err);
       res.status(500).json({ error: (err as Error).message });
     }
   });
