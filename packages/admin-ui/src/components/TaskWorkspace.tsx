@@ -28,10 +28,7 @@ import { useActiveAvatar } from '../store';
 interface TaskWorkspaceProps {
   /** Callback when a tool prompt is submitted from within the workspace. */
   onToolSubmit?: (toolCallId: string, result: unknown) => Promise<ToolSubmitResult>;
-  /**
-   * Pre-filled invite code (from ?invite=DP-XXXX-XXXX query param). Forwarded
-   * to ActivityHealthTab → PlanUsagePanel for one-shot redemption pre-fill (#1639).
-   */
+  /** Pre-filled invite code retained for workspace tab compatibility. */
   initialInviteCode?: string;
 }
 

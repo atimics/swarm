@@ -8,6 +8,8 @@ import express from "express";
 // ── Request simulator ─────────────────────────────────────────────────
 function hitRoute(app: express.Express, method: string, path: string, body?: unknown) {
   return new Promise<{ status: number; body: unknown }>((resolve) => {
+    const parsed = new URL(path, "http://localhost");
+    const query = Object.fromEntries(parsed.searchParams.entries());
     const done = (s: number, d: unknown) => resolve({ status: s, body: d });
     const res: any = {
       _status: 200, statusCode: 200, _headers: {}, locals: {}, headersSent: false,
@@ -23,10 +25,10 @@ function hitRoute(app: express.Express, method: string, path: string, body?: unk
     };
     const m = path.match(/^\/api\/avatars\/([^/]+)/);
     const req: any = {
-      method: method.toUpperCase(), url: path, path, baseUrl: "",
-      body, params: m ? { id: m[1] } : {}, query: {}, headers: {},
+      method: method.toUpperCase(), url: path, path: parsed.pathname, baseUrl: "",
+      body, params: m ? { id: m[1] } : {}, query, headers: {},
       get() { return undefined; }, app, res,
-      _parsedUrl: { pathname: path, search: "", query: {} },
+      _parsedUrl: { pathname: parsed.pathname, search: parsed.search, query },
     };
     (app as any).handle(req, res, () => done(404, { error: "not found" }));
   });
@@ -117,6 +119,12 @@ describe("mountAdminRoutes integration", () => {
       ["GET", `/api/chat?avatarId=${AID}`],
       ["DELETE", `/api/chat?avatarId=${AID}`],
       ["POST", "/api/chat/message", { avatarId: AID, message: { role: "assistant", content: "status" } }],
+      ["GET", "/api/llm/status"],
+      ["POST", "/api/llm/provider", { provider: "openrouter" }],
+      ["DELETE", "/api/llm/provider"],
+      ["GET", "/api/agent-backends"],
+      ["POST", "/api/agent-backends/select", { backend: "swarm-native" }],
+      ["DELETE", "/api/agent-backends/select"],
       ["GET", "/api/avatars"], ["POST", "/api/avatars", { name: "t" }],
       ["GET", `/api/avatars/${AID}`], ["PUT", `/api/avatars/${AID}`, { name: "x" }],
       ["PATCH", `/api/avatars/${AID}`, { name: "x" }],
@@ -181,5 +189,89 @@ describe("mountAdminRoutes integration", () => {
     const { status } = await hitRoute(app, "POST", `/api/avatars/${AID}/tools/tc-1`, { result: { ok: true } });
     // Route exists (not 404); internal store may not be initialized so error varies
     expect(status).not.toBe(404);
+  });
+
+  it("lists and selects local agent backends", async () => {
+    const store = new Map<string, string>();
+    const services = {
+      secrets: {
+        setSecret: async (name: string, value: string) => { store.set(name, value); },
+        flush: async () => {},
+        listSecrets: async () => [] as string[],
+        getSecret: async (name: string) => store.get(name) ?? (name === "llm-api-key" ? "sk-test" : ""),
+        deleteSecret: async (name: string) => { store.delete(name); },
+      },
+    };
+    const { mountAdminRoutes } = await import("./server.js");
+    const app = express();
+    await mountAdminRoutes(app, services as any);
+
+    const initial = await hitRoute(app, "GET", "/api/agent-backends");
+    expect(initial.status).toBe(200);
+    expect((initial.body as any).selected).toBe("swarm-native");
+    expect((initial.body as any).backends.some((backend: any) => backend.id === "elizaos")).toBe(true);
+    expect((initial.body as any).backends.some((backend: any) => backend.id === "codex")).toBe(true);
+    expect((initial.body as any).backends.some((backend: any) => backend.id === "cosyworld")).toBe(true);
+    const hermes = (initial.body as any).backends.find((backend: any) => backend.id === "hermes");
+    const openclaw = (initial.body as any).backends.find((backend: any) => backend.id === "openclaw");
+    const cosyworld = (initial.body as any).backends.find((backend: any) => backend.id === "cosyworld");
+    expect(hermes.install.commands.some((command: string) => command.includes("hermes setup"))).toBe(true);
+    expect(openclaw.install.docsUrl).toBe("https://docs.openclaw.ai/install");
+    expect(cosyworld.launch.endpoint).toBe("http://localhost:3101");
+
+    const missingEndpoint = await hitRoute(app, "POST", "/api/agent-backends/select", { backend: "custom" });
+    expect(missingEndpoint.status).toBe(400);
+
+    const defaulted = await hitRoute(app, "POST", "/api/agent-backends/select", { backend: "openclaw" });
+    expect(defaulted.status).toBe(200);
+    expect((defaulted.body as any).selected).toBe("openclaw");
+    expect((defaulted.body as any).endpoint).toBe("http://localhost:8787");
+
+    const selected = await hitRoute(app, "POST", "/api/agent-backends/select", {
+      backend: "openclaw",
+      endpoint: "http://localhost:7331",
+      apiKey: "secret",
+    });
+    expect(selected.status).toBe(200);
+    expect((selected.body as any).selected).toBe("openclaw");
+    expect((selected.body as any).endpoint).toBe("http://localhost:7331");
+    expect((selected.body as any).hasApiKey).toBe(true);
+    expect(store.get("agent-backend-api-key")).toBe("secret");
+
+    const codex = await hitRoute(app, "POST", "/api/agent-backends/select", { backend: "codex" });
+    expect(codex.status).toBe(200);
+    expect((codex.body as any).selected).toBe("codex");
+    expect((codex.body as any).hasApiKey).toBe(false);
+    expect(store.has("agent-backend-api-key")).toBe(false);
+
+    const scoped = await hitRoute(app, "POST", "/api/agent-backends/select", {
+      avatarId: "avatar-one",
+      backend: "cosyworld",
+    });
+    expect(scoped.status).toBe(200);
+    expect((scoped.body as any).scope.avatarId).toBe("avatar-one");
+    expect((scoped.body as any).selected).toBe("cosyworld");
+    expect((scoped.body as any).endpoint).toBe("http://localhost:3101");
+    expect(store.get("agent:avatar-one:agent-backend")).toBe("cosyworld");
+    expect(store.get("agent-backend")).toBe("codex");
+
+    const fly = await hitRoute(app, "POST", "/api/agent-backends/select", {
+      avatarId: "avatar-one",
+      backend: "cosyworld",
+      deploymentTarget: "fly",
+      endpoint: "https://cosyworld.fly.dev",
+    });
+    expect(fly.status).toBe(200);
+    expect((fly.body as any).deploymentTarget).toBe("fly");
+    expect((fly.body as any).endpoint).toBe("https://cosyworld.fly.dev");
+
+    const reset = await hitRoute(app, "DELETE", "/api/agent-backends/select");
+    expect(reset.status).toBe(200);
+    expect((reset.body as any).selected).toBe("swarm-native");
+
+    const scopedReset = await hitRoute(app, "DELETE", "/api/agent-backends/select?avatarId=avatar-one");
+    expect(scopedReset.status).toBe(200);
+    expect((scopedReset.body as any).selected).toBe("swarm-native");
+    expect(store.has("agent:avatar-one:agent-backend")).toBe(false);
   });
 });
