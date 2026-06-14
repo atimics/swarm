@@ -27,6 +27,7 @@ const password = parseArg('--password');
 const adminUiPath = parseArg('--admin-ui-path');
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
+const HOST = process.env.SWARM_HOST ?? '127.0.0.1';
 const HOME = process.env.HOME ?? '/tmp';
 const DB_PATH = process.env.SWARM_DB_PATH ?? `${HOME}/Library/Application Support/Swarm/swarm.db`;
 const BLOB_DIR = process.env.SWARM_BLOB_DIR ?? `${HOME}/Library/Application Support/Swarm/blobs`;
@@ -37,6 +38,7 @@ async function startApp(): Promise<string> {
 
   const { services } = await startServer({
     port: PORT,
+    host: HOST,
     dbPath: DB_PATH,
     blobDir: BLOB_DIR,
     password,
@@ -46,7 +48,7 @@ async function startApp(): Promise<string> {
   process.on('SIGINT', () => { services.shutdown(); process.exit(0); });
   process.on('SIGTERM', () => { services.shutdown(); process.exit(0); });
 
-  return `http://localhost:${PORT}`;
+  return `http://${HOST}:${PORT}`;
 }
 
 startApp().then((url) => {

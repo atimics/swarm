@@ -26,6 +26,7 @@ export function ApiKeySetup({ onReadyChange }: ApiKeySetupProps) {
   const [error, setError] = useState('');
 
   const configured = Boolean(status?.configured);
+  const isWebLocal = typeof document !== 'undefined' && document.documentElement.dataset.swarmWebLocal === 'true';
 
   // Poll for provider readiness after OAuth flow or after Ollama starts.
   useEffect(() => {
@@ -132,13 +133,17 @@ export function ApiKeySetup({ onReadyChange }: ApiKeySetupProps) {
           Use local Ollama
         </button>
       </div>
-      <button onClick={() => { window.location.href = '/api/auth/openrouter'; }}
-        className="w-full px-4 py-2.5 text-sm bg-brand-500 hover:bg-brand-600 text-white rounded-lg font-medium transition-colors mb-3"
-      >
-        Connect with OpenRouter
-      </button>
+      {!isWebLocal && (
+        <button onClick={() => { window.location.href = '/api/auth/openrouter'; }}
+          className="w-full px-4 py-2.5 text-sm bg-brand-500 hover:bg-brand-600 text-white rounded-lg font-medium transition-colors mb-3"
+        >
+          Connect with OpenRouter
+        </button>
+      )}
       <p className="text-xs text-[var(--color-text-muted)] mb-3">
-        After authorizing, come back here — the key will be detected automatically. Or paste your API key manually:
+        {isWebLocal
+          ? 'Static web mode keeps this key in localStorage in this browser. Paste your API key manually:'
+          : 'After authorizing, come back here — the key will be detected automatically. Or paste your API key manually:'}
       </p>
       <div className="flex gap-2">
         <input

@@ -20,7 +20,6 @@ import { ChatInput } from './ChatInput';
 import { AvatarDisplay } from './AvatarSidebar';
 import { getErrorRecovery } from '../utils/error-recovery';
 import { WelcomeMessage } from './WelcomeMessage';
-import { UpgradeNudge } from './UpgradeNudge';
 
 // Lazy-load heavy panel components that are behind user interactions
 const ActivationChecklist = lazy(() => import('./ActivationChecklist').then(m => ({ default: m.ActivationChecklist })));
@@ -28,6 +27,9 @@ const TaskWorkspace = lazy(() => import('./TaskWorkspace').then(m => ({ default:
 
 import { LanguageSelector } from './LanguageSelector';
 import { ApiKeySetup } from "./ApiKeySetup";
+import { AgentBackendSetup } from './AgentBackendSetup';
+import { NativeClientDownloads } from './NativeClientDownloads';
+import { ArweaveVaultPanel } from './ArweaveVaultPanel';
 
 // Track active polling jobs to avoid duplicate polling
 const activePollers = new Map<string, { controller: AbortController; avatarId: string }>();
@@ -87,12 +89,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
   const pendingIntegrationMessage = pendingIntegrationCard
     ? `Finish ${formatIntegrationName(pendingIntegrationName)} setup before sending another message.`
     : undefined;
-  // Track which limit types have already shown an upgrade nudge this session
-  const shownNudgesRef = useRef(new Set<string>());
-
-  // Auto-open the Activity tab when arriving via ?invite=DP-XXXX-XXXX so the
-  // user lands on the redemption form. Replaces the legacy
-  // `planUsagePanelOpen` auto-open behavior (#1639).
+  // Auto-open the Activity tab when arriving via ?invite=DP-XXXX-XXXX.
   useEffect(() => {
     if (initialInviteCode) {
       useWorkspaceStore.getState().setTab('activity');
@@ -1131,7 +1128,12 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
           </div>
         </div>
 
-        <ApiKeySetup onReadyChange={handleLlmReadyChange} />
+        <div className="px-3 lg:px-6">
+          <NativeClientDownloads />
+          <ArweaveVaultPanel />
+          <AgentBackendSetup />
+          <ApiKeySetup onReadyChange={handleLlmReadyChange} />
+        </div>
 
         {/* Input area */}
         <div className="chat-input-container border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]/80 backdrop-blur-sm px-3 lg:px-6 py-3 lg:py-4">
@@ -1244,12 +1246,13 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
         </header>
       ) : null}
 
-      {/* Plan & Usage now lives in the workspace Activity tab (#1639). */}
-
       {/* Messages */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 lg:px-6 py-4">
         <div className="max-w-3xl mx-auto space-y-4 w-full">
           {/* Activation checklist for admin users with newly created avatars */}
+          <NativeClientDownloads />
+          <ArweaveVaultPanel />
+          <AgentBackendSetup avatarId={activeAvatar.id} avatarName={activeAvatar.name} />
           {!isLlmReady && (
             <ApiKeySetup onReadyChange={handleLlmReadyChange} />
           )}
@@ -1278,27 +1281,12 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
                 );
               }
               const message = item.message;
-              // Show upgrade nudge inline after limit-error messages (once per limit type per session)
-              const shouldShowNudge = Boolean(
-                message.limitInfo &&
-                activeAvatar?.id &&
-                !shownNudgesRef.current.has(message.limitInfo.limitType)
-              );
-              if (shouldShowNudge && message.limitInfo) {
-                shownNudgesRef.current.add(message.limitInfo.limitType);
-              }
               return (
                 <div key={message.id}>
                   <ChatMessageComponent
                     message={message}
                     onToolSubmit={handleToolSubmit}
                   />
-                  {shouldShowNudge && message.limitInfo && activeAvatar && (
-                    <UpgradeNudge
-                      avatarId={activeAvatar.id}
-                      limitInfo={message.limitInfo as { limitType: 'messages' | 'media' | 'voice' | 'tools'; current: number; limit: number; remaining: number }}
-                    />
-                  )}
                 </div>
               );
             })
