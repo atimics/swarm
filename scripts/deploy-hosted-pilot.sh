@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP="${APP:-swarm-rati-pilot}"
-REGION="${REGION:-sea}"
+REGION="${REGION:-sjc}"
 VOLUME_NAME="${VOLUME_NAME:-swarm_data}"
 VOLUME_SIZE="${VOLUME_SIZE:-3}"
 ORIGIN="https://${APP}.fly.dev"
@@ -48,14 +48,14 @@ fi
 
 echo "[pilot] app=$APP region=$REGION volume=$VOLUME_NAME origin=$ORIGIN"
 
-if ! flyctl apps list --json | grep -q "\"Name\":\"$APP\""; then
+if ! flyctl status --app "$APP" >/dev/null 2>&1; then
   echo "[pilot] creating Fly app $APP"
   flyctl apps create "$APP"
 else
   echo "[pilot] Fly app exists"
 fi
 
-if ! flyctl volumes list --app "$APP" --json | grep -q "\"name\":\"$VOLUME_NAME\""; then
+if ! flyctl volumes list --app "$APP" --json | grep -q "\"name\": *\"$VOLUME_NAME\""; then
   echo "[pilot] creating volume $VOLUME_NAME"
   flyctl volumes create "$VOLUME_NAME" \
     --app "$APP" \
@@ -77,7 +77,7 @@ if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
 fi
 
 echo "[pilot] setting secrets"
-flyctl secrets set --app "$APP" "${secret_args[@]}"
+flyctl secrets set --stage --app "$APP" "${secret_args[@]}"
 
 if [[ "${SKIP_DEPLOY:-}" == "1" ]]; then
   echo "[pilot] SKIP_DEPLOY=1; not deploying"
