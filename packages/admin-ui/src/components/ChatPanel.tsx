@@ -28,6 +28,7 @@ const TaskWorkspace = lazy(() => import('./TaskWorkspace').then(m => ({ default:
 import { LanguageSelector } from './LanguageSelector';
 import { ApiKeySetup } from "./ApiKeySetup";
 import { AgentBackendSetup } from './AgentBackendSetup';
+import { NativeClientDownloads } from './NativeClientDownloads';
 
 // Track active polling jobs to avoid duplicate polling
 const activePollers = new Map<string, { controller: AbortController; avatarId: string }>();
@@ -1127,6 +1128,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
         </div>
 
         <div className="px-3 lg:px-6">
+          <NativeClientDownloads />
           <AgentBackendSetup />
           <ApiKeySetup onReadyChange={handleLlmReadyChange} />
         </div>
@@ -1246,6 +1248,7 @@ export function ChatPanel({ onMenuClick, initialInviteCode }: ChatPanelProps) {
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 lg:px-6 py-4">
         <div className="max-w-3xl mx-auto space-y-4 w-full">
           {/* Activation checklist for admin users with newly created avatars */}
+          <NativeClientDownloads />
           <AgentBackendSetup avatarId={activeAvatar.id} avatarName={activeAvatar.name} />
           {!isLlmReady && (
             <ApiKeySetup onReadyChange={handleLlmReadyChange} />
