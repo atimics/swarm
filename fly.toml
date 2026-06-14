@@ -3,7 +3,7 @@
 # docs/HOSTED-PILOT-FLY.md before deploying.
 
 app = "swarm-rati-pilot"
-primary_region = "sea"
+primary_region = "sjc"
 
 [build]
   dockerfile = "Dockerfile.local"

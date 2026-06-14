@@ -30,7 +30,7 @@ Manual path:
 ```bash
 fly auth login
 fly apps create swarm-rati-pilot
-fly volumes create swarm_data --app swarm-rati-pilot --region sea --size 3
+fly volumes create swarm_data --app swarm-rati-pilot --region sjc --size 3
 ```
 
 Edit `fly.toml` if you use a different app name or region.
