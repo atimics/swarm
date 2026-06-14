@@ -107,6 +107,7 @@ process.on('unhandledRejection', (reason) => {
 
 export interface ServerOptions {
   port?: number;
+  host?: string;
   dbPath?: string;
   blobDir?: string;
   adminUiPath?: string;
@@ -284,6 +285,7 @@ export async function injectLocalAdapters(
 
 export async function startServer(options: ServerOptions = {}) {
   const port = options.port ?? 3000;
+  const host = options.host ?? '127.0.0.1';
   const dataDir = options.blobDir ?? './data/blobs';
   const dbPath = options.dbPath ?? './data/swarm.db';
 
@@ -707,8 +709,8 @@ export async function startServer(options: ServerOptions = {}) {
 
   return new Promise<{ app: express.Express; services: typeof services }>(
     (resolve, reject) => {
-      const server = app.listen(port, '127.0.0.1', () => {
-        console.log(`[local] Swarm server running at http://127.0.0.1:${port}`);
+      const server = app.listen(port, host, () => {
+        console.log(`[local] Swarm server running at http://${host}:${port}`);
         console.log(`[local]   Database: ${dbPath}`);
         console.log(`[local]   Blobs:    ${dataDir}`);
 
@@ -1136,9 +1138,14 @@ async function readFirstSecretOrNull(services: LocalServices, names: string[]): 
 }
 
 function localAppOrigins(port: number): Set<string> {
+  const configuredOrigins = (process.env.SWARM_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
   return new Set([
     `http://localhost:${port}`,
     `http://127.0.0.1:${port}`,
+    ...configuredOrigins,
   ]);
 }
 
