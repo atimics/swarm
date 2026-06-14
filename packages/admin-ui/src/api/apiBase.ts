@@ -32,7 +32,7 @@ export function getApiBase(): string {
     if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {
       return "/api";
     }
-    if (/^admin[-.]/.test(host) || host.endsWith('.rati.chat')) {
+    if (/^admin[-.]/.test(host) || host.endsWith('.rati.chat') || host.endsWith('.fly.dev')) {
       return '/api';
     }
   }
