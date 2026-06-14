@@ -15,6 +15,18 @@ This is single-tenant. It intentionally uses the local stack, not the hosted wal
 
 ## One-Time Setup
 
+Fast path:
+
+```bash
+APP=swarm-rati-pilot \
+ADMIN_PASSWORD="$(openssl rand -base64 32)" \
+LOCAL_TOKEN="$(openssl rand -hex 32)" \
+OPENROUTER_API_KEY="..." \
+./scripts/deploy-hosted-pilot.sh
+```
+
+Manual path:
+
 ```bash
 fly auth login
 fly apps create swarm-rati-pilot
