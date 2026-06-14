@@ -28,7 +28,7 @@ type LocalState = {
     backend: string;
     endpoint?: string;
     apiKey?: string;
-    deploymentTarget: 'local' | 'fly' | 'ecs';
+    deploymentTarget: 'local' | 'fly';
   }>;
   consentAcceptedAt?: number;
 };
@@ -160,7 +160,7 @@ const AGENT_BACKENDS = [
       endpointHint: 'The web client remembers the Hermes endpoint in localStorage.',
     },
     launch: { command: 'hermes proxy start --port 8645', endpoint: 'http://localhost:8645' },
-    cloud: { fly: { endpointHint: 'Paste a Fly.io Hermes proxy endpoint.' }, ecs: { supported: false, endpointHint: 'ECS support is planned.' } },
+    cloud: { fly: { endpointHint: 'Paste a Fly.io Hermes proxy endpoint.' } },
     capabilities: { chat: true, tools: true, memory: true, autonomousLoop: true, codeExecution: false, multimodal: false },
   },
   {
@@ -176,7 +176,7 @@ const AGENT_BACKENDS = [
       endpointHint: 'The web client remembers the CosyWorld endpoint in localStorage.',
     },
     launch: { command: 'cd ../cosyworld && WEB_PORT=3101 npm run dev', endpoint: 'http://localhost:3101' },
-    cloud: { fly: { command: 'cd ../cosyworld && fly launch --name swarm-cosyworld-runtime', endpointHint: 'Paste a Fly.io CosyWorld endpoint.' }, ecs: { supported: false, endpointHint: 'ECS support is planned.' } },
+    cloud: { fly: { command: 'cd ../cosyworld && fly launch --name swarm-cosyworld-runtime', endpointHint: 'Paste a Fly.io CosyWorld endpoint.' } },
     capabilities: { chat: true, tools: true, memory: true, autonomousLoop: true, codeExecution: false, multimodal: true },
   },
   {
@@ -419,7 +419,7 @@ function routeLocalApi(request: Request): Response | Promise<Response> | null {
         backend: String(body.backend || 'swarm-native'),
         endpoint: typeof body.endpoint === 'string' ? body.endpoint : undefined,
         apiKey: typeof body.apiKey === 'string' ? body.apiKey : state.agentBackends[key]?.apiKey,
-        deploymentTarget: body.deploymentTarget === 'fly' || body.deploymentTarget === 'ecs' ? body.deploymentTarget : 'local',
+        deploymentTarget: body.deploymentTarget === 'fly' ? body.deploymentTarget : 'local',
       };
       writeState(state);
       return json(backendStatus(state, avatarId));

@@ -208,10 +208,12 @@ describe("mountAdminRoutes integration", () => {
     let calledUrl = "";
     let calledBody: any = null;
     let calledAuth = "";
+    let calledSignal: AbortSignal | undefined;
     globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       calledUrl = String(url);
       calledBody = JSON.parse(String(init?.body));
       calledAuth = String((init?.headers as Record<string, string>)?.Authorization ?? "");
+      calledSignal = init?.signal ?? undefined;
       return new Response(JSON.stringify({
         response: "external ok",
         history: [{ role: "assistant", content: "external ok" }],
@@ -232,6 +234,7 @@ describe("mountAdminRoutes integration", () => {
     expect((body as any).response).toBe("external ok");
     expect(calledUrl).toBe("http://runtime.test/chat");
     expect(calledAuth).toBe("Bearer secret");
+    expect(calledSignal).toBeInstanceOf(AbortSignal);
     expect(calledBody.backend).toBe("custom");
     expect(calledBody.message).toBe("hello");
   });
@@ -255,11 +258,29 @@ describe("mountAdminRoutes integration", () => {
   });
 
   it("allows only local origins for mutating local API requests", async () => {
-    const { isAllowedLocalOrigin } = await import("./server.js");
+    const { isAllowedLocalOrigin, isLocalApiWriteAllowed } = await import("./server.js");
     expect(isAllowedLocalOrigin(undefined, 3001)).toBe(true);
     expect(isAllowedLocalOrigin("http://localhost:3001", 3001)).toBe(true);
     expect(isAllowedLocalOrigin("http://127.0.0.1:3001", 3001)).toBe(true);
     expect(isAllowedLocalOrigin("https://evil.example", 3001)).toBe(false);
+    expect(isLocalApiWriteAllowed({
+      method: "POST",
+      port: 3001,
+      expectedToken: "token",
+      providedToken: undefined,
+    })).toBe(false);
+    expect(isLocalApiWriteAllowed({
+      method: "POST",
+      port: 3001,
+      expectedToken: "token",
+      providedToken: "token",
+    })).toBe(true);
+    expect(isLocalApiWriteAllowed({
+      method: "POST",
+      port: 3001,
+      origin: undefined,
+      expectedToken: undefined,
+    })).toBe(true);
   });
 
   it("rejects arbitrary runtime launch commands", async () => {
@@ -272,6 +293,23 @@ describe("mountAdminRoutes integration", () => {
     });
     expect(status).toBe(400);
     expect((body as any).error).toMatch(/known runtime template/);
+  });
+
+  it("requires the local token before returning runtime logs when configured", async () => {
+    process.env.SWARM_LOCAL_API_TOKEN = "token";
+    const { mountAdminRoutes } = await import("./server.js");
+    const app = express();
+    await mountAdminRoutes(app, stubSvc as any);
+    const blocked = await hitRoute(app, "GET", "/api/runtime/logs?backend=hermes");
+    expect(blocked.status).toBe(403);
+    const allowed = await hitRoute(
+      app,
+      "GET",
+      "/api/runtime/logs?backend=hermes",
+      undefined,
+      { "x-swarm-local-token": "token" },
+    );
+    expect(allowed.status).toBe(200);
   });
 
   it("reads legacy global backend secrets during upgrade", async () => {

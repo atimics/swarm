@@ -10,6 +10,40 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 
 const MAX_LOG_LINES = 200;
+const RUNTIME_ENV_ALLOWLIST = [
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'LANG',
+  'LC_ALL',
+  'NODE_OPTIONS',
+  'NPM_CONFIG_PREFIX',
+  'PNPM_HOME',
+  'BUN_INSTALL',
+];
+
+export function buildRuntimeEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of RUNTIME_ENV_ALLOWLIST) {
+    const value = source[key];
+    if (value !== undefined) env[key] = value;
+  }
+  env.SWARM_RUNTIME = '1';
+  return env;
+}
+
+export function redactRuntimeLogLine(line: string): string {
+  return line
+    .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, '[REDACTED_KEY]')
+    .replace(/\b(xox[baprs]-[A-Za-z0-9-]{12,})\b/g, '[REDACTED_KEY]')
+    .replace(/\b([A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,})\b/g, '[REDACTED_JWT]')
+    .replace(/\b((?:api[_-]?key|token|secret|authorization)\s*[=:]\s*)[^\s"'`]+/gi, '$1[REDACTED]');
+}
 
 export type RuntimeState = {
   backend: string;
@@ -107,7 +141,7 @@ export class RuntimeSupervisor {
       const text = typeof chunk === 'string' ? chunk : chunk.toString();
       for (const line of text.split(/\r?\n/)) {
         if (!line) continue;
-        entry.logs.push(`[${prefix}] ${line}`);
+        entry.logs.push(`[${prefix}] ${redactRuntimeLogLine(line)}`);
         if (entry.logs.length > MAX_LOG_LINES) entry.logs.shift();
       }
     };
@@ -118,7 +152,7 @@ export class RuntimeSupervisor {
       const child = spawn(command, {
         shell: true,
         detached: true,
-        env: process.env,
+        env: buildRuntimeEnv(),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       entry.child = child;

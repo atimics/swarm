@@ -11,7 +11,7 @@ type AgentBackendId =
   | 'cosyworld'
   | 'custom';
 type AgentBackendAuthMode = 'none' | 'api-key' | 'oauth' | 'local-process';
-type AgentRuntimeDeploymentTarget = 'local' | 'fly' | 'ecs';
+type AgentRuntimeDeploymentTarget = 'local' | 'fly';
 type AgentBackendCapabilities = {
   chat: boolean;
   tools: boolean;
@@ -41,10 +41,6 @@ type AgentBackendDefinition = {
   cloud?: {
     fly?: {
       command?: string;
-      endpointHint: string;
-    };
-    ecs?: {
-      supported: boolean;
       endpointHint: string;
     };
   };
@@ -125,7 +121,6 @@ export function AgentBackendSetup({ avatarId, avatarName }: AgentBackendSetupPro
   const runtimeQuery = `backend=${encodeURIComponent(selected)}${avatarId ? `&avatarId=${encodeURIComponent(avatarId)}` : ''}`;
   const scopeLabel = avatarName || status?.scope.label || (avatarId ? `Avatar ${avatarId}` : 'New agents');
   const flyHint = selectedBackend?.cloud?.fly?.endpointHint ?? 'Paste the Fly.io app endpoint for this runtime.';
-  const ecsHint = selectedBackend?.cloud?.ecs?.endpointHint ?? 'ECS runtime support is planned.';
 
   const loadStatus = useCallback(async () => {
     const res = await fetch(`/api/agent-backends${scopedQuery}`);
@@ -374,7 +369,7 @@ export function AgentBackendSetup({ avatarId, avatarName }: AgentBackendSetupPro
     deploymentTarget !== status.deploymentTarget ||
     (shouldShowManualEndpoint && endpoint.trim() !== (status.endpoint ?? '')) ||
     apiKey.trim().length > 0;
-  const canSave = isDirty && deploymentTarget !== 'ecs';
+  const canSave = isDirty;
 
   return (
     <div className="mt-4 max-w-3xl mx-auto bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-xl p-4 text-left">
@@ -433,7 +428,6 @@ export function AgentBackendSetup({ avatarId, avatarName }: AgentBackendSetupPro
           {([
             ['local', 'Local'],
             ['fly', 'Fly.io'],
-            ['ecs', 'ECS later'],
           ] as Array<[AgentRuntimeDeploymentTarget, string]>).map(([target, label]) => (
             <button
               key={target}
@@ -443,7 +437,7 @@ export function AgentBackendSetup({ avatarId, avatarName }: AgentBackendSetupPro
                 setEndpoint(target === status.deploymentTarget ? status.endpoint ?? '' : '');
                 setError('');
               }}
-              disabled={saving || target === 'ecs'}
+              disabled={saving}
               className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 ${
                 deploymentTarget === target
                   ? 'border-brand-500/60 bg-brand-500/15 text-brand-300'
@@ -457,9 +451,7 @@ export function AgentBackendSetup({ avatarId, avatarName }: AgentBackendSetupPro
         <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">
           {deploymentTarget === 'local'
             ? selectedBackend.install.endpointHint ?? 'Run this runtime on your machine.'
-            : deploymentTarget === 'fly'
-              ? flyHint
-              : ecsHint}
+              : flyHint}
         </p>
       </div>
 

@@ -765,7 +765,7 @@ type AgentBackendId =
   | 'cosyworld'
   | 'custom';
 type AgentBackendAuthMode = 'none' | 'api-key' | 'oauth' | 'local-process';
-type AgentRuntimeDeploymentTarget = 'local' | 'fly' | 'ecs';
+type AgentRuntimeDeploymentTarget = 'local' | 'fly';
 type AgentBackendCapabilities = {
   chat: boolean;
   tools: boolean;
@@ -797,10 +797,6 @@ type AgentBackendDefinition = {
   cloud?: {
     fly?: {
       command?: string;
-      endpointHint: string;
-    };
-    ecs?: {
-      supported: boolean;
       endpointHint: string;
     };
   };
@@ -870,10 +866,6 @@ const AGENT_BACKENDS: AgentBackendDefinition[] = [
         command: 'fly launch --name swarm-hermes-runtime && fly secrets set HERMES_TOKEN=...',
         endpointHint: 'Deploy a Hermes proxy to Fly.io, then paste the https://*.fly.dev endpoint.',
       },
-      ecs: {
-        supported: false,
-        endpointHint: 'ECS launch templates are planned for the same runtime contract.',
-      },
     },
     capabilities: {
       chat: true,
@@ -913,10 +905,6 @@ const AGENT_BACKENDS: AgentBackendDefinition[] = [
       fly: {
         command: 'fly launch --name swarm-elizaos-runtime',
         endpointHint: 'Deploy the elizaOS service to Fly.io, then paste the app endpoint.',
-      },
-      ecs: {
-        supported: false,
-        endpointHint: 'ECS support will reuse this cloud endpoint contract later.',
       },
     },
     capabilities: {
@@ -1059,10 +1047,6 @@ const AGENT_BACKENDS: AgentBackendDefinition[] = [
         command: 'cd ../cosyworld && fly launch --name swarm-cosyworld-runtime',
         endpointHint: 'Deploy ../cosyworld to Fly.io, then paste the Fly app endpoint.',
       },
-      ecs: {
-        supported: false,
-        endpointHint: 'ECS is planned after the Fly.io target settles.',
-      },
     },
     capabilities: {
       chat: true,
@@ -1109,7 +1093,7 @@ function getDefaultAgentBackendEndpoint(definition: AgentBackendDefinition): str
 }
 
 function isAgentRuntimeDeploymentTarget(value: unknown): value is AgentRuntimeDeploymentTarget {
-  return value === 'local' || value === 'fly' || value === 'ecs';
+  return value === 'local' || value === 'fly';
 }
 
 function normalizeAvatarScope(value: unknown): string | undefined {
@@ -1172,28 +1156,35 @@ function localCorsOptions(port: number): CorsOptions {
   };
 }
 
-function installLocalRequestGuard(app: express.Express, port: number): void {
-  const token = process.env.SWARM_LOCAL_API_TOKEN?.trim();
+export function isLocalApiWriteAllowed(params: {
+  method: string;
+  origin?: string;
+  providedToken?: string;
+  expectedToken?: string;
+  port: number;
+}): boolean {
   const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+  if (!unsafeMethods.has(params.method.toUpperCase())) return true;
+  if (params.expectedToken) return params.providedToken === params.expectedToken;
+  return isAllowedLocalOrigin(params.origin, params.port);
+}
+
+function installLocalRequestGuard(app: express.Express, port: number): void {
+  const expectedToken = process.env.SWARM_LOCAL_API_TOKEN?.trim();
 
   app.use((req, res, next) => {
-    if (!unsafeMethods.has(req.method.toUpperCase())) {
+    if (isLocalApiWriteAllowed({
+      method: req.method,
+      origin: req.get('origin'),
+      providedToken: req.get('x-swarm-local-token'),
+      expectedToken,
+      port,
+    })) {
       next();
       return;
     }
 
-    if (token && req.get('x-swarm-local-token') === token) {
-      next();
-      return;
-    }
-
-    const origin = req.get('origin');
-    if (isAllowedLocalOrigin(origin, port)) {
-      next();
-      return;
-    }
-
-    res.status(403).json({ error: 'Cross-origin local API write blocked' });
+    res.status(403).json({ error: 'Local API token required' });
   });
 }
 
@@ -1214,6 +1205,11 @@ function isAuthorizedCustomRuntimeCommand(req: express.Request): boolean {
   );
 }
 
+function hasConfiguredLocalApiToken(req: express.Request): boolean {
+  const token = process.env.SWARM_LOCAL_API_TOKEN?.trim();
+  return !token || req.get('x-swarm-local-token') === token;
+}
+
 async function dispatchExternalAgentBackend(params: {
   status: AgentBackendStatus;
   apiKey: string | null;
@@ -1224,14 +1220,27 @@ async function dispatchExternalAgentBackend(params: {
     throw new Error(`${params.status.selectedBackend.name} needs an endpoint before chat can route to it.`);
   }
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(params.apiKey ? { Authorization: `Bearer ${params.apiKey}` } : {}),
-    },
-    body: JSON.stringify(params.payload),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(params.apiKey ? { Authorization: `Bearer ${params.apiKey}` } : {}),
+      },
+      body: JSON.stringify(params.payload),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`${params.status.selectedBackend.name} chat timed out after 15s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const text = await response.text();
   let body: unknown = text;
@@ -1602,7 +1611,7 @@ export async function mountAdminRoutes(
       return;
     }
     if (deploymentTarget !== undefined && !isAgentRuntimeDeploymentTarget(deploymentTarget)) {
-      res.status(400).json({ error: 'deploymentTarget must be local, fly, or ecs' });
+      res.status(400).json({ error: 'deploymentTarget must be local or fly' });
       return;
     }
 
@@ -1614,10 +1623,6 @@ export async function mountAdminRoutes(
     const trimmedEndpoint = providedEndpoint || defaultEndpoint;
     const trimmedApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
 
-    if (target === 'ecs') {
-      res.status(400).json({ error: 'ECS runtimes are not available yet' });
-      return;
-    }
     if (definition.requiresEndpoint && !trimmedEndpoint) {
       res.status(400).json({ error: `${definition.name} requires an endpoint` });
       return;
@@ -1684,6 +1689,10 @@ export async function mountAdminRoutes(
   });
 
   app.get('/api/runtime/logs', (req, res) => {
+    if (!hasConfiguredLocalApiToken(req)) {
+      res.status(403).json({ error: 'Local API token required' });
+      return;
+    }
     const backend = req.query.backend;
     const avatarId = normalizeAvatarScope(req.query.avatarId);
     if (!isAgentBackendId(backend)) {
