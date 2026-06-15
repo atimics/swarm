@@ -5,10 +5,18 @@ import { describe, it, expect, mock, afterEach } from 'bun:test';
 import { startTelegramPolling } from './telegram-polling.js';
 import type { TelegramPollingDeps } from './telegram-polling.js';
 
+type LocalChatMessage = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string };
+
 function makeDeps(overrides: Partial<TelegramPollingDeps> = {}): TelegramPollingDeps {
   return {
     getToken: mock(async () => null),
-    processMessage: mock(async (text: string) => ({ response: `echo:${text}`, history: [{ role: 'user', content: text }, { role: 'assistant', content: `echo:${text}` }] })),
+    processMessage: mock(async (text: string) => ({
+      response: `echo:${text}`,
+      history: [
+        { role: 'user', content: text },
+        { role: 'assistant', content: `echo:${text}` },
+      ] satisfies LocalChatMessage[],
+    })),
     getAvatarId: mock(async () => null),
     loadHistory: mock(async () => []),
     saveHistory: mock(async () => {}),
