@@ -1,7 +1,7 @@
 #!/bin/bash
-# signal-with-swarm.sh — Launch Signal with an aws-swarm avatar identity.
+# signal-with-swarm.sh — Launch Signal with an swarm avatar identity.
 #
-# Starts aws-swarm, waits for it to be ready, fetches the avatar's
+# Starts swarm, waits for it to be ready, fetches the avatar's
 # Ed25519 keypair, and launches Signal with the keypair injected so
 # the player's station uses their avatar's cryptographic identity.
 #
@@ -19,9 +19,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "=== Starting aws-swarm on port $SWARM_PORT ==="
+echo "=== Starting swarm on port $SWARM_PORT ==="
 mkdir -p "$SWARM_BLOBS"
-cd "$HOME/develop/aws-swarm"
+cd "$HOME/develop/swarm"
 SWARM_DB_PATH="$SWARM_DB" SWARM_BLOB_DIR="$SWARM_BLOBS" \
   PORT="$SWARM_PORT" bun run packages/local/src/app.ts --password=swarm1234 &
 SWARM_PID=$!

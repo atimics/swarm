@@ -6,7 +6,7 @@
  * compiled name mangling by matching on prefix rather than exact name.
  */
 export abstract class LocalAdapter {
-  async send(command: unknown): Promise<Record<string, unknown>> {
+  async send(command: unknown): Promise<Record<string, any>> {
     const name: string =
       (command as { constructor?: { name?: string } })?.constructor?.name ?? '';
     const input: Record<string, unknown> =
@@ -21,5 +21,5 @@ export abstract class LocalAdapter {
   protected abstract dispatch(
     name: string,
     input: Record<string, unknown>,
-  ): Promise<Record<string, unknown>>;
+  ): Promise<Record<string, any>>;
 }

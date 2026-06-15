@@ -303,7 +303,7 @@ export class SqliteRepository implements KeyValueStore {
       params.push(limit + 1);
     }
 
-    const rows = this.db.prepare(sql).all(...params) as ItemRow[];
+    const rows = this.db.prepare(sql).all(...(params as Parameters<ReturnType<Database['prepare']>['all']>)) as ItemRow[];
     const hasMore = limit ? rows.length > limit : false;
     if (hasMore) rows.pop();
 
@@ -436,7 +436,7 @@ export class SqliteRepository implements KeyValueStore {
       bindParams.push(params.limit);
     }
 
-    const rows = this.db.prepare(sql).all(...bindParams) as ItemRow[];
+    const rows = this.db.prepare(sql).all(...(bindParams as Parameters<ReturnType<Database['prepare']>['all']>)) as ItemRow[];
     return rows.map((row) => ({ ...JSON.parse(row.data), pk: row.pk, sk: row.sk } as unknown as T));
   }
 

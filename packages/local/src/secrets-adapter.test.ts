@@ -11,8 +11,8 @@ function makeCmd(name: string, input: Record<string, unknown>) {
 
 function stubSvc(overrides: Partial<SecretsService> = {}): SecretsService {
   return {
-    getSecret: mock(async (_n: string) => { throw new Error('not found'); }),
-    getSecretJson: mock(async <T>(_n: string): Promise<T> => { throw new Error('not found'); }),
+    getSecret: mock(async (_n: string): Promise<string> => { throw new Error('not found'); }),
+    getSecretJson: async <T>(_n: string): Promise<T> => { throw new Error('not found'); },
     ...overrides,
   };
 }
@@ -29,7 +29,7 @@ describe('LocalSecretsAdapter', () => {
 
     it('falls back to getSecretJson when getSecret throws', async () => {
       const svc = stubSvc({
-        getSecretJson: mock(async () => ({ api_key: 'jk' })),
+        getSecretJson: async <T>() => ({ api_key: 'jk' }) as unknown as T,
       });
       const a = new LocalSecretsAdapter(svc);
       const r = await a.send(makeCmd('GetSecretValue', { SecretId: 's2' }));
