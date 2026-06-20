@@ -24,6 +24,9 @@ type LocalState = {
   chats: Record<string, Array<{ role: string; content: string; media?: unknown[] }>>;
   secrets: Record<string, string>;
   avatarSecrets: Record<string, Record<string, string>>;
+  apiKeys: Record<string, Array<{ keyPrefix: string; name: string; createdAt: number; createdBy: string; enabled: boolean }>>;
+  entitlements: Record<string, { plan: 'free' | 'pro' | 'enterprise' | 'team'; limits: Record<string, unknown>; status: string; updatedAt: number }>;
+  gallery: Record<string, Array<{ id: string; type: 'image' | 'video' | 'sticker'; url: string; prompt?: string; caption?: string; createdAt: number }>>;
   agentBackends: Record<string, {
     backend: string;
     endpoint?: string;
@@ -63,6 +66,9 @@ function emptyState(): LocalState {
     chats: {},
     secrets: {},
     avatarSecrets: {},
+    apiKeys: {},
+    entitlements: {},
+    gallery: {},
     agentBackends: {},
   };
 }
@@ -133,6 +139,39 @@ function defaultAssistantReply(message: string, avatar?: LocalAvatar): string {
     return 'Use the Native clients panel to open the latest desktop release for macOS, Windows, or Linux.';
   }
   return `I am running in browser-local mode. I can help configure ${target}, but anything that needs a server, OAuth callback, or background worker should use the native client.`;
+}
+
+function defaultLimits(plan: 'free' | 'pro' | 'enterprise' | 'team' = 'free'): Record<string, unknown> {
+  const multiplier = plan === 'free' ? 1 : plan === 'pro' ? 5 : 20;
+  return {
+    messagesPerDay: 100 * multiplier,
+    mediaPerDay: 5 * multiplier,
+    voiceMinutesPerDay: 10 * multiplier,
+    toolCallsPerDay: 50 * multiplier,
+  };
+}
+
+function entitlementFor(state: LocalState, avatarId: string) {
+  const stored = state.entitlements[avatarId];
+  if (stored) return stored;
+  return { plan: 'free' as const, limits: defaultLimits('free'), status: 'active', updatedAt: Date.now() };
+}
+
+function usageFor(state: LocalState, avatarId: string) {
+  const entitlement = entitlementFor(state, avatarId);
+  return {
+    avatarId,
+    date: new Date().toISOString().slice(0, 10),
+    plan: entitlement.plan,
+    source: state.entitlements[avatarId] ? 'entitlement' : 'default',
+    meters: {
+      messages: { used: 0, limit: Number(entitlement.limits.messagesPerDay ?? 100), label: 'Messages' },
+      media: { used: 0, limit: Number(entitlement.limits.mediaPerDay ?? 5), label: 'Media' },
+      voice: { used: 0, limit: Number(entitlement.limits.voiceMinutesPerDay ?? 10), label: 'Voice minutes' },
+    },
+    toolCredits: {},
+    energy: { current: 100, max: 100, refillPerHour: 0, bankCredits: 0 },
+  };
 }
 
 const AGENT_BACKENDS = [
@@ -218,7 +257,7 @@ function backendStatus(state: LocalState, avatarId?: string) {
   };
 }
 
-function routeLocalApi(request: Request): Response | Promise<Response> | null {
+export function routeLocalApi(request: Request): Response | Promise<Response> | null {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api')) return null;
 
@@ -289,10 +328,11 @@ function routeLocalApi(request: Request): Response | Promise<Response> | null {
     return json({ created: [], skippedAlreadyClaimed: 0, available: 0, capped: false });
   }
 
-  const avatarMatch = path.match(/^\/avatars\/([^/]+)(?:\/([^/]+))?/);
+  const avatarMatch = path.match(/^\/avatars\/([^/]+)(?:\/(.+))?/);
   if (avatarMatch) {
     const avatarId = decodeURIComponent(avatarMatch[1]);
-    const action = avatarMatch[2];
+    const actionPath = avatarMatch[2] ?? '';
+    const [action, subAction, detailId] = actionPath.split('/').map((part) => decodeURIComponent(part));
     const avatar = state.avatars.find((item) => item.avatarId === avatarId);
     if (!avatar) return json({ error: 'Avatar not found' }, { status: 404 });
 
@@ -333,11 +373,127 @@ function routeLocalApi(request: Request): Response | Promise<Response> | null {
       });
     }
     if (action === 'energy') return json({ avatarId, current: 100, max: 100, nextRefillIn: 0, refillPerHour: 0, baseRefillPerHour: 0, bonusRefillPerHour: 0, ownerTokenBalance: 0 });
-    if (action === 'gallery') return json({ items: [] });
+    if (action === 'effective-limits' && method === 'GET') {
+      const entitlement = entitlementFor(state, avatarId);
+      return json({
+        avatarId,
+        plan: entitlement.plan,
+        limits: entitlement.limits,
+        source: state.entitlements[avatarId] ? 'entitlement' : 'default',
+        entitlementStatus: entitlement.status,
+      });
+    }
+    if (action === 'entitlement') {
+      if (method === 'GET') {
+        const entitlement = state.entitlements[avatarId];
+        return json({
+          avatarId,
+          entitlement: entitlement
+            ? {
+              accountId: 'local-web',
+              avatarId,
+              plan: entitlement.plan,
+              limits: entitlement.limits,
+              status: entitlement.status,
+              updatedAt: entitlement.updatedAt,
+              updatedBy: 'local-web',
+            }
+            : null,
+        });
+      }
+      if (method === 'PUT') {
+        return readJson(request).then((body) => {
+          const plan = ['free', 'pro', 'enterprise', 'team'].includes(String(body.plan)) ? String(body.plan) as 'free' | 'pro' | 'enterprise' | 'team' : 'free';
+          const entitlement = { plan, limits: defaultLimits(plan), status: 'active', updatedAt: Date.now() };
+          state.entitlements[avatarId] = entitlement;
+          writeState(state);
+          return json({
+            avatarId,
+            entitlement: {
+              accountId: 'local-web',
+              avatarId,
+              plan,
+              limits: entitlement.limits,
+              status: entitlement.status,
+              updatedAt: entitlement.updatedAt,
+              updatedBy: 'local-web',
+            },
+            effective: { plan, limits: entitlement.limits, source: 'entitlement' },
+          });
+        });
+      }
+    }
+    if (action === 'usage') {
+      if (!subAction && method === 'GET') return json(usageFor(state, avatarId));
+      if (subAction === 'history' && method === 'GET') {
+        const days = Math.max(1, Math.min(30, Number(url.searchParams.get('days') || 7)));
+        return json({ avatarId, days, history: [] });
+      }
+    }
+    if (action === 'events') {
+      if (subAction === 'counts' && method === 'GET') {
+        return json({ avatarId, openIssues: 0, recentFeedback: { positive: 0, negative: 0, neutral: 0 } });
+      }
+      if (!subAction && method === 'GET') return json({ avatarId, events: [], count: 0 });
+      if ((subAction || detailId) && method === 'PATCH') return json({ ok: true });
+    }
+    if (action === 'gallery') {
+      if (subAction === 'upload-url' && method === 'POST') {
+        const uploadId = `upload-${Date.now().toString(36)}`;
+        return json({
+          uploadUrl: `${url.origin}/api/local-upload/${encodeURIComponent(uploadId)}`,
+          s3Key: `local/${avatarId}/${uploadId}`,
+          publicUrl: `local-gallery://${avatarId}/${uploadId}`,
+        });
+      }
+      if (subAction === 'save' && method === 'POST') {
+        return readJson(request).then((body) => {
+          const now = Date.now();
+          const item = {
+            id: `gallery-${now.toString(36)}`,
+            type: 'image' as const,
+            url: String(body.publicUrl || ''),
+            caption: typeof body.caption === 'string' ? body.caption : undefined,
+            createdAt: now,
+          };
+          state.gallery[avatarId] = [item, ...(state.gallery[avatarId] ?? [])];
+          writeState(state);
+          return json(item);
+        });
+      }
+      return json({ items: state.gallery[avatarId] ?? [] });
+    }
+    if (action === 'api-keys') {
+      if (!subAction && method === 'GET') return json({ keys: state.apiKeys[avatarId] ?? [] });
+      if (!subAction && method === 'POST') {
+        return readJson(request).then((body) => {
+          const now = Date.now();
+          const keyPrefix = `sk-local-${now.toString(36)}`;
+          const key = {
+            keyPrefix,
+            name: String(body.name || 'Local web key'),
+            createdAt: now,
+            createdBy: 'local-web',
+            enabled: true,
+          };
+          state.apiKeys[avatarId] = [key, ...(state.apiKeys[avatarId] ?? [])];
+          writeState(state);
+          return json({ apiKey: `${keyPrefix}-dev-only`, keyPrefix });
+        });
+      }
+      if (subAction && method === 'DELETE') {
+        state.apiKeys[avatarId] = (state.apiKeys[avatarId] ?? []).filter((key) => key.keyPrefix !== subAction);
+        writeState(state);
+        return json({ ok: true });
+      }
+    }
     if (action === 'integrations') return json({ integrations: {} });
     if (action === 'discord') return json({ connected: false, mode: 'bot' });
     if (action === 'telegram') return json({ connected: false });
+    if (action === 'validate-token' || action === 'validate-ai-key') return json({ valid: true, mode: 'web-local' });
   }
+
+  if (path.startsWith('/local-upload/') && method === 'PUT') return json({ ok: true });
 
   if (path === '/chat' && method === 'GET') {
     const avatarId = url.searchParams.get('avatarId') || 'global';
