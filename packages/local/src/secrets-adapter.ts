@@ -2,7 +2,7 @@
  * LocalSecretsAdapter — routes SecretsManager commands (Get/Put/Delete)
  * through the env-based EncryptedSecretsService.
  */
-import { LocalAdapter } from './adapter-base.js';
+import { LocalAdapter, type LocalAdapterResponse } from './adapter-base.js';
 import type { SecretsService } from '@swarm/core';
 
 type ManageableSecretsService = SecretsService & {
@@ -14,7 +14,7 @@ type ManageableSecretsService = SecretsService & {
 export class LocalSecretsAdapter extends LocalAdapter {
   constructor(private secrets: SecretsService) { super(); }
 
-  protected async dispatch(name: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  protected async dispatch(name: string, input: Record<string, unknown>): Promise<LocalAdapterResponse> {
     if (name.startsWith('GetSecretValue')) {
       const secretId = input.SecretId as string;
       try {

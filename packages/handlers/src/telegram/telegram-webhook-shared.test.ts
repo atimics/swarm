@@ -16,8 +16,6 @@
  * @see packages/handlers/src/telegram/webhook-chat-access.ts
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import {  } from '@swarm/core';
-
 process.env.ADMIN_TABLE ||= 'ADMIN_TABLE';
 process.env.STATE_TABLE ||= 'STATE_TABLE';
 process.env.MESSAGE_QUEUE_URL ||= 'https://example.com/queue';
@@ -26,6 +24,11 @@ const modPromise = import('./telegram-webhook-shared.js');
 const securityModPromise = import('./webhook-security.js');
 const chatAccessModPromise = import('./webhook-chat-access.js');
 const homeChannelModPromise = import('./webhook-home-channel.js');
+const avatarConfigFixture = {
+  id: 'test-avatar',
+  name: 'Test Avatar',
+  platforms: {},
+};
 
 // =============================================================================
 // Existing tests: Chat access allowlists
@@ -187,7 +190,7 @@ describe('telegram-webhook-shared shared-room queue groups', () => {
       avatarId: 'phantom',
       conversationId: '-1001',
       metadata: { receivedAt: 0, priority: 'normal', idempotencyKey: 'k' },
-    });
+    }, 'telegram:-1001');
 
     expect(groupId).toBe('telegram:-1001');
   });
@@ -476,14 +479,14 @@ describe('webhook-security invalidateAvatarConfigCache', () => {
     const { avatarConfigCache, getAvatarStatus } = await securityModPromise;
 
     avatarConfigCache.set('test-avatar', {
-      value: avatarConfig,
+      value: avatarConfigFixture,
       status: 'draft',
       expiresAt: Date.now() + 60_000,
     });
     expect(await getAvatarStatus('test-avatar')).toBe('draft');
 
     avatarConfigCache.set('test-avatar', {
-      value: avatarConfig,
+      value: avatarConfigFixture,
       status: 'active',
       expiresAt: Date.now() + 60_000,
     });

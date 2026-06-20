@@ -100,7 +100,8 @@ pnpm test
 ```bash
 pnpm build        # Build all packages
 pnpm lint         # Lint configured packages
-pnpm typecheck    # Type-check all packages
+pnpm typecheck    # Run each package's typecheck
+pnpm typecheck:root # Run the root TypeScript project references
 pnpm test         # Run isolated workspace tests
 pnpm cdk diff     # Preview infra changes
 ```

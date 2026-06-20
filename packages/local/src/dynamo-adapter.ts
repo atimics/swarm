@@ -6,7 +6,7 @@ import type { KeyValueStore, CompositeKey, QueryOptions } from '@swarm/core';
 export class LocalDynamoClientAdapter {
   constructor(private store: KeyValueStore) {}
 
-  async send(command: unknown): Promise<Record<string, any>> {
+  async send(command: unknown): Promise<Record<string, unknown>> {
     const cmd = command as { input: Record<string, unknown>; constructor?: { name?: string } };
     const name = cmd.constructor?.name ?? '';
     const input = cmd.input;
