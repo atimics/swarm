@@ -9,7 +9,9 @@ import {
   restoreLocalSnapshot,
   type DetectedVaultWallet,
   type SwarmEncryptedVault,
+  vaultToJson,
 } from '../services/arweave-vault';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 type VaultStatus = {
   kind: 'idle' | 'success' | 'error';
@@ -44,7 +46,6 @@ export function ArweaveVaultPanel() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const webLocal = isWebLocalMode();
-  const hasArConnect = typeof window !== 'undefined' && 'arweaveWallet' in window;
   const selectedWallet = useMemo(
     () => wallets.find((wallet) => wallet.source === selectedWalletSource) ?? wallets[0],
     [selectedWalletSource, wallets],
@@ -86,10 +87,27 @@ export function ArweaveVaultPanel() {
       setLastVault(vault);
       setStatus({
         kind: 'success',
-        message: `Encrypted vault saved for ${shortAddress(vault.walletAddress)}.`,
+        message: `Encrypted vault saved for ${shortAddress(vault.walletAddress)}. Upload the JSON to Arweave, then keep the transaction id here.`,
       });
     });
   }, [runWithWallet]);
+
+  const handleCopyVault = useCallback(async () => {
+    if (!lastVault) return;
+    setBusy(true);
+    setStatus({ kind: 'idle', message: '' });
+    try {
+      await copyTextToClipboard(vaultToJson(lastVault));
+      setStatus({
+        kind: 'success',
+        message: 'Encrypted vault JSON copied. Upload it with ArConnect, Turbo, or another Arweave uploader, then save the transaction id.',
+      });
+    } catch (err) {
+      setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Failed to copy vault JSON.' });
+    } finally {
+      setBusy(false);
+    }
+  }, [lastVault]);
 
   const restoreVault = useCallback(async (vault: SwarmEncryptedVault) => {
     await runWithWallet(async (wallet) => {
@@ -223,13 +241,21 @@ export function ArweaveVaultPanel() {
         </div>
 
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
-          {hasArConnect
-            ? 'ArConnect detected. Direct permanent upload is the next step: sign an Arweave/Turbo upload for this encrypted vault.'
-            : 'Direct upload needs an Arweave upload signer such as ArConnect or a Turbo credit path. For now, save the encrypted vault file and upload that JSON to Arweave.'}
+          Vault files are encrypted client-side. Upload the downloaded or copied JSON with ArConnect, Turbo, or another Arweave uploader, then load it later by transaction id.
           {lastVault && (
-            <span className="block mt-1">
-              Last vault: {lastVault.manifest.storageKeys.length} keys, {lastVault.manifest.byteLength} bytes, owner {shortAddress(lastVault.walletAddress)}.
-            </span>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Last vault: {lastVault.manifest.storageKeys.length} keys, {lastVault.manifest.byteLength} bytes, owner {shortAddress(lastVault.walletAddress)}.
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyVault}
+                disabled={busy}
+                className="self-start rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-text)] transition-colors hover:bg-[var(--color-bg-elevated)] disabled:opacity-50"
+              >
+                Copy vault JSON
+              </button>
+            </div>
           )}
         </div>
 
