@@ -22,6 +22,14 @@ type LocalAvatar = {
 type LocalState = {
   avatars: LocalAvatar[];
   chats: Record<string, Array<{ role: string; content: string; media?: unknown[] }>>;
+  sharedChats: Record<string, Array<{
+    id: string;
+    channelId: string;
+    content: string;
+    sender: { walletAddress: string; displayName?: string };
+    timestamp: number;
+    replyToId?: string;
+  }>>;
   secrets: Record<string, string>;
   avatarSecrets: Record<string, Record<string, string>>;
   apiKeys: Record<string, Array<{ keyPrefix: string; name: string; createdAt: number; createdBy: string; enabled: boolean }>>;
@@ -64,6 +72,7 @@ function emptyState(): LocalState {
   return {
     avatars: [],
     chats: {},
+    sharedChats: {},
     secrets: {},
     avatarSecrets: {},
     apiKeys: {},
@@ -174,6 +183,24 @@ function usageFor(state: LocalState, avatarId: string) {
   };
 }
 
+function localSharedChatSender() {
+  return {
+    walletAddress: 'local-web',
+    displayName: 'Local Web',
+  };
+}
+
+function localTelegramState(avatar: LocalAvatar) {
+  return {
+    botUsername: avatar.platforms?.telegram?.botUsername,
+    platformEnabled: Boolean(avatar.platforms?.telegram?.enabled),
+    binding: null,
+    allowedChats: [],
+    allowedDmUsers: [],
+    pendingDms: [],
+  };
+}
+
 const AGENT_BACKENDS = [
   {
     id: 'swarm-native',
@@ -268,7 +295,29 @@ export function routeLocalApi(request: Request): Response | Promise<Response> | 
   if (path === '/health') return json({ ok: true, mode: 'web-local' });
   if (path === '/auth/me') return json(localUser());
   if (path === '/auth/logout' && method === 'POST') return json({ ok: true });
+  if (path === '/auth/link/wallet/challenge' && method === 'POST') {
+    return readJson(request).then((body) => {
+      const walletAddress = String(body.walletAddress || 'local-web');
+      const nonce = `local-${Date.now().toString(36)}`;
+      return json({
+        nonce,
+        message: [
+          'Swarm local web wallet link',
+          `Wallet: ${walletAddress}`,
+          `Nonce: ${nonce}`,
+          '',
+          'This local web build stores wallet links only in this browser.',
+        ].join('\n'),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      });
+    });
+  }
+  if (path === '/auth/link/wallet/verify' && method === 'POST') return json({ linked: true, account: localUser().account });
+  if (path === '/auth/openrouter') return json({ error: 'OpenRouter OAuth is unavailable in browser-local mode. Paste an API key or use Ollama instead.' }, { status: 400 });
   if (path.startsWith('/oauth/twitter/status/')) return json({ connected: false });
+  if (path.startsWith('/oauth/') && path.endsWith('/start')) {
+    return json({ error: 'OAuth callbacks require the native or hosted app. Browser-local mode stores only local configuration.' }, { status: 400 });
+  }
 
   if (path.startsWith('/consent')) {
     const policyVersion = url.searchParams.get('policyVersion') || '1.3';
@@ -437,6 +486,7 @@ export function routeLocalApi(request: Request): Response | Promise<Response> | 
       if (!subAction && method === 'GET') return json({ avatarId, events: [], count: 0 });
       if ((subAction || detailId) && method === 'PATCH') return json({ ok: true });
     }
+    if (action === 'issues' && method === 'GET') return json({ avatarId, issues: [] });
     if (action === 'gallery') {
       if (subAction === 'upload-url' && method === 'POST') {
         const uploadId = `upload-${Date.now().toString(36)}`;
@@ -487,9 +537,26 @@ export function routeLocalApi(request: Request): Response | Promise<Response> | 
         return json({ ok: true });
       }
     }
-    if (action === 'integrations') return json({ integrations: {} });
+    if (action === 'integrations') return json({ integrations: [] });
     if (action === 'discord') return json({ connected: false, mode: 'bot' });
-    if (action === 'telegram') return json({ connected: false });
+    if (action === 'telegram') {
+      if (subAction === 'state' && method === 'GET') return json(localTelegramState(avatar));
+      if (subAction === 'bind-code' && method === 'POST') {
+        const code = `LOCAL-${Date.now().toString(36).toUpperCase()}`;
+        return json({ code, deepLink: `https://t.me/${avatar.platforms?.telegram?.botUsername || 'SwarmBot'}?start=${code}`, expiresAt: Date.now() + 5 * 60 * 1000 });
+      }
+      if ((subAction === 'allowed-chats' || subAction === 'allowed-dmers') && method === 'DELETE') return json({ ok: true });
+      if (subAction === 'diagnose' && method === 'GET') {
+        return json({
+          ok: false,
+          mode: 'web-local',
+          issues: [{ severity: 'info', message: 'Telegram webhooks require the native or hosted app.' }],
+        });
+      }
+      if (subAction === 'repair' && method === 'POST') return json({ action: 'skipped', reason: 'Browser-local mode cannot repair Telegram webhooks.' });
+      if (subAction === 'known-users' && method === 'GET') return json({ users: [] });
+      return json({ connected: false, mode: 'web-local' });
+    }
     if (action === 'validate-token' || action === 'validate-ai-key') return json({ valid: true, mode: 'web-local' });
   }
 
@@ -605,8 +672,68 @@ export function routeLocalApi(request: Request): Response | Promise<Response> | 
   }
 
   if (path.startsWith('/jobs')) return json(path === '/jobs' ? { count: 0, jobs: [] } : { status: 'completed' });
-  if (path.startsWith('/shared-chat')) return json({ messages: [] });
+  if (path === '/shared-chat/identity') return json({ sender: localSharedChatSender() });
+  if (path === '/shared-chat/avatar') {
+    const avatar = state.avatars[0];
+    return json({
+      avatar: avatar
+        ? {
+          avatarId: avatar.avatarId,
+          name: avatar.name,
+          description: avatar.description,
+          profileImageUrl: avatar.profileImage?.url,
+          persona: avatar.persona,
+          connectedPlatforms: Object.entries(avatar.platforms ?? {}).filter(([, platform]) => platform?.enabled).map(([platform]) => platform),
+        }
+        : null,
+    });
+  }
+  if (path === '/shared-chat/typing') return json({ typing: false });
+  if (path === '/shared-chat/messages' && method === 'GET') {
+    const channelId = url.searchParams.get('channelId') || 'local';
+    return json({ messages: state.sharedChats[channelId] ?? [], sender: localSharedChatSender(), avatar: null });
+  }
+  if (path === '/shared-chat/messages' && method === 'POST') {
+    return readJson(request).then((body) => {
+      const channelId = String(body.channelId || 'local');
+      const content = String(body.content || '');
+      const now = Date.now();
+      const message = {
+        id: `msg-${now.toString(36)}`,
+        channelId,
+        content,
+        sender: localSharedChatSender(),
+        timestamp: now,
+        replyToId: typeof body.replyToId === 'string' ? body.replyToId : undefined,
+      };
+      state.sharedChats[channelId] = [...(state.sharedChats[channelId] ?? []), message];
+      writeState(state);
+      return json({ message });
+    });
+  }
   if (path.startsWith('/prompt-preview')) return json({ systemPrompt: '', tools: [] });
+  if (path === '/integrations/models/search') {
+    const query = url.searchParams.get('q') || 'model';
+    return json({
+      results: [{
+        id: query,
+        name: query,
+        description: 'Browser-local placeholder model. Configure a runtime or provider for live inference.',
+        isDefault: true,
+      }],
+    });
+  }
+  if (path === '/integrations/models') {
+    return json({
+      integration: url.searchParams.get('integration') || 'local',
+      modelsByCapability: {
+        text: [{ id: 'local-browser', name: 'Browser local', description: 'Browser-local configuration placeholder.', isDefault: true }],
+        image: [],
+        video: [],
+        audio: [],
+      },
+    });
+  }
   if (path.startsWith('/issues')) return json({ issues: [] });
 
   return json({ error: `Web-local route not implemented: ${path}` }, { status: 404 });

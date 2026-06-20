@@ -127,4 +127,88 @@ describe('local web api', () => {
     expect(keys.keys).toMatchObject([{ keyPrefix: createdKey.keyPrefix, name: 'Test key' }]);
     expect(afterDelete.keys).toEqual([]);
   });
+
+  it('returns shaped local payloads for issues, telegram, and model catalog panels', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      avatars: [{
+        avatarId: 'avatar-1',
+        name: 'Local',
+        status: 'draft',
+        createdAt: 1,
+        updatedAt: 1,
+        createdBy: 'local-web',
+        platforms: { telegram: { enabled: false, botUsername: 'local_bot' } },
+      }],
+      chats: {},
+      secrets: {},
+      avatarSecrets: {},
+      agentBackends: {},
+    }));
+
+    const issues = await json<{ avatarId: string; issues: unknown[] }>('/avatars/avatar-1/issues');
+    const telegramState = await json<{ platformEnabled: boolean; allowedChats: unknown[]; pendingDms: unknown[] }>('/avatars/avatar-1/telegram/state');
+    const bindCode = await json<{ code: string; deepLink: string }>('/avatars/avatar-1/telegram/bind-code', { method: 'POST' });
+    const diagnosis = await json<{ mode: string; issues: Array<{ message: string }> }>('/avatars/avatar-1/telegram/diagnose');
+    const repair = await json<{ action: string; reason: string }>('/avatars/avatar-1/telegram/repair', { method: 'POST' });
+    const knownUsers = await json<{ users: unknown[] }>('/avatars/avatar-1/telegram/known-users');
+    const search = await json<{ results: Array<{ id: string; isDefault: boolean }> }>('/integrations/models/search?q=llama&integration=openrouter&capability=text');
+    const catalog = await json<{ modelsByCapability: { text: Array<{ id: string }> } }>('/integrations/models?integration=openrouter');
+
+    expect(issues).toEqual({ avatarId: 'avatar-1', issues: [] });
+    expect(telegramState).toMatchObject({ platformEnabled: false, allowedChats: [], pendingDms: [] });
+    expect(bindCode.code).toMatch(/^LOCAL-/);
+    expect(bindCode.deepLink).toContain('local_bot');
+    expect(diagnosis.issues[0].message).toContain('native or hosted app');
+    expect(repair).toMatchObject({ action: 'skipped' });
+    expect(knownUsers.users).toEqual([]);
+    expect(search.results).toEqual([{ id: 'llama', name: 'llama', description: 'Browser-local placeholder model. Configure a runtime or provider for live inference.', isDefault: true }]);
+    expect(catalog.modelsByCapability.text[0].id).toBe('local-browser');
+  });
+
+  it('supports local shared chat and wallet-link helper routes', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      avatars: [{
+        avatarId: 'avatar-1',
+        name: 'Local',
+        description: 'Browser-local avatar',
+        persona: 'Helpful',
+        status: 'draft',
+        createdAt: 1,
+        updatedAt: 1,
+        createdBy: 'local-web',
+        platforms: { discord: { enabled: true } },
+      }],
+      chats: {},
+      secrets: {},
+      avatarSecrets: {},
+      agentBackends: {},
+    }));
+
+    const identity = await json<{ sender: { walletAddress: string } }>('/shared-chat/identity');
+    const avatar = await json<{ avatar: { avatarId: string; connectedPlatforms: string[] } }>('/shared-chat/avatar?channelId=local');
+    const sent = await json<{ message: { content: string; sender: { walletAddress: string } } }>('/shared-chat/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId: 'local', content: 'hello' }),
+    });
+    const messages = await json<{ messages: Array<{ content: string }>; sender: { walletAddress: string }; avatar: null }>('/shared-chat/messages?channelId=local');
+    const typing = await json<{ typing: boolean }>('/shared-chat/typing?channelId=local');
+    const challenge = await json<{ nonce: string; message: string; expiresAt: string }>('/auth/link/wallet/challenge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ walletAddress: 'Wallet111' }),
+    });
+    const verify = await json<{ linked: boolean }>('/auth/link/wallet/verify', { method: 'POST' });
+
+    expect(identity.sender.walletAddress).toBe('local-web');
+    expect(avatar.avatar).toMatchObject({ avatarId: 'avatar-1', connectedPlatforms: ['discord'] });
+    expect(sent.message).toMatchObject({ content: 'hello', sender: { walletAddress: 'local-web' } });
+    expect(messages.messages).toHaveLength(1);
+    expect(messages.messages[0].content).toBe('hello');
+    expect(messages.avatar).toBeNull();
+    expect(typing.typing).toBe(false);
+    expect(challenge.message).toContain('Wallet111');
+    expect(new Date(challenge.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    expect(verify.linked).toBe(true);
+  });
 });
