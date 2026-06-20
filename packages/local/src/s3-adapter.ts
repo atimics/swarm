@@ -1,10 +1,10 @@
-import { LocalAdapter } from './adapter-base.js';
+import { LocalAdapter, type LocalAdapterResponse } from './adapter-base.js';
 import type { LocalBlobStore } from './blob-store.js';
 
 export class LocalS3Adapter extends LocalAdapter {
   constructor(private blobs: LocalBlobStore) { super(); }
 
-  protected async dispatch(name: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  protected async dispatch(name: string, input: Record<string, unknown>): Promise<LocalAdapterResponse> {
     if (name.startsWith('PutObjectCommand')) {
       const key = input.Key as string;
       const body = input.Body as Buffer | string;

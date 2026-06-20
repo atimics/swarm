@@ -21,12 +21,14 @@ MOCKING_FILES=$(find packages -name '*.test.ts' \
   -not -path '*/dist/*' \
   -not -path '*/cdk.out/*' \
   -not -path '*/cdk.out.*/*' \
+  -not -path 'packages/admin-ui/*' \
   -exec grep -lE 'mock\.module\(|vi\.mock\(' {} + | sort || true)
 ALL_FILES=$(find packages -name '*.test.ts' \
   -not -path '*/node_modules/*' \
   -not -path '*/dist/*' \
   -not -path '*/cdk.out/*' \
-  -not -path '*/cdk.out.*/*' | sort)
+  -not -path '*/cdk.out.*/*' \
+  -not -path 'packages/admin-ui/*' | sort)
 
 # Build set difference using a tmpfile
 TMP_DIR=$(mktemp -d)
@@ -37,6 +39,32 @@ NON_MOCKING_FILES=$(grep -Fxv -f "$TMP_DIR/mocking.txt" "$TMP_DIR/all.txt" || tr
 
 NON_MOCKING_COUNT=$(echo "$NON_MOCKING_FILES" | grep -c . || true)
 MOCKING_COUNT=$(echo "$MOCKING_FILES" | grep -c . || true)
+ADMIN_API_PRELOAD="packages/admin-api/test-preload.ts"
+HANDLERS_PRELOAD="packages/handlers/test-preload.ts"
+
+preload_for_file() {
+  case "$1" in
+    packages/admin-api/*)
+      [ -f "$ADMIN_API_PRELOAD" ] && printf '%s\n' "./$ADMIN_API_PRELOAD"
+      ;;
+    packages/handlers/*)
+      [ -f "$HANDLERS_PRELOAD" ] && printf '%s\n' "./$HANDLERS_PRELOAD"
+      ;;
+  esac
+}
+
+run_bun_test() {
+  if [ "$#" -gt 0 ]; then
+    for test_file in "$@"; do
+      preload=$(preload_for_file "$test_file")
+      if [ -n "$preload" ]; then
+        bun test --preload "$preload" "$@"
+        return
+      fi
+    done
+  fi
+  bun test "$@"
+}
 
 echo "Test isolation plan:"
 echo "  - $NON_MOCKING_COUNT mock-free files (one batch)"
@@ -48,8 +76,22 @@ FAILED=0
 # Run mock-free batch first
 if [ "$NON_MOCKING_COUNT" -gt 0 ]; then
   echo "─── Batch: mock-free files ───"
+  NON_MOCKING_ADMIN_API_FILES=$(echo "$NON_MOCKING_FILES" | grep '^packages/admin-api/' || true)
+  NON_MOCKING_HANDLERS_FILES=$(echo "$NON_MOCKING_FILES" | grep '^packages/handlers/' || true)
+  NON_MOCKING_OTHER_FILES=$(echo "$NON_MOCKING_FILES" | grep -vE '^(packages/admin-api|packages/handlers)/' || true)
+
   # shellcheck disable=SC2086
-  if ! echo "$NON_MOCKING_FILES" | xargs bun test; then
+  if [ -n "$NON_MOCKING_OTHER_FILES" ] && ! echo "$NON_MOCKING_OTHER_FILES" | xargs bun test; then
+    FAILED=1
+  fi
+
+  # shellcheck disable=SC2086
+  if [ -n "$NON_MOCKING_ADMIN_API_FILES" ] && ! echo "$NON_MOCKING_ADMIN_API_FILES" | xargs bun test --preload "./$ADMIN_API_PRELOAD"; then
+    FAILED=1
+  fi
+
+  # shellcheck disable=SC2086
+  if [ -n "$NON_MOCKING_HANDLERS_FILES" ] && ! echo "$NON_MOCKING_HANDLERS_FILES" | xargs bun test --preload "./$HANDLERS_PRELOAD"; then
     FAILED=1
   fi
 fi
@@ -59,15 +101,15 @@ echo "$MOCKING_FILES" | while IFS= read -r f; do
   [ -z "$f" ] && continue
   echo ""
   echo "─── Isolated: $f ───"
-  if ! bun test "$f"; then
+  if ! run_bun_test "$f"; then
     exit 1
   fi
 done || FAILED=1
 
-# admin-ui DOM tests (#1455): *.test.tsx files run under vitest + jsdom, not
-# bun. Bun's test discovery above uses `-name '*.test.ts'` so .test.tsx files
-# are invisible to it; we invoke vitest here to cover them.
-if find packages/admin-ui/src -name '*.test.tsx' -not -path '*/node_modules/*' 2>/dev/null | grep -q .; then
+# admin-ui tests run under vitest + jsdom, not bun. The bun discovery above
+# excludes packages/admin-ui so browser-env .test.ts and .test.tsx files are
+# covered exactly once here.
+if find packages/admin-ui/src \( -name '*.test.ts' -o -name '*.test.tsx' \) -not -path '*/node_modules/*' 2>/dev/null | grep -q .; then
   echo ""
   echo "─── admin-ui: vitest (DOM) ───"
   if ! pnpm --filter @swarm/admin-ui test; then

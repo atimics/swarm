@@ -7,6 +7,9 @@
  */
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 
+// Bypass mocks below to access real @swarm/core for spreading into the factory.
+import * as RealSwarmCore from '../../core/src/index.js';
+
 // Mock all external dependencies before importing the module under test
 mock.module('ws', () => {
   class MockWebSocket {
@@ -37,6 +40,17 @@ mock.module('ws', () => {
   return { default: MockWebSocket, WebSocket: MockWebSocket, __esModule: true };
 });
 
+mock.module('../services/sqs-send.js', () => ({
+  sendSqsMessage: async () => {},
+}));
+
+mock.module('../services/room-ingress.js', () => ({
+  processSharedRoomMessage: async () => ({ isNew: false }),
+  buildRoomKey: (platform: string, channel: string) => `${platform}:${channel}`,
+  isSharedRoom: async () => false,
+  registerChannelAvatarResolver: () => {},
+}));
+
 mock.module('@aws-sdk/client-sqs', () => ({
   SQSClient: class { send() { return Promise.resolve({}); } destroy() {} },
   GetQueueAttributesCommand: class { constructor(public input: unknown) {} },
@@ -45,15 +59,20 @@ mock.module('@aws-sdk/client-sqs', () => ({
   DeleteMessageCommand: class { constructor(public input: unknown) {} },
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- mock.module requires synchronous module object; dynamic import() is async
+const realCore = require('@swarm/core');
 mock.module('@swarm/core', () => ({
-  SecretsManagerClient: class { send() { return Promise.resolve({}); } },
-  GetSecretValueCommand: class { constructor(public input: unknown) {} },
-  CreateSecretCommand: class { constructor(public input: unknown) {} },
-  UpdateSecretCommand: class { constructor(public input: unknown) {} },
-  DeleteSecretCommand: class { constructor(public input: unknown) {} },
-  DescribeSecretCommand: class { constructor(public input: unknown) {} },
-  RestoreSecretCommand: class { constructor(public input: unknown) {} },
-  PutSecretValueCommand: class { constructor(public input: unknown) {} },
+  ...RealSwarmCore,
+  ...realCore,
+  createStateService: () => ({
+    listAvatars: async () => [],
+    getAvatarConfigWithStatus: async () => null,
+    checkAndSetIdempotency: async () => true,
+    addMessageToChannel: async () => {},
+  }),
+  createMessageEvaluator: () => ({ evaluate: async () => ({ shouldRespond: false, reason: 'test' }) }),
+  createActivityService: () => null,
+  logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, setContext: () => {} },
 }));
 
 type GatewayConnectionClass = typeof import('./discord/discord-gateway-shared.js').GatewayConnection;

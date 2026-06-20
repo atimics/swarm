@@ -1,10 +1,10 @@
 /**
  * LocalLambdaAdapter — noop Lambda client for local mode.
  */
-import { LocalAdapter } from './adapter-base.js';
+import { LocalAdapter, type LocalAdapterResponse } from './adapter-base.js';
 
 export class LocalLambdaAdapter extends LocalAdapter {
-  protected async dispatch(name: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  protected async dispatch(name: string, input: Record<string, unknown>): Promise<LocalAdapterResponse> {
     if (name.startsWith('InvokeCommand')) {
       console.warn(`[local] Lambda invoke stubbed: ${input.FunctionName}`);
       return {

@@ -1,10 +1,10 @@
-import { LocalAdapter } from './adapter-base.js';
+import { LocalAdapter, type LocalAdapterResponse } from './adapter-base.js';
 import { InMemoryQueue } from './queue.js';
 
 export class LocalSQSAdapter extends LocalAdapter {
   constructor(private queue: InMemoryQueue) { super(); }
 
-  protected async dispatch(name: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  protected async dispatch(name: string, input: Record<string, unknown>): Promise<LocalAdapterResponse> {
     if (name.startsWith('SendMessageCommand')) {
       const queueUrl = input.QueueUrl as string;
       const body = input.MessageBody as string;
